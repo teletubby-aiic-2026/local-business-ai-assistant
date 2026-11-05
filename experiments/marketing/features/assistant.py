@@ -63,6 +63,22 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "note_store_info",
+            "description": "사장님이 영업시간·휴무일·전화번호·주소·메뉴 가격·주차·예약·편의시설 같은 가게 정보의 '값'을 알려줄 때 안내한다"
+                            " (가게 정보가 뭐가 빠졌는지 묻는 질문이 아니라, 사장님이 값을 직접 말해줄 때). "
+                            "예: '영업시간 9시부터 10시야', '주차 가능해', '전화번호는 02-1234-5678이야'",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "내용": {"type": "string", "description": "사장님이 말한 가게 정보 원문 그대로"}
+                },
+                "required": ["내용"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "make_coupon",
             "description": "쿠폰을 만든다. 혜택 종류, 메뉴, 값(할인 금액/비율), 수량, 기간 등이 필요하다. 예: '단골 쿠폰 만들고 싶은데', '아메리카노 500원 할인 쿠폰', '10% 할인 쿠폰 만들어 줘'",
             "parameters": {
@@ -125,6 +141,11 @@ def _run_tool(name, args, store, context, key):
         items = "\n".join(f"- {b['이름']}: {b['안내']}" for b in result["빈칸"][:5])
         return [{"종류": "프로필", "제목": f"빈칸 {len(result['빈칸'])}개를 채워 보세요",
                  "내용": items, "버튼": "store_profile"}]
+
+    if name == "note_store_info":
+        content = (args.get("내용") or "").strip()
+        return [{"종류": "안내", "제목": "가게 정보는 스마트플레이스에서 직접 바꿔요",
+                 "내용": f"넣을 값: {content} · 스마트플레이스 수정은 무료예요."}]
 
     if name == "get_weekly_suggestions":
         events = _load_events(context)

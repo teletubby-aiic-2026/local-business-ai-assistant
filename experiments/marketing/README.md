@@ -44,3 +44,10 @@ python -m tests.test_assistant      # 통합 비서
 ```bash
 python -m scripts.check_tour_festivals    # TourAPI 행사 확인 (API 키 필요)
 ```
+
+## 데모 실행
+
+```bash
+streamlit run demo_app.py                                              # 로컬
+streamlit run demo_app.py --server.port 8501 --server.address 0.0.0.0  # 서버
+```
