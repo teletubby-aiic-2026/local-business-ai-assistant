@@ -6,7 +6,7 @@
   2. 마이페이지에서 일반 인증키 중 **Decoding** 키를 복사
 
 실행 (marketing 폴더에서)
-  python check_tour_festivals.py
+  python -m scripts.check_tour_festivals
   (키를 물어봄. 또는 환경변수 TOUR_API_KEY)
 
 저장: data/tour_festivals_raw.json (원본), 화면에 그룹별 개수와 예시 출력

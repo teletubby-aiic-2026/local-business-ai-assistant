@@ -3,7 +3,7 @@ S2 업종 맞춤 행사 추천 + 어필 계획 테스트
 
 필요한 파일 (먼저 실행해 둘 것)
   data/events_raw.json          ← python -m features.events (서울시 문화행사)
-  data/tour_festivals_raw.json  ← python check_tour_festivals.py (한국관광공사 TourAPI)
+  data/tour_festivals_raw.json  ← python -m scripts.check_tour_festivals (한국관광공사 TourAPI)
 
 실행 (marketing 폴더에서)
   python -m tests.test_event_plan
@@ -20,26 +20,9 @@ from datetime import date
 import config
 from features import event_plan as P
 from features import tone as T
-from tests.test_tone import STORES as TONE_STORES
+from samples.stores import STORES, SEONGSU
 
 TODAY = date.today()
-SEONGSU = (37.5446, 127.0559)  # 예시 가게 위치: 성수역 근처
-
-STORES = [dict(s, 위도=SEONGSU[0], 경도=SEONGSU[1]) for s in TONE_STORES] + [{
-    "이름": "오늘의 옷장", "업종": "옷가게", "위도": SEONGSU[0], "경도": SEONGSU[1],
-    "메뉴": ["빈티지 니트", "데님 자켓", "가죽 가방"],
-    "예전 글": [
-        "오늘 빈티지 니트 새로 들어왔어요 ✨ 색감이 정말 예뻐요. 구경 오세요! #오늘의옷장 #성수빈티지",
-        "데님 자켓 사이즈 다양하게 준비했어요 ✨ 입어 보고 가세요! #오늘의옷장 #성수빈티지",
-        "가을 가방 정리했어요. 가죽 가방 몇 개 남았어요 ✨ #오늘의옷장 #성수빈티지",
-    ],
-    "칭찬 리뷰": [
-        "빈티지 니트 상태가 정말 좋아요",
-        "사장님이 코디를 잘 추천해 주세요",
-        "옷이 깔끔하게 정리돼 있어서 고르기 편해요",
-        "구경하는 재미가 있는 가게예요",
-    ],
-}]
 
 
 def load(name):

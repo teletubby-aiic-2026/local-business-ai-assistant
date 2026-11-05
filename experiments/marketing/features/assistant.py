@@ -87,12 +87,11 @@ def _load_events(context):
         return context["events"]
     today = context.get("today") or date.today()
     try:
-        import json as _json
         import config as _cfg
         with open(_cfg.DATA_DIR / "events_raw.json", encoding="utf-8") as f:
-            seoul = _json.load(f)
+            seoul = json.load(f)
         with open(_cfg.DATA_DIR / "tour_festivals_raw.json", encoding="utf-8") as f:
-            tour = _json.load(f)
+            tour = json.load(f)
         evts = event_plan.load_events(seoul, tour, today)
         context["events"] = evts
         return evts

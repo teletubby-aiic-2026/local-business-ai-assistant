@@ -15,7 +15,7 @@ import datetime
 
 import config
 from features.coupon import build_coupon
-from tests.test_tone import STORES as _BASE_STORES
+from samples.stores import TONE_STORES as _BASE_STORES
 
 TODAY = datetime.date(2025, 11, 3)
 

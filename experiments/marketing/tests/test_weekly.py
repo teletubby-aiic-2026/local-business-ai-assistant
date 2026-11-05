@@ -20,7 +20,7 @@ from datetime import date, timedelta
 import config
 from features import event_plan as P
 from features.weekly import get_weekly_suggestions
-from tests.test_event_plan import STORES as EVENT_STORES
+from samples.stores import STORES as EVENT_STORES
 
 TODAY = date.today()
 

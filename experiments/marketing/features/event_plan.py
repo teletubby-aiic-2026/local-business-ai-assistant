@@ -1,5 +1,5 @@
 """
-S2 업종 맞춤 행사 추천 + 어필 계획 (find_nearby_events · plan_event_promo 확장)
+S2 업종 맞춤 행사 추천 + 어필 계획
 
 배경
 - 행사 정보는 사장님이 "이 행사를 활용할까?"를 판단하는 재료다. 손님에게 보이는 글의 주인공은 가게.
@@ -14,7 +14,6 @@ S2 업종 맞춤 행사 추천 + 어필 계획 (find_nearby_events · plan_event
 - AI: 어필 포인트 2~3개 (가게 상품·칭찬 리뷰만 근거로), 주변형 홍보글(features/tone.py)
 """
 
-import json
 import math
 import re
 from datetime import date, datetime, timedelta
