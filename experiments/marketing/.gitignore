@@ -1,0 +1,9 @@
+data/events_raw.json
+__pycache__/
+Add-Content experiments\marketing\.gitignore "`ndata/`nresults/`n.env`n*.pem`n__pycache__/`n.venv/"
+data/
+results/
+.env
+*.pem
+__pycache__/
+.venv/
