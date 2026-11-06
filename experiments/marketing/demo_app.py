@@ -3,7 +3,9 @@
 실행: streamlit run demo_app.py
 """
 
+import html
 import os
+import re
 from datetime import date
 
 import streamlit as st
@@ -13,15 +15,6 @@ from common import dates as D
 from common import korean as K
 from features import assistant, coupon, event_plan, notice, store_profile, tone, weekly
 from samples.stores import STORES
-
-TOOL_LABELS = {
-    "check_store_profile": "가게 정보 점검",
-    "note_store_info": "가게 정보 정리",
-    "get_weekly_suggestions": "이번 주 추천",
-    "plan_events": "행사 계획",
-    "make_notice": "휴무 공지",
-    "make_coupon": "쿠폰 만들기",
-}
 
 NO_KEY_MESSAGE = "AI 연결 키가 아직 설정되지 않았어요. 키 없이도 쿠폰 만들기는 바로 할 수 있어요."
 
@@ -60,6 +53,11 @@ st.markdown(
     [data-testid="stChatMessage"] [data-testid="stVerticalBlockBorderWrapper"] { max-width: 680px; }
     .st-key-chatbox { background: #FFFFFF; border-radius: 16px; padding: 24px; }
     [data-testid="stPills"] button { border-radius: 999px !important; height: 42px; }
+    .sidebar-muted { color: #9A9A92; }
+    .post-box {
+        background: #FAFAF7; border: 1px solid #E3E3DC; border-radius: 10px;
+        padding: 12px 14px; white-space: pre-wrap;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -123,31 +121,60 @@ if DEMO_PASSWORD:
         st.stop()
 
 
-# ── CLOVA 키 (그대로) ──────────────────────────────────────────
+# ── 맨 위: 제목만 ──────────────────────────────────────────────
+st.markdown("<div class='app-title'>마케팅 비서</div>", unsafe_allow_html=True)
+
+
+# ── 사이드바: 가게 선택 · 가게 정보 · 기준일 · (맨 아래) CLOVA 키 ──────
+def _sidebar_value(v):
+    if v in (None, "", [], ()):
+        return None
+    if isinstance(v, (list, tuple)):
+        v = [str(x) for x in v if x not in (None, "")]
+        return ", ".join(v) if v else None
+    return str(v)
+
+
+def _sidebar_row(label, value):
+    val = _sidebar_value(value)
+    if val:
+        st.sidebar.markdown(f"**{label}**：{val}")
+    else:
+        st.sidebar.markdown(f"**{label}**：<span class='sidebar-muted'>아직 없음</span>", unsafe_allow_html=True)
+
+
+st.sidebar.markdown("### 가게")
+store_idx = st.sidebar.selectbox(
+    "가게", options=list(range(len(STORES))),
+    format_func=lambda i: STORES[i]["이름"], label_visibility="collapsed",
+)
+STORE = STORES[store_idx]
+PROFILE_STORE = to_profile_store(STORE)
+
+st.sidebar.markdown("### 가게 정보")
+menu_text = ", ".join(f"{n} {p}" for n, p in PROFILE_STORE.get("메뉴", []))
+for _label, _value in [
+    ("업종", STORE.get("업종")), ("위치", PROFILE_STORE.get("주소")),
+    ("영업시간", PROFILE_STORE.get("영업시간")), ("휴무일", PROFILE_STORE.get("휴무일")),
+    ("전화번호", PROFILE_STORE.get("전화번호")), ("메뉴(가격)", menu_text),
+    ("포장", PROFILE_STORE.get("포장")), ("배달", PROFILE_STORE.get("배달")),
+    ("주차", PROFILE_STORE.get("주차")), ("예약", PROFILE_STORE.get("예약 가능")),
+    ("편의시설", PROFILE_STORE.get("편의시설")),
+]:
+    _sidebar_row(_label, _value)
+
+st.sidebar.markdown("### 기준일")
+TODAY = st.sidebar.date_input("기준일", value=date.today(), label_visibility="collapsed")
+
 ENV_KEY = os.environ.get("CLOVA_API_KEY")
 if ENV_KEY:
     CLOVA_KEY = ENV_KEY
 else:
+    st.sidebar.divider()
     CLOVA_KEY = st.sidebar.text_input("CLOVA API 키", type="password") or None
 KEY_AVAILABLE = bool(CLOVA_KEY)
 if not KEY_AVAILABLE:
     st.sidebar.caption("CLOVA 키를 입력해 주세요.")
-
-
-# ── 맨 위: 제목 + 가게·기준일 ───────────────────────────────────
-col_title, col_store, col_date = st.columns([3, 2, 1.4])
-with col_title:
-    st.markdown("<div class='app-title'>마케팅 비서</div>", unsafe_allow_html=True)
-with col_store:
-    store_idx = st.selectbox(
-        "예시 가게", options=list(range(len(STORES))),
-        format_func=lambda i: f"{STORES[i]['이름']} ({STORES[i]['업종']})",
-    )
-with col_date:
-    TODAY = st.date_input("기준일", value=date.today())
-
-STORE = STORES[store_idx]
-PROFILE_STORE = to_profile_store(STORE)
 
 
 # ── 행사 데이터 (한 번만 읽기) ─────────────────────────────────
@@ -211,6 +238,79 @@ def notice_intro(info):
     }
     return (verbs.get(info["종류"], f"{when} 내용이 맞는 거죠?")
             + " 날짜는 달력으로 계산했어요. 아래 값을 스마트플레이스에 넣고, 소식 문구는 복사해서 올리시면 돼요.")
+
+
+def _mode_words(text):
+    """plan['거리'] 같은 features/ 원문 문구의 '참여형'/'주변형' 표기만 화면에서 바꿔 보여 준다."""
+    return text.replace("참여형", "셀러로 나가기").replace("주변형", "근처 손님 맞이")
+
+
+# ── 홍보글 채널별 다시 쓰기 (AI 호출 없음, 코드로만 재구성) ─────────────
+CHANNELS = ["인스타그램", "인스타 스토리", "네이버 플레이스 소식", "카카오톡 채널"]
+
+
+def _split_sentences(text):
+    text = re.sub(r"#\S+", "", text)  # 기존 해시태그는 떼고 채널별로 다시 붙인다
+    sentences = re.split(r"(?<=[.!?가-힣])\s*\n+|(?<=[.!?])\s+", text.strip())
+    return [s.strip() for s in sentences if s.strip()]
+
+
+def _store_hashtags(store, profile_store):
+    tags = []
+    for post in store.get("예전 글", []):
+        for tag in re.findall(r"#\S+", post):
+            if tag not in tags:
+                tags.append(tag)
+    addr = profile_store.get("주소") or ""
+    area = next((t for t in addr.split() if t.endswith("동")), "성수")
+    업종 = store.get("업종", "")
+    for extra in (f"#{area}{업종}", f"#{업종}추천"):
+        if extra not in tags:
+            tags.append(extra)
+    return tags[:6]
+
+
+def format_for_channel(channel, text, store, profile_store):
+    sentences = _split_sentences(text)
+    body = " ".join(sentences)
+    menu = store.get("메뉴", [])
+    위치 = profile_store.get("주소") or store.get("업종", "")
+
+    if channel == "인스타그램":
+        lines = sentences + [""]
+        lines.append(f"📍 {store['이름']} · {위치}")
+        if menu:
+            lines.append("🍽 " + ", ".join(menu[:3]))
+        tags = _store_hashtags(store, profile_store)
+        if tags:
+            lines.append(" ".join(tags))
+        return "\n".join(lines)
+
+    if channel == "인스타 스토리":
+        lines = [sentences[0] if sentences else body]
+        if menu:
+            lines.append(f"🍽 {menu[0]}")
+        lines.append("구경하러 오세요 🙂")
+        return "\n".join(lines[:3])
+
+    if channel == "네이버 플레이스 소식":
+        lines = [f"[이번 주 소식] {store['이름']}", "", body, ""]
+        if menu:
+            lines.append("이런 메뉴가 있어요")
+            lines += [f"- {m}" for m in menu[:5]]
+            lines.append("")
+        reviews = store.get("칭찬 리뷰") or []
+        if reviews:
+            lines.append(f"손님 리뷰: \"{reviews[0]}\"")
+        hours = profile_store.get("영업시간")
+        if hours:
+            lines.append(f"영업시간: {hours}")
+        lines.append("오늘도 좋은 하루 보내세요 🙂")
+        return "\n".join(lines)
+
+    # 카카오톡 채널
+    lines = [f"안녕하세요, {store['이름']}입니다!", body, "편하게 들러 주세요~"]
+    return "\n".join(lines)
 
 
 def format_cards(cards):
@@ -375,7 +475,6 @@ def process_free_message(user_text):
             return
     tool = result.get("도구")
     cards = result.get("카드", [])
-    tool_line = f"실행한 기능: {TOOL_LABELS.get(tool, tool)}" if tool else "기능 실행 없음"
     if tool == "make_coupon":
         _, args = assistant._parse_tool_calls(result.get("원문") or {})
         args = dict(args or {})
@@ -391,9 +490,9 @@ def process_free_message(user_text):
             append_assistant_text(f"{coupon_result['입력값']['쿠폰 이름']} 쿠폰을 준비했어요.")
             append_assistant(type="coupon_result", result=coupon_result, defaulted=defaulted)
         else:
-            append_assistant(type="generic", text=format_cards(cards), tool_line=tool_line)
+            append_assistant(type="generic", text=format_cards(cards))
     else:
-        append_assistant(type="generic", text=format_cards(cards), tool_line=tool_line)
+        append_assistant(type="generic", text=format_cards(cards))
 
 
 def start_event_list_flow():
@@ -488,13 +587,13 @@ def render_message(i, msg):
                 st.error(plan["오류"])
             else:
                 with st.container(border=True):
-                    st.markdown(f"**{plan['행사']}** · {plan['유형']} · {plan['기간']} · {plan['거리']}")
-                    st.success(f"맞는 이유 · {plan['맞는 이유']}")
+                    st.markdown(f"**{plan['행사']}** · {plan['유형']} · {plan['기간']} · {_mode_words(plan['거리'])}")
+                    st.success(f"이 행사가 맞는 이유 · {plan['맞는 이유']}")
                     if plan.get("확인 필요"):
                         st.warning(f"확인 필요 · {plan['확인 필요']}")
                     for pt, cite in zip(plan.get("어필_포인트") or [], plan.get("근거") or []):
                         st.write("• " + pt)
-                        st.caption(f"근거: {cite}")
+                        st.caption(f"이전 리뷰: {cite}")
                     ideas = plan.get("행사 맞춤 아이디어") or []
                     if ideas:
                         st.markdown("**이 행사에서 해 볼 것**")
@@ -510,15 +609,25 @@ def render_message(i, msg):
                     posts = plan.get("홍보글_후보")
                     if posts:
                         st.markdown("**홍보글 후보**")
-                        for p in posts:
-                            st.code(p, language=None)
+                        for pi, p in enumerate(posts):
+                            st.markdown(f"후보 {pi + 1}")
+                            ckey = f"channel_{i}_{pi}"
+                            if hasattr(st, "segmented_control"):
+                                channel = st.segmented_control(
+                                    "채널", CHANNELS, key=ckey, default=CHANNELS[0], required=True,
+                                )
+                            else:
+                                channel = st.radio("채널", CHANNELS, key=ckey, horizontal=True)
+                            formatted = format_for_channel(channel or CHANNELS[0], p, STORE, PROFILE_STORE)
+                            st.markdown(f"<div class='post-box'>{html.escape(formatted)}</div>", unsafe_allow_html=True)
+                            with st.expander("복사용"):
+                                st.code(formatted, language=None)
                     elif plan.get("홍보글_점검_실패"):
                         st.warning("사장님 확인 필요")
                 if posts:
                     st.caption("마음에 드는 글을 복사해서 가게 소식에 올려 보세요.")
                 else:
                     st.caption("할 일 날짜를 달력에 적어 두세요.")
-                st.caption(f"실행한 기능: {TOOL_LABELS['plan_events']}")
 
         elif mtype == "notice_warn":
             st.warning("\n".join(msg["issues"]))
@@ -538,7 +647,6 @@ def render_message(i, msg):
                     st.markdown(f"**{k}**　{v}")
             st.code(msg["문구"])
             st.caption("손님이 헛걸음하지 않게 하루 전에 올리는 걸 추천해요.")
-            st.caption(f"실행한 기능: {TOOL_LABELS['make_notice']}")
 
         elif mtype == "store_profile_result":
             result = msg["result"]
@@ -549,7 +657,6 @@ def render_message(i, msg):
                 else:
                     for b in result["빈칸"]:
                         st.write(f"- {b['이름']}: {b['안내']}")
-            st.caption(f"실행한 기능: {TOOL_LABELS['check_store_profile']}")
 
         elif mtype == "coupon_result":
             res = msg["result"]
@@ -562,12 +669,9 @@ def render_message(i, msg):
             if res["확인 필요"]:
                 st.warning("\n".join(res["확인 필요"]))
             st.info("스마트플레이스 쿠폰 메뉴에서 위 값을 그대로 넣으면 돼요. 처음이면 수량은 적게 시작해 보세요.")
-            st.caption(f"실행한 기능: {TOOL_LABELS['make_coupon']}")
 
         elif mtype == "generic":
             st.markdown(msg["text"])
-            if msg.get("tool_line"):
-                st.caption(msg["tool_line"])
 
 
 if MISSING_FILES:
