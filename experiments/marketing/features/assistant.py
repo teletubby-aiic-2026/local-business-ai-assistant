@@ -6,9 +6,11 @@ HyperCLOVA X (HCX-005) function calling 으로 도구를 고르고,
 """
 
 import json
+import re
 from datetime import date
 
 import clova
+from common import korean as K
 from features import store_profile, weekly, event_plan, notice, coupon
 
 MODEL = "HCX-005"
@@ -70,7 +72,12 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "내용": {"type": "string", "description": "사장님이 말한 가게 정보 원문 그대로"}
+                    "항목": {
+                        "type": "string",
+                        "description": "어떤 가게 정보 항목인지 (예: 영업시간, 휴무일, 전화번호, 주소, 메뉴 가격, 주차,"
+                                        " 예약 가능 여부, 편의시설, 가게 소개, 대표 사진, 포장·배달 여부). 모르면 '가게 정보'",
+                    },
+                    "내용": {"type": "string", "description": "사장님이 말한 가게 정보 원문 그대로"},
                 },
                 "required": ["내용"],
             },
@@ -115,6 +122,18 @@ def _load_events(context):
         return []
 
 
+TIME_RANGE_RE = re.compile(r"(\d{1,2})(?:시|:)?(\d{2})?\s*(?:부터|~|-|:)\s*(\d{1,2})(?:시|:)?(\d{2})?")
+
+
+def _normalize_store_value(text):
+    """사장님이 말한 값을 코드로 정리한다. 시간 범위는 'HH:MM ~ HH:MM'으로, 나머지는 말한 그대로(앞뒤 공백만 정리)."""
+    m = TIME_RANGE_RE.search(text)
+    if m:
+        h1, m1, h2, m2 = m.groups()
+        return f"{int(h1):02d}:{m1 or '00'} ~ {int(h2):02d}:{m2 or '00'}"
+    return text.strip()
+
+
 def _parse_tool_calls(response):
     tcs = response.get("toolCalls")
     if not tcs:
@@ -143,9 +162,18 @@ def _run_tool(name, args, store, context, key):
                  "내용": items, "버튼": "store_profile"}]
 
     if name == "note_store_info":
-        content = (args.get("내용") or "").strip()
-        return [{"종류": "안내", "제목": "가게 정보는 스마트플레이스에서 직접 바꿔요",
-                 "내용": f"넣을 값: {content} · 스마트플레이스 수정은 무료예요."}]
+        항목 = (args.get("항목") or "가게 정보").strip()
+        value = _normalize_store_value((args.get("내용") or "").strip())
+        table = f"| 항목 | 넣을 값 |\n|---|---|\n| {항목} | {value} |"
+        steps = (
+            "스마트플레이스에서 바꾸는 순서\n"
+            "1. 네이버 스마트플레이스에 들어가요.\n"
+            "2. 가게 정보를 수정하는 화면을 찾아요 (메뉴 이름은 화면에서 확인해 주세요).\n"
+            "3. 위 값을 그대로 넣고 저장해요."
+        )
+        followup = "바꾸고 나면 \"가게 정보 뭐 빠졌어?\"로 다시 확인해 보세요."
+        return [{"종류": "안내", "제목": f"{항목}{K.eul(항목)} {value}{K.josa(value, '으로', '로')} 정리했어요.",
+                 "내용": f"{table}\n\n{steps}\n\n{followup}"}]
 
     if name == "get_weekly_suggestions":
         events = _load_events(context)
@@ -208,8 +236,8 @@ def _out_of_scope(content):
     if any(w in content for w in ("상권", "매출", "경쟁", "인구", "유동인구")):
         return [{"종류": "안내", "제목": "상권 분석 화면에서 볼 수 있어요",
                  "내용": "상권·매출·경쟁 정보는 상권 분석 화면에서 확인해 주세요.", "버튼": "market_analysis"}]
-    return [{"종류": "안내", "제목": "이런 것들을 도와드릴 수 있어요",
-             "내용": "· 가게 정보 점검\n· 이번 주 추천\n· 근처 행사 계획\n· 휴무·영업시간 공지\n· 쿠폰 만들기",
+    return [{"종류": "안내", "제목": "그건 아직 제가 도와드리기 어려워요",
+             "내용": "대신 이런 건 바로 할 수 있어요.\n· 휴무·영업시간 공지 만들기\n· 근처 행사 계획 세우기\n· 단골 쿠폰 만들기",
              "버튼": ""}]
 
 

@@ -10,8 +10,29 @@ import streamlit as st
 
 import config
 from common import dates as D
+from common import korean as K
 from features import assistant, coupon, event_plan, notice, store_profile, tone, weekly
 from samples.stores import STORES
+
+TOOL_LABELS = {
+    "check_store_profile": "가게 정보 점검",
+    "note_store_info": "가게 정보 정리",
+    "get_weekly_suggestions": "이번 주 추천",
+    "plan_events": "행사 계획",
+    "make_notice": "휴무 공지",
+    "make_coupon": "쿠폰 만들기",
+}
+
+NO_KEY_MESSAGE = "AI 연결 키가 아직 설정되지 않았어요. 키 없이도 쿠폰 만들기는 바로 할 수 있어요."
+
+FIELD_EXAMPLE = {
+    "영업시간": "영업시간 11시~20시", "휴무일": "휴무일 매주 월요일",
+    "전화번호": "전화번호 02-1234-5678", "메뉴 가격": "아메리카노 4500원",
+    "주소": "주소 서울 성동구 성수동", "가게 소개": "가게 소개 아늑한 동네 카페예요",
+    "대표 사진": "대표 사진 올릴게요", "포장·배달 여부": "포장 가능, 배달 불가",
+    "메뉴 3개 이상": "메뉴 추가할게요", "주차": "주차 가능해요",
+    "예약 가능 여부": "예약 가능해요", "편의시설": "편의시설 Wi-Fi 있어요",
+}
 
 st.set_page_config(page_title="소상공인 AI 비서 · 마케팅", page_icon="🏪", layout="centered")
 
@@ -162,6 +183,36 @@ def friendly_error(raw):
     return "CLOVA 호출에 실패했어요. 잠시 후 다시 시도해 주세요."
 
 
+def store_profile_intro(result):
+    if result["다 채움"]:
+        return "가게 정보를 살펴봤어요. 다 채워져 있어요!"
+    blanks = result["빈칸"]
+    pct = f"{result['채움_비율']:.0%}"
+    first = blanks[0]["이름"]
+    if len(blanks) == 1:
+        return f"가게 정보를 살펴봤어요. 거의 다 채워져 있어요(채움 {pct}). 딱 하나, {first}{K.i_ga(first)} 비어 있어요."
+    return f"가게 정보를 살펴봤어요. 채움 비율은 {pct}예요. {first} 등 {len(blanks)}개 항목이 비어 있어요."
+
+
+def store_profile_outro(result):
+    if result["다 채움"] or not result["빈칸"]:
+        return None
+    first = result["빈칸"][0]["이름"]
+    example = FIELD_EXAMPLE.get(first, first)
+    return f"{first}{K.eul(first)} 말해 주시면 넣을 값을 정리해 드릴게요. 예: {example}"
+
+
+def notice_intro(info):
+    s, e = info["시작"], info["종료"]
+    when = D.fmt(s) if (not e or s == e) else f"{D.fmt(s)}부터 {D.fmt(e)}까지"
+    verbs = {
+        "임시휴무": f"{when} 쉬시는 거죠?", "단축영업": f"{when} 영업시간이 바뀌는 거죠?",
+        "영업시간 변경": f"{when}부터 영업시간이 바뀌는 거죠?", "정기휴무 변경": f"{when}부터 정기휴무가 바뀌는 거죠?",
+    }
+    return (verbs.get(info["종류"], f"{when} 내용이 맞는 거죠?")
+            + " 날짜는 달력으로 계산했어요. 아래 값을 스마트플레이스에 넣고, 소식 문구는 복사해서 올리시면 돼요.")
+
+
 def format_cards(cards):
     parts = []
     for c in cards:
@@ -251,7 +302,7 @@ def start_event_plan(mode, e):
     label = "계획 보기" if mode == "참여형" else "홍보글 보기"
     append_user(f"{e['이름']}으로 {label}")
     if not KEY_AVAILABLE:
-        append_assistant_text("CLOVA 키를 입력해 주세요.")
+        append_assistant_text(NO_KEY_MESSAGE)
         return
     with st.spinner("계획을 만드는 중..."):
         try:
@@ -261,6 +312,8 @@ def start_event_plan(mode, e):
             plan = {"오류": friendly_error(exc)}
     if "오류" in plan:
         plan["오류"] = friendly_error(plan["오류"])
+    else:
+        append_assistant_text(f"이 행사는 {plan['맞는 이유']}")
     append_assistant(type="event_plan", plan=plan)
 
 
@@ -268,7 +321,7 @@ def start_event_plan(mode, e):
 def start_notice_flow(user_text):
     append_user(user_text)
     if not KEY_AVAILABLE:
-        append_assistant_text("CLOVA 키를 입력해 주세요.")
+        append_assistant_text(NO_KEY_MESSAGE)
         return
     with st.spinner("공지를 이해하는 중..."):
         try:
@@ -291,7 +344,7 @@ def start_notice_flow(user_text):
 def finish_notice_flow(info):
     append_user("맞아요")
     built = notice.build_notice(info)
-    append_assistant_text("스마트플레이스에 넣을 값과 소식 문구를 준비했어요.")
+    append_assistant_text(notice_intro(info))
     append_assistant(
         type="notice_result", 입력값=built["스마트플레이스_입력값"], 문구=built["소식_문구"],
     )
@@ -301,14 +354,18 @@ def finish_notice_flow(info):
 def start_store_profile_flow():
     append_user("가게 정보 뭐 빠졌어?")
     result = store_profile.check_store_profile(PROFILE_STORE)
+    append_assistant_text(store_profile_intro(result))
     append_assistant(type="store_profile_result", result=result)
+    outro = store_profile_outro(result)
+    if outro:
+        append_assistant_text(outro)
 
 
 # ── 자유 입력 (쿠폰 포함, assistant 경로 그대로) ───────────────────
 def process_free_message(user_text):
     append_user(user_text)
     if not KEY_AVAILABLE:
-        append_assistant_text("CLOVA 키를 입력해 주세요.")
+        append_assistant_text(NO_KEY_MESSAGE)
         return
     with st.spinner("생각하는 중..."):
         try:
@@ -318,6 +375,7 @@ def process_free_message(user_text):
             return
     tool = result.get("도구")
     cards = result.get("카드", [])
+    tool_line = f"실행한 기능: {TOOL_LABELS.get(tool, tool)}" if tool else "기능 실행 없음"
     if tool == "make_coupon":
         _, args = assistant._parse_tool_calls(result.get("원문") or {})
         args = dict(args or {})
@@ -330,11 +388,11 @@ def process_free_message(user_text):
             defaulted = True
         if args.get("혜택") and args.get("메뉴"):
             coupon_result = coupon.build_coupon(args, PROFILE_STORE, TODAY)
+            append_assistant_text(f"{coupon_result['입력값']['쿠폰 이름']} 쿠폰을 준비했어요.")
             append_assistant(type="coupon_result", result=coupon_result, defaulted=defaulted)
         else:
-            append_assistant(type="generic", text=format_cards(cards), tool_line=f"실행한 기능: {tool}")
+            append_assistant(type="generic", text=format_cards(cards), tool_line=tool_line)
     else:
-        tool_line = f"실행한 기능: {tool}" if tool else "기능 실행 없음"
         append_assistant(type="generic", text=format_cards(cards), tool_line=tool_line)
 
 
@@ -456,6 +514,11 @@ def render_message(i, msg):
                             st.code(p, language=None)
                     elif plan.get("홍보글_점검_실패"):
                         st.warning("사장님 확인 필요")
+                if posts:
+                    st.caption("마음에 드는 글을 복사해서 가게 소식에 올려 보세요.")
+                else:
+                    st.caption("할 일 날짜를 달력에 적어 두세요.")
+                st.caption(f"실행한 기능: {TOOL_LABELS['plan_events']}")
 
         elif mtype == "notice_warn":
             st.warning("\n".join(msg["issues"]))
@@ -474,6 +537,8 @@ def render_message(i, msg):
                 for k, v in msg["입력값"].items():
                     st.markdown(f"**{k}**　{v}")
             st.code(msg["문구"])
+            st.caption("손님이 헛걸음하지 않게 하루 전에 올리는 걸 추천해요.")
+            st.caption(f"실행한 기능: {TOOL_LABELS['make_notice']}")
 
         elif mtype == "store_profile_result":
             result = msg["result"]
@@ -484,6 +549,7 @@ def render_message(i, msg):
                 else:
                     for b in result["빈칸"]:
                         st.write(f"- {b['이름']}: {b['안내']}")
+            st.caption(f"실행한 기능: {TOOL_LABELS['check_store_profile']}")
 
         elif mtype == "coupon_result":
             res = msg["result"]
@@ -495,7 +561,8 @@ def render_message(i, msg):
                 st.caption("수량·기간은 말로 바꿀 수 있어요")
             if res["확인 필요"]:
                 st.warning("\n".join(res["확인 필요"]))
-            st.info("어디서 만드나요? 무료 · 네이버 스마트플레이스 → 쿠폰 메뉴에서 위 값을 그대로 넣으면 돼요.")
+            st.info("스마트플레이스 쿠폰 메뉴에서 위 값을 그대로 넣으면 돼요. 처음이면 수량은 적게 시작해 보세요.")
+            st.caption(f"실행한 기능: {TOOL_LABELS['make_coupon']}")
 
         elif mtype == "generic":
             st.markdown(msg["text"])
