@@ -400,5 +400,6 @@ def build_plan(store, e, mode, key, today, tone_profile=None, with_post=True):
             ok = [c["글"] for c in cands if not c["실패"]]
             plan["홍보글_후보"] = ok  # 점검을 통과한 후보만 사장님에게 보여 준다
             plan["홍보글_점검_실패"] = [] if ok else [f"후보 {i}: {', '.join(c['실패'])}" for i, c in enumerate(cands, 1)]
+            plan["홍보글_초안"] = g.get("글")  # 점검에 실패해도 사장님이 고쳐 쓸 수 있게 원문은 남긴다
             plan["won"] = round(plan.get("won", 0) + g.get("won", 0), 2)
     return plan

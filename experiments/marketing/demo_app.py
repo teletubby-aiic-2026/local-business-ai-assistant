@@ -3,10 +3,11 @@
 실행: streamlit run demo_app.py
 """
 
+import copy
 import html
 import os
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import streamlit as st
 
@@ -17,6 +18,9 @@ from features import assistant, coupon, event_plan, notice, store_profile, tone,
 from samples.stores import STORES
 
 NO_KEY_MESSAGE = "AI 연결 키가 아직 설정되지 않았어요. 키 없이도 쿠폰 만들기는 바로 할 수 있어요."
+
+SMARTPLACE_URL = "https://new.smartplace.naver.com"
+COUPON_HELP_URL = ""  # 비어 있으면 링크를 숨긴다
 
 FIELD_EXAMPLE = {
     "영업시간": "영업시간 11시~20시", "휴무일": "휴무일 매주 월요일",
@@ -149,22 +153,38 @@ store_idx = st.sidebar.selectbox(
     format_func=lambda i: STORES[i]["이름"], label_visibility="collapsed",
 )
 STORE = STORES[store_idx]
-PROFILE_STORE = to_profile_store(STORE)
+
+# 대화 상태(가게 정보 사본·마지막 결과·기다리는 값)는 가게가 바뀔 때만 다시 만든다.
+# (사이드바·이번 주 할 일·가게 정보 점검은 모두 이 사본을 보고 다시 계산된다.)
+STORE_CHANGED = ("conv" not in st.session_state) or (st.session_state.get("_prev_store_idx") != store_idx)
+if STORE_CHANGED:
+    st.session_state.conv = {"store": copy.deepcopy(to_profile_store(STORE)), "last": None, "pending": None}
+PROFILE_STORE = st.session_state.conv["store"]
+PROFILE_STORE.setdefault("임시 휴무일", [])
 
 st.sidebar.markdown("### 가게 정보")
-menu_text = ", ".join(f"{n} {p}" for n, p in PROFILE_STORE.get("메뉴", []))
 for _label, _value in [
     ("업종", STORE.get("업종")), ("위치", PROFILE_STORE.get("주소")),
     ("영업시간", PROFILE_STORE.get("영업시간")), ("휴무일", PROFILE_STORE.get("휴무일")),
-    ("전화번호", PROFILE_STORE.get("전화번호")), ("메뉴(가격)", menu_text),
+    ("전화번호", PROFILE_STORE.get("전화번호")),
     ("포장", PROFILE_STORE.get("포장")), ("배달", PROFILE_STORE.get("배달")),
     ("주차", PROFILE_STORE.get("주차")), ("예약", PROFILE_STORE.get("예약 가능")),
     ("편의시설", PROFILE_STORE.get("편의시설")),
 ]:
     _sidebar_row(_label, _value)
 
+with st.sidebar.expander("메뉴 · 가격 보기"):
+    for _n, _p in PROFILE_STORE.get("메뉴", []):
+        st.write(f"{_n} · {_p}")
+
 st.sidebar.markdown("### 기준일")
 TODAY = st.sidebar.date_input("기준일", value=date.today(), label_visibility="collapsed")
+
+_active_closures = assistant.active_closures(PROFILE_STORE, TODAY)
+_sidebar_row(
+    "임시 휴무",
+    ", ".join(D.fmt(D.parse_d(c["날짜"])) for c in _active_closures) if _active_closures else None,
+)
 
 ENV_KEY = os.environ.get("CLOVA_API_KEY")
 if ENV_KEY:
@@ -210,15 +230,53 @@ def friendly_error(raw):
     return "CLOVA 호출에 실패했어요. 잠시 후 다시 시도해 주세요."
 
 
-def store_profile_intro(result):
-    if result["다 채움"]:
-        return "가게 정보를 살펴봤어요. 다 채워져 있어요!"
-    blanks = result["빈칸"]
-    pct = f"{result['채움_비율']:.0%}"
-    first = blanks[0]["이름"]
-    if len(blanks) == 1:
-        return f"가게 정보를 살펴봤어요. 거의 다 채워져 있어요(채움 {pct}). 딱 하나, {first}{K.i_ga(first)} 비어 있어요."
-    return f"가게 정보를 살펴봤어요. 채움 비율은 {pct}예요. {first} 등 {len(blanks)}개 항목이 비어 있어요."
+def warn_box(content):
+    """내용이 비어 있으면 경고 상자를 그리지 않는다 (모든 st.warning 호출은 이 함수를 거친다)."""
+    if isinstance(content, (list, tuple)):
+        content = "\n".join(c for c in content if c)
+    if content and str(content).strip():
+        st.warning(content)
+
+
+# 홍보글 점검에서 걸린 항목 이름(features/tone.py HINT 와 같은 이름) → 사람 말
+POST_FAIL_REASON = {
+    "날짜·장소·거리·숫자 없음": "글에 날짜나 숫자가 들어가 있어요",
+    "과장 표현 없음": "과장된 표현이 있어요",
+    "없는 음식·술 안 만듦": "메뉴에 없는 음식이 들어가 있어요",
+    "혜택·협력 표현 없음": "할인이나 협력하는 듯한 표현이 들어가 있어요",
+    "행사 한 줄 있음": "첫 문장에 행사 언급이 빠졌어요",
+    "행사는 첫 줄에서만 언급": "가게 얘기에 행사 얘기가 섞여 있어요",
+    "가게가 주인공 (가게 이름·'저희')": "가게가 주인공으로 드러나지 않아요",
+    "메뉴 이름 포함 (1번)": "메뉴 이름이 들어가 있지 않아요",
+    "칭찬 리뷰 표현 사용": "리뷰에 나온 표현이 들어가 있지 않아요",
+    "어색한 표현 없음": "어색한 표현이 있어요",
+    "사장님 시점 (손님 시점 아님)": "손님 시점으로 쓰여 있어요",
+    "사장님이 지운 표현 없음": "사장님이 쓰지 않기로 한 표현이 들어가 있어요",
+}
+
+
+def _friendly_post_fail_reasons(fails):
+    """'후보 1: 이름1, 이름2' 문자열들에서 걸린 항목 이름만 뽑아 사람 말로 바꾼다."""
+    names = []
+    for line in fails or []:
+        _, _, rest = line.partition(":")
+        for name in rest.split(","):
+            name = name.strip()
+            if name and name not in names:
+                names.append(name)
+    return [POST_FAIL_REASON.get(n, n) for n in names]
+
+
+def _merge_todo_by_date(todo):
+    """같은 날짜의 할 일을 한 줄로 합친다."""
+    order, by_date = [], {}
+    for t in todo:
+        d = t["날짜"]
+        if d not in by_date:
+            by_date[d] = []
+            order.append(d)
+        by_date[d].append(t["할 일"])
+    return [(d, ", ".join(by_date[d])) for d in order]
 
 
 def store_profile_outro(result):
@@ -270,6 +328,27 @@ def _store_hashtags(store, profile_store):
     return tags[:6]
 
 
+def _weekly_closed_bit(days_off):
+    if isinstance(days_off, (list, tuple)):
+        days = [d for d in days_off if d]
+    elif days_off:
+        days = [days_off]
+    else:
+        return None
+    if not days:
+        return None
+    names = [d if str(d).endswith("요일") else f"{d}요일" for d in days]
+    return f"휴무일은 {', '.join(names)}입니다"
+
+
+def _this_week_closures(profile_store, today):
+    """이번 주(월~일)에 들어오는 임시 휴무일 기록만 뽑는다."""
+    start = D.week_start(today)
+    end = start + timedelta(days=6)
+    records = assistant.active_closures(profile_store, today)
+    return [r for r in records if start.isoformat() <= r["날짜"] <= end.isoformat()]
+
+
 def format_for_channel(channel, text, store, profile_store):
     sentences = _split_sentences(text)
     body = " ".join(sentences)
@@ -294,29 +373,96 @@ def format_for_channel(channel, text, store, profile_store):
         return "\n".join(lines[:3])
 
     if channel == "네이버 플레이스 소식":
-        lines = [f"[이번 주 소식] {store['이름']}", "", body, ""]
+        lines = [f"[이번 주 소식] {store['이름']}", "", " ".join(sentences[:3])]
         if menu:
-            lines.append("이런 메뉴가 있어요")
-            lines += [f"- {m}" for m in menu[:5]]
-            lines.append("")
-        reviews = store.get("칭찬 리뷰") or []
-        if reviews:
-            lines.append(f"손님 리뷰: \"{reviews[0]}\"")
+            lines.append("대표 메뉴: " + " · ".join(menu[:3]))
         hours = profile_store.get("영업시간")
+        info_bits = []
         if hours:
-            lines.append(f"영업시간: {hours}")
-        lines.append("오늘도 좋은 하루 보내세요 🙂")
+            info_bits.append(f"영업시간 {hours}")
+        day_bit = _weekly_closed_bit(profile_store.get("휴무일"))
+        if day_bit:
+            info_bits.append(day_bit)
+        if info_bits:
+            lines.append(" · ".join(info_bits))
+        week_closures = _this_week_closures(profile_store, TODAY)
+        if week_closures:
+            dates = ", ".join(D.fmt(D.parse_d(c["날짜"])) for c in week_closures)
+            lines.append(f"이번 주 휴무 {dates}")
+        closer_hints = ("보내세요", "환영", "기다리고 있어요", "들러", "놀러 오세요")
+        if not any(h in body for h in closer_hints):
+            lines.append("오늘도 좋은 하루 보내세요 🙂")
         return "\n".join(lines)
 
     # 카카오톡 채널
-    lines = [f"안녕하세요, {store['이름']}입니다!", body, "편하게 들러 주세요~"]
+    lines = list(sentences)
+    closer_hints = ("들러", "놀러", "환영", "기다리고", "보내세요", "편하게")
+    if not any(h in body for h in closer_hints):
+        lines.append("편하게 들러 주세요~")
     return "\n".join(lines)
+
+
+def format_notice_for_channel(channel, text, store, profile_store):
+    """휴무·영업시간 공지 소식 문구를 채널별 형식으로 다시 쓴다 (AI 호출 없음, 날짜는 코드 계산값 그대로)."""
+    sentences = _split_sentences(text)
+    body = " ".join(sentences)
+    위치 = profile_store.get("주소") or store.get("업종", "")
+
+    if channel == "인스타그램":
+        lines = sentences + ["", f"📍 {store['이름']} · {위치}"]
+        tags = _store_hashtags(store, profile_store)
+        if tags:
+            lines.append(" ".join(tags))
+        return "\n".join(lines)
+
+    if channel == "인스타 스토리":
+        lines = sentences[:2] if sentences else [body]
+        lines.append("양해 부탁드려요 🙏")
+        return "\n".join(lines[:3])
+
+    if channel == "네이버 플레이스 소식":
+        lines = [f"[휴무 안내] {store['이름']}", "", body]
+        if not any(h in body for h in ("헛걸음", "양해", "감사합니다")):
+            lines.append("헛걸음하지 않도록 미리 알려 드려요. 감사합니다.")
+        return "\n".join(lines)
+
+    # 카카오톡 채널
+    lines = [f"안녕하세요, {store['이름']}입니다!", body]
+    if not any(h in body for h in ("양해", "감사합니다")):
+        lines.append("양해 부탁드려요 🙏")
+    return "\n".join(lines)
+
+
+def _benefit_display(choice):
+    혜택, 값 = choice.get("혜택"), choice.get("값")
+    if 혜택 == "증정":
+        return "1개 증정"
+    if 혜택 == "금액 할인" and 값 is not None:
+        return f"{int(값):,}원 할인"
+    if 혜택 == "비율 할인" and 값 is not None:
+        return f"{값}% 할인"
+    return 혜택 or "-"
+
+
+def _fmt_date_str(s):
+    try:
+        return D.fmt(date.fromisoformat(s))
+    except (ValueError, TypeError):
+        return s
+
+
+def _fmt_notice_value(v):
+    if isinstance(v, list):
+        return ", ".join(_fmt_date_str(x) for x in v)
+    if isinstance(v, dict):
+        return "; ".join(f"{_fmt_date_str(k)} {val}" for k, val in v.items())
+    return str(v)
 
 
 def format_cards(cards):
     parts = []
     for c in cards:
-        block = f"**{c.get('제목', '')}**"
+        block = f"**{c['제목']}**" if c.get("제목") else ""
         if c.get("내용") and c.get("종류") == "오류":
             block += f"\n\n{friendly_error(c['내용'])}"
         elif c.get("내용"):
@@ -353,15 +499,13 @@ def _find_event(card, join, near):
     return None, None
 
 
-def build_home():
-    st.session_state.chat = []
-    st.session_state.hidden_cards = set()
+def _compute_home():
+    """이번 주 할 일 카드를 (지금 store 값으로) 새로 계산한다."""
     weekly_cards = weekly.get_weekly_suggestions(PROFILE_STORE, EVENTS, TODAY)
     join, near = event_plan.match(STORE, EVENTS, TODAY)
 
     if len(weekly_cards) == 1 and weekly_cards[0]["종류"] == "없음":
-        append_assistant(type="home", text="안녕하세요, 사장님! 이번 주는 특별히 급한 일이 없어요.", cards=[])
-        return
+        return "안녕하세요, 사장님! 이번 주는 특별히 급한 일이 없어요.", []
 
     home_cards = []
     for c in weekly_cards[:3]:
@@ -386,12 +530,27 @@ def build_home():
                 "action": None, "action_label": None,
             })
 
-    append_assistant(
-        type="home", text="안녕하세요, 사장님! 이번 주에 이걸 해 보는 건 어때요?", cards=home_cards,
-    )
+    return "안녕하세요, 사장님! 이번 주에 이걸 해 보는 건 어때요?", home_cards
 
 
-if "chat" not in st.session_state or st.session_state.get("_prev_store_idx") != store_idx:
+def build_home():
+    st.session_state.chat = []
+    st.session_state.hidden_cards = set()
+    text, cards = _compute_home()
+    append_assistant(type="home", text=text, cards=cards)
+
+
+def refresh_home_card():
+    """가게 정보가 바뀐 뒤, 이미 보여 준 '이번 주 할 일' 카드를 바뀐 값으로 다시 계산한다."""
+    text, cards = _compute_home()
+    for m in st.session_state.chat:
+        if m.get("type") == "home":
+            m["text"] = text
+            m["cards"] = cards
+            return
+
+
+if "chat" not in st.session_state or STORE_CHANGED:
     st.session_state.chat_context = {}
     build_home()
     st.session_state["_prev_store_idx"] = store_idx
@@ -414,67 +573,187 @@ def start_event_plan(mode, e):
         plan["오류"] = friendly_error(plan["오류"])
     else:
         append_assistant_text(f"이 행사는 {plan['맞는 이유']}")
+        post_text = (plan.get("홍보글_후보") or [None])[0] or plan.get("홍보글_초안")
+        if post_text:
+            st.session_state.conv["last"] = {
+                "기능": "event_plan", "요약": f"{plan['행사']} 홍보글",
+                "요청문구": f"{e['이름']}으로 {label}", "글": post_text,
+            }
     append_assistant(type="event_plan", plan=plan)
 
 
-# ── 휴무 공지 (2단계: 이해한 값 확인 → 결과) ──────────────────────
-def start_notice_flow(user_text):
-    append_user(user_text)
-    if not KEY_AVAILABLE:
-        append_assistant_text(NO_KEY_MESSAGE)
+# ── 휴무 공지 (대화든 빠른 버튼이든 한 흐름: 단계 판단 → 확인 → 결과) ──────
+def _record_closure_dates(info):
+    """임시휴무 공지가 확정되면 그 날짜(들)를 가게 기록에 남긴다 (이미 있으면 중복 추가 안 함)."""
+    if info["종류"] != "임시휴무" or not info.get("시작"):
         return
-    with st.spinner("공지를 이해하는 중..."):
-        try:
-            ext, tries, total, err = notice.extract_b(CLOVA_KEY, user_text)
-        except Exception as exc:
-            append_assistant_text(friendly_error(exc))
-            return
-    if err:
-        append_assistant_text(friendly_error(err))
-        return
-    info = notice.to_info_b(ext, TODAY, user_text)
-    if info.get("확인필요"):
-        append_assistant_text("말씀하신 내용을 이렇게 이해했는데, 몇 가지 확인이 필요해요.")
-        append_assistant(type="notice_warn", issues=info["확인필요"])
-    else:
-        append_assistant_text("이렇게 이해했어요. 날짜는 코드가 달력으로 계산했으니, 맞는지 한 번만 확인해 주세요.")
-        append_assistant(type="notice_confirm", info=info)
+    s, e = info["시작"], info["종료"] or info["시작"]
+    d = s
+    while d <= e:
+        assistant.add_temp_closure(st.session_state.conv["store"], d.isoformat(), info.get("사유") or "")
+        d += timedelta(days=1)
 
 
-def finish_notice_flow(info):
-    append_user("맞아요")
+def _apply_notice_step(step, origin):
+    """공지 요청을 코드가 분석한 결과(단계)에 맞는 화면을 붙인다."""
+    conv = st.session_state.conv
+    단계 = step["단계"]
+    if 단계 == "확인":
+        info = step["정보"]
+        if info.get("확인필요"):
+            append_assistant_text("말씀하신 내용을 이렇게 이해했는데, 몇 가지 확인이 필요해요.")
+            append_assistant(type="notice_warn", issues=info["확인필요"])
+            conv["pending"] = {"기능": "make_notice", "필요한_항목": info["확인필요"], "요청문구": origin}
+        else:
+            append_assistant_text("이렇게 이해했어요. 날짜는 코드가 달력으로 계산했으니, 맞는지 한 번만 확인해 주세요.")
+            append_assistant(type="notice_confirm", info=info, origin=origin)
+            conv["pending"] = None
+    elif 단계 == "질문":
+        append_assistant_text("언제 쉬시나요?")
+        conv["pending"] = {"기능": "make_notice", "필요한_항목": ["쉬는 날짜"], "요청문구": origin}
+    elif 단계 == "선택":
+        records = step["기록"]
+        if len(records) == 1:
+            append_assistant_text(f"{D.fmt(D.parse_d(records[0]['날짜']))} 공지를 만들까요?")
+        else:
+            append_assistant_text("어느 날 공지를 만들까요?")
+        append_assistant(type="notice_pick", records=records, 요청문구=origin)
+        conv["pending"] = None
+
+
+def ask_other_date():
+    """'다른 날짜'/'날짜 고칠게요' — 틀린 날짜가 섞인 원문은 버리고 날짜만 새로 받는다."""
+    append_assistant_text("언제 쉬시나요?")
+    st.session_state.conv["pending"] = {"기능": "make_notice", "필요한_항목": ["날짜"], "요청문구": "휴무 공지"}
+
+
+def finish_notice_flow(info, origin=""):
     built = notice.build_notice(info)
+    _record_closure_dates(info)
     append_assistant_text(notice_intro(info))
-    append_assistant(
-        type="notice_result", 입력값=built["스마트플레이스_입력값"], 문구=built["소식_문구"],
-    )
+    append_assistant(type="notice_result", 입력값=built["스마트플레이스_입력값"], 문구=built["소식_문구"])
+    st.session_state.conv["last"] = {
+        "기능": "make_notice", "요약": f"{info['종류']} 공지", "요청문구": origin, "글": built["소식_문구"],
+    }
+    st.session_state.conv["pending"] = None
+
+
+def finish_combined_notice(records, origin=""):
+    infos = [assistant.notice_info_for_date(r["날짜"], r.get("사유", "")) for r in records]
+    built = assistant.build_combined_notice(infos)
+    for info in infos:
+        _record_closure_dates(info)
+    append_assistant_text("한 번에 공지를 만들었어요. 날짜마다 다시 여는 날은 따로 계산했어요.")
+    append_assistant(type="notice_result", 입력값=built["스마트플레이스_입력값"], 문구=built["소식_문구"])
+    st.session_state.conv["last"] = {
+        "기능": "make_notice", "요약": "임시휴무 공지 (여러 날)", "요청문구": origin, "글": built["소식_문구"],
+    }
+    st.session_state.conv["pending"] = None
 
 
 # ── 가게 정보 점검 ───────────────────────────────────────────
 def start_store_profile_flow():
     append_user("가게 정보 뭐 빠졌어?")
     result = store_profile.check_store_profile(PROFILE_STORE)
-    append_assistant_text(store_profile_intro(result))
     append_assistant(type="store_profile_result", result=result)
-    outro = store_profile_outro(result)
-    if outro:
-        append_assistant_text(outro)
 
 
 # ── 자유 입력 (쿠폰 포함, assistant 경로 그대로) ───────────────────
+def _recent_turns():
+    """assistant.handle 에 넘길 최근 대화 몇 줄 (전체 기록 대신)."""
+    turns = []
+    for m in st.session_state.chat:
+        if m.get("type") not in ("text", "generic") or not m.get("text"):
+            continue
+        role = "user" if m["role"] == "user" else "assistant"
+        turns.append({"role": role, "content": m["text"]})
+    return turns[-4:]
+
+
 def process_free_message(user_text):
     append_user(user_text)
     if not KEY_AVAILABLE:
         append_assistant_text(NO_KEY_MESSAGE)
         return
+    conv = st.session_state.conv
+
+    # 1) 아직 못 받은 값이 있었으면, 이번 말을 그 값으로 받아 이어서 처리한다.
+    if conv.get("pending"):
+        merged = assistant.resolve_pending_message(conv["pending"], user_text)
+        conv["pending"] = None
+        _run_assistant_and_render(merged)
+        return
+
+    # 2) 마지막 결과를 가리키는 말("그거 더 짧게", "인스타로", "아니 수요일로")이면 코드로 처리한다.
+    followup = assistant.detect_followup(user_text) if conv.get("last") else None
+    if followup:
+        _handle_followup(followup, conv["last"])
+        return
+
+    # 3) 보통의 자유 입력
+    _run_assistant_and_render(user_text)
+
+
+def _handle_followup(followup, last):
+    종류 = followup["종류"]
+    text = last.get("글")
+
+    if 종류 == "채널":
+        if not text:
+            append_assistant_text("다시 쓸 글이 아직 없어요. 먼저 공지나 쿠폰·홍보글을 만들어 주세요.")
+            return
+        channel = followup["채널"]
+        if last.get("기능") == "make_notice":
+            out = format_notice_for_channel(channel, text, STORE, PROFILE_STORE)
+        else:
+            out = format_for_channel(channel, text, STORE, PROFILE_STORE)
+        append_assistant_text(f"{channel}용으로 바꿨어요.")
+        append_assistant(type="generic", text=f"```\n{out}\n```")
+        return
+
+    if 종류 in ("길이", "다시"):
+        if not text:
+            append_assistant_text("다시 쓸 글이 아직 없어요. 먼저 공지나 쿠폰·홍보글을 만들어 주세요.")
+            return
+        instruction = "다른 표현으로" if 종류 == "다시" else ("더 짧게" if followup["방향"] == "짧게" else "더 길게")
+        with st.spinner("다시 쓰는 중..."):
+            new_text, err = assistant.rewrite_text(CLOVA_KEY, text, instruction)
+        if err:
+            append_assistant_text(friendly_error(err))
+            return
+        last["글"] = new_text
+        append_assistant_text("이렇게 다시 써 봤어요.")
+        append_assistant(type="generic", text=new_text)
+        return
+
+    if 종류 == "수정":
+        merged = assistant.resolve_pending_message({"요청문구": last.get("요청문구")}, followup["문구"])
+        _run_assistant_and_render(merged)
+        return
+
+
+def _run_assistant_and_render(user_text):
+    conv = st.session_state.conv
+    ctx = st.session_state.chat_context
+    ctx["요약"] = assistant.build_situation_summary(conv["store"], conv.get("last"), conv.get("pending"))
+    ctx["최근턴"] = _recent_turns()
     with st.spinner("생각하는 중..."):
         try:
-            result = assistant.handle(user_text, PROFILE_STORE, st.session_state.chat_context, CLOVA_KEY)
+            result = assistant.handle(user_text, conv["store"], ctx, CLOVA_KEY)
         except Exception as exc:
             append_assistant_text(friendly_error(exc))
             return
     tool = result.get("도구")
     cards = result.get("카드", [])
+
+    if tool == "note_store_info":
+        append_assistant(type="generic", text=format_cards(cards))
+        refresh_home_card()
+        conv["last"] = {"기능": tool, "요약": cards[0]["내용"] if cards else "가게 정보 업데이트",
+                         "요청문구": user_text, "글": None}
+        conv["pending"] = None
+        return
+
     if tool == "make_coupon":
         _, args = assistant._parse_tool_calls(result.get("원문") or {})
         args = dict(args or {})
@@ -486,13 +765,29 @@ def process_free_message(user_text):
             args["기간_일"] = 30
             defaulted = True
         if args.get("혜택") and args.get("메뉴"):
-            coupon_result = coupon.build_coupon(args, PROFILE_STORE, TODAY)
+            coupon_result = coupon.build_coupon(args, conv["store"], TODAY)
             append_assistant_text(f"{coupon_result['입력값']['쿠폰 이름']} 쿠폰을 준비했어요.")
-            append_assistant(type="coupon_result", result=coupon_result, defaulted=defaulted)
+            append_assistant(type="coupon_result", result=coupon_result, defaulted=defaulted, choice=args)
+            conv["last"] = {"기능": tool, "요약": f"쿠폰 {coupon_result['입력값']['쿠폰 이름']}",
+                             "요청문구": user_text, "글": None}
+            conv["pending"] = None
         else:
             append_assistant(type="generic", text=format_cards(cards))
-    else:
-        append_assistant(type="generic", text=format_cards(cards))
+            conv["pending"] = assistant.extract_pending(tool, cards, user_text)
+        return
+
+    if tool == "make_notice":
+        if cards and cards[0].get("단계"):
+            _apply_notice_step(cards[0]["단계"], user_text)
+        else:
+            append_assistant(type="generic", text=format_cards(cards))
+        return
+
+    # check_store_profile · get_weekly_suggestions · plan_events · 범위 밖 안내
+    append_assistant(type="generic", text=format_cards(cards))
+    conv["pending"] = assistant.extract_pending(tool, cards, user_text)
+    if not conv["pending"]:
+        conv["last"] = None
 
 
 def start_event_list_flow():
@@ -590,7 +885,7 @@ def render_message(i, msg):
                     st.markdown(f"**{plan['행사']}** · {plan['유형']} · {plan['기간']} · {_mode_words(plan['거리'])}")
                     st.success(f"이 행사가 맞는 이유 · {plan['맞는 이유']}")
                     if plan.get("확인 필요"):
-                        st.warning(f"확인 필요 · {plan['확인 필요']}")
+                        warn_box(f"확인 필요 · {plan['확인 필요']}")
                     for pt, cite in zip(plan.get("어필_포인트") or [], plan.get("근거") or []):
                         st.write("• " + pt)
                         st.caption(f"이전 리뷰: {cite}")
@@ -602,11 +897,12 @@ def render_message(i, msg):
                     todo = plan.get("할 일") or []
                     if todo:
                         st.markdown("**할 일**")
-                        for t in todo:
-                            st.write(f"**{t['날짜']}**  ·  {t['할 일']}")
+                        for d, tasks in _merge_todo_by_date(todo):
+                            st.write(f"**{d}**  ·  {tasks}")
                     if plan.get("일정 메모"):
                         st.caption(plan["일정 메모"])
                     posts = plan.get("홍보글_후보")
+                    draft = plan.get("홍보글_초안")
                     if posts:
                         st.markdown("**홍보글 후보**")
                         for pi, p in enumerate(posts):
@@ -623,52 +919,129 @@ def render_message(i, msg):
                             with st.expander("복사용"):
                                 st.code(formatted, language=None)
                     elif plan.get("홍보글_점검_실패"):
-                        st.warning("사장님 확인 필요")
-                if posts:
+                        warn_box(_friendly_post_fail_reasons(plan["홍보글_점검_실패"]))
+                        if draft:
+                            st.markdown("후보 (사장님 확인 필요)")
+                            ckey = f"channel_{i}_draft"
+                            if hasattr(st, "segmented_control"):
+                                channel = st.segmented_control(
+                                    "채널", CHANNELS, key=ckey, default=CHANNELS[0], required=True,
+                                )
+                            else:
+                                channel = st.radio("채널", CHANNELS, key=ckey, horizontal=True)
+                            formatted = format_for_channel(channel or CHANNELS[0], draft, STORE, PROFILE_STORE)
+                            st.markdown(f"<div class='post-box'>{html.escape(formatted)}</div>", unsafe_allow_html=True)
+                            with st.expander("복사용"):
+                                st.code(formatted, language=None)
+                            st.caption("고쳐서 쓰시거나 \"다시 써 줘\"라고 말해 주세요.")
+                if posts or draft:
                     st.caption("마음에 드는 글을 복사해서 가게 소식에 올려 보세요.")
                 else:
                     st.caption("할 일 날짜를 달력에 적어 두세요.")
 
         elif mtype == "notice_warn":
-            st.warning("\n".join(msg["issues"]))
+            warn_box(msg["issues"])
 
         elif mtype == "notice_confirm":
             info = msg["info"]
+            origin = msg.get("origin", "")
             with st.container(border=True):
                 for k, v in render_notice_info_rows(info):
                     st.markdown(f"**{k}**　{v}")
-            if st.button("맞아요", key=f"notice_ok_{i}"):
-                finish_notice_flow(info)
-                st.rerun()
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("맞아요", key=f"notice_ok_{i}", type="primary", use_container_width=True):
+                    append_user("맞아요")
+                    finish_notice_flow(info, origin)
+                    st.rerun()
+            with c2:
+                if st.button("날짜 고칠게요", key=f"notice_fix_{i}", use_container_width=True):
+                    append_user("날짜 고칠게요")
+                    ask_other_date()
+                    st.rerun()
+
+        elif mtype == "notice_pick":
+            records = msg["records"]
+            origin = msg.get("요청문구", "")
+            with st.container(border=True):
+                if len(records) == 1:
+                    r = records[0]
+                    label = D.fmt(D.parse_d(r["날짜"])) + (f" · {r['사유']}" if r.get("사유") else "")
+                    st.markdown(f"**{label}**")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("네", key=f"pick_yes_{i}", type="primary", use_container_width=True):
+                            append_user("네")
+                            finish_notice_flow(assistant.notice_info_for_date(r["날짜"], r.get("사유", "")), origin)
+                            st.rerun()
+                    with c2:
+                        if st.button("다른 날짜", key=f"pick_other_{i}", use_container_width=True):
+                            append_user("다른 날짜")
+                            ask_other_date()
+                            st.rerun()
+                else:
+                    for ri, r in enumerate(records):
+                        label = D.fmt(D.parse_d(r["날짜"])) + (f" · {r['사유']}" if r.get("사유") else "")
+                        if st.button(label, key=f"pick_{i}_{ri}", use_container_width=True):
+                            append_user(label)
+                            finish_notice_flow(assistant.notice_info_for_date(r["날짜"], r.get("사유", "")), origin)
+                            st.rerun()
+                    if st.button("모두 한 번에", key=f"pick_all_{i}", use_container_width=True):
+                        append_user("모두 한 번에")
+                        finish_combined_notice(records, origin)
+                        st.rerun()
 
         elif mtype == "notice_result":
             with st.container(border=True):
                 for k, v in msg["입력값"].items():
-                    st.markdown(f"**{k}**　{v}")
-            st.code(msg["문구"])
-            st.caption("손님이 헛걸음하지 않게 하루 전에 올리는 걸 추천해요.")
+                    st.markdown(f"**{k}**　{_fmt_notice_value(v)}")
+            nckey = f"notice_channel_{i}"
+            if hasattr(st, "segmented_control"):
+                n_channel = st.segmented_control(
+                    "채널", CHANNELS, key=nckey, default=CHANNELS[0], required=True,
+                )
+            else:
+                n_channel = st.radio("채널", CHANNELS, key=nckey, horizontal=True)
+            n_formatted = format_notice_for_channel(n_channel or CHANNELS[0], msg["문구"], STORE, PROFILE_STORE)
+            st.markdown(f"<div class='post-box'>{html.escape(n_formatted)}</div>", unsafe_allow_html=True)
 
         elif mtype == "store_profile_result":
             result = msg["result"]
             with st.container(border=True):
-                st.markdown(f"**가게 정보 점검** · 채움 비율 {result['채움_비율']:.0%}")
+                st.markdown("<span class='card-title'>가게 정보 점검</span>", unsafe_allow_html=True)
+                st.progress(result["채움_비율"])
+                st.caption(f"{result['채움_비율']:.0%} 채워졌어요")
                 if result["다 채움"]:
                     st.success("가게 정보가 다 채워져 있어요!")
                 else:
                     for b in result["빈칸"]:
-                        st.write(f"- {b['이름']}: {b['안내']}")
+                        st.write(f"{b['이름']} — {b['안내']}")
+                    outro = store_profile_outro(result)
+                    if outro:
+                        st.caption(outro)
 
         elif mtype == "coupon_result":
             res = msg["result"]
+            choice = msg.get("choice", {})
             with st.container(border=True):
                 for k, v in res["입력값"].items():
-                    v_text = ", ".join(v) if isinstance(v, (list, tuple)) else v
+                    if k == "혜택":
+                        v_text = _benefit_display(choice)
+                    elif isinstance(v, (list, tuple)):
+                        v_text = ", ".join(v) if v else "없음"
+                    else:
+                        v_text = v
                     st.markdown(f"**{k}**　{v_text}")
             if msg.get("defaulted"):
                 st.caption("수량·기간은 말로 바꿀 수 있어요")
-            if res["확인 필요"]:
-                st.warning("\n".join(res["확인 필요"]))
-            st.info("스마트플레이스 쿠폰 메뉴에서 위 값을 그대로 넣으면 돼요. 처음이면 수량은 적게 시작해 보세요.")
+            warn_box(res["확인 필요"])
+            with st.container(border=True):
+                st.markdown("**처음이면 이렇게 해 보세요**")
+                st.markdown("① 스마트플레이스 로그인 → ② 쿠폰 메뉴(화면에서 이름 확인) → ③ 위 값 그대로 입력")
+                _links = [f"[네이버 스마트플레이스 열기]({SMARTPLACE_URL})"]
+                if COUPON_HELP_URL:
+                    _links.append(f"[쿠폰 만드는 방법 보기]({COUPON_HELP_URL})")
+                st.markdown(" · ".join(_links))
 
         elif mtype == "generic":
             st.markdown(msg["text"])
@@ -707,7 +1080,7 @@ with st.container(border=True, key="chatbox"):
         start_event_list_flow()
         st.rerun()
     elif quick_clicked == "notice":
-        start_notice_flow("다음 주 화요일 개인 사정으로 쉬어요")
+        process_free_message("다음 주 화요일 개인 사정으로 쉬어요")
         st.rerun()
     elif quick_clicked == "coupon":
         process_free_message("아메리카노 500원 할인 쿠폰 만들어 줘")
