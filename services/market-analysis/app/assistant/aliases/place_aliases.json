@@ -1,0 +1,26 @@
+{
+  "schema_version": "place-aliases-v1",
+  "status": "draft",
+  "note": "공식 역·행정동·자치구 이름은 PR #12 목록에서 자동으로 읽는다. 여기에는 생활 지명과 예외만 적는다. 생활 지명은 위치가 확실한 것만 넣고, 걸치는 동이 여럿이면 모두 후보로 둔다.",
+  "aliases": {
+    "홍대": [{"kind": "station", "name": "홍대입구역"}, {"kind": "neighborhood", "name": "서교동", "district_name": "마포구"}],
+    "건대": [{"kind": "station", "name": "건대입구역"}],
+    "가로수길": [{"kind": "neighborhood", "name": "신사동", "district_name": "강남구"}],
+    "연트럴파크": [{"kind": "neighborhood", "name": "연남동", "district_name": "마포구"}],
+    "대학로": [{"kind": "station", "name": "혜화역"}, {"kind": "neighborhood", "name": "혜화동", "district_name": "종로구"}, {"kind": "neighborhood", "name": "이화동", "district_name": "종로구"}],
+    "망리단길": [{"kind": "neighborhood", "name": "망원1동", "district_name": "마포구"}, {"kind": "neighborhood", "name": "망원2동", "district_name": "마포구"}],
+    "익선동": [{"kind": "neighborhood", "name": "종로1.2.3.4가동", "district_name": "종로구"}],
+    "서촌": [{"kind": "neighborhood", "name": "청운효자동", "district_name": "종로구"}, {"kind": "neighborhood", "name": "사직동", "district_name": "종로구"}],
+    "해방촌": [{"kind": "neighborhood", "name": "용산2가동", "district_name": "용산구"}],
+    "신림고시촌": [{"kind": "neighborhood", "name": "대학동", "district_name": "관악구"}],
+    "고시촌": [{"kind": "neighborhood", "name": "대학동", "district_name": "관악구"}],
+    "문래창작촌": [{"kind": "neighborhood", "name": "문래동", "district_name": "영등포구"}]
+  },
+  "todo": "팀 확인 후 추가할 생활 지명: 송리단길, 샤로수길, 경리단길, 성수 카페거리, 을지로 노가리골목. 행정동이 여럿에 걸치면 모두 적는다.",
+  "bare_name_stoplist": {
+    "note": "역 이름에서 '역'을, 자치구에서 '구'를, 행정동에서 '동'을 뺀 형태가 일상 단어와 같아 오인하기 쉬운 것. '역'·'구'·'동'을 붙여 말하면 정상적으로 찾는다.",
+    "words": ["서울", "시청", "온수", "남성", "교대", "방학", "개봉", "약수", "옥수", "증산", "상수", "군자", "명일", "미사", "산성", "신흥", "수유", "동작", "관악",
+              "사직", "청구", "동화", "방화", "오류", "행운", "대학", "중앙", "삼성", "공항", "광장", "인수", "발산", "하계", "중계", "대조", "수색", "천연", "미아",
+              "동선", "면목", "상봉", "중화", "제기", "회기", "이문", "자양", "서원", "신원", "일원", "삼전", "성내", "보문", "장안", "도화", "신사", "거여"]
+  }
+}

@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -43,8 +43,18 @@ def _public_origin():
         raise ValueError("APP_PUBLIC_ORIGIN must be one HTTPS origin without credentials, path, query or fragment") from None
 
 
+def _assistant_enabled():
+    value = os.getenv("ASSISTANT_ENABLED", "").strip().lower()
+    if value in ("", "0", "false"):
+        return False
+    if value in ("1", "true"):
+        return True
+    raise ValueError("ASSISTANT_ENABLED must be empty, 0, false, 1 or true")
+
+
 def create_app(onboarding_store=None) -> FastAPI:
     public = _public_origin()
+    assistant = _assistant_enabled()
     @asynccontextmanager
     async def lifespan(application):
         application.state.maps_client = MapsClient()
@@ -59,12 +69,33 @@ def create_app(onboarding_store=None) -> FastAPI:
     application.state.maps_client = None
     application.state.public_mode = public is not None
     application.state.onboarding_store = onboarding_store if onboarding_store is not None else OnboardingStore()
-    application.include_router(create_onboarding_router(application.state.onboarding_store, cookie_secure=public is not None))
+    onboarding_router = create_onboarding_router(application.state.onboarding_store, cookie_secure=public is not None)
+    application.include_router(onboarding_router)
+    application.state.assistant_enabled = assistant
+    onboarding_html = None
+    if assistant:
+        # Imported only when enabled so the default app stays identical to B1~B6.
+        from app.assistant import create_assistant_router
+
+        application.include_router(create_assistant_router(
+            application.state.onboarding_store, onboarding_router, cookie_secure=public is not None))
+        assistant_static = Path(__file__).parent / "static" / "assistant"
+        application.mount("/assistant-assets", StaticFiles(directory=assistant_static, check_dir=False),
+                          name="assistant-assets")
+
+        @application.get("/assistant", include_in_schema=False)
+        def assistant_page():
+            return FileResponse(assistant_static / "index.html", headers={"Cache-Control": "no-cache"})
+
+        from app.assistant.entry import onboarding_html
     static_path = Path(__file__).parent / "static" / "onboarding"
     application.mount("/onboarding-assets", StaticFiles(directory=static_path, check_dir=False), name="onboarding-assets")
 
     @application.get("/")
     def onboarding_page():
+        if onboarding_html is not None:
+            # Same page plus a button to the chat; the file itself is unchanged.
+            return HTMLResponse(onboarding_html(static_path / "index.html"), headers={"Cache-Control": "no-cache"})
         return FileResponse(static_path / "index.html", headers={"Cache-Control": "no-cache"})
     application.add_middleware(
         TrustedHostMiddleware, allowed_hosts=[public["host"]] if public else ["127.0.0.1", "localhost", "testserver"],
