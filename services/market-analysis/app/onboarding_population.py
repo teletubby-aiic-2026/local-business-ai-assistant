@@ -137,7 +137,11 @@ def _load_period(source, period, raw_root):
     if {p.name for p in raw_root.glob(f"population_{period}_all_*.json")} != {p.name for p in paths}:
         raise PopulationDataError("Population source file set changed")
     signature = tuple((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in paths)
-    key = (str(raw_root.resolve()), source["catalog_version"], period, signature)
+    # Linux can give two quick same-size writes the same mtime, so the
+    # catalogue hashes are part of the key: a rewrite the catalogue records is
+    # read and verified again, and cached evidence never carries old hashes.
+    expected = tuple((entry["file_sha256"], entry["payload_sha256"]) for entry in files)
+    key = (str(raw_root.resolve()), source["catalog_version"], period, signature, expected)
     with _LOCK:
         if key in _CACHE:
             _CACHE.move_to_end(key)

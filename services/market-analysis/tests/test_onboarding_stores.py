@@ -3,6 +3,7 @@ from copy import deepcopy
 from decimal import Decimal
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -242,6 +243,22 @@ class StoresProvenanceTests(unittest.TestCase):
             count = self.build()["counts"]["total"]
             self.assertEqual(count["value"], expected)
             self.assertEqual(count["status"], "available" if expected is not None else "invalid")
+
+    def test_same_size_rewrite_with_same_mtime_is_read_again(self):
+        # Linux can record two quick writes with the same mtime. A rewrite that
+        # the catalogue records must be read again, not answered from the cache.
+        path = self.page([row_fixture()])
+        original, old_hash, first_mtime = path.read_text(encoding="utf-8"), self.source["files"][0]["payload_sha256"], path.stat().st_mtime_ns
+        self.assertEqual(self.build()["counts"]["total"]["value"], 12)
+        text = original.replace('"SIMILR_INDUTY_STOR_CO": 12', '"SIMILR_INDUTY_STOR_CO": 21')
+        payload_hash = canonical_hash(json.loads(text)["payload"])
+        data = text.replace(old_hash, payload_hash).encode("utf-8")
+        path.write_bytes(data)
+        os.utime(path, ns=(path.stat().st_atime_ns, first_mtime))
+        self.source["files"][0].update(file_sha256=sha256(data).hexdigest(), payload_sha256=payload_hash)
+        result = self.build()
+        self.assertEqual(result["counts"]["total"]["value"], 21)
+        self.assertIn(self.source["files"][0]["file_sha256"], json.dumps(result["evidence"]))
 
 
 class StoresHttpTests(unittest.TestCase):

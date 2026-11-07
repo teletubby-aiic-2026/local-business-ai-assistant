@@ -3,6 +3,7 @@ from copy import deepcopy
 from decimal import Decimal
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -272,6 +273,20 @@ class SalesProvenanceTests(unittest.TestCase):
                 self.assertEqual(total["status"], "available" if expected is not None else "invalid")
                 if expected is not None:
                     self.assertEqual(total["value_text"], str(expected))
+
+    def test_same_size_rewrite_with_same_mtime_is_read_again(self):
+        # Linux can record two quick writes with the same mtime. A rewrite that
+        # the catalogue records must be read again, not answered from the cache.
+        path = self.page([row_fixture()])
+        original, old_hash, first_mtime = path.read_text(encoding="utf-8"), self.source["files"][0]["payload_sha256"], path.stat().st_mtime_ns
+        self.assertEqual(self.build()["total"]["value"], 112)
+        text = original.replace('"THSMON_SELNG_AMT": 112', '"THSMON_SELNG_AMT": 211')
+        payload_hash = canonical_hash(json.loads(text)["payload"])
+        data = text.replace(old_hash, payload_hash).encode("utf-8")
+        path.write_bytes(data)
+        os.utime(path, ns=(path.stat().st_atime_ns, first_mtime))
+        self.source["files"][0].update(file_sha256=sha256(data).hexdigest(), payload_sha256=payload_hash)
+        self.assertEqual(self.build()["total"]["value"], 211)
 
 
 class SalesHttpTests(unittest.TestCase):
