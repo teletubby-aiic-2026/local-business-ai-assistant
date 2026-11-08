@@ -112,7 +112,7 @@ def validate(item: dict, review: Review, *, method: str, model: str | None) -> R
 
     result = ReviewClassification(review.review_id, sentiment, hits, summary, method, model, warnings)
     if not hits:
-        rule = rule_classify(review.review_id, review.text, review.rating)
+        rule = rule_classify(review.review_id, review.text, review.rating, review.channel)
         if rule.topics:
             rule.method, rule.model = "rule_fallback", model
             rule.warnings = warnings + ["모델 결과에 쓸 수 있는 주제가 없어 규칙 분류로 대신함"]
@@ -220,7 +220,7 @@ class Classifier:
 
     def classify(self, reviews: list[Review]) -> list[ReviewClassification]:
         if self.mode == "mock":
-            return [rule_classify(r.review_id, r.text, r.rating) for r in reviews]
+            return [rule_classify(r.review_id, r.text, r.rating, r.channel) for r in reviews]
 
         replay, runtime = self._load(REPLAY_FILE), self._load(RUNTIME_CACHE)
         out: dict[str, ReviewClassification] = {}
@@ -232,7 +232,7 @@ class Classifier:
             elif self.mode == "live":
                 todo.append(r)
             else:   # replay 인데 저장본 없음
-                c = rule_classify(r.review_id, r.text, r.rating)
+                c = rule_classify(r.review_id, r.text, r.rating, r.channel)
                 c.method, c.warnings = "rule_fallback", ["재생할 저장본이 없어 규칙 분류로 대신함"]
                 out[r.review_id] = c
 
@@ -246,7 +246,7 @@ class Classifier:
             for r in batch:
                 item = items.get(r.review_id)
                 if item is None:
-                    c = rule_classify(r.review_id, r.text, r.rating)
+                    c = rule_classify(r.review_id, r.text, r.rating, r.channel)
                     c.method, c.warnings = "rule_fallback", ["모델 응답에 이 리뷰가 없어 규칙 분류로 대신함"]
                     out[r.review_id] = c
                     continue

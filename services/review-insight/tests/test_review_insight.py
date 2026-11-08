@@ -93,14 +93,74 @@ def test_banned_and_pii():
 
 
 # ── C3 반복 묶음 ──
-def test_repeated_issues_from_synthetic_mock():
+def label_classes(store_id):
+    from app.models import ReviewClassification, TopicHit
+    L = labels(store_id)
+    return [ReviewClassification(r.review_id, L[r.review_id]["expected_sentiment"],
+                                 [TopicHit(t["topic"], t["polarity"], r.text) for t in L[r.review_id]["expected_topics"]])
+            for r in service.sample_reviews(store_id)]
+
+
+def assert_wow(ins):
+    """결정안 v0.4 와우: 40건 → 불만 12 → 3묶음(포장 누락 3 = 유일한 반복, 늦은 배달 2, 양·맛 2) + 단발 5"""
+    assert ins.review_count == 40 and ins.complaint_count == 12
+    got = sorted((g.topics, g.review_count, g.is_repeated) for g in ins.groups)
+    assert got == sorted([(["missing_item"], 3, True), (["delivery_time"], 2, False), (["taste", "portion"], 2, False)]) \
+        or got == sorted([(["missing_item"], 3, True), (["delivery_time"], 2, False), (["portion", "taste"], 2, False)])
+    assert len(ins.single_complaints) == 5
+    assert ins.top_issue.topic == "missing_item" and ins.top_issue.topic_name == "포장 누락"
+    assert [g.is_repeated for g in ins.groups] == [True, False, False]                # 반복 묶음이 맨 앞
+
+
+def test_wow_scene_from_labels():
+    """정답 라벨 그대로면 와우 숫자가 정확히 나와야 함 (묶음 계산 자체의 시험)."""
+    ins = build_insight("store_ongi", service.sample_reviews("store_ongi"), label_classes("store_ongi"))
+    assert_wow(ins)
+    yangmat = next(g for g in ins.groups if len(g.topics) == 2)
+    assert set(yangmat.topics) == {"portion", "taste"} and "·" in yangmat.topic_name   # 같은 리뷰 2건 → 한 묶음으로 합침
+
+
+@pytest.mark.parametrize("kiwi_on", [True, False])
+def test_wow_scene_with_rule_classifier(monkeypatch, kiwi_on):
+    """모델 없이(mock) kiwi 규칙이면 와우 숫자가 그대로 나와야 함.
+    kiwi도 없으면(글자 규칙) '공깃밥이 안 들어 있었어요'를 못 읽어 포장 누락이 2건이 되고, 카드 ⓐ(반복 묶음)가 사라짐.
+    → kiwi를 requirements에 넣은 이유. 발표는 HCX-005 결과를 캐시(C9)로 고정해 씀."""
+    from app import morph
+    if kiwi_on and not morph.available():
+        pytest.skip("kiwipiepy 미설치")
+    monkeypatch.setattr(morph, "available", lambda: kiwi_on)
     ins = service.analyze(Classifier("mock"))
-    by = {i.topic: i for i in ins.repeated_issues}
-    assert set(by) == {"delivery_time", "temperature", "portion", "packaging"}     # 일부러 만든 반복 불만 4갈래
-    assert by["delivery_time"].review_count == 6 and by["delivery_time"].main_time_band == "17~21시"
-    assert by["temperature"].main_time_band == "17~21시" and by["packaging"].main_time_band == "17~21시"
-    assert "missing_item" not in by                                                # 2건이라 반복 아님
-    assert ins.review_count == 40 and ins.period_end == "2026-11-08"
+    if kiwi_on:
+        assert_wow(ins)
+    else:
+        miss = next(g for g in ins.groups if g.topic == "missing_item")
+        assert miss.review_count == 2 and ins.top_issue is None and ins.complaint_count < 12
+
+
+def test_kiwi_reads_endings_and_negation():
+    from app import morph
+    from app.topics import rule_classify
+    if not morph.available():
+        pytest.skip("kiwipiepy 미설치")
+    def got(text, rating=3, channel="baemin"):
+        return {(t.topic, t.polarity) for t in rule_classify("x", text, rating, channel).topics}
+    assert ("texture", "negative") in got("하나도 안 바삭해요")                      # 부정
+    assert ("packaging", "positive") in got("국물 하나 안 샜어요")                    # 부정 + 불만어 = 칭찬
+    assert ("missing_item", "negative") in got("소스를 요청했는데 안 왔어요", 1)
+    assert ("wait_time", "negative") in got("음료 받기까지 너무 오래 걸려요", 2, "naver_place")   # 방문 리뷰
+    assert ("delivery_time", "negative") in got("음료 받기까지 너무 오래 걸려요", 2, "baemin")
+    assert not {t for t, _ in got("다음엔 포장해야겠네요")} & {"packaging"}           # 포장 주문 ≠ 포장 상태
+
+
+def test_groups_merge_only_identical_review_sets():
+    from app.models import ReviewClassification, TopicHit
+    rows = [Review(f"r{i}", "s", "baemin", 2, "양도 적고 맛도 없어요", f"2026-11-0{i}T19:00:00+09:00") for i in range(1, 4)]
+    cls = [ReviewClassification("r1", "negative", [TopicHit("portion", "negative", "양도 적고"), TopicHit("taste", "negative", "맛도 없어요")]),
+           ReviewClassification("r2", "negative", [TopicHit("portion", "negative", "양도 적고"), TopicHit("taste", "negative", "맛도 없어요")]),
+           ReviewClassification("r3", "negative", [TopicHit("portion", "negative", "양도 적고")])]
+    ins = build_insight("s", rows, cls)
+    assert [(g.topics, g.review_count, g.is_repeated) for g in ins.groups] == [(["portion"], 3, True), (["taste"], 2, False)]
+    assert ins.single_complaints == []
 
 
 def test_rule_classifier_matches_most_labels():
@@ -206,8 +266,9 @@ def test_paste_flow(client):
     assert d["review"]["pii_masked"] and "010" not in d["review"]["text"] and d["review"]["input_method"] == "paste"
     assert "delivery_time" in d["classification"]["negative_topics"]
     assert "iss_delivery_time" in d["joined_issues"]
-    by = {i["topic"]: i for i in d["repeated_issues"]}
-    assert by["delivery_time"]["review_count"] == 7
+    by = {g["issue_id"]: g for g in d["groups"]}
+    assert by["iss_delivery_time"]["review_count"] == 3 and by["iss_delivery_time"]["is_repeated"]   # 2건 → 3건이 되어 반복으로
+    assert d["complaint_count"] == 13
     assert client.get("/api/review-insight/reviews").json()["count"] == 41
     assert client.delete("/api/review-insight/reviews/pasted").json() == {"deleted": 1}
     assert client.get("/api/review-insight/reviews").json()["count"] == 40
@@ -222,5 +283,6 @@ def test_paste_validation(client):
 
 def test_insight_endpoint_and_page(client):
     d = client.get("/api/review-insight/insight").json()
-    assert d["repeated_issues"][0]["topic"] == "delivery_time" and d["data_origin"] == "synthetic"
+    assert d["top_issue_id"] == "iss_missing_item" and d["complaint_count"] == 12 and d["group_count"] == 3
+    assert d["single_complaint_count"] == 5 and d["data_origin"] == "synthetic"
     assert client.get("/").status_code == 200 and client.get("/health").json()["mode"] == "mock"

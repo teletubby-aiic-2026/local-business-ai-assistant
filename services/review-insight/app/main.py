@@ -79,9 +79,13 @@ def paste_review(body: PasteIn):
         return error(400, "VALIDATION_ERROR", str(e))
     insight = service.analyze(classifier(), body.store_id)
     mine = next((c for c in insight.classifications if c.review_id == review.review_id), None)
-    joined = [i.issue_id for i in insight.repeated_issues if review.review_id in i.review_ids]
+    joined = [g.issue_id for g in insight.groups if review.review_id in g.review_ids]
     return {"review": review.to_dict(), "classification": mine.to_dict() if mine else None,
-            "joined_issues": joined, "repeated_issues": [i.to_dict() for i in insight.repeated_issues]}
+            "joined_issues": joined, "complaint_count": insight.complaint_count,
+            "groups": [g.to_dict() for g in insight.groups],
+            "repeated_issues": [i.to_dict() for i in insight.repeated_issues],
+            "single_complaints": insight.single_complaints,
+            "top_issue_id": insight.top_issue.issue_id if insight.top_issue else None}
 
 
 @router.delete("/reviews/pasted")

@@ -13,14 +13,14 @@ from app.models import ReviewClassification, TopicHit
 
 # id: (이름, 설명, 규칙용 단서 단어)
 TOPICS: dict[str, tuple[str, str, tuple[str, ...]]] = {
-    "taste": ("맛", "음식 맛·간", ("맛", "음식은 괜찮", "불맛", "얼큰", "달달", "짰", "짜요", "싱거", "집밥 같", "정갈")),
     "portion": ("양", "음식 양·구성 대비 양", ("양이", "양도", "양은", "넉넉", "몇 점", "적게 들", "적은 편")),
+    "taste": ("맛", "음식 맛·간", ("맛", "음식은 괜찮", "불맛", "얼큰", "달달", "짰", "짜요", "싱거", "집밥 같", "정갈")),
     "price": ("가격", "가격·가성비", ("가격", "가성비", "원인데", "비싸")),
     "delivery_time": ("배달 시간", "주문 후 받기까지 걸린 시간 (배달 주문)", ("배달이", "늦게 와", "오래 걸", "분 만에 왔", "시간이 계속 밀", "걸려서 왔", "분 걸렸", "한 시간 기다", "더 걸린", "넘게 걸", "시간이나 걸", "늦게 왔", "늦게 도착")),
     "texture": ("식감", "바삭함·눅눅함·질김·부드러움·퍽퍽함", ("눅눅", "바삭", "질기", "퍽퍽", "촉촉", "부드러", "겉바속촉", "딱딱")),
     "temperature": ("음식 온도", "식음·미지근·따뜻함", ("식어", "식었", "식은", "미지근", "차갑", "따뜻", "불어서")),
-    "packaging": ("포장", "포장 상태·흘림·쏟아짐·찌그러짐", ("포장이", "포장 신경", "포장 상태", "새서", "샜", "넘쳤", "뚜껑", "흥건", "쏟아", "흘렀", "뭉개져")),
-    "missing_item": ("누락", "빠진 메뉴·덜 온 개수·잘못 온 메뉴", ("안 왔", "빠져", "누락", "오배송", "잘못 왔", "만 들어 있")),
+    "packaging": ("포장 상태", "포장 상태·흘림·쏟아짐·찌그러짐", ("포장이", "포장 신경", "포장 상태", "새서", "샜", "넘쳤", "뚜껑", "흥건", "쏟아", "흘렀", "뭉개져")),
+    "missing_item": ("포장 누락", "빠진 메뉴·덜 온 개수·잘못 온 메뉴", ("안 왔", "빠져", "누락", "오배송", "잘못 왔", "만 들어 있")),
     "service": ("응대", "직원·사장님 응대, 요청 반영", ("친절", "퉁명", "응대", "불친절", "요청 사항을")),
     "hygiene": ("위생", "청결·이물질", ("머리카락", "위생", "깔끔", "지저분", "이물질", "벌레")),
     "menu": ("메뉴 구성", "메뉴·반찬 구성", ("반찬이", "구성이", "메뉴가")),
@@ -96,15 +96,31 @@ POS = ("맛있", "괜찮", "좋", "친절하", "빠르", "빨리", "넉넉", "�
 # '안 샜어요'처럼 부정어가 붙어 칭찬이 되는 경우
 NEG_FLIP = re.compile(r"(하나\s*)?안\s*(샜|새|넘쳤)")
 CLAUSE = re.compile(r"[.!?\n]|,|[는은]데|지만|다만|더니|고\s")
+# kiwi는 '-고'에서 끊으면 낱말을 잘못 읽어서('질기고' → '질기'), '-고'는 끊지 않음. '그대로인데'의 '인데'도 끊음
+CLAUSE_KIWI = re.compile(r"[.!?\n]|,|[는은인]데|지만|다만|더니")
 
 
-def _clauses(text: str) -> list[str]:
-    return [c.strip() for c in CLAUSE.split(text) if c and c.strip()]
+def _clauses(text: str, pattern=CLAUSE) -> list[str]:
+    return [c.strip() for c in pattern.split(text) if c and c.strip()]
 
 
-def rule_classify(review_id: str, text: str, rating: int | None = None) -> ReviewClassification:
+def rule_classify(review_id: str, text: str, rating: int | None = None, channel: str | None = None,
+                  *, use_kiwi: bool | None = None) -> ReviewClassification:
+    """규칙 분류. kiwi가 설치되어 있으면 형태소 분석(기본형·부정)으로, 없으면 글자 단서로."""
+    from app import morph
+    if use_kiwi is None:
+        use_kiwi = morph.available()
     hits: dict[tuple[str, str], str] = {}
-    for clause in _clauses(text):
+    for clause in _clauses(text, CLAUSE_KIWI if use_kiwi else CLAUSE):
+        if use_kiwi:
+            topics, n_neg, n_pos = morph.classify_clause(clause, channel)
+            if not topics:
+                continue
+            neg = n_neg > n_pos or (n_neg == n_pos and rating is not None and rating <= 2)
+            pol = "negative" if neg else "positive"
+            for t in topics:
+                hits.setdefault((t, pol), clause)
+            continue
         topics = [t for t, (_, _, cues) in TOPICS.items() if any(c in clause for c in cues)]
         if not topics:
             continue
@@ -118,7 +134,8 @@ def rule_classify(review_id: str, text: str, rating: int | None = None) -> Revie
         for t in topics:
             hits.setdefault((t, pol), clause)
     topic_hits = [TopicHit(t, p, ev) for (t, p), ev in hits.items()]
-    return ReviewClassification(review_id=review_id, sentiment=sentiment_of(topic_hits, rating), topics=topic_hits, method="rule")
+    return ReviewClassification(review_id=review_id, sentiment=sentiment_of(topic_hits, rating), topics=topic_hits,
+                                method="rule", model="kiwi" if use_kiwi else None)
 
 
 def sentiment_of(hits: list[TopicHit], rating: int | None) -> str:

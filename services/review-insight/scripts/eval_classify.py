@@ -47,10 +47,12 @@ def evaluate(clf, store_id):
         if got != exp or c.sentiment != lab["expected_sentiment"]:
             text = next(r.text for r in rows if r.review_id == c.review_id)
             wrong.append(f"  {c.review_id} {text}\n     결과 {sorted(got)} {c.sentiment} ({c.method})\n     정답 {sorted(exp)} {lab['expected_sentiment']}")
-    found = {i.topic for i in build_insight(store_id, rows, res).repeated_issues}
-    expected = {i.topic for i in build_insight(store_id, rows, label_classes(rows, labels)).repeated_issues}
+    mine, truth = build_insight(store_id, rows, res), build_insight(store_id, rows, label_classes(rows, labels))
+    found = {(g.issue_id, g.review_count, g.is_repeated) for g in mine.groups}
+    expected = {(g.issue_id, g.review_count, g.is_repeated) for g in truth.groups}
+    brief = f"불만 {mine.complaint_count}(정답 {truth.complaint_count}) · 단발 {len(mine.single_complaints)}(정답 {len(truth.single_complaints)})"
     return {"n": len(res), "sent_ok": sent_ok, "tp": tp, "fp": fp, "fn": fn, "found": found, "expected": expected,
-            "wrong": wrong, "methods": methods}
+            "wrong": wrong, "methods": methods, "brief": brief}
 
 
 def main():
@@ -63,9 +65,10 @@ def main():
         for k in total:
             total[k] += r[k]
         p, rc = r["tp"] / max(r["tp"] + r["fp"], 1), r["tp"] / max(r["tp"] + r["fn"], 1)
-        ok = "일치" if r["found"] == r["expected"] else f"불일치 (찾음 {sorted(r['found'])})"
-        print(f"[{service.store(sid)['name']}] {r['n']}건 · 감정 {r['sent_ok']}/{r['n']} · 주제 정밀도 {p:.0%} 재현율 {rc:.0%} · "
-              f"반복 묶음 정답 {sorted(r['expected'])} → {ok} · 방식 {r['methods']}")
+        fmt = lambda gs: ", ".join(f"{i.removeprefix('iss_')} {n}{'(반복)' if rep else ''}" for i, n, rep in sorted(gs))
+        ok = "일치" if r["found"] == r["expected"] else f"불일치 → 찾음 [{fmt(r['found'])}]"
+        print(f"[{service.store(sid)['name']}] {r['n']}건 · 감정 {r['sent_ok']}/{r['n']} · 주제 정밀도 {p:.0%} 재현율 {rc:.0%} · 방식 {r['methods']}\n"
+              f"    {r['brief']} · 묶음 정답 [{fmt(r['expected'])}] → {ok}")
         all_wrong += r["wrong"]
     p = total["tp"] / max(total["tp"] + total["fp"], 1)
     rc = total["tp"] / max(total["tp"] + total["fn"], 1)
