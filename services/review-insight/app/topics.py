@@ -67,10 +67,25 @@ def norm(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
 
+_EDGE = " .,!?\"'“”‘’…·~-"
+
+
+def locate_evidence(evidence: str, text: str) -> str | None:
+    """근거 구절을 리뷰 글에서 찾아, 리뷰 글에 실제로 적힌 그대로의 구절을 돌려줌.
+    띄어쓰기·앞뒤 문장부호 차이는 봐줌. 못 찾거나 2글자 미만이면 None (근거로 쓰지 않음)."""
+    key = "".join(ch for ch in (evidence or "").strip(_EDGE) if not ch.isspace())
+    if len(key) < 2:
+        return None
+    pos = [i for i, ch in enumerate(text) if not ch.isspace()]      # 공백 아닌 글자의 원래 위치
+    flat = "".join(text[i] for i in pos)
+    k = flat.find(key)
+    if k < 0:
+        return None
+    return text[pos[k]:pos[k + len(key) - 1] + 1]
+
+
 def evidence_ok(evidence: str, text: str) -> bool:
-    """근거 구절이 리뷰 글에 그대로 있어야 함 (띄어쓰기 차이는 봐줌). 너무 짧으면 근거가 아님."""
-    e = norm(evidence).strip(" .,!?\"'")
-    return len(e) >= 2 and e.replace(" ", "") in norm(text).replace(" ", "")
+    return locate_evidence(evidence, text) is not None
 
 
 # ── 규칙 분류기 ──

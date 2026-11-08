@@ -26,7 +26,7 @@ from pathlib import Path
 import httpx
 
 from app.models import POLARITIES, SENTIMENTS, Review, ReviewClassification, TopicHit
-from app.topics import TOPICS, banned_in, evidence_ok, norm, rule_classify, sentiment_of
+from app.topics import TOPICS, banned_in, locate_evidence, norm, rule_classify, sentiment_of
 
 log = logging.getLogger("review_insight.classify")
 
@@ -83,13 +83,14 @@ def validate(item: dict, review: Review, *, method: str, model: str | None) -> R
         if pol not in POLARITIES:
             warnings.append(f"극성 값 오류 버림: {topic}/{pol}")
             continue
-        if not evidence_ok(ev, review.text):
+        quote = locate_evidence(ev, review.text)
+        if quote is None:
             warnings.append(f"근거 구절이 리뷰에 없어 버림: {topic} '{ev[:30]}'")
             continue
         if (topic, pol) in seen:
             continue
         seen.add((topic, pol))
-        hits.append(TopicHit(topic, pol, norm(ev)))
+        hits.append(TopicHit(topic, pol, quote))   # 리뷰 글에 적힌 그대로의 구절로 저장
 
     sentiment = sentiment_of(hits, review.rating) if hits else (item.get("sentiment") if item.get("sentiment") in SENTIMENTS else "neutral")
     if item.get("sentiment") != sentiment:

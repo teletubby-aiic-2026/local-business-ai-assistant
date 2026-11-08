@@ -8,9 +8,12 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timedelta
 
+import logging
+
 from app.models import RepeatedIssue, Review, ReviewClassification, ReviewInsight
 from app.topics import TOPICS, topic_name
 
+log = logging.getLogger("review_insight.cluster")
 TIME_BANDS = (("00~06시", 0, 6), ("06~11시", 6, 11), ("11~14시", 11, 14), ("14~17시", 14, 17), ("17~21시", 17, 21), ("21~24시", 21, 24))
 MIN_COUNT = 3          # 이 건수 이상이면 반복
 WINDOW_DAYS = 28       # 최근 4주
@@ -58,18 +61,31 @@ def build_insight(store_id: str, reviews: list[Review], classes: list[ReviewClas
             first_at=by_id[members[0].review_id].created_at, last_at=by_id[members[-1].review_id].created_at,
         ))
     issues.sort(key=lambda i: (-i.review_count, -i.recent_count, i.topic))
-    check_issues(issues, {c.review_id: c for c in classes}, by_id)
+    issues = check_issues(issues, {c.review_id: c for c in classes}, by_id)
     return ReviewInsight(store_id=store_id, period_start=start.date().isoformat(), period_end=end_day.date().isoformat(),
                          review_count=len(in_window), sentiment_counts=dict(sentiment_counts), topic_counts=topic_counts,
                          repeated_issues=issues, classifications=in_window)
 
 
-def check_issues(issues: list[RepeatedIssue], classes: dict, reviews: dict) -> None:
-    """근거 ID 검증: 묶음의 리뷰 ID가 실제로 있고, 그 리뷰가 정말 그 주제의 불만이며, 근거 구절이 그 리뷰에 있어야 함."""
+def check_issues(issues: list[RepeatedIssue], classes: dict, reviews: dict) -> list[RepeatedIssue]:
+    """근거 ID 검증: 묶음의 리뷰 ID가 실제로 있고, 그 리뷰가 정말 그 주제의 불만이며, 근거 구절이 그 리뷰에 있어야 함.
+    어긋난 리뷰는 묶음에서 빼고 기록만 남김 (화면 전체가 멈추지 않게). 빼고 나서 기준 미만이면 묶음을 버림."""
+    kept = []
     for i in issues:
-        assert i.review_count == len(i.review_ids) == len(set(i.review_ids)), i.issue_id
+        good = []
         for e in i.evidence:
             rid = e["review_id"]
-            assert rid in reviews and rid in classes, f"{i.issue_id}: 없는 리뷰 {rid}"
-            assert i.topic in classes[rid].negative_topics, f"{i.issue_id}: {rid}는 이 주제 불만이 아님"
-            assert e["quote"].replace(" ", "") in reviews[rid].text.replace(" ", ""), f"{i.issue_id}: {rid} 근거 구절 불일치"
+            ok = (rid in reviews and rid in classes and i.topic in classes[rid].negative_topics
+                  and e["quote"] and e["quote"] in reviews[rid].text)
+            if ok:
+                good.append(e)
+            else:
+                log.warning("반복 묶음 %s: %s 근거가 맞지 않아 뺌", i.issue_id, rid)
+        if len(good) != len(i.evidence):
+            ids = {e["review_id"] for e in good}
+            i.evidence = good
+            i.review_ids = [r for r in i.review_ids if r in ids]
+            i.review_count = len(i.review_ids)
+        if i.review_count >= MIN_COUNT:
+            kept.append(i)
+    return kept

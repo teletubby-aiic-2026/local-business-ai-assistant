@@ -68,6 +68,17 @@ def test_validate_drops_bad_model_output():
     assert c.sentiment == "negative" and c.summary is None and len(c.warnings) == 5
 
 
+def test_evidence_is_stored_exactly_as_in_review():
+    """모델이 문장부호·띄어쓰기를 바꿔 낸 근거도, 리뷰 글에 적힌 그대로의 구절로 저장해야 묶음 검증을 통과함."""
+    r = Review("rv_x", "s", "baemin", 1, "한 시간 기다렸는데 찌개가 다 식어서 왔어요", "2026-11-06T20:30:00+09:00")
+    item = {"sentiment": "negative", "topics": [
+        {"topic": "delivery_time", "polarity": "negative", "evidence": "“한 시간기다렸는데,”"},
+        {"topic": "temperature", "polarity": "negative", "evidence": "찌개가 다 식어서 왔어요."}]}
+    c = validate(item, r, method="model", model="HCX-005")
+    assert [t.evidence for t in c.topics] == ["한 시간 기다렸는데", "찌개가 다 식어서 왔어요"]
+    assert all(t.evidence in r.text for t in c.topics)
+
+
 def test_validate_falls_back_to_rules_when_nothing_usable():
     r = Review("rv_x", "s", "baemin", 2, "포장이 허술해서 국물이 넘쳤어요", "2026-10-29T20:20:00+09:00")
     c = validate({"sentiment": "negative", "topics": [{"topic": "packaging", "polarity": "negative", "evidence": "용기가 깨짐"}]},
