@@ -1,6 +1,6 @@
 [
   {
-    "review_id": "rv_0001",
+    "review_id": "rv_ongi_001",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 2,
@@ -11,7 +11,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0002",
+    "review_id": "rv_ongi_002",
     "store_id": "store_ongi",
     "channel": "coupangeats",
     "rating": 1,
@@ -22,7 +22,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0003",
+    "review_id": "rv_ongi_003",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 2,
@@ -33,7 +33,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0004",
+    "review_id": "rv_ongi_004",
     "store_id": "store_ongi",
     "channel": "yogiyo",
     "rating": 2,
@@ -44,7 +44,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0005",
+    "review_id": "rv_ongi_005",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 1,
@@ -55,7 +55,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0006",
+    "review_id": "rv_ongi_006",
     "store_id": "store_ongi",
     "channel": "coupangeats",
     "rating": 2,
@@ -66,7 +66,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0007",
+    "review_id": "rv_ongi_007",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 2,
@@ -77,7 +77,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0008",
+    "review_id": "rv_ongi_008",
     "store_id": "store_ongi",
     "channel": "yogiyo",
     "rating": 3,
@@ -88,7 +88,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0009",
+    "review_id": "rv_ongi_009",
     "store_id": "store_ongi",
     "channel": "coupangeats",
     "rating": 2,
@@ -99,7 +99,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0010",
+    "review_id": "rv_ongi_010",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 2,
@@ -110,7 +110,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0011",
+    "review_id": "rv_ongi_011",
     "store_id": "store_ongi",
     "channel": "coupangeats",
     "rating": 3,
@@ -121,7 +121,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0012",
+    "review_id": "rv_ongi_012",
     "store_id": "store_ongi",
     "channel": "naver_place",
     "rating": 3,
@@ -132,7 +132,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0013",
+    "review_id": "rv_ongi_013",
     "store_id": "store_ongi",
     "channel": "yogiyo",
     "rating": 2,
@@ -143,7 +143,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0014",
+    "review_id": "rv_ongi_014",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 1,
@@ -154,7 +154,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0015",
+    "review_id": "rv_ongi_015",
     "store_id": "store_ongi",
     "channel": "coupangeats",
     "rating": 2,
@@ -165,7 +165,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0016",
+    "review_id": "rv_ongi_016",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 2,
@@ -176,7 +176,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0017",
+    "review_id": "rv_ongi_017",
     "store_id": "store_ongi",
     "channel": "yogiyo",
     "rating": 1,
@@ -187,7 +187,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0018",
+    "review_id": "rv_ongi_018",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 2,
@@ -198,7 +198,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0019",
+    "review_id": "rv_ongi_019",
     "store_id": "store_ongi",
     "channel": "naver_place",
     "rating": 2,
@@ -209,7 +209,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0020",
+    "review_id": "rv_ongi_020",
     "store_id": "store_ongi",
     "channel": "naver_place",
     "rating": 1,
@@ -220,7 +220,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0021",
+    "review_id": "rv_ongi_021",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 5,
@@ -231,7 +231,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0022",
+    "review_id": "rv_ongi_022",
     "store_id": "store_ongi",
     "channel": "coupangeats",
     "rating": 5,
@@ -242,7 +242,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0023",
+    "review_id": "rv_ongi_023",
     "store_id": "store_ongi",
     "channel": "naver_place",
     "rating": 5,
@@ -253,7 +253,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0024",
+    "review_id": "rv_ongi_024",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 5,
@@ -264,7 +264,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0025",
+    "review_id": "rv_ongi_025",
     "store_id": "store_ongi",
     "channel": "yogiyo",
     "rating": 4,
@@ -275,7 +275,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0026",
+    "review_id": "rv_ongi_026",
     "store_id": "store_ongi",
     "channel": "naver_place",
     "rating": 5,
@@ -286,7 +286,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0027",
+    "review_id": "rv_ongi_027",
     "store_id": "store_ongi",
     "channel": "coupangeats",
     "rating": 5,
@@ -297,7 +297,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0028",
+    "review_id": "rv_ongi_028",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 4,
@@ -308,7 +308,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0029",
+    "review_id": "rv_ongi_029",
     "store_id": "store_ongi",
     "channel": "naver_place",
     "rating": 5,
@@ -319,7 +319,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0030",
+    "review_id": "rv_ongi_030",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 5,
@@ -330,7 +330,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0031",
+    "review_id": "rv_ongi_031",
     "store_id": "store_ongi",
     "channel": "yogiyo",
     "rating": 5,
@@ -341,7 +341,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0032",
+    "review_id": "rv_ongi_032",
     "store_id": "store_ongi",
     "channel": "coupangeats",
     "rating": 4,
@@ -352,7 +352,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0033",
+    "review_id": "rv_ongi_033",
     "store_id": "store_ongi",
     "channel": "naver_place",
     "rating": 5,
@@ -363,7 +363,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0034",
+    "review_id": "rv_ongi_034",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 5,
@@ -374,7 +374,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0035",
+    "review_id": "rv_ongi_035",
     "store_id": "store_ongi",
     "channel": "yogiyo",
     "rating": 4,
@@ -385,7 +385,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0036",
+    "review_id": "rv_ongi_036",
     "store_id": "store_ongi",
     "channel": "naver_place",
     "rating": 5,
@@ -396,7 +396,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0037",
+    "review_id": "rv_ongi_037",
     "store_id": "store_ongi",
     "channel": "naver_place",
     "rating": 3,
@@ -407,7 +407,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0038",
+    "review_id": "rv_ongi_038",
     "store_id": "store_ongi",
     "channel": "coupangeats",
     "rating": 3,
@@ -418,7 +418,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0039",
+    "review_id": "rv_ongi_039",
     "store_id": "store_ongi",
     "channel": "baemin",
     "rating": 4,
@@ -429,7 +429,7 @@
     "data_origin": "synthetic"
   },
   {
-    "review_id": "rv_0040",
+    "review_id": "rv_ongi_040",
     "store_id": "store_ongi",
     "channel": "naver_place",
     "rating": 2,

@@ -14,25 +14,37 @@ from app.topics import banned_in, evidence_ok, mask_pii
 
 @pytest.fixture(autouse=True)
 def tmp_files(tmp_path, monkeypatch):
-    monkeypatch.setattr(service, "PASTED", tmp_path / "pasted.json")
+    monkeypatch.setattr(service, "RUNTIME", tmp_path / "runtime")
     monkeypatch.setattr(classify, "REPLAY_FILE", tmp_path / "replay.json")
     monkeypatch.setattr(classify, "RUNTIME_CACHE", tmp_path / "runtime.json")
 
 
-def labels():
-    return {l["review_id"]: l for l in json.loads((service.SYNTHETIC / "labels.json").read_text(encoding="utf-8"))}
+def labels(store_id="store_ongi"):
+    return service.labels(store_id)
 
 
 # ── C2 합성 데이터 ──
-def test_synthetic_data_shape():
-    rows = service.sample_reviews()
-    assert len(rows) == 40 and len({r.review_id for r in rows}) == 40
-    assert set(labels()) == {r.review_id for r in rows}
-    assert all(r.data_origin == "synthetic" and r.input_method == "sample" for r in rows)
-    raw = json.loads((service.SYNTHETIC / "reviews.json").read_text(encoding="utf-8"))
+@pytest.mark.parametrize("store_id,count", [("store_ongi", 40), ("store_basak", 30), ("store_mongle", 30)])
+def test_synthetic_data_shape(store_id, count):
+    rows = service.sample_reviews(store_id)
+    assert len(rows) == count and len({r.review_id for r in rows}) == count
+    assert set(labels(store_id)) == {r.review_id for r in rows}
+    assert all(r.data_origin == "synthetic" and r.input_method == "sample" and r.store_id == store_id for r in rows)
+    raw = json.loads((service.SYNTHETIC / store_id / "reviews.json").read_text(encoding="utf-8"))
     banned_fields = {"nickname", "author", "phone", "address", "customer_id"}
     assert not any(banned_fields & set(d) for d in raw)          # 개인정보 필드 없음
     assert not any(mask_pii(r.text)[1] for r in rows)
+    from app.topics import TOPICS
+    assert all(t["topic"] in TOPICS for l in labels(store_id).values() for t in l["expected_topics"])
+
+
+def test_three_stores_and_ids_unique_across_stores():
+    ids = service.store_ids()
+    assert ids[0] == "store_ongi" and set(ids) == {"store_ongi", "store_basak", "store_mongle"}
+    all_ids = [r.review_id for s in ids for r in service.sample_reviews(s)]
+    assert len(all_ids) == len(set(all_ids)) == 100
+    with pytest.raises(service.StoreNotFound):
+        service.sample_reviews("store_nope")
 
 
 # ── C3 규칙 검사 ──
@@ -81,7 +93,7 @@ def test_repeated_issues_from_synthetic_mock():
 
 
 def test_rule_classifier_matches_most_labels():
-    """규칙 분류기는 대비책이지만 합성 리뷰에서는 거의 맞아야 함."""
+    """규칙 분류기는 대비책. 단서를 맞춘 온기한식에서는 거의 맞아야 함 (다른 가게 성능은 eval_classify로 봄)."""
     lab = labels()
     rows = service.sample_reviews()
     got = Classifier("mock").classify(rows)
@@ -135,6 +147,17 @@ def client(monkeypatch):
     from app import main
     monkeypatch.setattr(main, "_classifier", Classifier("mock"))
     return TestClient(main.app)
+
+
+def test_paste_goes_to_chosen_store_only(client):
+    r = client.post("/api/review-insight/reviews", json={"store_id": "store_basak", "text": "치킨무가 또 빠져 있었어요", "rating": 1})
+    assert r.status_code == 201 and r.json()["review"]["review_id"].startswith("rv_basak_paste_")
+    assert "iss_missing_item" in r.json()["joined_issues"]
+    assert client.get("/api/review-insight/reviews?store_id=store_basak").json()["count"] == 31
+    assert client.get("/api/review-insight/reviews?store_id=store_ongi").json()["count"] == 40
+    bad = client.get("/api/review-insight/insight?store_id=store_nope")
+    assert bad.status_code == 404 and bad.json()["error"]["code"] == "STORE_NOT_FOUND"
+    assert len(client.get("/api/review-insight/stores").json()["stores"]) == 3
 
 
 def test_paste_flow(client):

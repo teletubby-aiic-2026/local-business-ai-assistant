@@ -4,7 +4,7 @@
 
 | 일 | 내용 | 파일 |
 |---|---|---|
-| C2 합성 리뷰 | 시나리오 가게 `온기한식 (가상)` 리뷰 40건 + 정답 라벨 | `scripts/make_synthetic.py` → `data/synthetic/` |
+| C2 합성 리뷰 | 가게 3곳 리뷰 100건 + 정답 라벨 (발표 시나리오는 `온기한식`) | `scripts/make_synthetic.py` → `data/synthetic/<store_id>/` |
 | C3 분류 | HCX-005가 리뷰마다 주제·칭찬/불만·근거 구절을 고르고, 규칙으로 검사 | `app/classify.py`, `app/topics.py` |
 | C3 묶음 | 같은 주제 불만이 최근 4주에 3건 이상이면 반복 묶음 (계산은 코드) | `app/cluster.py` |
 | S2 붙여넣기 | 사장님이 붙여넣은 리뷰 → 개인정보 가림 → 바로 분류 → 묶음 다시 계산 | `app/service.py`, `app/main.py` |
@@ -25,11 +25,11 @@ pytest -q                         # 시험 (키 필요 없음, CLOVA 응답은 �
 | `live` | HCX-005 호출. 합성 리뷰 결과는 `data/replay/classify.json`에 저장 |
 | `replay` | 저장본 재생 (발표용, C9). 저장본이 없는 리뷰만 규칙 분류 |
 
-발표 재생본 만들기: `.env`에 키를 넣고 `APP_MODE=live python -m scripts.eval_classify` → 정답 라벨과 비교한 정확도가 나오고 `data/replay/classify.json`이 생깁니다. 이 파일은 합성 데이터 결과라 저장소에 올려도 됩니다.
+발표 재생본 만들기: `.env`에 키를 넣고 `APP_MODE=live python -m scripts.eval_classify` → 가게별로 정답 라벨과 비교한 정확도가 나오고 `data/replay/classify.json`이 생깁니다. 이 파일은 합성 데이터 결과라 저장소에 올려도 됩니다.
 
 ## C5·C6이 쓰는 API
 
-`GET /api/review-insight/insight`
+`GET /api/review-insight/insight?store_id=store_ongi` (`store_id`를 빼면 `store_ongi`)
 
 ```json
 {
@@ -39,15 +39,15 @@ pytest -q                         # 시험 (키 필요 없음, CLOVA 응답은 �
   "topic_counts": {"delivery_time": {"positive": 1, "negative": 6}},
   "repeated_issues": [{
     "issue_id": "iss_delivery_time", "topic": "delivery_time", "topic_name": "배달 시간",
-    "review_count": 6, "review_ids": ["rv_0001", "..."],
-    "evidence": [{"review_id": "rv_0001", "quote": "1시간 넘게 걸려서 왔어요"}],
+    "review_count": 6, "review_ids": ["rv_ongi_001", "..."],
+    "evidence": [{"review_id": "rv_ongi_001", "quote": "1시간 넘게 걸려서 왔어요"}],
     "time_bands": {"00~06시": 0, "06~11시": 0, "11~14시": 0, "14~17시": 0, "17~21시": 6, "21~24시": 0},
     "main_time_band": "17~21시",
     "channels": {"baemin": 2, "coupangeats": 2, "yogiyo": 1},
     "recent_count": 6, "previous_count": 0,
     "first_at": "2026-10-28T19:40:00+09:00", "last_at": "2026-11-07T19:20:00+09:00"
   }],
-  "classifications": [{"review_id": "rv_0001", "sentiment": "negative",
+  "classifications": [{"review_id": "rv_ongi_001", "sentiment": "negative",
     "topics": [{"topic": "delivery_time", "polarity": "negative", "evidence": "1시간 넘게 걸려서 왔어요"}],
     "negative_topics": ["delivery_time"], "summary": null, "method": "model", "model": "HCX-005", "warnings": []}],
   "data_origin": "synthetic"
@@ -60,16 +60,30 @@ pytest -q                         # 시험 (키 필요 없음, CLOVA 응답은 �
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| GET | `/api/review-insight/store` | 시나리오 가게 |
-| GET | `/api/review-insight/reviews` | 합성 + 붙여넣은 리뷰 (최신순) |
-| GET | `/api/review-insight/insight` | 위 결과 |
-| POST | `/api/review-insight/reviews` | S2 붙여넣기 `{text, rating?, channel?}` → `{review, classification, joined_issues, repeated_issues}` (201) |
-| DELETE | `/api/review-insight/reviews/pasted` | 붙여넣은 리뷰만 지움 (데모 다시 하기) |
+| GET | `/api/review-insight/stores` | 가게 3곳 목록 + 기본 가게 |
+| GET | `/api/review-insight/store?store_id=` | 가게 정보 |
+| GET | `/api/review-insight/reviews?store_id=` | 합성 + 붙여넣은 리뷰 (최신순) |
+| GET | `/api/review-insight/insight?store_id=` | 위 결과 |
+| POST | `/api/review-insight/reviews` | S2 붙여넣기 `{store_id?, text, rating?, channel?}` → `{review, classification, joined_issues, repeated_issues}` (201) |
+| DELETE | `/api/review-insight/reviews/pasted?store_id=` | 그 가게에 붙여넣은 리뷰만 지움 (데모 다시 하기) |
+
+없는 가게는 404 `STORE_NOT_FOUND`.
 
 오류는 모듈 규격 7절 형식 (`{"error": {"code": "VALIDATION_ERROR", ...}}`).
 
 ## 합성 리뷰 설계 (C2)
 
+분류·묶음이 한 가게에만 맞춰지지 않았는지 보려고, 업종·바쁜 시간·반복 불만이 서로 다른 가게 3곳을 만들었습니다.
+
+| 가게 | 업종 | 리뷰 | 심어 둔 반복 불만 (정답) | 몰린 시간 |
+|---|---|---|---|---|
+| `store_ongi` 온기한식 (발표 시나리오) | 한식 | 40 | 배달 시간 6 · 음식 온도 4 · 포장 3 · 양 4 | 저녁 17~21시 (양은 점심) |
+| `store_basak` 바삭치킨 | 치킨 | 30 | 누락 4 · 식감(눅눅함) 4 · 배달 시간 3 | 밤 21~24시 |
+| `store_mongle` 몽글카페 | 카페 | 30 | 매장 대기 5 · 음료 맛 3 · 포장 3 | 점심 11~14시 · 오후 14~17시 |
+
+리뷰 ID는 가게마다 `rv_ongi_001`, `rv_basak_001`, `rv_mongle_001`처럼 붙습니다. 붙여넣은 리뷰는 `rv_ongi_paste_001`.
+
+온기한식
 - 저녁 매출 하락 상권의 한식집 시나리오. 반복 불만 4갈래를 일부러 심었습니다: **배달 시간 6 · 음식 온도 4 · 포장 3 (모두 저녁 17~21시)**, 양 4 (주로 점심).
 - 누락 2건·매장 대기 2건·응대 1건·위생 1건은 기준(3건) 미만 → 묶이면 안 되는 대조군.
 - 칭찬은 주로 점심. "점심은 잘 되는데 저녁 경험이 나쁘다"가 보이게 했습니다.
@@ -90,11 +104,18 @@ pytest -q                         # 시험 (키 필요 없음, CLOVA 응답은 �
 
 ## 정직하게 밝힐 것
 
-- 규칙 분류기는 이 합성 리뷰에 맞춰 단서를 넣었기 때문에 합성 리뷰에서 점수가 높게 나옵니다. **실제 성능 숫자로는 HCX-005(`APP_MODE=live`) 평가 결과를 씁니다.** 자유롭게 쓴 글은 표현이 다양해서 규칙이 약합니다.
+- 규칙 분류기는 온기한식 리뷰를 보며 단서 단어를 넣었습니다. 그래서 처음 보는 두 가게에서는 크게 떨어집니다 (아래, `APP_MODE=mock`). 바삭치킨·몽글카페 단서는 일부러 맞추지 않았습니다 — 맞추면 또 그 가게에만 맞는 규칙이 됩니다. **실제 성능 숫자로는 HCX-005(`APP_MODE=live`) 평가 결과를 씁니다.**
+
+  | 규칙 분류기 | 감정 정확도 | 주제 재현율 | 반복 묶음 |
+  |---|---|---|---|
+  | 온기한식 (단서를 맞춘 가게) | 40/40 | 100% | 4갈래 모두 찾음 |
+  | 바삭치킨 (처음 보는 가게) | 27/30 | 74% | 3갈래 중 2 (배달 시간 놓침) |
+  | 몽글카페 (처음 보는 가게) | 25/30 | 58% | 3갈래 중 1 (매장 대기·음료 맛 놓침) |
 - 붙여넣은 리뷰의 작성 시각은 붙여넣은 시각입니다 (원래 작성 시각을 모름).
 
 ## 남은 일
 
 - [ ] C1 데이터 계약이 나오면 `app/models.py`를 그 dataclass로 바꾸기
 - [ ] `APP_MODE=live`로 정확도 재고 `data/replay/classify.json` 올리기
-- [ ] C4 상권이 정해지면 가게 업종·이름을 거기에 맞추기 (`scripts/make_synthetic.py`)
+- [ ] C4 상권이 정해지면 시나리오 가게 업종·이름을 거기에 맞추기 (`scripts/make_synthetic.py`)
+- [ ] 바삭치킨·몽글카페에서 HCX-005가 반복 묶음을 모두 찾는지 확인

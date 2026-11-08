@@ -1,6 +1,6 @@
 [
   {
-    "review_id": "rv_0001",
+    "review_id": "rv_ongi_001",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -11,7 +11,7 @@
     "note": "저녁 배달 지연"
   },
   {
-    "review_id": "rv_0002",
+    "review_id": "rv_ongi_002",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -22,7 +22,7 @@
     "note": "저녁 배달 지연"
   },
   {
-    "review_id": "rv_0003",
+    "review_id": "rv_ongi_003",
     "expected_sentiment": "mixed",
     "expected_topics": [
       {
@@ -37,7 +37,7 @@
     "note": "칭찬+저녁 지연이 섞임"
   },
   {
-    "review_id": "rv_0004",
+    "review_id": "rv_ongi_004",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -48,7 +48,7 @@
     "note": "'배달' 단어 없이 지연 표현"
   },
   {
-    "review_id": "rv_0005",
+    "review_id": "rv_ongi_005",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -63,7 +63,7 @@
     "note": "지연+식음 두 불만"
   },
   {
-    "review_id": "rv_0006",
+    "review_id": "rv_ongi_006",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -74,7 +74,7 @@
     "note": "'오래 걸림' 표현"
   },
   {
-    "review_id": "rv_0007",
+    "review_id": "rv_ongi_007",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -85,7 +85,7 @@
     "note": "미지근"
   },
   {
-    "review_id": "rv_0008",
+    "review_id": "rv_ongi_008",
     "expected_sentiment": "mixed",
     "expected_topics": [
       {
@@ -93,14 +93,18 @@
         "polarity": "negative"
       },
       {
+        "topic": "texture",
+        "polarity": "negative"
+      },
+      {
         "topic": "taste",
         "polarity": "positive"
       }
     ],
-    "note": "식음+맛 칭찬"
+    "note": "식음·딱딱함+맛 칭찬"
   },
   {
-    "review_id": "rv_0009",
+    "review_id": "rv_ongi_009",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -111,7 +115,7 @@
     "note": "차갑게 식음"
   },
   {
-    "review_id": "rv_0010",
+    "review_id": "rv_ongi_010",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -126,7 +130,7 @@
     "note": "양+가격"
   },
   {
-    "review_id": "rv_0011",
+    "review_id": "rv_ongi_011",
     "expected_sentiment": "mixed",
     "expected_topics": [
       {
@@ -141,7 +145,7 @@
     "note": "맛 칭찬+양 아쉬움"
   },
   {
-    "review_id": "rv_0012",
+    "review_id": "rv_ongi_012",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -152,7 +156,7 @@
     "note": "매장 방문, 양"
   },
   {
-    "review_id": "rv_0013",
+    "review_id": "rv_ongi_013",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -167,7 +171,7 @@
     "note": "'양' 단어 없이 양 불만"
   },
   {
-    "review_id": "rv_0014",
+    "review_id": "rv_ongi_014",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -178,7 +182,7 @@
     "note": "국물 샘"
   },
   {
-    "review_id": "rv_0015",
+    "review_id": "rv_ongi_015",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -189,7 +193,7 @@
     "note": "포장 허술"
   },
   {
-    "review_id": "rv_0016",
+    "review_id": "rv_ongi_016",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -200,7 +204,7 @@
     "note": "뚜껑"
   },
   {
-    "review_id": "rv_0017",
+    "review_id": "rv_ongi_017",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -211,7 +215,7 @@
     "note": "누락 1"
   },
   {
-    "review_id": "rv_0018",
+    "review_id": "rv_ongi_018",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -222,7 +226,7 @@
     "note": "누락 2 (2건이라 반복 아님)"
   },
   {
-    "review_id": "rv_0019",
+    "review_id": "rv_ongi_019",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -233,7 +237,7 @@
     "note": "응대 1건"
   },
   {
-    "review_id": "rv_0020",
+    "review_id": "rv_ongi_020",
     "expected_sentiment": "negative",
     "expected_topics": [
       {
@@ -244,7 +248,7 @@
     "note": "위생 1건 (단건이어도 심각)"
   },
   {
-    "review_id": "rv_0021",
+    "review_id": "rv_ongi_021",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -255,7 +259,7 @@
     "note": "맛 칭찬"
   },
   {
-    "review_id": "rv_0022",
+    "review_id": "rv_ongi_022",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -270,7 +274,7 @@
     "note": "점심 배달은 빠름 (저녁과 대비)"
   },
   {
-    "review_id": "rv_0023",
+    "review_id": "rv_ongi_023",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -281,7 +285,7 @@
     "note": "응대 칭찬"
   },
   {
-    "review_id": "rv_0024",
+    "review_id": "rv_ongi_024",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -292,7 +296,7 @@
     "note": "맛 칭찬 (저녁)"
   },
   {
-    "review_id": "rv_0025",
+    "review_id": "rv_ongi_025",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -303,7 +307,7 @@
     "note": "가성비"
   },
   {
-    "review_id": "rv_0026",
+    "review_id": "rv_ongi_026",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -318,7 +322,7 @@
     "note": "구성+맛"
   },
   {
-    "review_id": "rv_0027",
+    "review_id": "rv_ongi_027",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -329,7 +333,7 @@
     "note": "맛집"
   },
   {
-    "review_id": "rv_0028",
+    "review_id": "rv_ongi_028",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -344,7 +348,7 @@
     "note": "양 칭찬 (양 불만과 반대)"
   },
   {
-    "review_id": "rv_0029",
+    "review_id": "rv_ongi_029",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -359,7 +363,7 @@
     "note": "청결 칭찬"
   },
   {
-    "review_id": "rv_0030",
+    "review_id": "rv_ongi_030",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -370,7 +374,7 @@
     "note": "점심 포장은 괜찮음 ('안 샜어요'는 칭찬)"
   },
   {
-    "review_id": "rv_0031",
+    "review_id": "rv_ongi_031",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -381,7 +385,7 @@
     "note": "재주문"
   },
   {
-    "review_id": "rv_0032",
+    "review_id": "rv_ongi_032",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -392,7 +396,7 @@
     "note": "점심 단골"
   },
   {
-    "review_id": "rv_0033",
+    "review_id": "rv_ongi_033",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -407,7 +411,7 @@
     "note": "매장 응대·대기"
   },
   {
-    "review_id": "rv_0034",
+    "review_id": "rv_ongi_034",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -418,7 +422,7 @@
     "note": "반찬 구성"
   },
   {
-    "review_id": "rv_0035",
+    "review_id": "rv_ongi_035",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -429,7 +433,7 @@
     "note": "맛"
   },
   {
-    "review_id": "rv_0036",
+    "review_id": "rv_ongi_036",
     "expected_sentiment": "positive",
     "expected_topics": [
       {
@@ -440,7 +444,7 @@
     "note": "요청 반영 칭찬"
   },
   {
-    "review_id": "rv_0037",
+    "review_id": "rv_ongi_037",
     "expected_sentiment": "mixed",
     "expected_topics": [
       {
@@ -455,13 +459,13 @@
     "note": "저녁 매장 대기"
   },
   {
-    "review_id": "rv_0038",
+    "review_id": "rv_ongi_038",
     "expected_sentiment": "neutral",
     "expected_topics": [],
     "note": "주제 없음"
   },
   {
-    "review_id": "rv_0039",
+    "review_id": "rv_ongi_039",
     "expected_sentiment": "mixed",
     "expected_topics": [
       {
@@ -476,7 +480,7 @@
     "note": "같은 주제에 칭찬·불만"
   },
   {
-    "review_id": "rv_0040",
+    "review_id": "rv_ongi_040",
     "expected_sentiment": "negative",
     "expected_topics": [
       {

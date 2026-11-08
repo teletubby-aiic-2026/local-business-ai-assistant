@@ -1,0 +1,341 @@
+[
+  {
+    "review_id": "rv_mongle_001",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "wait_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "매장 대기 ('넘게 걸렸'이지만 배달 아님)"
+  },
+  {
+    "review_id": "rv_mongle_002",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "wait_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "대기"
+  },
+  {
+    "review_id": "rv_mongle_003",
+    "expected_sentiment": "mixed",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      },
+      {
+        "topic": "wait_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "맛 칭찬+대기"
+  },
+  {
+    "review_id": "rv_mongle_004",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "wait_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "'오래 걸려요'인데 매장 대기"
+  },
+  {
+    "review_id": "rv_mongle_005",
+    "expected_sentiment": "mixed",
+    "expected_topics": [
+      {
+        "topic": "wait_time",
+        "polarity": "negative"
+      },
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "대기+맛"
+  },
+  {
+    "review_id": "rv_mongle_006",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "negative"
+      }
+    ],
+    "note": "연함"
+  },
+  {
+    "review_id": "rv_mongle_007",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "negative"
+      }
+    ],
+    "note": "너무 닮 (26번 '달달하니 좋아요'와 반대)"
+  },
+  {
+    "review_id": "rv_mongle_008",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "negative"
+      }
+    ],
+    "note": "밍밍"
+  },
+  {
+    "review_id": "rv_mongle_009",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "packaging",
+        "polarity": "negative"
+      }
+    ],
+    "note": "쏟아짐"
+  },
+  {
+    "review_id": "rv_mongle_010",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "packaging",
+        "polarity": "negative"
+      }
+    ],
+    "note": "뚜껑"
+  },
+  {
+    "review_id": "rv_mongle_011",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "packaging",
+        "polarity": "negative"
+      }
+    ],
+    "note": "'포장' 단어 없이 포장 불만"
+  },
+  {
+    "review_id": "rv_mongle_012",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "price",
+        "polarity": "negative"
+      }
+    ],
+    "note": "가격 1"
+  },
+  {
+    "review_id": "rv_mongle_013",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "portion",
+        "polarity": "negative"
+      },
+      {
+        "topic": "price",
+        "polarity": "negative"
+      }
+    ],
+    "note": "가격 2 (반복 아님)"
+  },
+  {
+    "review_id": "rv_mongle_014",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "temperature",
+        "polarity": "negative"
+      }
+    ],
+    "note": "온도 1"
+  },
+  {
+    "review_id": "rv_mongle_015",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "texture",
+        "polarity": "negative"
+      }
+    ],
+    "note": "식감 1"
+  },
+  {
+    "review_id": "rv_mongle_016",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "texture",
+        "polarity": "positive"
+      }
+    ],
+    "note": "식감 칭찬"
+  },
+  {
+    "review_id": "rv_mongle_017",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "hygiene",
+        "polarity": "positive"
+      }
+    ],
+    "note": "청결"
+  },
+  {
+    "review_id": "rv_mongle_018",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "맛"
+  },
+  {
+    "review_id": "rv_mongle_019",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "texture",
+        "polarity": "positive"
+      },
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "식감·맛"
+  },
+  {
+    "review_id": "rv_mongle_020",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "service",
+        "polarity": "positive"
+      }
+    ],
+    "note": "응대"
+  },
+  {
+    "review_id": "rv_mongle_021",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "맛"
+  },
+  {
+    "review_id": "rv_mongle_022",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "menu",
+        "polarity": "positive"
+      }
+    ],
+    "note": "메뉴"
+  },
+  {
+    "review_id": "rv_mongle_023",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "packaging",
+        "polarity": "positive"
+      }
+    ],
+    "note": "'안 흘렀어요'는 칭찬"
+  },
+  {
+    "review_id": "rv_mongle_024",
+    "expected_sentiment": "positive",
+    "expected_topics": [],
+    "note": "칭찬이지만 사전 주제 없음"
+  },
+  {
+    "review_id": "rv_mongle_025",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "positive"
+      },
+      {
+        "topic": "temperature",
+        "polarity": "positive"
+      }
+    ],
+    "note": "빠른 배달"
+  },
+  {
+    "review_id": "rv_mongle_026",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "달달 칭찬 (7번과 반대)"
+  },
+  {
+    "review_id": "rv_mongle_027",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "service",
+        "polarity": "positive"
+      },
+      {
+        "topic": "hygiene",
+        "polarity": "positive"
+      }
+    ],
+    "note": "응대·청결"
+  },
+  {
+    "review_id": "rv_mongle_028",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "price",
+        "polarity": "positive"
+      }
+    ],
+    "note": "가성비"
+  },
+  {
+    "review_id": "rv_mongle_029",
+    "expected_sentiment": "neutral",
+    "expected_topics": [],
+    "note": "불편하지만 사전 주제 없음 (별점 3 → 무난)"
+  },
+  {
+    "review_id": "rv_mongle_030",
+    "expected_sentiment": "neutral",
+    "expected_topics": [],
+    "note": "주제 없음"
+  }
+]

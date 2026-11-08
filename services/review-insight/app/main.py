@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -42,33 +42,42 @@ class PasteIn(BaseModel):
     text: str = Field(..., description="리뷰 글 (1~1000자)")
     rating: Optional[int] = Field(None, description="별점 1~5, 모르면 비움")
     channel: Optional[str] = Field(None, description="baemin | coupangeats | yogiyo | naver_place, 모르면 비움")
+    store_id: str = Field(service.DEFAULT_STORE, description="가게 ID")
+
+
+StoreQ = Query(service.DEFAULT_STORE, description="가게 ID (기본: 발표 시나리오 가게 store_ongi)")
+
+
+@router.get("/stores")
+def list_stores():
+    return {"stores": service.stores(), "default": service.DEFAULT_STORE}
 
 
 @router.get("/store")
-def get_store():
-    return service.store()
+def get_store(store_id: str = StoreQ):
+    return service.store(store_id)
 
 
 @router.get("/reviews")
-def list_reviews():
-    rows = service.all_reviews()
+def list_reviews(store_id: str = StoreQ):
+    rows = service.all_reviews(store_id)
     return {"reviews": [r.to_dict() for r in sorted(rows, key=lambda r: r.created_at, reverse=True)], "count": len(rows)}
 
 
 @router.get("/insight")
-def get_insight():
+def get_insight(store_id: str = StoreQ):
     """C5 추천 카드·C6 생성이 쓰는 결과: 감정·주제 건수, 반복 불만 묶음, 리뷰별 분류."""
-    return service.analyze(classifier()).to_dict()
+    return service.analyze(classifier(), store_id).to_dict()
 
 
 @router.post("/reviews", status_code=201)
 def paste_review(body: PasteIn):
     """S2 직접 붙여넣기 → 바로 분류 → 반복 묶음 다시 계산."""
     try:
-        review = service.add_pasted(body.text, body.rating, body.channel)
+        review = service.add_pasted(body.text, body.rating, body.channel, store_id=body.store_id)
     except ValueError as e:
         return error(400, "VALIDATION_ERROR", str(e))
-    insight = service.analyze(classifier())
+    insight = service.analyze(classifier(), body.store_id)
     mine = next((c for c in insight.classifications if c.review_id == review.review_id), None)
     joined = [i.issue_id for i in insight.repeated_issues if review.review_id in i.review_ids]
     return {"review": review.to_dict(), "classification": mine.to_dict() if mine else None,
@@ -76,13 +85,18 @@ def paste_review(body: PasteIn):
 
 
 @router.delete("/reviews/pasted")
-def reset_pasted():
-    """데모 다시 하기: 붙여넣은 리뷰를 모두 지움 (합성 리뷰 40건은 그대로)."""
-    return {"deleted": service.clear_pasted()}
+def reset_pasted(store_id: str = StoreQ):
+    """데모 다시 하기: 그 가게에 붙여넣은 리뷰를 모두 지움 (합성 리뷰는 그대로)."""
+    return {"deleted": service.clear_pasted(store_id)}
 
 
 app = FastAPI(title="리뷰 분석 (C2·C3·S2)")
 app.include_router(router)
+
+
+@app.exception_handler(service.StoreNotFound)
+async def _no_store(_: Request, exc: service.StoreNotFound):
+    return error(404, "STORE_NOT_FOUND", f"없는 가게입니다: {exc.args[0]}", {"stores": service.store_ids()})
 
 
 @app.exception_handler(RequestValidationError)

@@ -36,7 +36,7 @@
 <body>
 <main>
   <h1>리뷰 분석 확인 <span class="tag">합성 데이터</span><span class="tag" id="mode">-</span></h1>
-  <div class="sub" id="storeLine">불러오는 중…</div>
+  <div class="row" style="margin-top:6px"><select id="store"></select><span class="sub" id="storeLine">불러오는 중…</span></div>
 
   <section class="card">
     <h2>리뷰 직접 붙여넣기 (S2)</h2>
@@ -58,7 +58,7 @@
   </section>
 </main>
 <script>
-const NAMES = { taste:'맛', portion:'양', price:'가격', delivery_time:'배달 시간', temperature:'음식 온도', packaging:'포장', missing_item:'누락', service:'응대', hygiene:'위생', menu:'메뉴 구성', wait_time:'매장 대기' };
+const NAMES = { texture:'식감', taste:'맛', portion:'양', price:'가격', delivery_time:'배달 시간', temperature:'음식 온도', packaging:'포장', missing_item:'누락', service:'응대', hygiene:'위생', menu:'메뉴 구성', wait_time:'매장 대기' };
 const SAMPLES = [
   { text: '저녁 8시에 시켰는데 한 시간 넘게 걸렸고 국물도 다 식었어요', rating: 1 },
   { text: '맛은 정말 좋은데 포장이 허술해서 국물이 조금 샜어요', rating: 3 },
@@ -66,6 +66,8 @@ const SAMPLES = [
 ];
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const $ = id => document.getElementById(id);
+let STORE = '';
+const q = () => 'store_id=' + encodeURIComponent(STORE);
 async function api(path, opt = {}) {
   const r = await fetch('/api/review-insight' + path, { headers: { 'Content-Type': 'application/json' }, ...opt });
   const d = await r.json();
@@ -92,7 +94,14 @@ function renderResult(d) {
     ${c.warnings.map(w => `<div class="warn">검증: ${esc(w)}</div>`).join('')}</div>`;
 }
 async function load() {
-  const [store, ins] = await Promise.all([api('/store'), api('/insight')]);
+  if (!STORE) {
+    const s = await api('/stores');
+    $('store').innerHTML = s.stores.map(x => `<option value="${esc(x.store_id)}">${esc(x.name)}</option>`).join('');
+    STORE = s.default;
+    $('store').value = STORE;
+    $('store').onchange = () => { STORE = $('store').value; $('result').innerHTML = ''; load(); };
+  }
+  const [store, ins] = await Promise.all([api('/store?' + q()), api('/insight?' + q())]);
   const health = await (await fetch('/health')).json();
   $('mode').textContent = 'APP_MODE ' + health.mode;
   $('storeLine').textContent = `${store.name} · ${store.business_type_name} · 리뷰 ${ins.review_count}건`;
@@ -106,12 +115,12 @@ $('send').onclick = async () => {
   if (!text) return;
   $('send').disabled = true;
   try {
-    const d = await api('/reviews', { method: 'POST', body: JSON.stringify({ text, rating: $('rating').value ? +$('rating').value : null, channel: $('channel').value || null }) });
+    const d = await api('/reviews', { method: 'POST', body: JSON.stringify({ store_id: STORE, text, rating: $('rating').value ? +$('rating').value : null, channel: $('channel').value || null }) });
     renderResult(d); renderIssues(d.repeated_issues, d.joined_issues); $('text').value = '';
   } catch (e) { $('result').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   $('send').disabled = false;
 };
-$('reset').onclick = async () => { await api('/reviews/pasted', { method: 'DELETE' }); $('result').innerHTML = ''; load(); };
+$('reset').onclick = async () => { await api('/reviews/pasted?' + q(), { method: 'DELETE' }); $('result').innerHTML = ''; load(); };
 load().catch(e => { $('storeLine').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
 </script>
 </body>

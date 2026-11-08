@@ -17,18 +17,28 @@ load_dotenv(ROOT / ".env")
 from app import service  # noqa: E402
 from app.classify import Classifier  # noqa: E402
 from app.cluster import build_insight  # noqa: E402
+from app.models import ReviewClassification, TopicHit  # noqa: E402
 
-EXPECTED_ISSUES = {"delivery_time", "temperature", "portion", "packaging"}
 
 
-def main():
-    clf = Classifier()
-    rows = service.sample_reviews()
-    labels = {l["review_id"]: l for l in json.loads((service.SYNTHETIC / "labels.json").read_text(encoding="utf-8"))}
+def label_classes(rows, labels):
+    """정답 라벨을 분류 결과 모양으로 바꿈 → 정답 기준 반복 묶음을 계산하는 데 씀."""
+    out = []
+    for r in rows:
+        lab = labels[r.review_id]
+        hits = [TopicHit(t["topic"], t["polarity"], r.text) for t in lab["expected_topics"]]
+        out.append(ReviewClassification(r.review_id, lab["expected_sentiment"], hits))
+    return out
+
+
+def evaluate(clf, store_id):
+    rows = service.sample_reviews(store_id)
+    labels = service.labels(store_id)
     res = clf.classify(rows)
     sent_ok = tp = fp = fn = 0
-    wrong = []
+    wrong, methods = [], {}
     for c in res:
+        methods[c.method] = methods.get(c.method, 0) + 1
         lab = labels[c.review_id]
         got = {(t.topic, t.polarity) for t in c.topics}
         exp = {(t["topic"], t["polarity"]) for t in lab["expected_topics"]}
@@ -36,21 +46,33 @@ def main():
         tp, fp, fn = tp + len(got & exp), fp + len(got - exp), fn + len(exp - got)
         if got != exp or c.sentiment != lab["expected_sentiment"]:
             text = next(r.text for r in rows if r.review_id == c.review_id)
-            wrong.append(f"  {c.review_id} {text}\n     모델 {sorted(got)} {c.sentiment} ({c.method})\n     정답 {sorted(exp)} {lab['expected_sentiment']}")
-    methods = {}
-    for c in res:
-        methods[c.method] = methods.get(c.method, 0) + 1
-    precision, recall = tp / max(tp + fp, 1), tp / max(tp + fn, 1)
-    issues = {i.topic for i in build_insight("eval", rows, res).repeated_issues}
+            wrong.append(f"  {c.review_id} {text}\n     결과 {sorted(got)} {c.sentiment} ({c.method})\n     정답 {sorted(exp)} {lab['expected_sentiment']}")
+    found = {i.topic for i in build_insight(store_id, rows, res).repeated_issues}
+    expected = {i.topic for i in build_insight(store_id, rows, label_classes(rows, labels)).repeated_issues}
+    return {"n": len(res), "sent_ok": sent_ok, "tp": tp, "fp": fp, "fn": fn, "found": found, "expected": expected,
+            "wrong": wrong, "methods": methods}
 
-    print(f"APP_MODE={clf.mode} 모델={clf.model} 방식별 건수={methods}")
-    print(f"감정 정확도   {sent_ok}/{len(res)} = {sent_ok / len(res):.0%}")
-    print(f"주제 정밀도   {precision:.0%} (찾은 것 중 맞은 비율)")
-    print(f"주제 재현율   {recall:.0%} (정답 중 찾은 비율)")
-    print(f"반복 묶음     찾음 {sorted(issues)} / 정답 {sorted(EXPECTED_ISSUES)} → {'일치' if issues == EXPECTED_ISSUES else '불일치'}")
-    if wrong:
-        print("\n틀린 리뷰")
-        print("\n".join(wrong))
+
+def main():
+    clf = Classifier()
+    print(f"APP_MODE={clf.mode} 모델={clf.model}\n")
+    total = {"n": 0, "sent_ok": 0, "tp": 0, "fp": 0, "fn": 0}
+    all_wrong = []
+    for sid in service.store_ids():
+        r = evaluate(clf, sid)
+        for k in total:
+            total[k] += r[k]
+        p, rc = r["tp"] / max(r["tp"] + r["fp"], 1), r["tp"] / max(r["tp"] + r["fn"], 1)
+        ok = "일치" if r["found"] == r["expected"] else f"불일치 (찾음 {sorted(r['found'])})"
+        print(f"[{service.store(sid)['name']}] {r['n']}건 · 감정 {r['sent_ok']}/{r['n']} · 주제 정밀도 {p:.0%} 재현율 {rc:.0%} · "
+              f"반복 묶음 정답 {sorted(r['expected'])} → {ok} · 방식 {r['methods']}")
+        all_wrong += r["wrong"]
+    p = total["tp"] / max(total["tp"] + total["fp"], 1)
+    rc = total["tp"] / max(total["tp"] + total["fn"], 1)
+    print(f"\n[전체] {total['n']}건 · 감정 정확도 {total['sent_ok'] / total['n']:.0%} · 주제 정밀도 {p:.0%} · 재현율 {rc:.0%}")
+    if all_wrong:
+        print(f"\n틀린 리뷰 {len(all_wrong)}건")
+        print("\n".join(all_wrong))
 
 
 if __name__ == "__main__":

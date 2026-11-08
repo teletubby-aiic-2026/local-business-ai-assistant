@@ -1,0 +1,21 @@
+{
+  "store_id": "store_basak",
+  "name": "바삭치킨 (가상)",
+  "business_type": "chicken",
+  "business_type_name": "치킨전문점",
+  "channels": [
+    "baemin",
+    "coupangeats",
+    "yogiyo",
+    "naver_place"
+  ],
+  "menu": [
+    "후라이드",
+    "양념치킨",
+    "반반",
+    "순살 치킨",
+    "치즈볼",
+    "콜라"
+  ],
+  "data_origin": "synthetic"
+}
