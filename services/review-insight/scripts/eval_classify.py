@@ -2,7 +2,8 @@
 
 services/review-insight 에서:
   python -m scripts.eval_classify            # .env 의 APP_MODE 로 (mock 이면 규칙 분류기 평가)
-  APP_MODE=live python -m scripts.eval_classify   # HCX-005 평가 + data/replay/classify.json 저장 (발표 재생용)
+  APP_MODE=live python -m scripts.eval_classify   # HCX-005 + kiwi 힌트 평가, data/replay/classify.json 저장 (발표 재생용)
+  APP_MODE=live REVIEW_KIWI_HINTS=off python -m scripts.eval_classify   # kiwi 힌트 없이 (비교용)
 """
 from __future__ import annotations
 
@@ -57,7 +58,7 @@ def evaluate(clf, store_id):
 
 def main():
     clf = Classifier()
-    print(f"APP_MODE={clf.mode} 모델={clf.model}\n")
+    print(f"APP_MODE={clf.mode} 모델={clf.model} kiwi 힌트={'켜짐' if clf.hints else '꺼짐'} (REVIEW_KIWI_HINTS=off 로 끄고 비교)\n")
     total = {"n": 0, "sent_ok": 0, "tp": 0, "fp": 0, "fn": 0}
     all_wrong = []
     for sid in service.store_ids():

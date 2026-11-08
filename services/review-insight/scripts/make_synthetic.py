@@ -192,8 +192,8 @@ def build(store: dict, rows: list):
         rid = f"rv_{store['short']}_{n:03d}"
         reviews.append({
             "review_id": rid, "store_id": store["store_id"], "channel": channel, "rating": rating, "text": text,
-            "created_at": f"{day}T{hm}:00+09:00", "input_method": "sample", "pii_masked": False,
-            "data_origin": "synthetic",
+            "created_at": f"{day}T{hm}:00+09:00", "order_ref": None, "input_method": "sample", "pii_masked": False,
+            "status": "new", "data_origin": "synthetic",
         })
         expected = [{"topic": t, "polarity": "positive" if p == "+" else "negative"}
                     for t, ps in topics.items() for p in ps]

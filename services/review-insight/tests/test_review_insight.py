@@ -17,6 +17,7 @@ def tmp_files(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "RUNTIME", tmp_path / "runtime")
     monkeypatch.setattr(classify, "REPLAY_FILE", tmp_path / "replay.json")
     monkeypatch.setattr(classify, "RUNTIME_CACHE", tmp_path / "runtime.json")
+    monkeypatch.setattr(classify, "USAGE_LOG", tmp_path / "logs" / "llm_usage.jsonl")
 
 
 def labels(store_id="store_ongi"):
@@ -178,9 +179,9 @@ def fake_clova(calls):
         body = json.loads(req.content)
         calls.append(body)
         assert req.headers["Authorization"] == "Bearer test-key"
-        user = body["messages"][1]["content"]
+        user = body["messages"][-1]["content"]
         out = []
-        for d in json.loads(user[user.index("\n[") + 1:]):
+        for d in json.loads(user[user.index("\n[\n") + 1:]):
             out.append({"review_id": d["review_id"], "sentiment": "negative" if (d["rating"] or 3) <= 2 else "positive",
                         "topics": [{"topic": "taste", "polarity": "positive", "evidence": d["text"][:6]}], "summary": "요약"})
         return httpx.Response(200, json={"result": {"message": {"content": "```json\n" + json.dumps(out, ensure_ascii=False) + "\n```"}}})
@@ -217,8 +218,8 @@ def test_missing_reviews_are_asked_again_in_small_batches():
 
     def handler(req):
         body = json.loads(req.content)
-        user = body["messages"][1]["content"]
-        rows = json.loads(user[user.index("\n[") + 1:])
+        user = body["messages"][-1]["content"]
+        rows = json.loads(user[user.index("\n[\n") + 1:])
         calls.append(len(rows))
         keep = rows if len(rows) <= 2 else rows[:2]          # 큰 묶음에서는 앞 2건만 답함
         out = [{"review_id": d["review_id"], "sentiment": "positive",
@@ -256,7 +257,7 @@ def test_paste_goes_to_chosen_store_only(client):
     assert client.get("/api/review-insight/reviews?store_id=store_ongi").json()["count"] == 40
     bad = client.get("/api/review-insight/insight?store_id=store_nope")
     assert bad.status_code == 404 and bad.json()["error"]["code"] == "STORE_NOT_FOUND"
-    assert len(client.get("/api/review-insight/stores").json()["stores"]) == 3
+    assert client.get("/api/review-insight/stores").json()["count"] == 3
 
 
 def test_paste_flow(client):
@@ -286,3 +287,121 @@ def test_insight_endpoint_and_page(client):
     assert d["top_issue_id"] == "iss_missing_item" and d["complaint_count"] == 12 and d["group_count"] == 3
     assert d["single_complaint_count"] == 5 and d["data_origin"] == "synthetic"
     assert client.get("/").status_code == 200 and client.get("/health").json()["mode"] == "mock"
+
+
+def test_spec_common_rules(client):
+    """docs/module-io-spec.md 공통 규칙: health, 목록 {items,count}, X-Request-Id, 오류 형식, 리뷰 필드"""
+    h = client.get("/api/health")
+    assert h.json()["status"] == "ok" and h.json()["spec_version"] == "0.1" and h.headers["X-Request-Id"].startswith("req_")
+    lst = client.get("/api/review-insight/reviews").json()
+    assert set(lst) == {"items", "count"} and lst["count"] == 40
+    r = lst["items"][0]
+    assert r["order_ref"] is None and r["status"] == "new" and r["data_origin"] == "synthetic"
+    one = client.get("/api/review-insight/reviews/rv_ongi_001")
+    assert one.status_code == 200 and one.json()["review"]["status"] == "analyzed"
+    miss = client.get("/api/review-insight/reviews/rv_nope")
+    err = miss.json()["error"]
+    assert miss.status_code == 404 and err["code"] == "REVIEW_NOT_FOUND" and err["request_id"] == miss.headers["X-Request-Id"]
+    bad = client.post("/api/review-insight/reviews", json={"text": ""})
+    assert bad.json()["error"]["request_id"] == bad.headers["X-Request-Id"]
+
+
+def test_retry_rules_and_usage_log(tmp_path):
+    """규격 5.6: 429·5xx는 1번 재시도, 401은 재시도 안 함. 호출마다 사용량 한 줄 (글은 남기지 않음)."""
+    rows = service.sample_reviews()[:2]
+    for codes, expected_calls in (([500, 200], 2), ([401], 1), ([429, 429], 2)):
+        seq = iter(codes)
+        calls = []
+        def handler(req, seq=seq, calls=calls):
+            calls.append(1)
+            code = next(seq)
+            if code != 200:
+                return httpx.Response(code, json={}, headers={"retry-after": "0"})
+            out = [{"review_id": r.review_id, "sentiment": "negative", "topics": [], "summary": None} for r in rows]
+            return httpx.Response(200, json={"result": {"message": {"content": json.dumps(out)}, "usage": {"promptTokens": 10, "completionTokens": 5, "totalTokens": 15}}})
+        Classifier("live", api_key="k", transport=httpx.MockTransport(handler))._ask(rows)
+        assert len(calls) == expected_calls, codes
+    lines = [json.loads(l) for l in classify.USAGE_LOG.read_text(encoding="utf-8").splitlines()]
+    assert [l["status"] for l in lines] == ["ok", "LLM_UPSTREAM_ERROR", "LLM_RATE_LIMITED"]
+    assert lines[0]["total_tokens"] == 15 and lines[0]["review_ids"] == [r.review_id for r in rows]
+    assert not any("text" in l or "content" in l for l in lines)
+
+
+def test_key_env_names(monkeypatch):
+    monkeypatch.delenv("CLOVA_STUDIO_API_KEY", raising=False)
+    monkeypatch.setenv("CLOVASTUDIO_API_KEY", "spec-key")
+    assert Classifier("live").api_key == "spec-key"
+    monkeypatch.delenv("CLOVASTUDIO_API_KEY")
+    monkeypatch.setenv("CLOVA_STUDIO_API_KEY", "Bearer pr13-key")
+    assert Classifier("live").api_key == "pr13-key"
+
+
+def test_kiwi_hints_go_into_live_request_and_disagreements_are_flagged():
+    """kiwi 결합(상권 비서 방식): 힌트를 켜면 모델 요청에 형태소·규칙 추측·비슷한 예문이 들어가고, 모델이 놓친 불만은 경고로 남음."""
+    from app import morph
+    if not morph.available():
+        pytest.skip("kiwipiepy 미설치")
+    rows = [r for r in service.sample_reviews() if r.review_id in ("rv_ongi_001", "rv_ongi_006")]
+    seen = {}
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen["system"], seen["user"] = body["messages"][0]["content"], body["messages"][-1]["content"]
+        out = [{"review_id": "rv_ongi_001", "sentiment": "negative",
+                "topics": [{"topic": "missing_item", "polarity": "negative", "evidence": "안 들어 있었어요"}]},
+               {"review_id": "rv_ongi_006", "sentiment": "negative",       # 맛 불만을 일부러 빠뜨림
+                "topics": [{"topic": "portion", "polarity": "negative", "evidence": "양도 적고"}]}]
+        return httpx.Response(200, json={"result": {"message": {"content": json.dumps(out, ensure_ascii=False)}}})
+
+    res = Classifier("live", api_key="k", transport=httpx.MockTransport(handler), hints=True).classify(rows)
+    sent = json.loads(seen["user"][seen["user"].index("\n[\n") + 1:])
+    assert "missing_item:-" in sent[0]["rule_guess"] and "/NNG" in sent[0]["morphemes"]
+    assert "공깃밥/NNG" in sent[0]["morphemes"]                                 # 사용자 사전: 메뉴 이름이 한 낱말
+    assert "[비슷한 예문]" in seen["user"] and "rule_guess" in seen["system"]
+    assert not any(t in seen["user"] for t in ("공깃밥 추가했는데 안 들어 있었어요\" (",))  # 평가 리뷰는 예문으로 안 나옴
+    assert any("규칙만 찾은 불만 taste" in w for w in res[1].warnings)            # 모델이 놓친 맛 불만을 표시
+    assert not any(w.startswith("규칙 비교") for w in res[0].warnings)          # 둘이 같으면 경고 없음
+
+    res_off = Classifier("live", api_key="k", transport=httpx.MockTransport(handler), hints=False).classify(rows)
+    assert "rule_guess" not in seen["user"] and "rule_guess" not in seen["system"] and "[비슷한 예문]" not in seen["user"]
+    assert not any(w.startswith("규칙 비교") for c in res_off for w in c.warnings)
+
+
+def test_example_bank_does_not_leak_eval_reviews_and_finds_similar():
+    from app import examples
+    bank = {e["text"] for e in json.loads(examples.BANK.read_text(encoding="utf-8"))["examples"]}
+    evals = {r.text for s in service.store_ids() for r in service.sample_reviews(s)}
+    assert not bank & evals                                                   # 평가 세트와 겹치지 않음
+    top = examples.similar("치킨무가 안 왔어요", limit=1)[0]
+    assert "missing_item:-" in top["topics"]
+
+
+def test_lexicon_is_a_json_file_teammates_can_edit():
+    from app import morph
+    lx = morph.lexicon()
+    assert "missing_item" in lx["topics"] and "식다" in lx["negative"] and "공깃밥" in morph.user_words()
+
+
+def test_morph_switch_off_falls_back_to_text_rules(monkeypatch):
+    from app import morph
+    monkeypatch.setenv("REVIEW_MORPH", "off")
+    assert morph.get_analyzer() is None and morph.content_morphemes("식었어요") == []
+    assert Classifier("live", api_key="k").hints is False
+
+
+def test_kiwi_features_typos_clauses_lemma_and_pii():
+    """kiwipiepy 0.24 기능을 직접 씀: 오타 교정, token.lemma, 토큰 위치로 구절 나누기, W_ 태그 개인정보."""
+    from app import morph
+    from app.topics import rule_classify
+    if not morph.available():
+        pytest.skip("kiwipiepy 미설치")
+    got = {(h.topic, h.polarity) for h in rule_classify("x", "맛잇긴한데 양이 저거요", 3, "baemin").topics}
+    assert got == {("taste", "positive"), ("portion", "negative")}                  # 오타 교정: 맛잇→맛있다, 저거요→적다
+    assert morph.clauses("맛은 있는데 겉이 좀 눅눅했어요") == ["맛은 있는데", "겉이 좀 눅눅했어요"]
+    assert morph.clauses("커피는 맛있는데 점심엔 대기가 너무 길어요")[0] == "커피는 맛있는데"   # ETM+데 경계
+    assert all(c in "저녁 7시에 시켰는데 1시간 넘게 걸려서 왔어요. 배고파서 혼났네요." for c in morph.clauses("저녁 7시에 시켰는데 1시간 넘게 걸려서 왔어요. 배고파서 혼났네요."))
+    assert "퍽퍽하다/VA" in morph.content_morphemes("퍽퍽했어요")                      # token.lemma
+    masked, changed = mask_pii("문의 010 1234 5678 / me.owner@shop.kr 2-3인분 12,000원")
+    assert changed and "5678" not in masked and "@" not in masked                      # 띄어 쓴 전화번호·이메일 가림
+    assert "2-3인분" in masked and "12,000원" in masked                                # 짧은 숫자열·가격은 그대로
+    assert morph.pii_spans("연락 a@b.com")                                              # kiwi W_EMAIL

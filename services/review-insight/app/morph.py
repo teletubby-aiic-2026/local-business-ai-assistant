@@ -1,91 +1,179 @@
-"""kiwi 형태소 분석으로 하는 규칙 분류 (모델이 없거나 실패했을 때의 대비책).
+"""kiwi 형태소 분석 (kiwipiepy 0.24, Apache-2.0). 상권 비서(PR #13)의 app/assistant/morph.py 와 같은 구조입니다.
 
-글자 그대로 찾는 규칙은 '식었어요 / 식어서 / 식은'처럼 말끝이 바뀌면 놓칩니다.
-kiwi로 낱말을 기본형('식다')으로 바꾼 뒤 단서와 비교하고, '안 바삭해요', '하나도 안 샜어요'처럼
-앞뒤에 붙은 부정(안·못·-지 않다)도 읽습니다.
+kiwi가 이미 해 주는 일은 kiwi에 맡깁니다 (kiwipiepy 0.24.1 API로 확인).
+- token.lemma: 기본형 ('식' → 식다, '퍽퍽하' → 퍽퍽하다). 직접 '다'를 붙이지 않음
+- tokenize(typos=...): 오타 교정 ('맛잇어요' → 맛있다, '양이 저거요' → 적다). REVIEW_MORPH_TYPOS 로 바꿈
+- 낱말 위치(start·len)와 연결어미(EC)·문장부호(SF) 태그로 구절 나누기 (clauses)
+- W_EMAIL·W_URL·W_SERIAL 태그로 개인정보 찾기 (pii_spans, 정규식과 함께 씀)
+- model_type='cong' (0.22부터 기본 모델. knlm·sbg는 기본 파일에서 빠짐)
 
-kiwipiepy(Apache-2.0)는 상권 비서(PR #13)와 같은 버전을 씁니다. 설치되어 있지 않으면
-topics.rule_classify 가 예전 글자 규칙으로 돌아갑니다.
+kiwi가 하는 일은 문장을 낱말로 쪼개고 기본형으로 바꾸는 것까지입니다 ('식었어요' → 식/VV).
+그 결과로 "식다가 나오면 음식 온도 불만"처럼 판단하는 단서는 data/lexicon/review_cues.json 에 있습니다
+(상권 비서의 intent_keywords.json 과 같은 방식: 코드를 고치지 않고 파일만 고침).
+
+쓰는 곳
+1. 모델 참고 자료: live 요청에 리뷰마다 형태소(content_morphemes)와 규칙 분류기 추측을 넣습니다.
+2. 규칙 분류기: 모델이 없거나(mock) 실패했을 때 (topics.rule_classify).
+3. 비슷한 예문 찾기 (examples.similar).
+
+kiwipiepy가 없거나 REVIEW_MORPH=off 면 get_analyzer()가 None 이고, 규칙은 글자 단서로 돌아갑니다.
 """
 from __future__ import annotations
 
-import threading
+import json
+import os
+import unicodedata
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
-try:
-    from kiwipiepy import Kiwi
-except ImportError:   # 선택 설치
-    Kiwi = None
+LEXICON = Path(__file__).resolve().parents[1] / "data" / "lexicon" / "review_cues.json"
+_CONTENT_TAGS = ("NNG", "NNP", "NNB", "NP", "VV", "VA", "XR", "MM", "MAG", "SN")
 
-_kiwi = None
-_lock = threading.Lock()
 
-# 주제 단서 (기본형). 특정 가게 메뉴 이름이 아니라 리뷰에 흔히 나오는 말로만 적습니다.
-CUES: dict[str, set[str]] = {
-    "taste": {"맛", "맛있다", "맛없다", "간", "싱겁다", "짜다", "밍밍", "쩐내", "냄새", "고소하다", "얼큰하다", "담백하다",
-              "느끼하다", "비리다", "정갈하다", "진하다", "달달하다", "달다", "불맛", "맛집", "집밥"},
-    "portion": {"양", "넉넉하다", "푸짐하다", "푸짐", "든든하다", "사이즈"},
-    "price": {"가격", "가성비", "비싸다", "저렴하다", "값"},
-    "texture": {"바삭", "눅눅", "질기다", "퍽퍽", "촉촉하다", "부드럽다", "딱딱하다", "쫄깃", "폭신", "질다", "겉바속촉"},
-    "temperature": {"식다", "미지근", "차갑다", "따뜻하다", "뜨겁다", "뜨끈", "따끈따끈", "시원하다", "녹다"},
-    "packaging": {"새다", "흐르다", "넘치다", "쏟다", "쏟아지다", "뚜껑", "흥건", "뭉개지다", "뭉개다", "젖다", "허술하다"},
-    "missing_item": {"누락", "빠지다", "오배송"},
-    "service": {"친절", "불친절", "퉁명", "응대", "직원", "사장", "요청", "서비스"},
-    "hygiene": {"위생", "청결", "깨끗하다", "깔끔하다", "머리카락", "이물질", "벌레", "지저분하다"},
-    "menu": {"메뉴", "구성", "종류", "다양하다", "가짓수"},
-    "atmosphere": {"자리", "좌석", "의자", "인테리어", "분위기", "한적하다", "시끄럽다", "넓다", "좁다", "혼밥"},
-    "wait_time": {"웨이팅", "대기"},
-}
-# 시간 관련 말: 배달 리뷰면 delivery_time, 매장 방문(naver_place)이면 wait_time
-TIME_WORDS = {"배달", "도착", "늦다", "걸리다", "오래", "빠르다", "빨리", "금방", "기다리다", "한참", "밀리다", "분만에"}
+@dataclass(frozen=True)
+class Morpheme:
+    form: str
+    tag: str
+    start: int   # 원문에서의 글자 위치
+    length: int
 
-NEG = {"늦다", "식다", "미지근", "적다", "없다", "빠지다", "누락", "퉁명", "불친절", "머리카락", "이물질", "벌레", "새다",
-       "흐르다", "넘치다", "쏟다", "쏟아지다", "흥건", "허술하다", "아쉽다", "짜다", "싱겁다", "밍밍", "쩐내", "오래", "밀리다",
-       "비싸다", "부담", "지저분하다", "눅눅", "질기다", "퍽퍽", "딱딱하다", "질다", "녹다", "뭉개지다", "젖다", "좁다",
-       "불편하다", "시끄럽다", "한참", "줄다", "오르다", "기다리다", "덜", "지나치다", "별로", "실망", "맛없다", "느끼하다", "비리다",
-       "높다", "길다", "웨이팅", "대기", "뭉개다"}
-POS = {"맛있다", "좋다", "괜찮다", "친절", "빠르다", "빨리", "금방", "넉넉하다", "푸짐하다", "푸짐", "꼼꼼하다", "깔끔하다",
-       "알차다", "정갈하다", "감사", "따뜻하다", "뜨끈", "따끈따끈", "시원하다", "가성비", "얼큰하다", "달달하다", "촉촉하다",
-       "부드럽다", "바삭", "고소하다", "깨끗하다", "청결", "다양하다", "최고", "인정", "든든하다", "폭신", "편하다", "한적하다",
-       "넓다", "예쁘다", "진하다", "맛집", "쫄깃", "저렴하다", "담백하다"}
+
+class KiwiAnalyzer:
+    name = "kiwi"
+
+    def __init__(self, user_words=()):
+        from kiwipiepy import Kiwi   # 선택 설치라서 여기서 불러옴
+        import kiwipiepy
+
+        self._kiwi = Kiwi(model_type="cong")
+        for word in user_words:
+            # 메뉴 이름이 한 낱말로 남게 (예: 치킨무, 순두부찌개, 바닐라라떼)
+            self._kiwi.add_user_word(word, "NNG", 0.0)
+        self.version = kiwipiepy.__version__
+        self.typos = os.getenv("REVIEW_MORPH_TYPOS", "basic_with_continual").strip() or None
+        if self.typos in ("off", "none", "0"):
+            self.typos = None
+
+    def tokens(self, text: str):
+        """kiwi Token 그대로 (lemma·start·len·tag). 리뷰는 오타가 많아 오타 교정을 켬."""
+        return self._kiwi.tokenize(unicodedata.normalize("NFC", text or ""), typos=self.typos)
+
+    def analyze(self, text: str) -> list[Morpheme]:
+        return [Morpheme(t.form, t.tag, t.start, t.len) for t in self.tokens(text)]
+
+
+@lru_cache(maxsize=1)
+def lexicon() -> dict:
+    data = json.loads(LEXICON.read_text(encoding="utf-8"))
+    return {"topics": {k: set(v) for k, v in data["topics"].items()}, "time_words": set(data["time_words"]),
+            "negative": set(data["negative"]), "positive": set(data["positive"]), "user_words": list(data.get("user_words", []))}
+
+
+def user_words() -> list[str]:
+    """사용자 사전: 단서 파일의 낱말 + 가게 메뉴 이름."""
+    words = set(lexicon()["user_words"])
+    synthetic = LEXICON.parents[1] / "synthetic"
+    for store in synthetic.glob("*/store.json"):
+        for menu in json.loads(store.read_text(encoding="utf-8")).get("menu", []):
+            words.update(w for w in menu.split() if len(w) >= 2)
+    return sorted(w for w in words if all("가" <= ch <= "힣" for ch in w))
+
+
+def morph_enabled() -> bool:
+    return os.getenv("REVIEW_MORPH", "").strip().lower() not in ("off", "0", "false")
+
+
+def get_analyzer():
+    """분석기 하나를 같이 씀. 꺼져 있거나 설치되지 않았으면 None.
+    켜기·끄기는 부를 때마다 읽고, 띄운 분석기만 캐시함 (상권 비서와 같은 방식)."""
+    if not morph_enabled():
+        return None
+    return _load_kiwi()
+
+
+@lru_cache(maxsize=1)
+def _load_kiwi():
+    try:
+        return KiwiAnalyzer(user_words())
+    except ImportError:
+        return None
 
 
 def available() -> bool:
-    return Kiwi is not None
+    return get_analyzer() is not None
 
 
-def kiwi():
-    global _kiwi
-    if _kiwi is None:
-        with _lock:
-            if _kiwi is None:
-                _kiwi = Kiwi()
-    return _kiwi
+def content_morphemes(text: str) -> list[str]:
+    """'공깃밥/NNG 추가/NNG 하/XSV 안/MAG 들/VV …' 모델 참고 자료용. 분석기가 꺼져 있으면 []."""
+    analyzer = get_analyzer()
+    if analyzer is None:
+        return []
+    return [f"{t.lemma if t.tag.startswith(('VV', 'VA')) else t.form}/{t.tag}" for t in analyzer.tokens(text)
+            if t.tag.startswith(_CONTENT_TAGS)][:30]
+
+
+# 구절을 나누는 연결어미 (‘맛은 있는데 | 겉이 눅눅해요’). '-고'는 나누지 않음 ('양도 적고 간도 싱거워요'는 한 구절)
+_CLAUSE_EC = {"는데", "ᆫ데", "은데", "지만", "더니", "라더니", "으나", "나", "는데요", "다만"}
+_PRED = ("VV", "VA", "XR", "MAG", "NNG", "NNP", "NR")
+
+
+def clauses(text: str) -> list[str]:
+    """kiwi 토큰 위치로 나눈 구절들. 각 구절은 원문 그대로의 부분 문자열 (근거 구절로 쓸 수 있음)."""
+    analyzer = get_analyzer()
+    out, start, prev = [], 0, None
+    for t in analyzer.tokens(text):
+        tag = t.tag.split("-")[0]
+        # kiwi가 '맛있는데'를 '는(ETM) + 데(NNB)'로 읽을 때도 있어서 같은 경계로 봄
+        etm_de = tag == "NNB" and t.form == "데" and prev is not None and prev.tag == "ETM"
+        prev = t
+        if tag == "SF" or (tag == "EC" and t.form in _CLAUSE_EC) or etm_de or t.form == "다만":
+            end = t.start + t.len if tag in ("EC", "NNB") else t.start
+            piece = text[start:end].strip(" ,.!?~")
+            if piece:
+                out.append(piece)
+            start = t.start + t.len
+    tail = text[start:].strip(" ,.!?~")
+    if tail:
+        out.append(tail)
+    return out or [text]
+
+
+def pii_spans(text: str) -> list[tuple[int, int]]:
+    """kiwi가 찾은 이메일·URL·긴 숫자열(전화번호 등) 위치. '2-3인분' 같은 짧은 숫자열은 빼고 9자리 이상만."""
+    analyzer = get_analyzer()
+    if analyzer is None:
+        return []
+    spans = []
+    for t in analyzer.tokens(text):
+        if t.tag in ("W_EMAIL", "W_URL") or (t.tag == "W_SERIAL" and sum(ch.isdigit() for ch in t.form) >= 9):
+            spans.append((t.start, t.start + t.len))
+    return spans
 
 
 def lemmas(text: str) -> tuple[list[str], set[str]]:
-    """(기본형 낱말 목록, 부정된 기본형 집합)"""
-    toks = kiwi().tokenize(text)
+    """(기본형 낱말 목록, 부정된 기본형 집합). 기본형은 kiwi의 token.lemma."""
+    toks = list(get_analyzer().tokens(text))
     out, negated = [], set()
     for i, t in enumerate(toks):
         tag = t.tag.split("-")[0]
         nxt = toks[i + 1] if i + 1 < len(toks) else None
-        if tag in ("VV", "VA"):
-            lemma = t.form + "다"
-        elif tag in ("NNG", "NNP", "XR", "MAG", "NR"):
-            # '깨끗 + 하다', '한적 + 하다'처럼 뒤에 '하다'가 붙는 말은 '깨끗하다'로 (꾸미는 말 MAG는 그대로)
-            lemma = t.form
-            if tag != "NNG" and nxt is not None and nxt.form == "하" and nxt.tag.startswith("XSA"):
-                out.append(t.form)           # 뿌리('바삭')와 기본형('바삭하다')을 둘 다 남김
-                lemma = t.form + "하다"
-        else:
+        if tag not in _PRED:
             continue
+        lemma = t.lemma
+        if tag in ("VV", "VA") and lemma.endswith("하다") and len(lemma) > 2:
+            out.append(lemma[:-2])           # '퍽퍽하다'처럼 한 낱말로 읽힌 말도 뿌리('퍽퍽')를 남김
+        if tag in ("XR", "MAG") and nxt is not None and nxt.form == "하" and nxt.tag.startswith("XSA"):
+            out.append(t.form)               # '깨끗 + 하다'는 뿌리('깨끗')와 기본형('깨끗하다')을 둘 다
+            lemma = t.form + "하다"
         # '포장해야겠네요'처럼 '포장' 뒤에 '하다'가 붙으면 포장 주문이라는 뜻 → 포장 상태 단서 아님
-        if t.form == "포장" and i + 1 < len(toks) and toks[i + 1].tag.startswith("XSV"):
+        if t.form == "포장" and nxt is not None and nxt.tag.startswith("XSV"):
             continue
-        # 앞에 '안·못' 또는 뒤에 '-지 않다/못하다'가 오면 부정
-        before = toks[i - 1].form if i > 0 else ""
-        after = [x.form for x in toks[i + 1:i + 4]]
-        if before in ("안", "못") or ("지" in after and ("않" in after or "못하" in after)):
+        # 앞에 '안·못'(MAG) 또는 뒤에 '-지(EC) 않다/못하다(VX)'가 오면 부정
+        before = toks[i - 1] if i > 0 else None
+        after = [(x.form, x.lemma) for x in toks[i + 1:i + 4]]
+        if (before is not None and before.form in ("안", "못") and before.tag == "MAG") or \
+                (("지", "지") in after and any(lm in ("않다", "못하다") for _, lm in after)):
             negated.update({lemma, t.form})
         out.append(lemma)
     forms = [x.form for x in toks]
@@ -114,23 +202,25 @@ def lemmas(text: str) -> tuple[list[str], set[str]]:
 
 def classify_clause(clause: str, channel: str | None) -> tuple[list[str], int, int]:
     """한 구절의 (주제 목록, 불만 점수, 칭찬 점수)."""
+    lx = lexicon()
+    cues = lx["topics"]
     words, negated = lemmas(clause)
     ws = set(words)
-    topics = [t for t, cues in CUES.items() if ws & cues]
+    topics = [t for t, c in cues.items() if ws & c]
     # '메뉴 가격', '포장이 깔끔' 처럼 다른 주제를 꾸미기만 하는 말은 그 주제로 세지 않음
-    if "price" in topics and "menu" in topics and not (ws & (CUES["menu"] - {"메뉴"})):
+    if "price" in topics and "menu" in topics and not (ws & (cues["menu"] - {"메뉴"})):
         topics.remove("menu")
     if "포장상태" in ws and "packaging" not in topics:
         topics.append("packaging")
-    if "packaging" in topics and "hygiene" in topics and not (ws & (CUES["hygiene"] - {"깔끔하다"})):
+    if "packaging" in topics and "hygiene" in topics and not (ws & (cues["hygiene"] - {"깔끔하다"})):
         topics.remove("hygiene")
-    if ws & TIME_WORDS and not ({"delivery_time", "wait_time"} & set(topics)):
+    if ws & lx["time_words"] and not ({"delivery_time", "wait_time"} & set(topics)):
         topics.append("wait_time" if channel == "naver_place" else "delivery_time")
     neg = pos = 0
     for w in ws:
         flip = w in negated
-        if w in NEG:
+        if w in lx["negative"]:
             pos, neg = (pos + 1, neg) if flip else (pos, neg + 1)
-        elif w in POS:
+        elif w in lx["positive"]:
             pos, neg = (pos, neg + 1) if flip else (pos + 1, neg)
     return topics, neg, pos

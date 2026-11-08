@@ -20,12 +20,16 @@ import logging
 import os
 import re
 import threading
+import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 
 from app.models import POLARITIES, SENTIMENTS, Review, ReviewClassification, TopicHit
+from app.examples import similar
+from app.morph import content_morphemes
 from app.topics import TOPICS, banned_in, locate_evidence, norm, rule_classify, sentiment_of
 
 log = logging.getLogger("review_insight.classify")
@@ -33,8 +37,10 @@ log = logging.getLogger("review_insight.classify")
 ROOT = Path(__file__).resolve().parents[1]
 REPLAY_FILE = ROOT / "data" / "replay" / "classify.json"           # 합성 리뷰 결과 (저장소에 올려도 됨)
 RUNTIME_CACHE = ROOT / "data" / "runtime" / "classify_paste.json"   # 붙여넣은 리뷰 결과 (저장소에 안 올림)
+USAGE_LOG = ROOT / "logs" / "llm_usage.jsonl"                        # 규격 5.6: 호출마다 한 줄, 글은 남기지 않음 (저장소에 안 올림)
+KST = timezone(timedelta(hours=9))
 ENDPOINT = "https://clovastudio.stream.ntruss.com/v3/chat-completions/{model}"
-PROMPT_VERSION = "c3-v3"   # 프롬프트를 바꾸면 올림 → 예전 재생본과 섞이지 않음
+PROMPT_VERSION = "c3-v5"   # 프롬프트를 바꾸면 올림 → 예전 재생본과 섞이지 않음
 BATCH = 6
 RETRY_BATCH = 2   # 한 번에 못 읽은 리뷰는 2건씩 한 번 더 물어봄
 
@@ -59,22 +65,71 @@ SYSTEM = """너는 음식점 리뷰를 주제별로 나누는 분류기다. 결�
    냄새·간·단맛·싱거움은 taste, 바삭함·눅눅함·질김은 texture다.
 6. sentiment는 positive, negative, mixed(칭찬과 불만이 함께), neutral(주제가 없거나 판단 어려움) 중 하나다.
 7. summary는 리뷰 내용을 20자 안팎 한 줄로 쓴다. 원인을 단정하거나(때문, 탓) 누군가를 탓하지 않는다.
-8. 주어진 리뷰 순서대로 JSON 배열만 출력한다. 다른 글은 쓰지 않는다.
+8. 주어진 리뷰 순서대로 JSON 배열만 출력한다. 다른 글은 쓰지 않는다.{hint_rule}
 형식: [{{"review_id": "...", "sentiment": "...", "topics": [{{"topic": "...", "polarity": "...", "evidence": "..."}}], "summary": "..."}}]"""
 
 
-def system_prompt() -> str:
-    return SYSTEM.format(topics="\n".join(f"- {k}: {v[0]} ({v[1]})" for k, v in TOPICS.items()))
+HINT_RULE = """
+9. [비슷한 예문]과 리뷰의 morphemes(형태소 분석), rule_guess(규칙 분류기 추측)는 참고 자료다 ('주제:+' 칭찬, '주제:-' 불만).
+   리뷰 글 전체의 뜻과 다르면 따르지 않는다. 다만 rule_guess에 있는 주제를 빠뜨리지 않았는지는 꼭 확인한다.
+   후보에 있어도 리뷰에 근거 구절이 없으면 적지 않고, 후보에 없어도 리뷰에 있으면 적는다."""
+
+# 고정 예시 한 쌍: 모델이 JSON 배열 하나로만 답하게 (상권 비서 planner 의 _SHOT 과 같은 역할)
+_SHOT_USER = """[리뷰] 아래 JSON 배열의 리뷰를 모두 분류해서, 같은 순서의 JSON 배열 하나로만 답한다.
+[{"review_id": "ex_1", "channel": "baemin", "rating": 2, "text": "맛은 좋은데 포장 용기가 깨져서 국물이 다 흘렀어요"}]"""
+_SHOT_ANSWER = ('[{"review_id": "ex_1", "sentiment": "mixed", "topics": [{"topic": "taste", "polarity": "positive", "evidence": "맛은 좋은데"}, '
+                '{"topic": "packaging", "polarity": "negative", "evidence": "포장 용기가 깨져서 국물이 다 흘렀어요"}], "summary": "맛은 좋으나 국물 샘"}]')
 
 
-def _user(reviews: list[Review]) -> str:
-    rows = [{"review_id": r.review_id, "channel": r.channel, "rating": r.rating, "text": r.text} for r in reviews]
-    return ("[리뷰] 아래 JSON 배열의 리뷰를 모두 분류해서, 같은 순서의 JSON 배열 하나로만 답한다.\n"
-            + json.dumps(rows, ensure_ascii=False, indent=1))
+def system_prompt(hints: bool = False) -> str:
+    return SYSTEM.format(topics="\n".join(f"- {k}: {v[0]} ({v[1]})" for k, v in TOPICS.items()),
+                         hint_rule=HINT_RULE if hints else "")
 
 
-def cache_key(r: Review, model: str) -> str:
-    return hashlib.sha256(f"{PROMPT_VERSION}|{model}|{r.rating}|{norm(r.text)}".encode()).hexdigest()[:20]
+def rule_guess(r: Review) -> list[str]:
+    """kiwi 규칙 분류기의 추측 ('missing_item:-' 처럼 짧게)."""
+    c = rule_classify(r.review_id, r.text, r.rating, r.channel, use_kiwi=True)
+    return [f"{h.topic}:{'+' if h.polarity == 'positive' else '-'}" for h in c.topics]
+
+
+def _fmt_example(e: dict) -> str:
+    return f'- "{e["text"]}" ({e["channel"]}) → {", ".join(e["topics"]) or "주제 없음"} ({e["sentiment"]})'
+
+
+def _user(reviews: list[Review], hints: bool = False) -> str:
+    rows = []
+    for r in reviews:
+        row = {"review_id": r.review_id, "channel": r.channel, "rating": r.rating, "text": r.text}
+        if hints:
+            row["morphemes"] = " ".join(content_morphemes(r.text))
+            row["rule_guess"] = rule_guess(r)
+        rows.append(row)
+    parts = []
+    if hints:
+        picked = {}
+        for r in reviews:
+            for e in similar(r.text, limit=2):
+                picked.setdefault(e["text"], e)
+        if picked:
+            parts.append("[비슷한 예문]\n" + "\n".join(_fmt_example(e) for e in list(picked.values())[:8]))
+    parts.append("[리뷰] 아래 JSON 배열의 리뷰를 모두 분류해서, 같은 순서의 JSON 배열 하나로만 답한다.\n"
+                 + json.dumps(rows, ensure_ascii=False, indent=1))
+    return "\n\n".join(parts)
+
+
+def cache_key(r: Review, model: str, hints: bool = False) -> str:
+    return hashlib.sha256(f"{PROMPT_VERSION}|{model}|{'kiwi' if hints else 'plain'}|{r.channel}|{r.rating}|{norm(r.text)}".encode()).hexdigest()[:20]
+
+
+def compare_with_rules(c: ReviewClassification, r: Review) -> None:
+    """모델 결과와 kiwi 규칙 결과의 불만 주제가 다르면 경고로 남김 (사람이 볼 곳 표시, 결과는 바꾸지 않음)."""
+    rule = rule_classify(r.review_id, r.text, r.rating, r.channel, use_kiwi=True)
+    only_rule = sorted(set(rule.negative_topics) - set(c.negative_topics))
+    only_model = sorted(set(c.negative_topics) - set(rule.negative_topics))
+    if only_rule:
+        c.warnings.append(f"규칙 비교: 규칙만 찾은 불만 {', '.join(only_rule)}")
+    if only_model:
+        c.warnings.append(f"규칙 비교: 모델만 찾은 불만 {', '.join(only_model)}")
 
 
 # ── 모델 결과 검사 ──
@@ -168,16 +223,25 @@ def _skip_object(text: str, i: int) -> int:
 
 class Classifier:
     def __init__(self, mode: str | None = None, api_key: str | None = None, model: str | None = None,
-                 transport: httpx.BaseTransport | None = None):
+                 transport: httpx.BaseTransport | None = None, hints: bool | None = None):
         env = os.environ
         self.mode = (mode if mode is not None else env.get("APP_MODE", "mock")).strip().lower() or "mock"
         if self.mode not in ("mock", "live", "replay"):
             raise ValueError("APP_MODE는 mock, live, replay 중 하나여야 합니다")
-        key = (api_key if api_key is not None else env.get("CLOVA_STUDIO_API_KEY", "")).strip()
+        # 규격 9.1 이름(CLOVASTUDIO_API_KEY)과 상권 비서(PR #13) 이름(CLOVA_STUDIO_API_KEY)을 둘 다 받음
+        if api_key is None:
+            api_key = env.get("CLOVASTUDIO_API_KEY", "") or env.get("CLOVA_STUDIO_API_KEY", "")
+        key = api_key.strip()
         self.api_key = key[7:].strip() if key.lower().startswith("bearer ") else key
-        self.model = model or env.get("CLOVA_MODEL_REVIEW", "").strip() or "HCX-005"
+        self.model = model or env.get("LLM_MODEL_REVIEW", "").strip() or env.get("CLOVA_MODEL_REVIEW", "").strip() or "HCX-005"
+        self.timeout = float(env.get("LLM_TIMEOUT_SECONDS", "") or 20)
+        # kiwi 결합 (상권 비서와 같은 방식): 모델 요청에 형태소·규칙 추측·비슷한 예문을 참고 자료로 넣고,
+        # 결과를 규칙과 맞대 봄. REVIEW_KIWI_HINTS=off 로 끔 (비교 실험용)
+        from app import morph
+        want = hints if hints is not None else env.get("REVIEW_KIWI_HINTS", "on").strip().lower() not in ("off", "0", "false")
+        self.hints = bool(want and morph.available())
         if self.mode == "live" and not self.api_key:
-            raise ValueError("APP_MODE=live 에는 .env 의 CLOVA_STUDIO_API_KEY 가 필요합니다")
+            raise ValueError("APP_MODE=live 에는 .env 의 CLOVASTUDIO_API_KEY 가 필요합니다")
         self.transport = transport
         self._lock = threading.Lock()
 
@@ -198,17 +262,56 @@ class Classifier:
 
     # ── 모델 호출 ──
     def _call(self, batch: list[Review]) -> list:
-        body = {"messages": [{"role": "system", "content": system_prompt()}, {"role": "user", "content": _user(batch)}],
+        body = {"messages": [{"role": "system", "content": system_prompt(self.hints)},
+                             {"role": "user", "content": _SHOT_USER}, {"role": "assistant", "content": _SHOT_ANSWER},
+                             {"role": "user", "content": _user(batch, self.hints)}],
                 "topP": 0.8, "topK": 0, "temperature": 0.1, "maxTokens": 300 * len(batch) + 200,
                 "repetitionPenalty": 1.0, "seed": 0, "includeAiFilters": True}
-        with httpx.Client(timeout=60, transport=self.transport) as c:
-            resp = c.post(ENDPOINT.format(model=self.model), json=body, headers={
-                "Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json",
-                "X-NCP-CLOVASTUDIO-REQUEST-ID": uuid.uuid4().hex})
-        if resp.status_code != 200:
-            raise RuntimeError(f"CLOVA Studio {resp.status_code}")   # 키가 섞일 수 있어 본문은 남기지 않음
-        result = (resp.json() or {}).get("result") or {}
+        # 규격 5.6 재시도: 429는 잠깐 기다렸다 1번, 5xx·시간 초과는 1번, 400·401·403은 재시도하지 않음
+        resp, status = None, "ok"
+        t0 = time.perf_counter()
+        for attempt in range(2):
+            try:
+                with httpx.Client(timeout=self.timeout, transport=self.transport) as c:
+                    resp = c.post(ENDPOINT.format(model=self.model), json=body, headers={
+                        "Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json",
+                        "X-NCP-CLOVASTUDIO-REQUEST-ID": uuid.uuid4().hex})
+            except httpx.TimeoutException:
+                resp, status = None, "LLM_TIMEOUT"
+                continue
+            if resp.status_code == 429 and attempt == 0:
+                time.sleep(min(float(resp.headers.get("retry-after", "2") or 2), 5))
+                continue
+            if resp.status_code >= 500 and attempt == 0:
+                continue
+            break
+        latency = int((time.perf_counter() - t0) * 1000)
+        usage = {}
+        if resp is not None:
+            if resp.status_code == 200:
+                status = "ok"
+                result = (resp.json() or {}).get("result") or {}
+                usage = result.get("usage") or {}
+            else:
+                status = "LLM_RATE_LIMITED" if resp.status_code == 429 else "LLM_UPSTREAM_ERROR"
+        self._log_usage(batch, resp.status_code if resp is not None else None, status, usage, latency)
+        if status != "ok":
+            raise RuntimeError(f"CLOVA Studio {status} {resp.status_code if resp is not None else ''}".strip())   # 본문은 남기지 않음
         return parse_items((result.get("message") or {}).get("content") or "")
+
+    def _log_usage(self, batch, http_status, status, usage, latency_ms) -> None:
+        """규격 5.6 사용량 기록. 프롬프트·응답 글은 남기지 않음."""
+        row = {"ts": datetime.now(KST).isoformat(timespec="seconds"), "purpose": "review_classify", "model": self.model,
+               "mode": self.mode, "http_status": http_status, "status": status,
+               "prompt_tokens": usage.get("promptTokens"), "completion_tokens": usage.get("completionTokens"),
+               "total_tokens": usage.get("totalTokens"), "latency_ms": latency_ms,
+               "review_id": batch[0].review_id if len(batch) == 1 else None, "review_ids": [r.review_id for r in batch]}
+        try:
+            USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with USAGE_LOG.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except OSError as e:
+            log.warning("사용량 기록 실패: %s", e)
 
     def _ask(self, batch: list[Review]) -> dict:
         try:
@@ -226,9 +329,11 @@ class Classifier:
         out: dict[str, ReviewClassification] = {}
         todo: list[Review] = []
         for r in reviews:
-            saved = (replay if r.input_method == "sample" else runtime).get(cache_key(r, self.model))
+            saved = (replay if r.input_method == "sample" else runtime).get(cache_key(r, self.model, self.hints))
             if saved is not None:
                 out[r.review_id] = validate({**saved, "review_id": r.review_id}, r, method="replay", model=self.model)
+                if self.hints:
+                    compare_with_rules(out[r.review_id], r)
             elif self.mode == "live":
                 todo.append(r)
             else:   # replay 인데 저장본 없음
@@ -251,8 +356,10 @@ class Classifier:
                     out[r.review_id] = c
                     continue
                 out[r.review_id] = validate(item, r, method="model", model=self.model)
+                if self.hints:
+                    compare_with_rules(out[r.review_id], r)
                 keep = {k: item.get(k) for k in ("sentiment", "topics", "summary")}
-                (new_replay if r.input_method == "sample" else new_runtime)[cache_key(r, self.model)] = keep
+                (new_replay if r.input_method == "sample" else new_runtime)[cache_key(r, self.model, self.hints)] = keep
             if new_replay:
                 self._save(REPLAY_FILE, new_replay)
             if new_runtime:

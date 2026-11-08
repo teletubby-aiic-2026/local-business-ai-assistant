@@ -51,8 +51,13 @@ PII = re.compile(
 
 
 def mask_pii(text: str) -> tuple[str, bool]:
-    masked = PII.sub("[가림]", text)
-    return masked, masked != text
+    """정규식 + kiwi(W_EMAIL·W_URL·9자리 이상 W_SERIAL)로 찾은 개인정보를 [가림]으로. 둘 중 하나만 찾아도 가림."""
+    from app import morph
+    out = text
+    for start, end in sorted(morph.pii_spans(text), reverse=True):   # 뒤에서부터 바꿔야 앞 위치가 안 밀림
+        out = out[:start] + "[가림]" + out[end:]
+    out = PII.sub("[가림]", out)
+    return out, out != text
 
 
 def banned_in(text: str | None) -> list[str]:
@@ -96,8 +101,6 @@ POS = ("맛있", "괜찮", "좋", "친절하", "빠르", "빨리", "넉넉", "�
 # '안 샜어요'처럼 부정어가 붙어 칭찬이 되는 경우
 NEG_FLIP = re.compile(r"(하나\s*)?안\s*(샜|새|넘쳤)")
 CLAUSE = re.compile(r"[.!?\n]|,|[는은]데|지만|다만|더니|고\s")
-# kiwi는 '-고'에서 끊으면 낱말을 잘못 읽어서('질기고' → '질기'), '-고'는 끊지 않음. '그대로인데'의 '인데'도 끊음
-CLAUSE_KIWI = re.compile(r"[.!?\n]|,|[는은인]데|지만|다만|더니")
 
 
 def _clauses(text: str, pattern=CLAUSE) -> list[str]:
@@ -111,7 +114,7 @@ def rule_classify(review_id: str, text: str, rating: int | None = None, channel:
     if use_kiwi is None:
         use_kiwi = morph.available()
     hits: dict[tuple[str, str], str] = {}
-    for clause in _clauses(text, CLAUSE_KIWI if use_kiwi else CLAUSE):
+    for clause in (morph.clauses(text) if use_kiwi else _clauses(text, CLAUSE)):
         if use_kiwi:
             topics, n_neg, n_pos = morph.classify_clause(clause, channel)
             if not topics:

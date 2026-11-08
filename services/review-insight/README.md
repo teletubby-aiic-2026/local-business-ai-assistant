@@ -1,142 +1,347 @@
-# 리뷰 분석 — C2 합성 리뷰 · C3 분류·묶음 · S2 직접 붙여넣기
+# 리뷰 분석 모듈 (C2 · C3 · S2)
 
-가게 리뷰를 주제·감정으로 나누고 **불만을 묶어** C5 추천 카드·C6 생성에 넘깁니다.
-결정안 v0.4의 브리핑 ①을 만듭니다: **리뷰 40건 → 불만 12건 → 3묶음(반복은 '포장 누락' 하나) + 단발 불만 5건**.
+가게 리뷰를 읽고 **불만을 주제별로 묶어서**, 사장님 브리핑과 추천 카드에 쓸 결과를 만듭니다.
 
-| 일 | 내용 | 파일 |
+```
+리뷰 40건 → 불만 12건 → 묶음 3개(반복은 '포장 누락' 하나) + 단발 불만 5건
+                            └─ 카드 ⓐ = 포장 누락 3건 (근거 문장 3개와 함께)
+```
+
+| 담당 | 하는 일 |
+|---|---|
+| **C2 합성 리뷰** | 시연·시험용 가짜 리뷰와 정답표를 만듭니다 (가게 3곳, 100건) |
+| **C3 분류·묶음** | AI(HCX-005)가 리뷰마다 주제를 붙이고, 코드가 검사한 뒤 같은 불만끼리 묶습니다 |
+| **S2 직접 붙여넣기** | 사장님이 배달앱 리뷰를 복사해 넣으면 바로 분류·묶음에 들어갑니다 |
+
+- 분류 내용(주제 분류 + 묶음)은 **결정안 v0.4**, 공통 규칙(필드·API 모양·오류·키 이름)은 **`docs/module-io-spec.md` v0.1**을 따릅니다.
+- 모든 데이터는 합성 데이터이며 `data_origin: "synthetic"`이 붙습니다. 손님 닉네임·주소·전화번호 필드는 없습니다.
+
+---
+
+## 1. 팀원이 가져다 쓰는 법
+
+### 방법 ① API로 부르기 (추천)
+
+모듈을 서버로 켜 두고, 다른 코드에서 주소로 부릅니다.
+
+```bash
+cd services/review-insight
+uvicorn app.main:app --port 8020
+```
+
+```python
+import httpx
+API = "http://localhost:8020/api/review-insight"
+
+# 브리핑 결과 (C5 추천 카드, C6 답글·공지가 쓰는 것)
+ins = httpx.get(f"{API}/insight", params={"store_id": "store_ongi"}).json()
+ins["review_count"], ins["complaint_count"]                 # 40, 12
+top = next(g for g in ins["groups"] if g["issue_id"] == ins["top_issue_id"])
+top["topic_name"], top["review_count"]                      # '포장 누락', 3   ← 카드 ⓐ
+[e["quote"] for e in top["evidence"]]                       # 근거 문장 3개   ← 답글·공지에 인용
+
+# 리뷰 붙여넣기 (C7 화면의 입력칸)
+r = httpx.post(f"{API}/reviews", json={"text": "공깃밥이 또 빠져 있었어요", "rating": 1, "channel": "baemin"}).json()
+r["classification"]["negative_topics"]                      # ['missing_item']
+r["joined_issues"]                                          # ['iss_missing_item']  ← 들어간 묶음
+```
+
+브라우저에서 `http://localhost:8020/docs`를 열면 모든 주소를 클릭으로 시험해 볼 수 있습니다. `http://localhost:8020/`은 사람이 보는 확인 화면입니다.
+
+### 방법 ② 파이썬 함수로 바로 부르기
+
+```python
+from app import service
+from app.classify import Classifier
+ins = service.analyze(Classifier(), "store_ongi")   # /insight 와 같은 결과 (ReviewInsight)
+```
+
+> ⚠️ 상권분석 모듈도 패키지 이름이 `app`이라서, **한 프로그램 안에서 두 모듈을 같이 import하면 이름이 부딪힙니다.** 다른 모듈과 함께 쓸 때는 방법 ①을 쓰세요.
+
+### 방법 ③ 데이터 파일 바로 읽기
+
+분류 없이 가짜 리뷰 원본만 필요할 때 (붙여넣은 리뷰는 들어 있지 않음).
+
+```python
+import json
+reviews = json.load(open("services/review-insight/data/synthetic/store_ongi/reviews.json", encoding="utf-8"))
+```
+
+### API 주소
+
+| 메서드 | 주소 | 하는 일 | 주로 쓰는 곳 |
+|---|---|---|---|
+| GET | `/api/review-insight/insight?store_id=` | **브리핑 결과 전체** (묶음, 단발, 카드 ⓐ, 근거 문장, 리뷰별 분류) | C5 카드, C6 생성 |
+| POST | `/api/review-insight/reviews` | **리뷰 붙여넣기** `{store_id?, text, rating?, channel?}` → 분류 결과와 바뀐 묶음 (201) | C7 화면 |
+| GET | `/api/review-insight/reviews?store_id=` | 리뷰 목록 `{items, count}` (최신순, 가짜 + 붙여넣은 것) | 화면 |
+| GET | `/api/review-insight/reviews/{review_id}?store_id=` | 리뷰 한 건 + 분류 결과. 없으면 404 `REVIEW_NOT_FOUND` | 화면 |
+| DELETE | `/api/review-insight/reviews/pasted?store_id=` | 붙여넣은 리뷰만 지움 (데모 다시 하기) | 발표 준비 |
+| GET | `/api/review-insight/stores` | 가게 목록 `{items, count, default}` | 화면 |
+| GET | `/api/review-insight/store?store_id=` | 가게 정보 (이름, 업종, 메뉴) | 화면 |
+| GET | `/api/health` | 켜져 있는지, 실행 모드, 규격 버전 | 확인용 |
+
+- `store_id`를 빼면 발표용 가게 `store_ongi`입니다. 없는 가게는 404 `STORE_NOT_FOUND`.
+- 오류는 규격 7절 모양입니다: `{"error": {"code", "message", "retryable", "details", "request_id"}}`
+- 모든 응답에 `X-Request-Id` 헤더가 붙습니다. 오류를 물어볼 때 이 번호를 알려 주세요.
+
+---
+
+## 2. 결과(`/insight`) 읽는 법
+
+```json
+{
+  "store_id": "store_ongi", "period_start": "2026-10-12", "period_end": "2026-11-08",
+  "review_count": 40, "complaint_count": 12, "group_count": 3, "single_complaint_count": 5,
+  "top_issue_id": "iss_missing_item",
+  "groups": [
+    {
+      "issue_id": "iss_missing_item", "topics": ["missing_item"], "topic_name": "포장 누락",
+      "review_count": 3, "is_repeated": true,
+      "review_ids": ["rv_ongi_001", "rv_ongi_002", "rv_ongi_003"],
+      "evidence": [{"review_id": "rv_ongi_001", "quote": "안 들어 있었어요"}],
+      "time_bands": {"00~06시": 0, "06~11시": 0, "11~14시": 0, "14~17시": 0, "17~21시": 3, "21~24시": 0},
+      "main_time_band": "17~21시", "channels": {"baemin": 1, "coupangeats": 1, "yogiyo": 1},
+      "recent_count": 3, "previous_count": 0
+    },
+    {"issue_id": "iss_portion_taste", "topics": ["portion", "taste"], "topic_name": "양·맛", "review_count": 2, "is_repeated": false},
+    {"issue_id": "iss_delivery_time", "topic_name": "배달 시간", "review_count": 2, "is_repeated": false}
+  ],
+  "single_complaints": [{"review_id": "rv_ongi_008", "topic_names": ["위생"], "quote": "반찬 그릇에 머리카락이 있었어요"}],
+  "classifications": [{"review_id": "rv_ongi_001", "sentiment": "negative",
+    "topics": [{"topic": "missing_item", "polarity": "negative", "evidence": "안 들어 있었어요"}],
+    "method": "model", "model": "HCX-005", "warnings": []}],
+  "data_origin": "synthetic"
+}
+```
+
+| 필드 | 뜻 |
+|---|---|
+| `complaint_count` | 불만이 하나라도 있는 리뷰 수 |
+| `groups` | 같은 불만이 **2건 이상**인 묶음. 반복 묶음이 먼저, 그다음 건수 순 |
+| `is_repeated` | **3건 이상**이면 `true` (반복) |
+| `top_issue_id` | **카드 ⓐ** = 가장 큰 반복 묶음. 반복이 없으면 `null` |
+| `topics` / `topic_name` | 같은 리뷰들이 두 주제에 함께 걸리면 한 묶음으로 합칩니다 (예: `양·맛`) |
+| `evidence[].quote` | 리뷰 원문에 그대로 있는 근거 문장 (코드가 확인). 카드·답글에 인용해도 됩니다 |
+| `time_bands`, `main_time_band` | 서울시 추정매출과 같은 시간대 6구간. 한 구간에 60% 이상 몰리면 `main_time_band` → 카드 ⓑ(저녁 매출)와 이어 볼 수 있음 |
+| `recent_count` / `previous_count` | 기간 뒤쪽 절반 / 앞쪽 절반의 건수 (늘었는지 줄었는지) |
+| `single_complaints` | 어느 묶음에도 들지 않은 불만 (단발) |
+| `classifications[].method` | `model`(AI), `replay`(저장본), `rule`(규칙), `rule_fallback`(AI 실패로 규칙이 대신) |
+| `classifications[].warnings` | 코드가 AI 결과를 고친 내용, AI·규칙 결과가 다른 곳 (`규칙 비교: …`) |
+
+---
+
+## 3. 구조
+
+```
+services/review-insight/
+├─ app/
+│   ├─ main.py        API 주소들, 오류 모양, X-Request-Id
+│   ├─ service.py     [S2] 붙여넣기 저장 · 리뷰 합치기 · 분석 실행(analyze)
+│   ├─ classify.py    [C3] HCX-005 분류 · 답 읽기 · 검사 · 저장/재생 · 사용량 기록
+│   ├─ morph.py       kiwi 형태소 분석 (AI 참고 자료 + 규칙 분류)
+│   ├─ examples.py    비슷한 예문 찾기 (AI 참고 자료)
+│   ├─ topics.py      주제 사전 13개 · 금지 표현 · 개인정보 가림 · 규칙 분류기
+│   ├─ cluster.py     [C3] 묶음 · 반복 · 단발 · 카드 ⓐ 계산 (AI 없이 코드만)
+│   ├─ models.py      데이터 모양 (Review, ReviewClassification, IssueGroup, ReviewInsight)
+│   └─ static/index.html  확인 화면
+├─ data/
+│   ├─ synthetic/<가게>/   [C2] store.json · reviews.json · labels.json
+│   ├─ lexicon/review_cues.json       규칙 분류기 단어 목록 (팀원이 고칠 수 있음)
+│   ├─ examples/review_examples.json  AI에게 보여 줄 예문 26개 (팀원이 고칠 수 있음)
+│   ├─ replay/classify.json           발표용 AI 결과 저장본 (live로 돌리면 생김)
+│   └─ runtime/                       [S2] 붙여넣은 리뷰 (저장소에 안 올림)
+├─ scripts/
+│   ├─ make_synthetic.py   [C2] 가짜 리뷰·정답표 만들기
+│   └─ eval_classify.py    AI 결과를 정답표와 비교해 점수 내기
+└─ tests/   자동 시험 (키 없이 돎)
+```
+
+### 흐름
+
+```
+[C2] 가짜 리뷰 (data/synthetic)  ┐
+[S2] 붙여넣은 리뷰 (data/runtime) ┴→ 모든 리뷰 (같은 Review 모양)
+                                     │
+                     ① kiwi가 먼저 읽음: 형태소, 규칙 추측, 비슷한 예문
+                                     │
+                     ② HCX-005가 분류 (리뷰 + 참고 자료, 6건씩)
+                        → 리뷰마다 주제 · 칭찬/불만 · 근거 문장
+                                     │
+                     ③ 코드가 검사 (아래 5절) → 실패하면 kiwi 규칙으로 대신
+                                     │
+                     ④ 코드가 묶음 계산 (cluster.py)
+                        2건↑ 묶음, 3건↑ 반복, 가장 큰 반복 = 카드 ⓐ
+                                     │
+                     GET /insight → C5 카드 · C6 답글·공지 · C7 화면
+```
+
+---
+
+## 4. 데이터 (C2)
+
+### 파일 세 개의 역할
+
+| 파일 | 내용 | 누가 보나 |
 |---|---|---|
-| C2 합성 리뷰 | 가게 3곳 리뷰 100건 + 정답 라벨. 발표 시나리오 `온기한식`은 와우 장면 숫자 그대로 | `scripts/make_synthetic.py` → `data/synthetic/<store_id>/` |
-| C3 분류 | HCX-005가 리뷰마다 주제·칭찬/불만·근거 구절을 고르고, 규칙으로 검사 | `app/classify.py`, `app/topics.py` |
-| C3 대비책 | 모델이 없거나 실패하면 kiwi 형태소 분석 규칙으로 분류 | `app/morph.py` |
-| C3 묶음 | 같은 불만 2건 이상 = 묶음, 3건 이상 = 반복. 카드 ⓐ = 가장 큰 반복 묶음 (계산은 코드) | `app/cluster.py` |
-| S2 붙여넣기 | 사장님이 붙여넣은 리뷰 → 개인정보 가림 → 바로 분류 → 묶음 다시 계산 | `app/service.py`, `app/main.py` |
+| `store.json` | 가게 이름, 업종, 메뉴 | 화면, kiwi 사용자 사전 |
+| `reviews.json` | 리뷰 (ID, 채널, 별점, 글, 작성 시각, `order_ref`, `status`) | **AI는 이것만 봄** (시험지) |
+| `labels.json` | 리뷰마다 정답 감정·정답 주제·만든 의도 | **채점할 때만** (정답지, AI에게 안 보여 줌) |
 
-## 실행
+### 가게 3곳
+
+| 가게 | 업종 | 리뷰 | 정답 묶음 | 단발 |
+|---|---|---|---|---|
+| `store_ongi` 온기한식 (**발표용**) | 한식 | 40 (불만 12) | **포장 누락 3 (반복, 카드 ⓐ)** · 늦은 배달 2 · 양·맛 2 | 5 |
+| `store_basak` 바삭치킨 (시험용) | 치킨 | 30 (불만 16) | 포장 누락 4 · 식감 4 · 배달 시간 3 (모두 반복) · 가격 2 | 3 |
+| `store_mongle` 몽글카페 (시험용) | 카페 | 30 (불만 16) | 매장 대기 5 · 맛 3 · 포장 상태 3 (모두 반복) · 가격 2 | 3 |
+
+- 온기한식은 결정안 v0.4 와우 장면 숫자 그대로입니다. 불만은 주로 저녁(17~21시), 칭찬은 주로 점심.
+- 다른 두 가게는 업종·바쁜 시간·불만이 달라서, 분류가 발표용 가게에만 맞춰지지 않았는지 확인하는 데 씁니다.
+- 분류기를 시험하는 리뷰도 넣었습니다: '배달' 없이 늦었다는 글, "국물 하나 안 샜어요"(칭찬), "다음엔 포장해야겠네요"(포장 주문), 매장 방문인데 "오래 걸려요"(매장 대기).
+- 리뷰 ID는 `rv_ongi_001`처럼 가게별, 붙여넣은 리뷰는 `rv_ongi_paste_001`.
+- **바꾸는 법**: `scripts/make_synthetic.py`의 표(한 줄 = 리뷰 하나 + 정답)를 고치고 `python -m scripts.make_synthetic`.
+
+---
+
+## 5. 분류와 검사 (C3)
+
+### 주제 사전 (13개)
+
+양 `portion` · 맛 `taste` · 가격 `price` · 식감 `texture` · 배달 시간 `delivery_time` · 음식 온도 `temperature` · 포장 상태 `packaging` · 포장 누락 `missing_item` · 응대 `service` · 위생 `hygiene` · 메뉴 구성 `menu` · 매장 환경 `atmosphere` · 매장 대기 `wait_time`
+
+### 코드가 AI 결과를 다시 검사하는 것
+
+1. 주제가 사전 13개 안에 있는가 (아니면 버림)
+2. 근거 문장이 리뷰 원문에 있는가 (지어낸 근거는 버림, 띄어쓰기·문장부호 차이는 봐줌)
+3. 감정(칭찬/불만/섞임)이 주제와 맞는가 (안 맞으면 고침)
+4. 요약에 금지 표현("때문·탓" 같은 원인 단정, 손님 비하, 개인정보 모양)이 있는가 (있으면 지움)
+5. 쓸 수 있는 주제가 하나도 안 남으면 kiwi 규칙으로 대신 (`rule_fallback`)
+6. 묶음 속 리뷰가 정말 그 불만인지, 근거 문장이 원문에 있는지 (어긋나면 빼고 경고)
+
+### kiwi 결합
+
+상권 비서(PR #13)와 같은 구조입니다. **판단은 AI가, 검사는 코드가** 하고, kiwi는 AI에게 줄 참고 자료를 만듭니다.
+
+AI가 실제로 받는 내용:
+```
+[비슷한 예문]
+- "양이 적고 맛도 밍밍했어요" (baemin) → portion:-, taste:- (negative)
+
+[리뷰]
+{ "text": "양도 적고 간도 너무 싱거웠어요",
+  "morphemes": "양/NNG 적다/VA 간/NNG 너무/MAG 싱겁다/VA-I",   ← kiwi 형태소
+  "rule_guess": ["taste:-", "portion:-"] }                     ← 규칙 분류기 추측
+```
+프롬프트에서 "참고 자료가 리뷰 뜻과 다르면 따르지 말되, `rule_guess`의 주제를 빠뜨리지 않았는지는 확인하라"고 알려 줍니다.
+`REVIEW_KIWI_HINTS=off`로 참고 자료를 빼고 같은 리뷰로 점수를 비교할 수 있습니다.
+
+kiwipiepy 0.24.1의 기능을 그대로 씁니다:
+
+| kiwi 기능 | 쓰는 곳 |
+|---|---|
+| `token.lemma` (기본형) | '식었어요' → 식다, '퍽퍽했어요' → 퍽퍽하다 |
+| `tokenize(typos="basic_with_continual")` (오타 교정) | '맛잇긴한데 양이 저거요' → 맛있다, 적다. `REVIEW_MORPH_TYPOS=off`로 끔 |
+| 낱말 위치 + 연결어미(EC)·문장부호(SF) 태그 | 구절 나누기: '맛은 있는데 / 겉이 눅눅해요'. 구절은 원문 그대로라 근거 문장으로 씀 |
+| `W_EMAIL`·`W_URL`·`W_SERIAL` 태그 | 붙여넣은 리뷰의 개인정보 가림 (정규식과 함께, 숫자열은 9자리 이상만) |
+| `add_user_word` (사용자 사전) | 메뉴 이름이 한 낱말로 남게 (치킨무, 순두부찌개 …) |
+| `Kiwi(model_type="cong")` | 0.22부터 기본 모델. 결과가 항상 같게 명시 |
+| 부정: '안·못'(MAG) 앞, '-지 않다·못하다' 뒤 | '하나도 안 바삭해요' → 식감 불만, '국물 하나 안 샜어요' → 포장 칭찬 |
+
+kiwi가 설치되어 있지 않거나 `REVIEW_MORPH=off`면 글자 단서로 돌아갑니다.
+
+---
+
+## 6. 붙여넣기 (S2)
+
+```
+"저녁에 시켰는데 공깃밥이 또 빠져 있었어요. 연락처 010-1234-5678"  (+ 별점 1, 배민)
+ ① 검사: 1~1,000자, 별점 1~5, 채널 이름          → 틀리면 400 VALIDATION_ERROR
+ ② 개인정보 가림: 전화번호·이메일·링크 → [가림]    → pii_masked: true (원문은 저장 안 함)
+ ③ 빈칸 채우기: rv_ongi_paste_001, 지금 시각, input_method: "paste"
+ ④ 저장: data/runtime/pasted_<가게>.json (저장소에 안 올림)
+ ⑤ 가짜 리뷰와 합쳐서 바로 분류·묶음 다시 계산 → 포장 누락 3건 → 4건
+```
+
+- 대회 동안에는 붙여넣기에도 합성 리뷰만 씁니다 (규격 9.2).
+- 붙여넣은 리뷰의 작성 시각은 붙여넣은 시각입니다 (원래 작성 시각을 모름).
+
+---
+
+## 7. 실행과 설정
 
 ```bash
 cd services/review-insight
 python -m venv .venv && .venv/bin/pip install -r requirements.txt   # Windows: .\.venv\Scripts\pip
 cp .env.example .env              # 키 없이 해 보려면 APP_MODE=mock 그대로
-uvicorn app.main:app --port 8020  # http://localhost:8020 확인 화면
+uvicorn app.main:app --port 8020  # 서버 켜기
 pytest -q                         # 시험 (키 필요 없음, CLOVA 응답은 가짜)
 ```
 
-| `APP_MODE` | 동작 |
-|---|---|
-| `mock` | 모델 없이 규칙 분류 (kiwi가 있으면 형태소 분석, 없으면 글자 단서) |
-| `live` | HCX-005 호출. 합성 리뷰 결과는 `data/replay/classify.json`에 저장 |
-| `replay` | 저장본 재생 (발표용, C9). 저장본이 없는 리뷰만 규칙 분류 |
-
-발표 재생본 만들기: `.env`에 키를 넣고 `APP_MODE=live python -m scripts.eval_classify` → 가게별로 정답 라벨과 비교한 정확도·묶음 일치 여부가 나오고 `data/replay/classify.json`이 생깁니다. 이 파일은 합성 데이터 결과라 저장소에 올려도 됩니다.
-
-## C5·C6이 쓰는 API
-
-`GET /api/review-insight/insight?store_id=store_ongi` (`store_id`를 빼면 `store_ongi`)
-
-```json
-{
-  "store_id": "store_ongi", "period_start": "2026-10-12", "period_end": "2026-11-08",
-  "review_count": 40, "complaint_count": 12,
-  "group_count": 3, "single_complaint_count": 5,
-  "top_issue_id": "iss_missing_item",
-  "groups": [{
-    "issue_id": "iss_missing_item", "topics": ["missing_item"], "topic": "missing_item", "topic_name": "포장 누락",
-    "review_count": 3, "is_repeated": true, "review_ids": ["rv_ongi_001", "rv_ongi_002", "rv_ongi_003"],
-    "evidence": [{"review_id": "rv_ongi_001", "quote": "안 들어 있었어요"}],
-    "time_bands": {"00~06시": 0, "06~11시": 0, "11~14시": 0, "14~17시": 0, "17~21시": 3, "21~24시": 0},
-    "main_time_band": "17~21시", "channels": {"baemin": 1, "coupangeats": 1, "yogiyo": 1},
-    "recent_count": 3, "previous_count": 0,
-    "first_at": "2026-10-27T19:30:00+09:00", "last_at": "2026-11-06T19:50:00+09:00"
-  }, {"issue_id": "iss_portion_taste", "topics": ["portion", "taste"], "topic_name": "양·맛", "review_count": 2, "is_repeated": false, "...": "..."}],
-  "repeated_issues": ["groups 중 is_repeated인 것만"],
-  "single_complaints": [{"review_id": "rv_ongi_008", "topics": ["hygiene"], "topic_names": ["위생"], "quote": "반찬 그릇에 머리카락이 있었어요", "created_at": "...", "channel": "naver_place"}],
-  "sentiment_counts": {"negative": 12, "positive": 26, "neutral": 2},
-  "topic_counts": {"missing_item": {"positive": 0, "negative": 3}},
-  "classifications": [{"review_id": "rv_ongi_001", "sentiment": "negative",
-    "topics": [{"topic": "missing_item", "polarity": "negative", "evidence": "안 들어 있었어요"}],
-    "negative_topics": ["missing_item"], "summary": null, "method": "model", "model": "HCX-005", "warnings": []}],
-  "data_origin": "synthetic"
-}
-```
-
-- **카드 ⓐ**: `top_issue_id`가 가리키는 묶음 (가장 큰 반복 묶음). 반복 묶음이 없으면 `null`.
-- `groups`는 반복 묶음이 먼저, 그다음 건수 순. 두 주제에 같은 리뷰들이 걸리면 한 묶음으로 합칩니다(`양·맛`).
-- `time_bands`는 서울시 추정매출의 시간대 6구간과 같습니다 → 카드 ⓑ(저녁 매출 하락)와 `"17~21시"`로 이어 볼 수 있습니다.
-- `evidence.quote`는 리뷰 원문에 그대로 있는 구절입니다 (규칙으로 확인). 카드·답글에 근거로 인용해도 됩니다.
-- 다른 화면에 붙일 때: `from app.main import router` → `app.include_router(router)`
-
-| 메서드 | 경로 | 설명 |
+| `APP_MODE` | 하는 일 | 쓰는 때 |
 |---|---|---|
-| GET | `/api/review-insight/stores` | 가게 3곳 목록 + 기본 가게 |
-| GET | `/api/review-insight/store?store_id=` | 가게 정보 |
-| GET | `/api/review-insight/reviews?store_id=` | 합성 + 붙여넣은 리뷰 (최신순) |
-| GET | `/api/review-insight/insight?store_id=` | 위 결과 |
-| POST | `/api/review-insight/reviews` | S2 붙여넣기 `{store_id?, text, rating?, channel?}` → `{review, classification, joined_issues, complaint_count, groups, repeated_issues, single_complaints, top_issue_id}` (201) |
-| DELETE | `/api/review-insight/reviews/pasted?store_id=` | 그 가게에 붙여넣은 리뷰만 지움 (데모 다시 하기) |
+| `mock` | AI 없이 kiwi 규칙으로 분류 | 키 없이 개발할 때 |
+| `live` | HCX-005를 진짜로 부름. 가짜 리뷰 결과는 `data/replay/classify.json`에 저장 | 평가, 재생본 만들기 |
+| `replay` | 저장해 둔 AI 결과를 다시 씀 (AI를 안 부름) | **발표 (C9)**: 매번 같은 결과, 인터넷·한도 문제 대비 |
 
-없는 가게는 404 `STORE_NOT_FOUND`. 오류는 모듈 규격 7절 형식 (`{"error": {"code": "VALIDATION_ERROR", ...}}`).
+| `.env` | 기본값 | 뜻 |
+|---|---|---|
+| `CLOVASTUDIO_API_KEY` | (없음) | CLOVA Studio 키. 상권 비서가 쓰는 `CLOVA_STUDIO_API_KEY`도 읽음 |
+| `LLM_MODEL_REVIEW` | `HCX-005` | 분류 모델 |
+| `LLM_TIMEOUT_SECONDS` | `20` | AI 호출 한 번의 시간 제한 |
+| `REVIEW_KIWI_HINTS` | `on` | AI에게 kiwi 참고 자료를 줄지 |
+| `REVIEW_MORPH` | `on` | kiwi 사용 여부 |
+| `REVIEW_MORPH_TYPOS` | `basic_with_continual` | kiwi 오타 교정 (`off`로 끔) |
 
-## 합성 리뷰 설계 (C2)
+- AI 호출은 일시 오류(429·5xx·시간 초과)면 1번 다시 시도하고, 키 오류(400·401·403)는 바로 실패합니다.
+- 호출마다 `logs/llm_usage.jsonl`에 토큰·시간만 한 줄씩 남깁니다 (리뷰 글은 남기지 않음, 저장소에 안 올림).
 
-| 가게 | 업종 | 리뷰 | 정답 묶음 | 단발 |
-|---|---|---|---|---|
-| `store_ongi` 온기한식 (**발표 시나리오**) | 한식 | 40 (불만 12) | **포장 누락 3 (반복, 카드 ⓐ)** · 늦은 배달 2 · 양·맛 2 | 5 (위생·응대·온도·가격·식감) |
-| `store_basak` 바삭치킨 (시험용) | 치킨 | 30 (불만 16) | 포장 누락 4 · 식감 4 · 배달 시간 3 (모두 반복) · 가격 2 | 3 |
-| `store_mongle` 몽글카페 (시험용) | 카페 | 30 (불만 16) | 매장 대기 5 · 맛 3 · 포장 상태 3 (모두 반복) · 가격 2 | 3 |
+### 평가와 발표용 저장본 만들기
 
-- 온기한식은 결정안 v0.4 와우 장면 숫자 그대로입니다. 불만은 주로 저녁(17~21시), 칭찬은 주로 점심.
-- 바삭치킨·몽글카페는 업종·바쁜 시간·불만이 달라서, 분류·묶음이 시나리오 가게에만 맞춰지지 않았는지 보는 시험용입니다.
-- 함정: '배달' 없이 지연을 말하는 글, 부정어가 칭찬인 글("국물 하나 안 샜어요"), 포장 주문을 뜻하는 '포장', 매장 방문인데 "오래 걸려요", '포장 상태' 칭찬과 '포장 누락' 불만.
-- 리뷰 ID는 `rv_ongi_001`처럼 가게별. 붙여넣은 리뷰는 `rv_ongi_paste_001`. 손님 닉네임·주소·전화번호 필드는 없고, 모든 레코드에 `data_origin: "synthetic"`.
-- 가게·리뷰를 바꾸려면 `scripts/make_synthetic.py`의 표를 고치고 `python -m scripts.make_synthetic`.
+```bash
+APP_MODE=live python -m scripts.eval_classify                        # kiwi 참고 자료 켬
+APP_MODE=live REVIEW_KIWI_HINTS=off python -m scripts.eval_classify  # 끔 (비교용)
+```
+가게별로 감정 정확도, 주제 정밀도·재현율, 불만 수·단발 수·묶음이 정답과 같은지 나오고, `data/replay/classify.json`이 생깁니다.
+이 파일은 합성 데이터 결과라 저장소에 올려도 됩니다. 발표 때는 `APP_MODE=replay`로 켭니다.
 
-## 규칙 검사 (C3)
+---
 
-모델이 낸 결과에서 아래를 코드가 다시 확인합니다. 고친 내용은 `warnings`에 남습니다.
+## 8. 팀원이 고칠 수 있는 파일
 
-1. 주제는 주제 사전(`app/topics.py`)에 있는 13개만
-2. 근거 구절이 리뷰 원문에 있어야 함 (띄어쓰기·문장부호 차이는 봐주고, 원문 그대로의 구절로 저장)
-3. 감정은 주제의 칭찬/불만에 맞게 다시 계산
-4. 요약에 금지 표현(원인 단정 "때문·탓", 손님 비하, 개인정보 모양)이 있으면 지움
-5. 쓸 수 있는 주제가 하나도 안 남으면 규칙 분류로 대신 (`rule_fallback`)
-6. 묶음의 리뷰가 실제로 있고, 묶음의 모든 주제에 불만이고, 근거 구절이 원문에 있는지 확인 (어긋나면 빼고 경고)
+| 파일 | 무엇을 | 고친 뒤 |
+|---|---|---|
+| `data/lexicon/review_cues.json` | 규칙 분류기 단어 목록. 낱말은 kiwi 기본형으로 (예: '불어서' → `붇다`) | `pytest -q`, `python -m scripts.eval_classify` |
+| `data/examples/review_examples.json` | AI에게 보여 줄 예문. **채점용 가짜 리뷰 문장은 넣지 않음** (시험이 막음) | `pytest -q` |
+| `scripts/make_synthetic.py` | 가짜 리뷰와 정답표 | `python -m scripts.make_synthetic` 후 `pytest -q` |
 
-## kiwi 형태소 분석 (규칙 대비책)
+---
 
-상권 비서(PR #13)와 같은 `kiwipiepy==0.24.1`을 씁니다. 글자 그대로 찾는 규칙은 '식었어요/식어서/식은'처럼 말끝이 바뀌면 놓치는데,
-kiwi로 기본형('식다')으로 바꾸고 '안 바삭해요', '하나도 안 샜어요' 같은 부정도 읽습니다. 매장 방문 리뷰(naver_place)의 "오래 걸려요"는 매장 대기로 봅니다.
-설치되어 있지 않으면 예전 글자 단서로 돌아갑니다.
+## 9. 정직하게 밝힐 것
 
-## 정직하게 밝힐 것
+- **규칙 분류기 점수는 처음 보는 리뷰 성적이 아닙니다.** 단어 목록을 이 가짜 리뷰 100건을 보며 다듬었기 때문입니다.
+  같은 이유로 이 세트에서는 AI에게 주는 `rule_guess`도 실제보다 정확합니다. 성능 숫자로는 HCX-005 평가를 쓰고, 처음 보는 리뷰로 다시 재야 공정합니다.
 
-- **규칙 분류기 점수는 처음 보는 리뷰 성적이 아닙니다.** 글자 단서는 온기한식을, kiwi 단서는 세 가게의 틀린 리뷰를 보면서 넣었습니다.
-  성능 숫자로는 HCX-005(`APP_MODE=live`) 평가를 쓰고, 규칙은 대비책으로만 말합니다. (`APP_MODE=mock`, 합성 100건)
-
-  | 규칙 분류기 | 온기한식 | 바삭치킨 | 몽글카페 |
+  | 규칙 분류기 (`APP_MODE=mock`, 주제 재현율) | 온기한식 | 바삭치킨 | 몽글카페 |
   |---|---|---|---|
-  | 글자 단서 (주제 재현율) | 82% · 포장 누락을 2건으로 봐서 카드 ⓐ 없음 | 74% · 묶음 불일치 | 56% · 묶음 불일치 |
-  | kiwi 단서 (주제 재현율) | 98% · 와우 숫자 일치 | 94% · 묶음 일치 | 97% · 묶음 일치 |
+  | 글자 단서만 (kiwi 전) | 82% · 카드 ⓐ 없음 | 74% | 56% |
+  | kiwi 단서 (지금) | 100% · 와우 숫자 일치 | 97% · '맛 2건' 묶음이 더 생김 | 100% · 일치 |
 
-- HCX-005 첫 평가 (프롬프트 `c3-v1`, 11/8, 이때는 온기한식이 와우에 맞추기 전 데이터):
+- **HCX-005 첫 평가** (프롬프트 `c3-v1`, 11/8, 온기한식은 와우에 맞추기 전 데이터):
 
-  | HCX-005 | 감정 정확도 | 주제 정밀도 | 주제 재현율 | 반복 묶음 |
+  | HCX-005 | 감정 | 주제 정밀도 | 주제 재현율 | 반복 묶음 |
   |---|---|---|---|---|
-  | 온기한식 (이전 데이터) | 39/40 | 91% | 79% | 4갈래 모두 찾음 |
-  | 바삭치킨 | 29/30 | 94% | 86% | 3갈래 모두 찾음 |
-  | 몽글카페 | 29/30 | 94% | 88% | 3갈래 모두 찾음 |
+  | 온기한식 (이전) | 39/40 | 91% | 79% | 모두 찾음 |
+  | 바삭치킨 | 29/30 | 94% | 86% | 모두 찾음 |
+  | 몽글카페 | 29/30 | 94% | 88% | 모두 찾음 |
 
-  틀린 21건은 대부분 한 리뷰의 두 번째 주제를 빠뜨린 것이었고, 방문 리뷰의 '늦게 나옴'을 배달 시간으로 고르거나 사전에 없는 '자리가 좁아요'를 억지로 넣은 경우가 있었습니다.
-  → `c3-v2`: 여러 주제 예시·채널 정보(naver_place=방문)·'맞는 주제가 없으면 비움', 주제 사전에 `매장 환경(atmosphere)` 추가.
-  이때 '주제 없음'이던 정답 라벨 4건을 `atmosphere`로 바꿨습니다.
-- `c3-v2` 평가에서 리뷰를 한 줄에 하나씩(JSONL) 보냈더니 모델도 여러 덩어리로 답해 30/100건을 읽지 못했습니다.
-  → `c3-v3`: 리뷰를 JSON 배열 하나로 보내고, 배열 여러 개·JSONL·일부 깨진 객체를 모두 건지며, 못 읽은 리뷰는 2건씩 한 번 더 묻습니다.
-  평가 결과의 `방식`에 `rule_fallback`이 있으면 그 수만큼은 모델 결과가 아닙니다.
-- 와우 숫자(불만 12 · 3묶음 · 단발 5)는 분류 결과에 따라 달라질 수 있습니다. 결정안대로 발표에서는 HCX-005 결과를 재생본(C9)으로 고정해 씁니다.
-- 붙여넣은 리뷰의 작성 시각은 붙여넣은 시각입니다 (원래 작성 시각을 모름).
+  틀린 것은 대부분 한 리뷰의 **두 번째 주제를 빠뜨린 것**이었습니다 (예: '양도 넉넉하고 맛도 좋아요'의 맛).
+  그 뒤 프롬프트를 고쳤습니다: 여러 주제 예시·채널 정보(c3-v2), JSON 배열 하나로 묻고 못 읽은 리뷰는 다시 묻기(c3-v3), kiwi 참고 자료(c3-v5).
+  c3-v2에서 '매장 환경' 주제를 더하면서 '주제 없음'이던 정답 4건을 `atmosphere`로 바꿨습니다.
+- 와우 숫자(불만 12 · 3묶음 · 단발 5)는 AI 분류 결과에 따라 달라질 수 있습니다. 발표에서는 HCX-005 결과를 재생본(C9)으로 고정합니다.
 
-## 남은 일
+## 10. 남은 일
 
-- [ ] `APP_MODE=live`(c3-v3)로 새 온기한식에서 와우 숫자가 그대로 나오는지 확인하고 `data/replay/classify.json` 올리기
-- [ ] C1 데이터 계약이 나오면 `app/models.py`를 그 dataclass로 바꾸기
-- [ ] C4 상권이 정해지면 시나리오 가게 업종·이름을 거기에 맞추기 (`scripts/make_synthetic.py`)
-- [ ] 처음 보는 리뷰로 규칙·모델 점수 다시 재기 (홀드아웃)
+- [ ] 서버에서 `APP_MODE=live`(c3-v5)로 kiwi 참고 자료 켠 것·끈 것 평가, 온기한식 와우 숫자 확인, `data/replay/classify.json` 올리기
+- [ ] C1 데이터 계약이 나오면 `app/models.py`를 그 형식으로 맞추기
+- [ ] C4 상권이 정해지면 발표용 가게 업종·이름 맞추기 (`scripts/make_synthetic.py`)
+- [ ] 처음 보는 리뷰로 규칙·AI 점수 다시 재기

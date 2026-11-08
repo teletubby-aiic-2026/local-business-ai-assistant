@@ -24,6 +24,8 @@ class Review:
     created_at: str
     input_method: str = "sample"          # sample(합성 샘플) | paste(직접 붙여넣기)
     pii_masked: bool = False
+    order_ref: Optional[str] = None       # 규격 4.3. 이 모듈은 주문을 다루지 않아 항상 null
+    status: str = "new"                   # 규격 4.3: new → analyzed → drafted → replied (skipped)
     data_origin: str = "synthetic"
 
     @classmethod

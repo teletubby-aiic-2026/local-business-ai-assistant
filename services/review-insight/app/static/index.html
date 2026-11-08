@@ -72,7 +72,7 @@ const SAMPLES = [
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const $ = id => document.getElementById(id);
 let STORE = '';
-let REVIEW_COUNT = 0;
+let LOAD_SEQ = 0;   // 늦게 끝난 예전 불러오기가 새 결과를 덮지 않게
 const q = () => 'store_id=' + encodeURIComponent(STORE);
 async function api(path, opt = {}) {
   const r = await fetch('/api/review-insight' + path, { headers: { 'Content-Type': 'application/json' }, ...opt });
@@ -105,19 +105,20 @@ function renderResult(d) {
     ${c.warnings.map(w => `<div class="warn">검증: ${esc(w)}</div>`).join('')}</div>`;
 }
 async function load() {
+  const seq = ++LOAD_SEQ;
   if (!STORE) {
     const s = await api('/stores');
-    $('store').innerHTML = s.stores.map(x => `<option value="${esc(x.store_id)}">${esc(x.name)}</option>`).join('');
+    $('store').innerHTML = s.items.map(x => `<option value="${esc(x.store_id)}">${esc(x.name)}</option>`).join('');
     STORE = s.default;
     $('store').value = STORE;
     $('store').onchange = () => { STORE = $('store').value; $('result').innerHTML = ''; load(); };
   }
   const [store, ins] = await Promise.all([api('/store?' + q()), api('/insight?' + q())]);
   const health = await (await fetch('/health')).json();
+  if (seq !== LOAD_SEQ) return;
   $('mode').textContent = 'APP_MODE ' + health.mode;
   $('storeLine').textContent = `${store.name} · ${store.business_type_name} · 리뷰 ${ins.review_count}건`;
   $('period').textContent = `${ins.period_start} ~ ${ins.period_end} · 같은 불만 2건 이상이면 묶음, 3건 이상이면 반복`;
-  REVIEW_COUNT = ins.review_count;
   renderIssues(ins);
 }
 $('chips').innerHTML = '<span class="sub">예시:</span>' + SAMPLES.map((s, i) => `<button data-i="${i}">${esc(s.text.slice(0, 18))}…</button>`).join('');
@@ -126,9 +127,10 @@ $('send').onclick = async () => {
   const text = $('text').value.trim();
   if (!text) return;
   $('send').disabled = true;
+  LOAD_SEQ++;
   try {
     const d = await api('/reviews', { method: 'POST', body: JSON.stringify({ store_id: STORE, text, rating: $('rating').value ? +$('rating').value : null, channel: $('channel').value || null }) });
-    renderResult(d); renderIssues({ ...d, review_count: REVIEW_COUNT + 1 }, d.joined_issues); REVIEW_COUNT += 1; $('text').value = '';
+    renderResult(d); renderIssues(d, d.joined_issues); $('text').value = '';
   } catch (e) { $('result').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   $('send').disabled = false;
 };
