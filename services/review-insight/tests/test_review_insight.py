@@ -120,8 +120,7 @@ def fake_clova(calls):
         assert req.headers["Authorization"] == "Bearer test-key"
         user = body["messages"][1]["content"]
         out = []
-        for line in user.splitlines()[1:]:
-            d = json.loads(line)
+        for d in json.loads(user[user.index("\n[") + 1:]):
             out.append({"review_id": d["review_id"], "sentiment": "negative" if (d["rating"] or 3) <= 2 else "positive",
                         "topics": [{"topic": "taste", "polarity": "positive", "evidence": d["text"][:6]}], "summary": "요약"})
         return httpx.Response(200, json={"result": {"message": {"content": "```json\n" + json.dumps(out, ensure_ascii=False) + "\n```"}}})
@@ -133,12 +132,41 @@ def test_live_calls_in_batches_then_replay_reuses():
     rows = service.sample_reviews()
     live = Classifier("live", api_key="test-key", transport=fake_clova(calls))
     res = live.classify(rows)
-    assert len(calls) == 5 and all(c.method == "model" for c in res)           # 40건 / 8건씩
+    assert len(calls) == 7 and all(c.method == "model" for c in res)           # 40건 / 6건씩
     assert calls[0]["maxTokens"] >= 1024 and "[주제 사전]" in calls[0]["messages"][0]["content"]
     replay = Classifier("replay", api_key="")
     again = replay.classify(rows)
     assert all(c.method == "replay" for c in again)
     assert [t.evidence for t in again[0].topics] == [t.evidence for t in res[0].topics]
+
+
+def test_parse_items_handles_messy_model_output():
+    from app.classify import parse_items
+    jsonl = '{"review_id": "a", "topics": []}\n{"review_id": "b", "topics": []}'
+    two_arrays = '```json\n[{"review_id": "a"}]\n[{"review_id": "b"}]\n```'
+    broken = '[{"review_id": "a", "summary": "ok"}, {"review_id": "b", "summary": "깨진 "따옴표" 요약"}, {"review_id": "c"}]'
+    assert [x["review_id"] for x in parse_items(jsonl)] == ["a", "b"]
+    assert [x["review_id"] for x in parse_items(two_arrays)] == ["a", "b"]
+    assert [x["review_id"] for x in parse_items(broken)] == ["a", "c"]          # 깨진 b만 버림
+    assert parse_items("죄송합니다") == []
+
+
+def test_missing_reviews_are_asked_again_in_small_batches():
+    """첫 답에서 빠진 리뷰는 작게 나눠 다시 물어서 모델 결과로 채움."""
+    calls = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        user = body["messages"][1]["content"]
+        rows = json.loads(user[user.index("\n[") + 1:])
+        calls.append(len(rows))
+        keep = rows if len(rows) <= 2 else rows[:2]          # 큰 묶음에서는 앞 2건만 답함
+        out = [{"review_id": d["review_id"], "sentiment": "positive",
+                "topics": [{"topic": "taste", "polarity": "positive", "evidence": d["text"][:6]}]} for d in keep]
+        return httpx.Response(200, json={"result": {"message": {"content": json.dumps(out, ensure_ascii=False)}}})
+
+    res = Classifier("live", api_key="k", transport=httpx.MockTransport(handler)).classify(service.sample_reviews()[:6])
+    assert calls == [6, 2, 2] and all(c.method == "model" for c in res)
 
 
 def test_live_failure_falls_back_to_rules():

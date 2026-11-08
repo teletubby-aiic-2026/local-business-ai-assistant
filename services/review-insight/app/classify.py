@@ -34,8 +34,9 @@ ROOT = Path(__file__).resolve().parents[1]
 REPLAY_FILE = ROOT / "data" / "replay" / "classify.json"           # 합성 리뷰 결과 (저장소에 올려도 됨)
 RUNTIME_CACHE = ROOT / "data" / "runtime" / "classify_paste.json"   # 붙여넣은 리뷰 결과 (저장소에 안 올림)
 ENDPOINT = "https://clovastudio.stream.ntruss.com/v3/chat-completions/{model}"
-PROMPT_VERSION = "c3-v2"   # 프롬프트를 바꾸면 올림 → 예전 재생본과 섞이지 않음
-BATCH = 8
+PROMPT_VERSION = "c3-v3"   # 프롬프트를 바꾸면 올림 → 예전 재생본과 섞이지 않음
+BATCH = 6
+RETRY_BATCH = 2   # 한 번에 못 읽은 리뷰는 2건씩 한 번 더 물어봄
 
 SYSTEM = """너는 음식점 리뷰를 주제별로 나누는 분류기다. 결과는 사장님이 반복되는 불만을 찾는 데 쓰인다.
 
@@ -67,9 +68,9 @@ def system_prompt() -> str:
 
 
 def _user(reviews: list[Review]) -> str:
-    lines = [json.dumps({"review_id": r.review_id, "channel": r.channel, "rating": r.rating, "text": r.text}, ensure_ascii=False)
-             for r in reviews]
-    return "[리뷰]\n" + "\n".join(lines)
+    rows = [{"review_id": r.review_id, "channel": r.channel, "rating": r.rating, "text": r.text} for r in reviews]
+    return ("[리뷰] 아래 JSON 배열의 리뷰를 모두 분류해서, 같은 순서의 JSON 배열 하나로만 답한다.\n"
+            + json.dumps(rows, ensure_ascii=False, indent=1))
 
 
 def cache_key(r: Review, model: str) -> str:
@@ -119,14 +120,50 @@ def validate(item: dict, review: Review, *, method: str, model: str | None) -> R
     return result
 
 
-def _parse_array(content: str) -> list:
-    m = re.search(r"\[.*\]", content, re.S)
-    if not m:
-        raise ValueError("JSON 배열이 없음")
-    data = json.loads(m.group(0))
-    if not isinstance(data, list):
-        raise ValueError("배열이 아님")
-    return data
+def parse_items(content: str) -> list[dict]:
+    """모델 답에서 리뷰 결과(dict)를 최대한 건져 냄.
+    - 배열 하나 / 배열 여러 개 / 한 줄에 객체 하나씩(JSONL) / ```json 감싸기 모두 받음
+    - 일부가 깨졌으면(따옴표 등) 깨진 객체만 버리고 나머지는 씀"""
+    text = re.sub(r"```(?:json)?", "", content or "")
+    dec = json.JSONDecoder()
+    found: list = []
+    i = 0
+    while i < len(text):
+        if text[i] not in "[{":
+            i += 1
+            continue
+        try:
+            value, end = dec.raw_decode(text, i)
+        except json.JSONDecodeError:
+            if text[i] == "[":   # 배열 전체가 깨졌으면 안쪽 객체부터 다시 시도
+                i += 1
+                continue
+            i = _skip_object(text, i)
+            continue
+        found.extend(value if isinstance(value, list) else [value])
+        i = end
+    return [x for x in found if isinstance(x, dict) and x.get("review_id")]
+
+
+def _skip_object(text: str, i: int) -> int:
+    """깨진 { ... } 하나를 괄호 짝으로 건너뜀 (문자열 안의 괄호는 무시)."""
+    depth, in_str, esc = 0, False, False
+    for j in range(i, len(text)):
+        ch = text[j]
+        if in_str:
+            esc = (ch == "\\") and not esc
+            if ch == '"' and not esc:
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+    return len(text)
 
 
 class Classifier:
@@ -171,7 +208,15 @@ class Classifier:
         if resp.status_code != 200:
             raise RuntimeError(f"CLOVA Studio {resp.status_code}")   # 키가 섞일 수 있어 본문은 남기지 않음
         result = (resp.json() or {}).get("result") or {}
-        return _parse_array((result.get("message") or {}).get("content") or "")
+        return parse_items((result.get("message") or {}).get("content") or "")
+
+    def _ask(self, batch: list[Review]) -> dict:
+        try:
+            ids = {r.review_id for r in batch}
+            return {str(x["review_id"]): x for x in self._call(batch) if str(x["review_id"]) in ids}
+        except Exception as e:
+            log.warning("리뷰 분류 모델 호출 실패 (%d건): %s", len(batch), e)
+            return {}
 
     def classify(self, reviews: list[Review]) -> list[ReviewClassification]:
         if self.mode == "mock":
@@ -193,11 +238,10 @@ class Classifier:
 
         for i in range(0, len(todo), BATCH):
             batch = todo[i:i + BATCH]
-            try:
-                items = {str(x.get("review_id")): x for x in self._call(batch) if isinstance(x, dict)}
-            except Exception as e:   # 모델 실패 → 그 묶음은 규칙 분류
-                log.warning("리뷰 분류 모델 호출 실패, 규칙 분류로 대신: %s", e)
-                items = {}
+            items = self._ask(batch)
+            missing = [r for r in batch if r.review_id not in items]
+            for k in range(0, len(missing), RETRY_BATCH):     # 못 읽은 리뷰만 작게 나눠 한 번 더
+                items.update(self._ask(missing[k:k + RETRY_BATCH]))
             new_replay, new_runtime = {}, {}
             for r in batch:
                 item = items.get(r.review_id)
