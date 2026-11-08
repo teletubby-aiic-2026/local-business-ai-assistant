@@ -405,3 +405,18 @@ def test_kiwi_features_typos_clauses_lemma_and_pii():
     assert changed and "5678" not in masked and "@" not in masked                      # 띄어 쓴 전화번호·이메일 가림
     assert "2-3인분" in masked and "12,000원" in masked                                # 짧은 숫자열·가격은 그대로
     assert morph.pii_spans("연락 a@b.com")                                              # kiwi W_EMAIL
+
+
+def test_access_token_when_deployed(client, monkeypatch):
+    """규격 9.1: APP_ACCESS_TOKEN 을 정하면 X-Access-Token 이 맞는 요청만 받음. 안 정하면(로컬) 검사 안 함."""
+    assert client.get("/api/review-insight/stores").status_code == 200          # 로컬: 토큰 없이 됨
+    monkeypatch.setenv("APP_ACCESS_TOKEN", "team-secret")
+    no = client.get("/api/review-insight/insight")
+    assert no.status_code == 401 and no.json()["error"]["code"] == "UNAUTHORIZED"
+    assert client.get("/api/review-insight/insight", headers={"X-Access-Token": "wrong"}).status_code == 401
+    assert client.get("/api/review-insight/insight", headers={"X-Access-Token": "team-secret"}).status_code == 200
+    assert client.post("/api/review-insight/reviews", json={"text": "맛있어요"}).status_code == 401   # 붙여넣기도 막힘
+    h = client.get("/api/health").json()                                        # 상태 확인과 화면은 열려 있음
+    assert h["token_required"] is True and client.get("/").status_code == 200
+    spec = client.get("/openapi.json").json()
+    assert "X-Access-Token" in str(spec["components"]["securitySchemes"])         # /docs 에 Authorize 버튼

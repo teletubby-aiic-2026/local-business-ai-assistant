@@ -7,6 +7,7 @@
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2433; --sub:#667085; --line:#e4e7ec; --neg:#d92d20; --pos:#079455; --acc:#2e6be6; }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 -apple-system, "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
   main { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
   h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 0 0 12px; }
@@ -40,6 +41,11 @@
 <body>
 <main>
   <h1>리뷰 분석 확인 <span class="tag">합성 데이터</span><span class="tag" id="mode">-</span></h1>
+  <div class="row" id="tokenRow" hidden>
+    <label for="token" class="sub">접근 토큰</label>
+    <input id="token" type="password" autocomplete="off" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;font:inherit">
+    <button id="tokenSave">저장</button>
+  </div>
   <div class="row" style="margin-top:6px"><select id="store"></select><span class="sub" id="storeLine">불러오는 중…</span></div>
 
   <section class="card">
@@ -74,9 +80,16 @@ const $ = id => document.getElementById(id);
 let STORE = '';
 let LOAD_SEQ = 0;   // 늦게 끝난 예전 불러오기가 새 결과를 덮지 않게
 const q = () => 'store_id=' + encodeURIComponent(STORE);
+// 서버가 접근 토큰을 요구하면(APP_ACCESS_TOKEN) 한 번 입력받아 이 브라우저에만 기억
+let TOKEN = '';
+try { TOKEN = localStorage.getItem('reviewInsightToken') || ''; } catch (e) {}
 async function api(path, opt = {}) {
-  const r = await fetch('/api/review-insight' + path, { headers: { 'Content-Type': 'application/json' }, ...opt });
+  const r = await fetch('/api/review-insight' + path, { ...opt, headers: { 'Content-Type': 'application/json', 'X-Access-Token': TOKEN } });
   const d = await r.json();
+  if (r.status === 401) {
+    $('tokenRow').hidden = false;
+    throw new Error('접근 토큰을 입력해 주세요.');
+  }
   if (!r.ok) throw new Error(d.error?.message || r.status);
   return d;
 }
@@ -135,6 +148,11 @@ $('send').onclick = async () => {
   $('send').disabled = false;
 };
 $('reset').onclick = async () => { await api('/reviews/pasted?' + q(), { method: 'DELETE' }); $('result').innerHTML = ''; load(); };
+$('tokenSave').onclick = () => {
+  TOKEN = $('token').value.trim();
+  try { localStorage.setItem('reviewInsightToken', TOKEN); } catch (e) {}
+  $('tokenRow').hidden = true; STORE = ''; load().catch(e => { $('storeLine').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
+};
 load().catch(e => { $('storeLine').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
 </script>
 </body>

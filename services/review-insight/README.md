@@ -291,6 +291,7 @@ pytest -q                         # 시험 (키 필요 없음, CLOVA 응답은 �
 | `REVIEW_KIWI_HINTS` | `on` | AI에게 kiwi 참고 자료를 줄지 |
 | `REVIEW_MORPH` | `on` | kiwi 사용 여부 |
 | `REVIEW_MORPH_TYPOS` | `basic_with_continual` | kiwi 오타 교정 (`off`로 끔) |
+| `APP_ACCESS_TOKEN` | (없음) | 밖에 띄울 때만. 정하면 `X-Access-Token` 헤더가 맞는 요청만 받음 (없으면 401 `UNAUTHORIZED`) |
 
 - AI 호출은 일시 오류(429·5xx·시간 초과)면 1번 다시 시도하고, 키 오류(400·401·403)는 바로 실패합니다.
 - 호출마다 `logs/llm_usage.jsonl`에 토큰·시간만 한 줄씩 남깁니다 (리뷰 글은 남기지 않음, 저장소에 안 올림).
@@ -305,6 +306,32 @@ APP_MODE=live REVIEW_KIWI_HINTS=off python -m scripts.eval_classify  # 끔 (비�
 이 파일은 합성 데이터 결과라 저장소에 올려도 됩니다. 발표 때는 `APP_MODE=replay`로 켭니다.
 
 ---
+
+### 서버에 띄우기 (지금: 고객응대 서버, 나중에: 팀 공용 서브계정)
+
+어느 서버든 같은 방법입니다. 서버를 옮길 때도 아래를 새 서버에서 다시 하면 됩니다.
+
+```bash
+cd ~/local-business-ai-assistant && git pull
+cd services/review-insight
+cp .env.example .env    # 처음 한 번: 키, APP_MODE, APP_ACCESS_TOKEN 채우기
+docker build -t review-insight .
+docker rm -f review-insight 2>/dev/null
+docker run -d --name review-insight --restart unless-stopped -p 8020:8020 --env-file .env \
+  -v $(pwd)/data/replay:/app/data/replay -v $(pwd)/data/runtime:/app/data/runtime -v $(pwd)/logs:/app/logs \
+  review-insight
+```
+
+- NCP 서버의 ACG(방화벽)에 **8020번 포트**를 열어야 밖에서 들어옵니다.
+- 밖에 띄울 때는 `.env`에 **`APP_ACCESS_TOKEN`을 꼭 정합니다** (규격 9.1). 그러면 `X-Access-Token` 헤더에 같은 값을 보낸 요청만 받습니다.
+  `/docs`는 오른쪽 위 **Authorize**에, 확인 화면은 처음 뜨는 **접근 토큰** 칸에 넣으면 됩니다. 토큰은 카톡으로만 공유합니다.
+- 서버 모드는 `replay`를 권합니다 (AI를 다시 부르지 않아 크레딧을 안 씀). 저장본이 아직 없으면 그 리뷰만 규칙 분류로 돌아갑니다.
+- 주소: 확인 화면 `http://<서버>:8020/`, API 설명서 `http://<서버>:8020/docs`, API `http://<서버>:8020/api/review-insight/...`
+
+```python
+# 팀원 코드에서 서버 API 부르기
+httpx.get("http://<서버>:8020/api/review-insight/insight", headers={"X-Access-Token": "<팀 토큰>"})
+```
 
 ## 8. 팀원이 고칠 수 있는 파일
 

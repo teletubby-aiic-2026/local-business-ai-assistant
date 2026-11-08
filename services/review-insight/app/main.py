@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 import contextvars
+import hmac
+import os
 import uuid
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Query, Request
+from fastapi.security import APIKeyHeader
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -23,7 +26,23 @@ from app import service  # noqa: E402  (.env 를 먼저 읽어야 함)
 from app.classify import Classifier  # noqa: E402
 
 SPEC_VERSION = "0.1"   # docs/module-io-spec.md 의 공통 규칙(3·6·7·9절)을 따름. C3 내용은 결정안 v0.4
-router = APIRouter(prefix="/api/review-insight", tags=["review-insight"])
+_token_header = APIKeyHeader(name="X-Access-Token", auto_error=False,
+                             description="서버 .env 의 APP_ACCESS_TOKEN 값 (설정했을 때만 필요)")
+
+
+class AccessDenied(Exception):
+    pass
+
+
+def check_token(token: str | None = Depends(_token_header)) -> None:
+    """규격 9.1: 밖에 띄울 때 APP_ACCESS_TOKEN 을 정하면, 같은 값을 X-Access-Token 헤더로 보낸 요청만 받음.
+    값을 정하지 않으면(로컬 개발) 검사하지 않음."""
+    expected = os.getenv("APP_ACCESS_TOKEN", "").strip()
+    if expected and not hmac.compare_digest((token or "").strip(), expected):
+        raise AccessDenied()
+
+
+router = APIRouter(prefix="/api/review-insight", tags=["review-insight"], dependencies=[Depends(check_token)])
 _classifier: Classifier | None = None
 _request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 
@@ -130,6 +149,11 @@ async def _with_request_id(request: Request, call_next):
     return response
 
 
+@app.exception_handler(AccessDenied)
+async def _denied(_: Request, exc: AccessDenied):
+    return error(401, "UNAUTHORIZED", "접근 토큰이 없거나 틀렸습니다. X-Access-Token 헤더에 팀에서 정한 값을 넣어 주세요.")
+
+
 @app.exception_handler(service.StoreNotFound)
 async def _no_store(_: Request, exc: service.StoreNotFound):
     return error(404, "STORE_NOT_FOUND", f"없는 가게입니다: {exc.args[0]}", {"stores": service.store_ids()})
@@ -151,5 +175,5 @@ def page():
 def health():
     """규격 6절 #1"""
     c = classifier()
-    return {"status": "ok", "mode": c.mode, "spec_version": SPEC_VERSION,
+    return {"status": "ok", "mode": c.mode, "spec_version": SPEC_VERSION, "token_required": bool(os.getenv("APP_ACCESS_TOKEN", "").strip()),
             "models": {"review_classify": c.model if c.mode != "mock" else "rule"}, "data_origin": "synthetic"}
