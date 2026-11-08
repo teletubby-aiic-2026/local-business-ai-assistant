@@ -352,6 +352,10 @@
     "expected_sentiment": "positive",
     "expected_topics": [
       {
+        "topic": "atmosphere",
+        "polarity": "positive"
+      },
+      {
         "topic": "hygiene",
         "polarity": "positive"
       },
@@ -360,7 +364,7 @@
         "polarity": "positive"
       }
     ],
-    "note": "청결 칭찬"
+    "note": "분위기·청결 칭찬"
   },
   {
     "review_id": "rv_ongi_030",

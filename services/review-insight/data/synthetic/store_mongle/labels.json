@@ -192,11 +192,15 @@
     "expected_sentiment": "positive",
     "expected_topics": [
       {
+        "topic": "atmosphere",
+        "polarity": "positive"
+      },
+      {
         "topic": "hygiene",
         "polarity": "positive"
       }
     ],
-    "note": "청결"
+    "note": "공간·청결"
   },
   {
     "review_id": "rv_mongle_018",
@@ -271,8 +275,13 @@
   {
     "review_id": "rv_mongle_024",
     "expected_sentiment": "positive",
-    "expected_topics": [],
-    "note": "칭찬이지만 사전 주제 없음"
+    "expected_topics": [
+      {
+        "topic": "atmosphere",
+        "polarity": "positive"
+      }
+    ],
+    "note": "매장 환경 칭찬"
   },
   {
     "review_id": "rv_mongle_025",
@@ -328,9 +337,14 @@
   },
   {
     "review_id": "rv_mongle_029",
-    "expected_sentiment": "neutral",
-    "expected_topics": [],
-    "note": "불편하지만 사전 주제 없음 (별점 3 → 무난)"
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "atmosphere",
+        "polarity": "negative"
+      }
+    ],
+    "note": "매장 환경 불만 1 (반복 아님)"
   },
   {
     "review_id": "rv_mongle_030",

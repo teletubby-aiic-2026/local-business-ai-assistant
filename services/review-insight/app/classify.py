@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPLAY_FILE = ROOT / "data" / "replay" / "classify.json"           # 합성 리뷰 결과 (저장소에 올려도 됨)
 RUNTIME_CACHE = ROOT / "data" / "runtime" / "classify_paste.json"   # 붙여넣은 리뷰 결과 (저장소에 안 올림)
 ENDPOINT = "https://clovastudio.stream.ntruss.com/v3/chat-completions/{model}"
-PROMPT_VERSION = "c3-v1"
+PROMPT_VERSION = "c3-v2"   # 프롬프트를 바꾸면 올림 → 예전 재생본과 섞이지 않음
 BATCH = 8
 
 SYSTEM = """너는 음식점 리뷰를 주제별로 나누는 분류기다. 결과는 사장님이 반복되는 불만을 찾는 데 쓰인다.
@@ -43,14 +43,22 @@ SYSTEM = """너는 음식점 리뷰를 주제별로 나누는 분류기다. 결�
 {topics}
 
 규칙
-1. 리뷰마다 언급된 주제를 모두 찾고, 주제마다 polarity를 positive(칭찬) 또는 negative(불만)로 단다.
-   같은 주제에 칭찬과 불만이 함께 있으면 두 개로 따로 적는다.
-2. evidence에는 그 판단의 근거가 되는 구절을 리뷰 글에서 글자 그대로 복사한다. 바꿔 쓰거나 요약하지 않는다.
-3. 배달 주문이 늦게 온 것은 delivery_time, 매장에서 음식이 늦게 나오거나 웨이팅은 wait_time이다.
+1. 리뷰에 나온 주제를 빠짐없이 모두 적고, 주제마다 polarity를 positive(칭찬) 또는 negative(불만)로 단다.
+   한 문장에 주제가 둘이면 둘 다 적는다. '맛있어요', '맛은 있는데'처럼 짧은 맛 칭찬도 taste로 따로 적는다.
+   (예: '양도 넉넉하고 맛도 좋아요' → portion positive, taste positive)
+   (예: '가격에 비해 양이 적어요' → portion negative, price negative)
+   (예: '배달이 빨라서 음료가 시원했어요' → delivery_time positive, temperature positive)
+2. 같은 주제에 칭찬과 불만을 함께 적는 것은 그 리뷰가 같은 점을 칭찬도 하고 불만도 할 때뿐이다.
+   서로 다른 점이면 각각 맞는 주제로 나눈다. ('맛은 있는데 겉이 눅눅해요' → taste positive, texture negative)
+3. 주제 사전에 맞는 주제가 없는 내용은 억지로 다른 주제에 넣지 말고 적지 않는다.
+4. evidence에는 그 판단의 근거가 되는 구절을 리뷰 글에서 글자 그대로 복사한다. 바꿔 쓰거나 요약하지 않는다.
+5. channel이 naver_place면 매장 방문 리뷰다. 매장에서 음식·음료가 늦게/빨리 나온 것과 웨이팅은 wait_time이고,
+   delivery_time은 배달 주문이 늦게/빨리 온 것에만 쓴다.
    '포장해야겠다'처럼 포장 주문을 뜻하는 말은 packaging이 아니다. '국물 하나 안 샜어요'는 packaging 칭찬이다.
-4. sentiment는 positive, negative, mixed(칭찬과 불만이 함께), neutral(주제가 없거나 판단 어려움) 중 하나다.
-5. summary는 리뷰 내용을 20자 안팎 한 줄로 쓴다. 원인을 단정하거나(때문, 탓) 누군가를 탓하지 않는다.
-6. 주어진 리뷰 순서대로 JSON 배열만 출력한다. 다른 글은 쓰지 않는다.
+   냄새·간·단맛·싱거움은 taste, 바삭함·눅눅함·질김은 texture다.
+6. sentiment는 positive, negative, mixed(칭찬과 불만이 함께), neutral(주제가 없거나 판단 어려움) 중 하나다.
+7. summary는 리뷰 내용을 20자 안팎 한 줄로 쓴다. 원인을 단정하거나(때문, 탓) 누군가를 탓하지 않는다.
+8. 주어진 리뷰 순서대로 JSON 배열만 출력한다. 다른 글은 쓰지 않는다.
 형식: [{{"review_id": "...", "sentiment": "...", "topics": [{{"topic": "...", "polarity": "...", "evidence": "..."}}], "summary": "..."}}]"""
 
 
@@ -59,7 +67,7 @@ def system_prompt() -> str:
 
 
 def _user(reviews: list[Review]) -> str:
-    lines = [f'{{"review_id": "{r.review_id}", "rating": {r.rating if r.rating is not None else "null"}, "text": {json.dumps(r.text, ensure_ascii=False)}}}'
+    lines = [json.dumps({"review_id": r.review_id, "channel": r.channel, "rating": r.rating, "text": r.text}, ensure_ascii=False)
              for r in reviews]
     return "[리뷰]\n" + "\n".join(lines)
 
