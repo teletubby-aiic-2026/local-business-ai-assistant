@@ -1,0 +1,489 @@
+[
+  {
+    "review_id": "rv_0001",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "저녁 배달 지연"
+  },
+  {
+    "review_id": "rv_0002",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "저녁 배달 지연"
+  },
+  {
+    "review_id": "rv_0003",
+    "expected_sentiment": "mixed",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      },
+      {
+        "topic": "delivery_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "칭찬+저녁 지연이 섞임"
+  },
+  {
+    "review_id": "rv_0004",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "'배달' 단어 없이 지연 표현"
+  },
+  {
+    "review_id": "rv_0005",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "negative"
+      },
+      {
+        "topic": "temperature",
+        "polarity": "negative"
+      }
+    ],
+    "note": "지연+식음 두 불만"
+  },
+  {
+    "review_id": "rv_0006",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "'오래 걸림' 표현"
+  },
+  {
+    "review_id": "rv_0007",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "temperature",
+        "polarity": "negative"
+      }
+    ],
+    "note": "미지근"
+  },
+  {
+    "review_id": "rv_0008",
+    "expected_sentiment": "mixed",
+    "expected_topics": [
+      {
+        "topic": "temperature",
+        "polarity": "negative"
+      },
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "식음+맛 칭찬"
+  },
+  {
+    "review_id": "rv_0009",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "temperature",
+        "polarity": "negative"
+      }
+    ],
+    "note": "차갑게 식음"
+  },
+  {
+    "review_id": "rv_0010",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "portion",
+        "polarity": "negative"
+      },
+      {
+        "topic": "price",
+        "polarity": "negative"
+      }
+    ],
+    "note": "양+가격"
+  },
+  {
+    "review_id": "rv_0011",
+    "expected_sentiment": "mixed",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      },
+      {
+        "topic": "portion",
+        "polarity": "negative"
+      }
+    ],
+    "note": "맛 칭찬+양 아쉬움"
+  },
+  {
+    "review_id": "rv_0012",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "portion",
+        "polarity": "negative"
+      }
+    ],
+    "note": "매장 방문, 양"
+  },
+  {
+    "review_id": "rv_0013",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "portion",
+        "polarity": "negative"
+      },
+      {
+        "topic": "price",
+        "polarity": "negative"
+      }
+    ],
+    "note": "'양' 단어 없이 양 불만"
+  },
+  {
+    "review_id": "rv_0014",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "packaging",
+        "polarity": "negative"
+      }
+    ],
+    "note": "국물 샘"
+  },
+  {
+    "review_id": "rv_0015",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "packaging",
+        "polarity": "negative"
+      }
+    ],
+    "note": "포장 허술"
+  },
+  {
+    "review_id": "rv_0016",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "packaging",
+        "polarity": "negative"
+      }
+    ],
+    "note": "뚜껑"
+  },
+  {
+    "review_id": "rv_0017",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "missing_item",
+        "polarity": "negative"
+      }
+    ],
+    "note": "누락 1"
+  },
+  {
+    "review_id": "rv_0018",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "missing_item",
+        "polarity": "negative"
+      }
+    ],
+    "note": "누락 2 (2건이라 반복 아님)"
+  },
+  {
+    "review_id": "rv_0019",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "service",
+        "polarity": "negative"
+      }
+    ],
+    "note": "응대 1건"
+  },
+  {
+    "review_id": "rv_0020",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "hygiene",
+        "polarity": "negative"
+      }
+    ],
+    "note": "위생 1건 (단건이어도 심각)"
+  },
+  {
+    "review_id": "rv_0021",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "맛 칭찬"
+  },
+  {
+    "review_id": "rv_0022",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "positive"
+      },
+      {
+        "topic": "temperature",
+        "polarity": "positive"
+      }
+    ],
+    "note": "점심 배달은 빠름 (저녁과 대비)"
+  },
+  {
+    "review_id": "rv_0023",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "service",
+        "polarity": "positive"
+      }
+    ],
+    "note": "응대 칭찬"
+  },
+  {
+    "review_id": "rv_0024",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "맛 칭찬 (저녁)"
+  },
+  {
+    "review_id": "rv_0025",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "price",
+        "polarity": "positive"
+      }
+    ],
+    "note": "가성비"
+  },
+  {
+    "review_id": "rv_0026",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "menu",
+        "polarity": "positive"
+      },
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "구성+맛"
+  },
+  {
+    "review_id": "rv_0027",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "맛집"
+  },
+  {
+    "review_id": "rv_0028",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "portion",
+        "polarity": "positive"
+      },
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "양 칭찬 (양 불만과 반대)"
+  },
+  {
+    "review_id": "rv_0029",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "hygiene",
+        "polarity": "positive"
+      },
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "청결 칭찬"
+  },
+  {
+    "review_id": "rv_0030",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "packaging",
+        "polarity": "positive"
+      }
+    ],
+    "note": "점심 포장은 괜찮음 ('안 샜어요'는 칭찬)"
+  },
+  {
+    "review_id": "rv_0031",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "재주문"
+  },
+  {
+    "review_id": "rv_0032",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "점심 단골"
+  },
+  {
+    "review_id": "rv_0033",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "service",
+        "polarity": "positive"
+      },
+      {
+        "topic": "wait_time",
+        "polarity": "positive"
+      }
+    ],
+    "note": "매장 응대·대기"
+  },
+  {
+    "review_id": "rv_0034",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "menu",
+        "polarity": "positive"
+      }
+    ],
+    "note": "반찬 구성"
+  },
+  {
+    "review_id": "rv_0035",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "맛"
+  },
+  {
+    "review_id": "rv_0036",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "service",
+        "polarity": "positive"
+      }
+    ],
+    "note": "요청 반영 칭찬"
+  },
+  {
+    "review_id": "rv_0037",
+    "expected_sentiment": "mixed",
+    "expected_topics": [
+      {
+        "topic": "wait_time",
+        "polarity": "negative"
+      },
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "저녁 매장 대기"
+  },
+  {
+    "review_id": "rv_0038",
+    "expected_sentiment": "neutral",
+    "expected_topics": [],
+    "note": "주제 없음"
+  },
+  {
+    "review_id": "rv_0039",
+    "expected_sentiment": "mixed",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      },
+      {
+        "topic": "taste",
+        "polarity": "negative"
+      }
+    ],
+    "note": "같은 주제에 칭찬·불만"
+  },
+  {
+    "review_id": "rv_0040",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "wait_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "저녁 매장 대기 (배달 아님)"
+  }
+]

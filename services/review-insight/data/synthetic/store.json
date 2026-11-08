@@ -1,0 +1,21 @@
+{
+  "store_id": "store_ongi",
+  "name": "온기한식 (가상)",
+  "business_type": "korean",
+  "business_type_name": "한식음식점",
+  "channels": [
+    "baemin",
+    "coupangeats",
+    "yogiyo",
+    "naver_place"
+  ],
+  "menu": [
+    "제육볶음 정식",
+    "된장찌개",
+    "김치찌개",
+    "순두부찌개",
+    "불고기 덮밥",
+    "계란말이"
+  ],
+  "data_origin": "synthetic"
+}

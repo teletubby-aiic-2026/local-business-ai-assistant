@@ -1,0 +1,164 @@
+"""키 없이 도는 시험. CLOVA 응답은 가짜(httpx.MockTransport)로 만듭니다."""
+import json
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from app import classify, service
+from app.classify import Classifier, validate
+from app.cluster import build_insight
+from app.models import Review
+from app.topics import banned_in, evidence_ok, mask_pii
+
+
+@pytest.fixture(autouse=True)
+def tmp_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, "PASTED", tmp_path / "pasted.json")
+    monkeypatch.setattr(classify, "REPLAY_FILE", tmp_path / "replay.json")
+    monkeypatch.setattr(classify, "RUNTIME_CACHE", tmp_path / "runtime.json")
+
+
+def labels():
+    return {l["review_id"]: l for l in json.loads((service.SYNTHETIC / "labels.json").read_text(encoding="utf-8"))}
+
+
+# ── C2 합성 데이터 ──
+def test_synthetic_data_shape():
+    rows = service.sample_reviews()
+    assert len(rows) == 40 and len({r.review_id for r in rows}) == 40
+    assert set(labels()) == {r.review_id for r in rows}
+    assert all(r.data_origin == "synthetic" and r.input_method == "sample" for r in rows)
+    raw = json.loads((service.SYNTHETIC / "reviews.json").read_text(encoding="utf-8"))
+    banned_fields = {"nickname", "author", "phone", "address", "customer_id"}
+    assert not any(banned_fields & set(d) for d in raw)          # 개인정보 필드 없음
+    assert not any(mask_pii(r.text)[1] for r in rows)
+
+
+# ── C3 규칙 검사 ──
+def test_evidence_must_be_in_text():
+    assert evidence_ok("배달이 너무 늦어요", "배달이 너무 늦어요. 예상 시간보다")
+    assert evidence_ok("배달이  너무늦어요", "배달이 너무 늦어요")           # 띄어쓰기 차이는 봐줌
+    assert not evidence_ok("배달 기사가 불친절", "배달이 너무 늦어요")
+    assert not evidence_ok("늦", "배달이 너무 늦어요")                       # 너무 짧음
+
+
+def test_validate_drops_bad_model_output():
+    r = Review("rv_x", "s", "baemin", 1, "한 시간 기다렸는데 찌개가 다 식어서 왔어요", "2026-11-06T20:30:00+09:00")
+    item = {"sentiment": "positive", "summary": "라이더 탓에 늦음", "topics": [
+        {"topic": "delivery_time", "polarity": "negative", "evidence": "한 시간 기다렸는데"},
+        {"topic": "temperature", "polarity": "negative", "evidence": "찌개가 다 식어서"},
+        {"topic": "rider_attitude", "polarity": "negative", "evidence": "한 시간"},          # 사전에 없음
+        {"topic": "taste", "polarity": "negative", "evidence": "맛이 없었어요"},             # 지어낸 근거
+        {"topic": "packaging", "polarity": "bad", "evidence": "찌개가"}]}                    # 극성 오류
+    c = validate(item, r, method="model", model="HCX-005")
+    assert {(t.topic, t.polarity) for t in c.topics} == {("delivery_time", "negative"), ("temperature", "negative")}
+    assert c.sentiment == "negative" and c.summary is None and len(c.warnings) == 5
+
+
+def test_validate_falls_back_to_rules_when_nothing_usable():
+    r = Review("rv_x", "s", "baemin", 2, "포장이 허술해서 국물이 넘쳤어요", "2026-10-29T20:20:00+09:00")
+    c = validate({"sentiment": "negative", "topics": [{"topic": "packaging", "polarity": "negative", "evidence": "용기가 깨짐"}]},
+                 r, method="model", model="HCX-005")
+    assert c.method == "rule_fallback" and "packaging" in c.negative_topics
+
+
+def test_banned_and_pii():
+    assert banned_in("배달 기사 탓입니다") and banned_in("010-1234-5678로 연락") and not banned_in("저녁 배달 지연")
+    masked, changed = mask_pii("연락 주세요 010-1234-5678, a@b.com https://x.y")
+    assert changed and "010" not in masked and "@" not in masked and "https" not in masked
+
+
+# ── C3 반복 묶음 ──
+def test_repeated_issues_from_synthetic_mock():
+    ins = service.analyze(Classifier("mock"))
+    by = {i.topic: i for i in ins.repeated_issues}
+    assert set(by) == {"delivery_time", "temperature", "portion", "packaging"}     # 일부러 만든 반복 불만 4갈래
+    assert by["delivery_time"].review_count == 6 and by["delivery_time"].main_time_band == "17~21시"
+    assert by["temperature"].main_time_band == "17~21시" and by["packaging"].main_time_band == "17~21시"
+    assert "missing_item" not in by                                                # 2건이라 반복 아님
+    assert ins.review_count == 40 and ins.period_end == "2026-11-08"
+
+
+def test_rule_classifier_matches_most_labels():
+    """규칙 분류기는 대비책이지만 합성 리뷰에서는 거의 맞아야 함."""
+    lab = labels()
+    rows = service.sample_reviews()
+    got = Classifier("mock").classify(rows)
+    sent = sum(c.sentiment == lab[c.review_id]["expected_sentiment"] for c in got)
+    assert sent >= 36
+
+
+# ── live / replay (가짜 CLOVA) ──
+def fake_clova(calls):
+    def handler(req):
+        body = json.loads(req.content)
+        calls.append(body)
+        assert req.headers["Authorization"] == "Bearer test-key"
+        user = body["messages"][1]["content"]
+        out = []
+        for line in user.splitlines()[1:]:
+            d = json.loads(line)
+            out.append({"review_id": d["review_id"], "sentiment": "negative" if (d["rating"] or 3) <= 2 else "positive",
+                        "topics": [{"topic": "taste", "polarity": "positive", "evidence": d["text"][:6]}], "summary": "요약"})
+        return httpx.Response(200, json={"result": {"message": {"content": "```json\n" + json.dumps(out, ensure_ascii=False) + "\n```"}}})
+    return httpx.MockTransport(handler)
+
+
+def test_live_calls_in_batches_then_replay_reuses():
+    calls = []
+    rows = service.sample_reviews()
+    live = Classifier("live", api_key="test-key", transport=fake_clova(calls))
+    res = live.classify(rows)
+    assert len(calls) == 5 and all(c.method == "model" for c in res)           # 40건 / 8건씩
+    assert calls[0]["maxTokens"] >= 1024 and "[주제 사전]" in calls[0]["messages"][0]["content"]
+    replay = Classifier("replay", api_key="")
+    again = replay.classify(rows)
+    assert all(c.method == "replay" for c in again)
+    assert [t.evidence for t in again[0].topics] == [t.evidence for t in res[0].topics]
+
+
+def test_live_failure_falls_back_to_rules():
+    t = httpx.MockTransport(lambda req: httpx.Response(500, json={}))
+    res = Classifier("live", api_key="k", transport=t).classify(service.sample_reviews()[:3])
+    assert all(c.method == "rule_fallback" for c in res)
+
+
+def test_live_requires_key():
+    with pytest.raises(ValueError):
+        Classifier("live", api_key="")
+
+
+# ── S2 API ──
+@pytest.fixture
+def client(monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, "_classifier", Classifier("mock"))
+    return TestClient(main.app)
+
+
+def test_paste_flow(client):
+    r = client.post("/api/review-insight/reviews", json={"text": "저녁에 시켰는데 배달이 너무 늦어요 010-1111-2222", "rating": 1, "channel": "baemin"})
+    assert r.status_code == 201, r.text
+    d = r.json()
+    assert d["review"]["pii_masked"] and "010" not in d["review"]["text"] and d["review"]["input_method"] == "paste"
+    assert "delivery_time" in d["classification"]["negative_topics"]
+    assert "iss_delivery_time" in d["joined_issues"]
+    by = {i["topic"]: i for i in d["repeated_issues"]}
+    assert by["delivery_time"]["review_count"] == 7
+    assert client.get("/api/review-insight/reviews").json()["count"] == 41
+    assert client.delete("/api/review-insight/reviews/pasted").json() == {"deleted": 1}
+    assert client.get("/api/review-insight/reviews").json()["count"] == 40
+
+
+def test_paste_validation(client):
+    for body in ({"text": ""}, {"text": "a" * 1001}, {"text": "좋아요", "rating": 9}, {"text": "좋아요", "channel": "kakao"}):
+        r = client.post("/api/review-insight/reviews", json=body)
+        assert r.status_code == 400 and r.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert client.post("/api/review-insight/reviews", json={}).status_code == 400
+
+
+def test_insight_endpoint_and_page(client):
+    d = client.get("/api/review-insight/insight").json()
+    assert d["repeated_issues"][0]["topic"] == "delivery_time" and d["data_origin"] == "synthetic"
+    assert client.get("/").status_code == 200 and client.get("/health").json()["mode"] == "mock"

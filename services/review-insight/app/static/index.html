@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>리뷰 분석 확인</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2433; --sub:#667085; --line:#e4e7ec; --neg:#d92d20; --pos:#079455; --acc:#2e6be6; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 -apple-system, "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 0 0 12px; }
+  .sub { color: var(--sub); font-size: 13px; }
+  .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3538cd; margin-right:6px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin-top:16px; }
+  textarea { width:100%; min-height:90px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font:inherit; resize:vertical; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+  select, button { font:inherit; padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:#fff; }
+  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; }
+  .chips button { font-size:13px; padding:5px 10px; cursor:pointer; }
+  .topic { display:inline-flex; gap:6px; align-items:baseline; margin:4px 8px 4px 0; padding:4px 10px; border-radius:8px; font-size:14px; }
+  .topic.negative { background:#fef3f2; color:var(--neg); } .topic.positive { background:#ecfdf3; color:var(--pos); }
+  .topic q { color:var(--ink); font-size:13px; }
+  .warn { color:#b54708; font-size:12px; margin-top:6px; }
+  .issues { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:12px; }
+  .issue { border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .issue.new { outline:2px solid var(--acc); }
+  .issue h3 { margin:0; font-size:15px; display:flex; justify-content:space-between; }
+  .bars { display:grid; grid-template-columns: 58px 1fr 22px; gap:3px 8px; font-size:12px; color:var(--sub); margin:10px 0; align-items:center; }
+  .bar { height:8px; background:#f2f4f7; border-radius:4px; overflow:hidden; } .bar i { display:block; height:100%; background:var(--neg); }
+  .quotes { font-size:13px; color:var(--sub); margin:0; padding-left:16px; }
+  .err { color:var(--neg); margin-top:8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>리뷰 분석 확인 <span class="tag">합성 데이터</span><span class="tag" id="mode">-</span></h1>
+  <div class="sub" id="storeLine">불러오는 중…</div>
+
+  <section class="card">
+    <h2>리뷰 직접 붙여넣기 (S2)</h2>
+    <textarea id="text" maxlength="1000" placeholder="배달앱에서 받은 리뷰 글을 붙여넣으세요. 전화번호·이메일·링크는 저장 전에 가립니다."></textarea>
+    <div class="row chips" id="chips"></div>
+    <div class="row">
+      <select id="rating"><option value="">별점 모름</option><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select>
+      <select id="channel"><option value="">채널 모름</option><option value="baemin">배달의민족</option><option value="coupangeats">쿠팡이츠</option><option value="yogiyo">요기요</option><option value="naver_place">네이버 플레이스</option></select>
+      <button class="primary" id="send">분류하기</button>
+      <button id="reset" title="붙여넣은 리뷰만 지웁니다">붙여넣기 초기화</button>
+    </div>
+    <div id="result"></div>
+  </section>
+
+  <section class="card">
+    <h2>반복 불만 묶음 (C3)</h2>
+    <div class="sub" id="period"></div>
+    <div class="issues" id="issues" style="margin-top:12px"></div>
+  </section>
+</main>
+<script>
+const NAMES = { taste:'맛', portion:'양', price:'가격', delivery_time:'배달 시간', temperature:'음식 온도', packaging:'포장', missing_item:'누락', service:'응대', hygiene:'위생', menu:'메뉴 구성', wait_time:'매장 대기' };
+const SAMPLES = [
+  { text: '저녁 8시에 시켰는데 한 시간 넘게 걸렸고 국물도 다 식었어요', rating: 1 },
+  { text: '맛은 정말 좋은데 포장이 허술해서 국물이 조금 샜어요', rating: 3 },
+  { text: '점심에 먹었는데 반찬도 깔끔하고 사장님도 친절하세요!', rating: 5 },
+];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const $ = id => document.getElementById(id);
+async function api(path, opt = {}) {
+  const r = await fetch('/api/review-insight' + path, { headers: { 'Content-Type': 'application/json' }, ...opt });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error?.message || r.status);
+  return d;
+}
+function renderIssues(list, highlight = []) {
+  $('issues').innerHTML = list.length ? list.map(i => {
+    const max = Math.max(...Object.values(i.time_bands), 1);
+    return `<div class="issue ${highlight.includes(i.issue_id) ? 'new' : ''}">
+      <h3><span>${esc(i.topic_name)}</span><span>${i.review_count}건</span></h3>
+      <div class="sub">${i.main_time_band ? `주로 ${i.main_time_band}` : '여러 시간대'} · 앞 2주 ${i.previous_count}건 → 최근 2주 ${i.recent_count}건</div>
+      <div class="bars">${Object.entries(i.time_bands).map(([b, n]) => `<span>${b}</span><span class="bar"><i style="width:${n / max * 100}%"></i></span><span>${n}</span>`).join('')}</div>
+      <ul class="quotes">${i.evidence.slice(0, 3).map(e => `<li>“${esc(e.quote)}” <span class="sub">${e.review_id}</span></li>`).join('')}</ul>
+    </div>`; }).join('') : '<div class="sub">반복 불만이 없어요.</div>';
+}
+function renderResult(d) {
+  const c = d.classification;
+  $('result').innerHTML = `<div class="card" style="margin-top:12px">
+    <div class="sub">${esc(d.review.review_id)} · 감정 <b>${esc(c.sentiment)}</b> · 방식 ${esc(c.method)}${d.review.pii_masked ? ' · 개인정보 가림' : ''}</div>
+    <div style="margin:6px 0">${esc(d.review.text)}</div>
+    <div>${c.topics.length ? c.topics.map(t => `<span class="topic ${t.polarity}">${t.polarity === 'negative' ? '불만' : '칭찬'} · ${esc(NAMES[t.topic] || t.topic)} <q>${esc(t.evidence)}</q></span>`).join('') : '<span class="sub">찾은 주제가 없어요</span>'}</div>
+    ${d.joined_issues.length ? `<div class="sub" style="margin-top:6px">→ 반복 불만 묶음에 들어갔어요: ${d.joined_issues.map(id => esc(NAMES[id.slice(4)] || id)).join(', ')}</div>` : ''}
+    ${c.warnings.map(w => `<div class="warn">검증: ${esc(w)}</div>`).join('')}</div>`;
+}
+async function load() {
+  const [store, ins] = await Promise.all([api('/store'), api('/insight')]);
+  const health = await (await fetch('/health')).json();
+  $('mode').textContent = 'APP_MODE ' + health.mode;
+  $('storeLine').textContent = `${store.name} · ${store.business_type_name} · 리뷰 ${ins.review_count}건`;
+  $('period').textContent = `${ins.period_start} ~ ${ins.period_end} · 같은 주제 불만 3건 이상이면 묶음`;
+  renderIssues(ins.repeated_issues);
+}
+$('chips').innerHTML = '<span class="sub">예시:</span>' + SAMPLES.map((s, i) => `<button data-i="${i}">${esc(s.text.slice(0, 18))}…</button>`).join('');
+$('chips').onclick = e => { const s = SAMPLES[e.target.dataset.i]; if (s) { $('text').value = s.text; $('rating').value = s.rating; } };
+$('send').onclick = async () => {
+  const text = $('text').value.trim();
+  if (!text) return;
+  $('send').disabled = true;
+  try {
+    const d = await api('/reviews', { method: 'POST', body: JSON.stringify({ text, rating: $('rating').value ? +$('rating').value : null, channel: $('channel').value || null }) });
+    renderResult(d); renderIssues(d.repeated_issues, d.joined_issues); $('text').value = '';
+  } catch (e) { $('result').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  $('send').disabled = false;
+};
+$('reset').onclick = async () => { await api('/reviews/pasted', { method: 'DELETE' }); $('result').innerHTML = ''; load(); };
+load().catch(e => { $('storeLine').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
+</script>
+</body>
+</html>
