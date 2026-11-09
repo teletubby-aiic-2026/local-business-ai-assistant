@@ -1,0 +1,351 @@
+[
+  {
+    "review_id": "rv_basak_001",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "missing_item",
+        "polarity": "negative"
+      }
+    ],
+    "note": "소스 누락"
+  },
+  {
+    "review_id": "rv_basak_002",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "missing_item",
+        "polarity": "negative"
+      }
+    ],
+    "note": "무 누락"
+  },
+  {
+    "review_id": "rv_basak_003",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "missing_item",
+        "polarity": "negative"
+      }
+    ],
+    "note": "음료 누락"
+  },
+  {
+    "review_id": "rv_basak_004",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "missing_item",
+        "polarity": "negative"
+      }
+    ],
+    "note": "'누락·빠짐' 단어 없이 개수 부족"
+  },
+  {
+    "review_id": "rv_basak_005",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "texture",
+        "polarity": "negative"
+      }
+    ],
+    "note": "눅눅 ('바삭한'이 들어 있지만 불만)"
+  },
+  {
+    "review_id": "rv_basak_006",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "texture",
+        "polarity": "negative"
+      }
+    ],
+    "note": "'안 바삭' 부정"
+  },
+  {
+    "review_id": "rv_basak_007",
+    "expected_sentiment": "mixed",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      },
+      {
+        "topic": "texture",
+        "polarity": "negative"
+      }
+    ],
+    "note": "맛 칭찬+식감 불만"
+  },
+  {
+    "review_id": "rv_basak_008",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "texture",
+        "polarity": "negative"
+      }
+    ],
+    "note": "질김"
+  },
+  {
+    "review_id": "rv_basak_009",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "밤 배달 지연"
+  },
+  {
+    "review_id": "rv_basak_010",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "야식 지연"
+  },
+  {
+    "review_id": "rv_basak_011",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "negative"
+      }
+    ],
+    "note": "'배달' 단어 없이 지연"
+  },
+  {
+    "review_id": "rv_basak_012",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "price",
+        "polarity": "negative"
+      }
+    ],
+    "note": "가격 1"
+  },
+  {
+    "review_id": "rv_basak_013",
+    "expected_sentiment": "mixed",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      },
+      {
+        "topic": "price",
+        "polarity": "negative"
+      }
+    ],
+    "note": "가격 2 (반복 아님)"
+  },
+  {
+    "review_id": "rv_basak_014",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "temperature",
+        "polarity": "negative"
+      }
+    ],
+    "note": "온도 1"
+  },
+  {
+    "review_id": "rv_basak_015",
+    "expected_sentiment": "negative",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "negative"
+      }
+    ],
+    "note": "맛 불만 1"
+  },
+  {
+    "review_id": "rv_basak_016",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "texture",
+        "polarity": "positive"
+      },
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "식감·맛 칭찬"
+  },
+  {
+    "review_id": "rv_basak_017",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "매장"
+  },
+  {
+    "review_id": "rv_basak_018",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "'달지 않고'는 칭찬"
+  },
+  {
+    "review_id": "rv_basak_019",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "portion",
+        "polarity": "positive"
+      }
+    ],
+    "note": "양"
+  },
+  {
+    "review_id": "rv_basak_020",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "texture",
+        "polarity": "positive"
+      }
+    ],
+    "note": "식감 칭찬"
+  },
+  {
+    "review_id": "rv_basak_021",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "service",
+        "polarity": "positive"
+      }
+    ],
+    "note": "서비스"
+  },
+  {
+    "review_id": "rv_basak_022",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "delivery_time",
+        "polarity": "positive"
+      },
+      {
+        "topic": "temperature",
+        "polarity": "positive"
+      }
+    ],
+    "note": "저녁 이른 시간은 빠름"
+  },
+  {
+    "review_id": "rv_basak_023",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "portion",
+        "polarity": "positive"
+      }
+    ],
+    "note": "양"
+  },
+  {
+    "review_id": "rv_basak_024",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "맛집"
+  },
+  {
+    "review_id": "rv_basak_025",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "hygiene",
+        "polarity": "positive"
+      },
+      {
+        "topic": "service",
+        "polarity": "positive"
+      }
+    ],
+    "note": "청결·응대"
+  },
+  {
+    "review_id": "rv_basak_026",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "packaging",
+        "polarity": "positive"
+      }
+    ],
+    "note": "'안 흘렀어요'는 칭찬"
+  },
+  {
+    "review_id": "rv_basak_027",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "짧은 칭찬"
+  },
+  {
+    "review_id": "rv_basak_028",
+    "expected_sentiment": "positive",
+    "expected_topics": [
+      {
+        "topic": "price",
+        "polarity": "positive"
+      }
+    ],
+    "note": "가성비"
+  },
+  {
+    "review_id": "rv_basak_029",
+    "expected_sentiment": "neutral",
+    "expected_topics": [],
+    "note": "주제 없음"
+  },
+  {
+    "review_id": "rv_basak_030",
+    "expected_sentiment": "mixed",
+    "expected_topics": [
+      {
+        "topic": "wait_time",
+        "polarity": "negative"
+      },
+      {
+        "topic": "taste",
+        "polarity": "positive"
+      }
+    ],
+    "note": "매장 대기"
+  }
+]
