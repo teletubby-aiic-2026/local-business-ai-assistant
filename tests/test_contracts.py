@@ -39,7 +39,7 @@ class JsonRoundTrip(unittest.TestCase):
             one, many = Path(tmp) / "one.json", Path(tmp) / "many.json"
             dump_json(SAMPLE_STORE, one)
             dump_json(SAMPLE_REVIEWS, many)
-            self.assertIn("보라 치킨", one.read_text(encoding="utf-8"))  # \uXXXX로 깨지지 않음
+            self.assertIn("온기한식", one.read_text(encoding="utf-8"))  # \uXXXX로 깨지지 않음
             self.assertEqual(load_json(StoreProfile, one), SAMPLE_STORE)
             self.assertEqual(load_json(ReviewRecord, many), SAMPLE_REVIEWS)
 
@@ -47,8 +47,8 @@ class JsonRoundTrip(unittest.TestCase):
         data = SAMPLE_STORE.to_dict()
         with self.assertRaisesRegex(ValueError, "store_nmae"):
             StoreProfile.from_dict({**data, "store_nmae": "오타"})
-        del data["area_name"]
-        with self.assertRaisesRegex(ValueError, "area_name"):
+        del data["name"]
+        with self.assertRaisesRegex(ValueError, r"\['name'\]"):
             StoreProfile.from_dict(data)
 
 
@@ -92,29 +92,50 @@ class AnalysisSnapshotRules(unittest.TestCase):
 
 
 class ReviewRecordRules(unittest.TestCase):
-    base = dict(review_id="rv_t1", store_id="store_t", channel="baemin", text="맛있어요")
+    base = dict(review_id="rv_t1", store_id="store_t", text="맛있어요", created_at="2026-11-07T22:41:00+09:00")
 
-    def test_iso_string_is_parsed_and_naive_time_is_treated_as_kst(self):
-        aware = ReviewRecord(**self.base, written_at="2026-11-07T22:41:00+09:00")
-        naive = ReviewRecord(**self.base, written_at="2026-11-07T22:41:00")
-        self.assertEqual(aware.written_at, naive.written_at)
-        self.assertEqual(naive.written_at.utcoffset(), timedelta(hours=9))
+    def test_created_at_stays_a_string_so_that_pr14_code_keeps_working(self):
+        """PR #14의 cluster.py는 datetime.fromisoformat(r.created_at)처럼 문자열을 받아 쓴다."""
+        record = ReviewRecord(**self.base)
+        self.assertIsInstance(record.created_at, str)
+        self.assertEqual(datetime.fromisoformat(record.created_at), record.created_datetime)
 
-    def test_naive_and_aware_reviews_can_be_sorted_together(self):
-        a = ReviewRecord(**self.base, written_at=datetime(2026, 11, 7, 23, 0))
-        b = ReviewRecord(**self.base, written_at=datetime(2026, 11, 7, 22, 0, tzinfo=timezone.utc))
-        sorted([a, b], key=lambda r: r.written_at)  # TypeError가 나지 않아야 함
+    def test_every_time_is_stored_as_kst_so_string_order_is_time_order(self):
+        base = {k: v for k, v in self.base.items() if k != "created_at"}
+        naive = ReviewRecord(**base, created_at="2026-11-07T22:41:00")
+        utc = ReviewRecord(**base, created_at=datetime(2026, 11, 7, 13, 41, tzinfo=timezone.utc))
+        self.assertEqual(naive.created_at, "2026-11-07T22:41:00+09:00")
+        self.assertEqual(utc.created_at, "2026-11-07T22:41:00+09:00")
+        early = ReviewRecord(**base, created_at="2026-11-07T09:05:00+09:00")
+        late = ReviewRecord(**base, created_at="2026-11-07T10:00:00+09:00")
+        self.assertEqual(sorted([late, early], key=lambda r: r.created_at), [early, late])
+        self.assertEqual(naive.created_datetime.utcoffset(), timedelta(hours=9))
 
-    def test_classification_is_optional_but_checked_when_given(self):
-        unclassified = ReviewRecord(**self.base, written_at="2026-11-07T22:41:00+09:00")
-        self.assertEqual((unclassified.topic, unclassified.sentiment, unclassified.urgency), (None, None, None))
-        for field_name, bad in (("sentiment", "angry"), ("urgency", "urgent"), ("channel", "kakao"), ("rating", 6)):
+    def test_classification_is_empty_before_c3_and_values_are_checked_after(self):
+        unclassified = ReviewRecord(**self.base)
+        self.assertEqual((unclassified.sentiment, unclassified.topics, unclassified.urgency), (None, [], None))
+        self.assertEqual(ReviewRecord(**self.base, sentiment="mixed").sentiment, "mixed")  # C3가 쓰는 값
+        for field_name, bad in (("sentiment", "angry"), ("urgency", "urgent"), ("channel", "kakao"), ("rating", 6),
+                                ("input_method", "typed"), ("status", "done"), ("pii_masked", "no")):
             with self.subTest(field=field_name), self.assertRaises(ValueError):
-                ReviewRecord(**{**self.base, field_name: bad}, written_at="2026-11-07T22:41:00+09:00")
+                ReviewRecord(**{**self.base, field_name: bad})
+
+    def test_channel_and_rating_may_be_missing_for_pasted_reviews(self):
+        pasted = ReviewRecord(**self.base, input_method="paste")
+        self.assertEqual((pasted.channel, pasted.rating), (None, None))
+
+    def test_all_four_delivery_channels_of_pr14_are_accepted(self):
+        for channel in ("baemin", "coupangeats", "yogiyo", "naver_place"):
+            ReviewRecord(**self.base, channel=channel)
+
+    def test_negative_topics_must_be_part_of_topics(self):
+        ReviewRecord(**self.base, topics=["taste", "portion"], negative_topics=["portion"])
+        with self.assertRaisesRegex(ValueError, "negative_topics"):
+            ReviewRecord(**self.base, topics=["taste"], negative_topics=["portion"])
 
     def test_bad_time_text_is_explained(self):
         with self.assertRaisesRegex(ValueError, "ISO 8601"):
-            ReviewRecord(**self.base, written_at="어제 밤 11시")
+            ReviewRecord(**{**self.base, "created_at": "어제 밤 11시"})
 
 
 class RecommendationCardRules(unittest.TestCase):
@@ -171,6 +192,35 @@ class SampleScenario(unittest.TestCase):
         self.assertEqual({c.kind for c in SAMPLE_CARDS}, set(CARD_KINDS))
         complaint = next(c for c in SAMPLE_CARDS if c.kind == "complaint")
         self.assertEqual(len(complaint.review_ids), 3)  # 포장 누락 3건
+
+
+ROOT = Path(__file__).resolve().parents[1]
+C2_DATA = ROOT / "services" / "review-insight" / "data" / "synthetic"   # PR #14가 병합되면 생김
+C4_SNAPSHOT = ROOT / "data" / "scenario" / "snapshot_2026Q2.json"        # C4 고정 파일 대안(또는 어댑터 출력)
+
+
+class RealScenarioData(unittest.TestCase):
+    """다른 파트가 실제로 만든 데이터가 이 계약으로 읽히는가. 파일이 아직 없으면 건너뜁니다."""
+
+    @unittest.skipUnless(C2_DATA.is_dir(), "C2 합성 데이터(PR #14)가 아직 없음")
+    def test_c2_stores_and_reviews_load(self):
+        stores = sorted(C2_DATA.glob("*/store.json"))
+        self.assertTrue(stores, "store.json이 하나도 없습니다")
+        for store_file in stores:
+            with self.subTest(store=store_file.parent.name):
+                store = load_json(StoreProfile, store_file)
+                reviews = load_json(ReviewRecord, store_file.parent / "reviews.json")
+                self.assertTrue(reviews)
+                self.assertEqual({r.store_id for r in reviews}, {store.store_id})
+                self.assertEqual(len({r.review_id for r in reviews}), len(reviews), "리뷰 ID가 겹칩니다")
+
+    @unittest.skipUnless(C4_SNAPSHOT.is_file(), "C4 상권 지표 JSON이 아직 없음")
+    def test_c4_snapshot_file_loads_and_each_metric_has_its_basis(self):
+        snapshots = load_json(AnalysisSnapshot, C4_SNAPSHOT)
+        self.assertIsInstance(snapshots, list, "스냅샷 JSON은 AnalysisSnapshot의 목록이어야 합니다")
+        self.assertEqual(len({s.snapshot_id for s in snapshots}), len(snapshots))
+        for s in snapshots:
+            self.assertTrue(s.basis_label.startswith("기준: "))
 
 
 if __name__ == "__main__":

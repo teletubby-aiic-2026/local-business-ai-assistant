@@ -20,7 +20,9 @@
 - 필드 이름과 정해진 값(열거값)은 소문자 snake_case입니다 (PR #7 규격의 규칙을 이어받음).
 - ID는 접두사가 붙은 문자열입니다. 접두사는 약속일 뿐 코드가 강제하지는 않습니다.
 - 값이 없을 때는 None입니다. "자료 없음"(None)과 "0"은 다릅니다.
-- 시각은 ISO 8601 문자열("2026-11-07T22:41:00+09:00")로 주고받습니다. 시간대가 없으면 한국 시간(+09:00)으로 봅니다.
+- 시각은 ISO 8601 "문자열"입니다("2026-11-07T22:41:00+09:00"). 만들 때 항상 한국 시간(+09:00)으로 맞추므로
+  문자열 정렬이 곧 시간순입니다. datetime이 필요하면 ReviewRecord.created_datetime을 쓰세요.
+- 이 계약은 PR #14(C2·C3)의 실제 데이터(리뷰 100건·가게 3곳)가 그대로 읽히도록 그쪽 필드 이름과 값에 맞췄습니다.
 - 잘못된 값은 만드는 순간 ValueError로 막습니다. 화면에 가기 전에 데이터 쪽에서 틀린 곳을 알 수 있게 하려는 것입니다.
 - JSON 읽기/쓰기: record.to_dict() / Class.from_dict(dict), 또는 dump_json() / load_json().
 """
@@ -35,23 +37,29 @@ from pathlib import Path
 from typing import Any, Literal, TypeVar
 
 # ── 정해진 값 (열거값) ───────────────────────────────────────────────
-CHANNELS = ("baemin", "coupang_eats", "naver_place")
-SENTIMENTS = ("positive", "neutral", "negative")
+CHANNELS = ("baemin", "coupangeats", "yogiyo", "naver_place")
+SENTIMENTS = ("positive", "negative", "mixed", "neutral")
 URGENCIES = ("low", "medium", "high")
 CARD_KINDS = ("complaint", "promo")
+INPUT_METHODS = ("sample", "paste")                                      # 합성 샘플 | 직접 붙여넣기(S2)
+REVIEW_STATUSES = ("new", "analyzed", "drafted", "replied", "skipped")   # 규격 PR #7의 흐름
+DATA_ORIGINS = ("synthetic", "real")                                      # 대회 동안은 항상 synthetic
 
-Channel = Literal["baemin", "coupang_eats", "naver_place"]
-Sentiment = Literal["positive", "neutral", "negative"]
+Channel = Literal["baemin", "coupangeats", "yogiyo", "naver_place"]
+Sentiment = Literal["positive", "negative", "mixed", "neutral"]
 Urgency = Literal["low", "medium", "high"]
 CardKind = Literal["complaint", "promo"]
 
 # 화면에 보여 줄 한글 이름. 코드 값은 영문, 화면 표시는 이 표로.
+# 리뷰 주제(topics)의 한글 이름은 주제 사전을 가진 C3(services/review-insight)가 정합니다.
 LABELS_KO = {
     "baemin": "배민",
-    "coupang_eats": "쿠팡이츠",
+    "coupangeats": "쿠팡이츠",
+    "yogiyo": "요기요",
     "naver_place": "네이버 플레이스",
     "positive": "긍정",
     "neutral": "중립",
+    "mixed": "긍정·부정 섞임",
     "negative": "부정",
     "low": "낮음",
     "medium": "보통",
@@ -122,9 +130,26 @@ def _need_quarter(owner: str, name: str, value: Any) -> None:
         )
 
 
+def _kst_iso(owner: str, name: str, value: Any) -> str:
+    """ISO 8601 문자열(또는 datetime)을 '한국 시간, 초 단위' 문자열로 맞춘다.
+
+    시간대가 없으면 한국 시간으로 본다. 모두 +09:00으로 맞춰 두면 문자열 정렬이 곧 시간순이다.
+    """
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            raise ValueError(
+                f"{owner}.{name}은(는) ISO 8601 형식이어야 합니다. 예: 2026-11-07T22:41:00+09:00 (받은 값: {value!r})"
+            ) from None
+    if not isinstance(value, datetime):
+        raise ValueError(f"{owner}.{name}은(는) ISO 8601 문자열이어야 합니다 (받은 값: {value!r})")
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=KST)
+    return value.astimezone(KST).isoformat(timespec="seconds")
+
+
 def _jsonable(value: Any) -> Any:
-    if isinstance(value, datetime):
-        return value.isoformat()
     if isinstance(value, dict):
         return {key: _jsonable(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -162,29 +187,41 @@ class _Record:
 # ── 1. 가게 ──────────────────────────────────────────────────────────
 @dataclass
 class StoreProfile(_Record):
-    """가게 1곳. 시나리오는 서울의 배달 위주 음식점입니다."""
+    """가게 1곳. 시나리오는 서울의 배달 위주 음식점입니다.
 
-    store_id: str                                   # 예: "store_bora"
-    store_name: str                                 # 예: "보라 치킨"
-    business_type: str                              # 업종. 예: "치킨"
-    city: str                                       # 예: "서울"
-    area_name: str                                  # 속한 상권 이름 (AnalysisSnapshot.area_name과 같은 말)
-    delivery_channels: list[str] = field(default_factory=list)   # CHANNELS 중에서
-    menu_prices: dict[str, int] = field(default_factory=dict)    # {"후라이드 치킨": 19000} 단위 원
+    앞의 7개 필드는 C2(PR #14)의 store.json 그대로입니다. 뒤의 3개는 C4·C6이 채우는 선택 필드입니다.
+    """
+
+    store_id: str                                   # 예: "store_ongi"
+    name: str                                       # 화면에 나오는 이름. 예: "온기한식 (가상)"
+    business_type: str                              # 업종 코드. 예: "korean", "chicken", "cafe"
+    business_type_name: str                         # 업종 이름. 예: "한식음식점"
+    channels: list[str] = field(default_factory=list)   # 입점한 채널. CHANNELS 중에서
+    menu: list[str] = field(default_factory=list)       # 메뉴 이름
+    data_origin: str = "synthetic"                  # DATA_ORIGINS 중 하나
+    city: str = "서울"
+    area_name: str | None = None                    # 속한 상권. C4가 11/9에 정하기 전에는 None
+    menu_prices: dict[str, int] = field(default_factory=dict)    # C6 쿠폰용. {"제육볶음 정식": 9500} 단위 원
 
     def __post_init__(self) -> None:
         owner = "StoreProfile"
-        for name in ("store_id", "store_name", "business_type", "city", "area_name"):
+        for name in ("store_id", "name", "business_type", "business_type_name", "city"):
             _need_text(owner, name, getattr(self, name))
-        self.delivery_channels = _need_text_list(owner, "delivery_channels", self.delivery_channels)
-        for channel in self.delivery_channels:
-            _need_choice(owner, "delivery_channels의 항목", channel, CHANNELS)
+        _need_choice(owner, "data_origin", self.data_origin, DATA_ORIGINS)
+        if self.area_name is not None:
+            _need_text(owner, "area_name", self.area_name)
+        self.channels = _need_text_list(owner, "channels", self.channels)
+        for channel in self.channels:
+            _need_choice(owner, "channels의 항목", channel, CHANNELS)
+        self.menu = _need_text_list(owner, "menu", self.menu)
         if not isinstance(self.menu_prices, dict):
             raise ValueError(f"{owner}.menu_prices는 {{메뉴 이름: 가격(원)}} dict여야 합니다")
-        for menu, price in self.menu_prices.items():
-            _need_text(owner, "menu_prices의 메뉴 이름", menu)
+        for menu_name, price in self.menu_prices.items():
+            _need_text(owner, "menu_prices의 메뉴 이름", menu_name)
+            if self.menu and menu_name not in self.menu:
+                raise ValueError(f"{owner}.menu_prices에 menu에 없는 메뉴가 있습니다: {menu_name!r}")
             if isinstance(price, bool) or not isinstance(price, int) or price < 0:
-                raise ValueError(f"{owner}.menu_prices[{menu!r}]는 0 이상의 정수(원)여야 합니다 (받은 값: {price!r})")
+                raise ValueError(f"{owner}.menu_prices[{menu_name!r}]는 0 이상의 정수(원)여야 합니다 (받은 값: {price!r})")
 
 
 # ── 2. 상권 지표 ─────────────────────────────────────────────────────
@@ -238,48 +275,60 @@ class AnalysisSnapshot(_Record):
 # ── 3. 리뷰 ──────────────────────────────────────────────────────────
 @dataclass
 class ReviewRecord(_Record):
-    """리뷰 1건. topic·sentiment·urgency는 분류(C3) 전에는 None입니다."""
+    """리뷰 1건과 그 분류 결과.
 
-    review_id: str                      # 예: "rv_0007"
+    앞의 11개 필드는 C2(PR #14)의 reviews.json 그대로입니다. 뒤의 4개(sentiment·topics·negative_topics·urgency)가
+    분류(C3) 결과이고, 분류 전에는 None 또는 빈 목록입니다.
+    """
+
+    review_id: str                      # 예: "rv_ongi_001"
     store_id: str
-    channel: str                        # CHANNELS 중 하나
-    written_at: datetime                # 작성 시각. ISO 문자열로 줘도 됨
     text: str                           # 리뷰 원문
+    created_at: str                     # 작성 시각. ISO 8601 "문자열", 한국 시간으로 맞춰 저장됨
+    channel: str | None = None          # CHANNELS 중 하나. 붙여넣기에서 모르면 None
     rating: int | None = None           # 별점 1~5. 없으면 None
-    topic: str | None = None            # 분류 결과: 주제. 주제 사전은 C3가 정함 (예: "포장 누락")
+    input_method: str = "sample"        # INPUT_METHODS 중 하나
+    pii_masked: bool = False            # 개인정보를 가렸으면 True
+    order_ref: str | None = None        # 주문 연결. 이번 데모에서는 항상 None
+    status: str = "new"                 # REVIEW_STATUSES 중 하나
+    data_origin: str = "synthetic"      # DATA_ORIGINS 중 하나. 화면의 "합성 데이터" 표시 근거
     sentiment: str | None = None        # 분류 결과: 감정. SENTIMENTS 중 하나
-    urgency: str | None = None          # 분류 결과: 긴급도. URGENCIES 중 하나
+    topics: list[str] = field(default_factory=list)            # 분류 결과: 주제 사전의 주제 id 전체 (예: "missing_item")
+    negative_topics: list[str] = field(default_factory=list)   # 그중 불만으로 잡힌 것 (topics의 부분집합)
+    urgency: str | None = None          # 분류 결과: 긴급도. URGENCIES 중 하나. 아직 만드는 파트가 없음
 
     def __post_init__(self) -> None:
         owner = "ReviewRecord"
         for name in ("review_id", "store_id", "text"):
             _need_text(owner, name, getattr(self, name))
-        _need_choice(owner, "channel", self.channel, CHANNELS)
-        self.written_at = self._as_datetime(self.written_at)
+        self.created_at = _kst_iso(owner, "created_at", self.created_at)
+        if self.channel is not None:
+            _need_choice(owner, "channel", self.channel, CHANNELS)
         if self.rating is not None and (
             isinstance(self.rating, bool) or not isinstance(self.rating, int) or not 1 <= self.rating <= 5
         ):
             raise ValueError(f"{owner}.rating은 1~5 정수 또는 None이어야 합니다 (받은 값: {self.rating!r})")
-        if self.topic is not None:
-            _need_text(owner, "topic", self.topic)
+        _need_choice(owner, "input_method", self.input_method, INPUT_METHODS)
+        if not isinstance(self.pii_masked, bool):
+            raise ValueError(f"{owner}.pii_masked는 True/False여야 합니다 (받은 값: {self.pii_masked!r})")
+        if self.order_ref is not None:
+            _need_text(owner, "order_ref", self.order_ref)
+        _need_choice(owner, "status", self.status, REVIEW_STATUSES)
+        _need_choice(owner, "data_origin", self.data_origin, DATA_ORIGINS)
         if self.sentiment is not None:
             _need_choice(owner, "sentiment", self.sentiment, SENTIMENTS)
+        self.topics = _need_text_list(owner, "topics", self.topics)
+        self.negative_topics = _need_text_list(owner, "negative_topics", self.negative_topics)
+        outside = [t for t in self.negative_topics if t not in self.topics]
+        if outside:
+            raise ValueError(f"{owner}.negative_topics는 topics 안에 있어야 합니다 (topics에 없는 것: {outside})")
         if self.urgency is not None:
             _need_choice(owner, "urgency", self.urgency, URGENCIES)
 
-    @staticmethod
-    def _as_datetime(value: Any) -> datetime:
-        if isinstance(value, str):
-            try:
-                value = datetime.fromisoformat(value)
-            except ValueError:
-                raise ValueError(
-                    f"ReviewRecord.written_at은 ISO 8601 형식이어야 합니다. 예: 2026-11-07T22:41:00+09:00 (받은 값: {value!r})"
-                ) from None
-        if not isinstance(value, datetime):
-            raise ValueError(f"ReviewRecord.written_at은 시각이어야 합니다 (받은 값: {value!r})")
-        # 시간대가 없으면 한국 시간으로 본다. 섞이면 정렬할 때 TypeError가 나기 때문.
-        return value if value.tzinfo is not None else value.replace(tzinfo=KST)
+    @property
+    def created_datetime(self) -> datetime:
+        """created_at을 datetime으로. 시간대는 한국 시간(+09:00)."""
+        return datetime.fromisoformat(self.created_at)
 
 
 # ── 4. 말투 ──────────────────────────────────────────────────────────
@@ -349,6 +398,7 @@ def load_json(cls: type[_R], path: str | Path) -> _R | list[_R]:
 
 __all__ = [
     "StoreProfile", "AnalysisSnapshot", "ReviewRecord", "ToneProfile", "RecommendationCard",
-    "CARD_GENERATORS", "CARD_KINDS", "CHANNELS", "SENTIMENTS", "URGENCIES", "LABELS_KO",
+    "CARD_GENERATORS", "CARD_KINDS", "CHANNELS", "SENTIMENTS", "URGENCIES", "INPUT_METHODS", "REVIEW_STATUSES",
+    "DATA_ORIGINS", "LABELS_KO",
     "quarter_label", "quarter_from_seoul_period", "dump_json", "load_json",
 ]
