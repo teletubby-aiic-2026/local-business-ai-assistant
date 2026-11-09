@@ -1,0 +1,299 @@
+{
+  "schema_version": "c4-area-decline-v1",
+  "prepared_on_kst": "2026-11-09",
+  "area": {
+    "code": "3110826",
+    "name": "장승배기역 4번",
+    "district": "동작구",
+    "type": "골목상권"
+  },
+  "industry_filter": null,
+  "sales_time_scope": "all_day",
+  "comparison": {
+    "previous_quarter": "2025Q2",
+    "current_quarter": "2026Q2",
+    "formula": "(current - previous) / previous * 100",
+    "metrics": [
+      {
+        "metric": "sales_observed_total_krw",
+        "label": "관측 업종 합산 추정매출 (하루 전체 시간대)",
+        "unit": "원",
+        "previous": 5417755303,
+        "current": 3903643361,
+        "absolute_change": -1514111942,
+        "change_percent": -27.94721904774074
+      },
+      {
+        "metric": "sales_common_industries_krw",
+        "label": "8개 분기 공통 업종 추정매출 (하루 전체 시간대)",
+        "unit": "원",
+        "previous": 5352755025,
+        "current": 3870549621,
+        "absolute_change": -1482205404,
+        "change_percent": -27.690514456151483
+      },
+      {
+        "metric": "floating_population_source_value",
+        "label": "유동인구 지표 (원천값)",
+        "unit": "명",
+        "previous": 444715,
+        "current": 378751,
+        "absolute_change": -65964,
+        "change_percent": -14.832870490089158
+      },
+      {
+        "metric": "stores_observed_total",
+        "label": "관측 업종 합산 점포 수",
+        "unit": "개",
+        "previous": 243,
+        "current": 227,
+        "absolute_change": -16,
+        "change_percent": -6.584362139917696
+      }
+    ]
+  },
+  "common_sales_industries": [
+    {
+      "code": "CS100001",
+      "name": "한식음식점"
+    },
+    {
+      "code": "CS100008",
+      "name": "분식전문점"
+    },
+    {
+      "code": "CS100009",
+      "name": "호프-간이주점"
+    },
+    {
+      "code": "CS100010",
+      "name": "커피-음료"
+    },
+    {
+      "code": "CS200003",
+      "name": "예술학원"
+    },
+    {
+      "code": "CS200005",
+      "name": "스포츠 강습"
+    },
+    {
+      "code": "CS200028",
+      "name": "미용실"
+    },
+    {
+      "code": "CS200029",
+      "name": "네일숍"
+    },
+    {
+      "code": "CS200030",
+      "name": "피부관리실"
+    },
+    {
+      "code": "CS200031",
+      "name": "세탁소"
+    },
+    {
+      "code": "CS300001",
+      "name": "슈퍼마켓"
+    }
+  ],
+  "common_industry_basis": [
+    "2024Q3",
+    "2024Q4",
+    "2025Q1",
+    "2025Q2",
+    "2025Q3",
+    "2025Q4",
+    "2026Q1",
+    "2026Q2"
+  ],
+  "quarterly_series": [
+    {
+      "period": "20243",
+      "quarter": "2024Q3",
+      "sales_observed_total_krw": 5963234186,
+      "sales_observed_industry_count": 13,
+      "sales_common_industries_krw": 5887983462,
+      "sales_common_industry_count": 11,
+      "floating_population_source_value": 503317,
+      "stores_observed_total": 253,
+      "stores_observed_industry_count": 62,
+      "year_over_year_percent": {
+        "sales_observed_total_krw": null,
+        "sales_common_industries_krw": null,
+        "floating_population_source_value": null,
+        "stores_observed_total": null
+      }
+    },
+    {
+      "period": "20244",
+      "quarter": "2024Q4",
+      "sales_observed_total_krw": 5766029653,
+      "sales_observed_industry_count": 13,
+      "sales_common_industries_krw": 5730894418,
+      "sales_common_industry_count": 11,
+      "floating_population_source_value": 482132,
+      "stores_observed_total": 252,
+      "stores_observed_industry_count": 62,
+      "year_over_year_percent": {
+        "sales_observed_total_krw": null,
+        "sales_common_industries_krw": null,
+        "floating_population_source_value": null,
+        "stores_observed_total": null
+      }
+    },
+    {
+      "period": "20251",
+      "quarter": "2025Q1",
+      "sales_observed_total_krw": 5714147360,
+      "sales_observed_industry_count": 13,
+      "sales_common_industries_krw": 5627041968,
+      "sales_common_industry_count": 11,
+      "floating_population_source_value": 455824,
+      "stores_observed_total": 247,
+      "stores_observed_industry_count": 62,
+      "year_over_year_percent": {
+        "sales_observed_total_krw": null,
+        "sales_common_industries_krw": null,
+        "floating_population_source_value": null,
+        "stores_observed_total": null
+      }
+    },
+    {
+      "period": "20252",
+      "quarter": "2025Q2",
+      "sales_observed_total_krw": 5417755303,
+      "sales_observed_industry_count": 14,
+      "sales_common_industries_krw": 5352755025,
+      "sales_common_industry_count": 11,
+      "floating_population_source_value": 444715,
+      "stores_observed_total": 243,
+      "stores_observed_industry_count": 62,
+      "year_over_year_percent": {
+        "sales_observed_total_krw": null,
+        "sales_common_industries_krw": null,
+        "floating_population_source_value": null,
+        "stores_observed_total": null
+      }
+    },
+    {
+      "period": "20253",
+      "quarter": "2025Q3",
+      "sales_observed_total_krw": 5767483501,
+      "sales_observed_industry_count": 13,
+      "sales_common_industries_krw": 5731834189,
+      "sales_common_industry_count": 11,
+      "floating_population_source_value": 409656,
+      "stores_observed_total": 239,
+      "stores_observed_industry_count": 61,
+      "year_over_year_percent": {
+        "sales_observed_total_krw": -3.282626153766821,
+        "sales_common_industries_krw": -2.6519991777789405,
+        "floating_population_source_value": -18.60874955544915,
+        "stores_observed_total": -5.533596837944664
+      }
+    },
+    {
+      "period": "20254",
+      "quarter": "2025Q4",
+      "sales_observed_total_krw": 5312116514,
+      "sales_observed_industry_count": 11,
+      "sales_common_industries_krw": 5312116514,
+      "sales_common_industry_count": 11,
+      "floating_population_source_value": 420586,
+      "stores_observed_total": 235,
+      "stores_observed_industry_count": 61,
+      "year_over_year_percent": {
+        "sales_observed_total_krw": -7.872195710333091,
+        "sales_common_industries_krw": -7.307374267525722,
+        "floating_population_source_value": -12.765383753826754,
+        "stores_observed_total": -6.746031746031746
+      }
+    },
+    {
+      "period": "20261",
+      "quarter": "2026Q1",
+      "sales_observed_total_krw": 4548972035,
+      "sales_observed_industry_count": 13,
+      "sales_common_industries_krw": 4539493416,
+      "sales_common_industry_count": 11,
+      "floating_population_source_value": 426274,
+      "stores_observed_total": 236,
+      "stores_observed_industry_count": 61,
+      "year_over_year_percent": {
+        "sales_observed_total_krw": -20.391061895890623,
+        "sales_common_industries_krw": -19.32718039397427,
+        "floating_population_source_value": -6.48276527782653,
+        "stores_observed_total": -4.4534412955465585
+      }
+    },
+    {
+      "period": "20262",
+      "quarter": "2026Q2",
+      "sales_observed_total_krw": 3903643361,
+      "sales_observed_industry_count": 12,
+      "sales_common_industries_krw": 3870549621,
+      "sales_common_industry_count": 11,
+      "floating_population_source_value": 378751,
+      "stores_observed_total": 227,
+      "stores_observed_industry_count": 61,
+      "year_over_year_percent": {
+        "sales_observed_total_krw": -27.94721904774074,
+        "sales_common_industries_krw": -27.690514456151483,
+        "floating_population_source_value": -14.832870490089158,
+        "stores_observed_total": -6.584362139917696
+      }
+    }
+  ],
+  "coverage_changes": {
+    "sales": {
+      "previous_industry_count": 14,
+      "current_industry_count": 12,
+      "not_observed_in_current": [
+        {
+          "industry_code": "CS300011",
+          "previous_value": 25593314,
+          "current_value": null
+        },
+        {
+          "industry_code": "CS300022",
+          "previous_value": 9656,
+          "current_value": null
+        }
+      ],
+      "newly_observed_in_current": [],
+      "missing_policy": "관측되지 않은 업종은 0으로 대체하지 않음"
+    },
+    "stores": {
+      "previous_industry_count": 62,
+      "current_industry_count": 61,
+      "not_observed_in_current": [
+        {
+          "industry_code": "CS300038",
+          "previous_value": 0,
+          "current_value": null
+        }
+      ],
+      "newly_observed_in_current": [],
+      "missing_policy": "관측되지 않은 업종은 0으로 대체하지 않음"
+    }
+  },
+  "selection": {
+    "kind": "evidence_based_case_not_citywide_rank",
+    "statement": "서울시 상권분석자료에서 매출·유동인구·점포 수가 함께 감소한 상권 사례로 장승배기역 4번을 선정",
+    "sales_yoy_negative_for_four_periods": true,
+    "fixed_industry_sales_yoy_negative_for_four_periods": true
+  },
+  "source_rows_file": "source_rows.json",
+  "source_file_count": 88,
+  "source_row_count": 602,
+  "limitations": [
+    "전체는 보유 서울시 자료에 관측된 업종 합계이며, 지역 내 모든 사업체의 실제 총매출을 뜻하지 않습니다.",
+    "매출은 하루 전체 시간대의 분기 추정매출이며 상권·업종 단위 통계입니다. 개별 매장 실적과 구분합니다.",
+    "유동인구는 TOT_FLPOP_CO 원천값입니다. 고유 방문자 수나 일평균으로 환산하지 않았으며 시간 집계 방식은 이 발췌에서 별도로 검증하지 않았습니다.",
+    "매출과 점포 자료의 업종 범위는 다릅니다. 매출을 전체 점포 수로 나눠 점포당 매출을 계산하지 않습니다.",
+    "상권 코드·명칭은 일치하지만 기간별 지도 경계의 동일성은 검증하지 않았습니다.",
+    "2026년 2분기까지의 관측 결과이며, 현재 실시간 상황·하락 원인·서울 전체 하락률 1위·모든 업종의 동반 하락을 입증하지 않습니다."
+  ]
+}

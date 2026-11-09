@@ -1,0 +1,50 @@
+[
+  {
+    "snapshot_id": "snap_3110826_sales_all_day_observed_yoy_2026Q2",
+    "area_name": "장승배기역 4번",
+    "metric_name": "관측 업종 합산 추정매출 (하루 전체 시간대) 전년 동기 대비 변화율",
+    "value": -27.94721904774074,
+    "unit": "%",
+    "basis_quarter": "2026Q2",
+    "is_estimate": true,
+    "source": "서울시 상권분석서비스 · https://data.seoul.go.kr/dataList/OA-15572/S/1/datasetView.do",
+    "compared_with_quarter": "2025Q2",
+    "note": "상권코드 3110826. 전년 값 5,417,755,303원, 당기 값 3,903,643,361원. 하루 전체 시간대의 분기 추정매출. 각 분기에 관측된 업종 합계(14개→12개); 관측 누락을 0으로 대체하지 않음."
+  },
+  {
+    "snapshot_id": "snap_3110826_sales_all_day_common_yoy_2026Q2",
+    "area_name": "장승배기역 4번",
+    "metric_name": "8개 분기 공통 업종 추정매출 (하루 전체 시간대) 전년 동기 대비 변화율",
+    "value": -27.690514456151483,
+    "unit": "%",
+    "basis_quarter": "2026Q2",
+    "is_estimate": true,
+    "source": "서울시 상권분석서비스 · https://data.seoul.go.kr/dataList/OA-15572/S/1/datasetView.do",
+    "compared_with_quarter": "2025Q2",
+    "note": "상권코드 3110826. 전년 값 5,352,755,025원, 당기 값 3,870,549,621원. 하루 전체 시간대의 분기 추정매출. 8개 분기 공통 11개 업종."
+  },
+  {
+    "snapshot_id": "snap_3110826_population_yoy_2026Q2",
+    "area_name": "장승배기역 4번",
+    "metric_name": "유동인구 지표 (원천값) 전년 동기 대비 변화율",
+    "value": -14.832870490089158,
+    "unit": "%",
+    "basis_quarter": "2026Q2",
+    "is_estimate": true,
+    "source": "서울시 상권분석서비스 · https://data.seoul.go.kr/dataList/OA-15568/S/1/datasetView.do",
+    "compared_with_quarter": "2025Q2",
+    "note": "상권코드 3110826. 전년 값 444,715명, 당기 값 378,751명. TOT_FLPOP_CO 원천값 비교; 고유 방문자 수 또는 일평균이 아님."
+  },
+  {
+    "snapshot_id": "snap_3110826_stores_yoy_2026Q2",
+    "area_name": "장승배기역 4번",
+    "metric_name": "관측 업종 합산 점포 수 전년 동기 대비 변화율",
+    "value": -6.584362139917696,
+    "unit": "%",
+    "basis_quarter": "2026Q2",
+    "is_estimate": false,
+    "source": "서울시 상권분석서비스 · https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
+    "compared_with_quarter": "2025Q2",
+    "note": "상권코드 3110826. 전년 값 243개, 당기 값 227개. 일반+프랜차이즈 점포 합계. 매출 자료와 업종 범위가 다름."
+  }
+]
