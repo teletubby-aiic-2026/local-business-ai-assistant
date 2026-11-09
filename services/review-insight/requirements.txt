@@ -1,0 +1,7 @@
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+httpx>=0.28,<1
+python-dotenv>=1.1,<2
+# 형태소 분석 (규칙 분류 대비책). 상권 비서(PR #13)와 같은 버전, Apache-2.0. 없어도 글자 규칙으로 돎
+kiwipiepy==0.24.1
+pytest>=8,<9

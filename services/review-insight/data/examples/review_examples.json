@@ -1,0 +1,217 @@
+{
+  "schema_version": "review-examples-v1",
+  "note": "AI 분류기에 보여 줄 예문. 리뷰와 비슷한 예문 몇 개를 형태소·글자 유사도로 골라 프롬프트에 넣는다. 정확도 측정용 합성 리뷰(data/synthetic)의 문장은 넣지 않는다. topics는 '주제:+'(칭찬) / '주제:-'(불만).",
+  "examples": [
+    {
+      "text": "주문한 단무지가 안 왔어요",
+      "channel": "baemin",
+      "topics": [
+        "missing_item:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "소스 하나가 빠진 채로 배달됐어요",
+      "channel": "coupangeats",
+      "topics": [
+        "missing_item:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "음료를 두 개 시켰는데 하나만 왔네요",
+      "channel": "yogiyo",
+      "topics": [
+        "missing_item:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "배달이 한 시간 반이나 걸렸어요",
+      "channel": "baemin",
+      "topics": [
+        "delivery_time:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "주문하고 15분 만에 도착해서 놀랐어요",
+      "channel": "coupangeats",
+      "topics": [
+        "delivery_time:+"
+      ],
+      "sentiment": "positive"
+    },
+    {
+      "text": "배달은 빨랐는데 음식이 식어 있었어요",
+      "channel": "baemin",
+      "topics": [
+        "delivery_time:+",
+        "temperature:-"
+      ],
+      "sentiment": "mixed"
+    },
+    {
+      "text": "국이 다 식어서 미지근했어요",
+      "channel": "yogiyo",
+      "topics": [
+        "temperature:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "면이 다 불어서 왔어요",
+      "channel": "baemin",
+      "topics": [
+        "texture:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "포장 용기가 깨져서 국물이 다 흘렀어요",
+      "channel": "coupangeats",
+      "topics": [
+        "packaging:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "포장을 꼼꼼하게 해 주셔서 하나도 안 샜어요",
+      "channel": "baemin",
+      "topics": [
+        "packaging:+"
+      ],
+      "sentiment": "positive"
+    },
+    {
+      "text": "다음엔 포장해서 먹을게요 맛있었어요",
+      "channel": "naver_place",
+      "topics": [
+        "taste:+"
+      ],
+      "sentiment": "positive"
+    },
+    {
+      "text": "가격은 좀 있지만 양이 많아서 만족해요",
+      "channel": "yogiyo",
+      "topics": [
+        "price:-",
+        "portion:+"
+      ],
+      "sentiment": "mixed"
+    },
+    {
+      "text": "양이 적고 맛도 밍밍했어요",
+      "channel": "baemin",
+      "topics": [
+        "portion:-",
+        "taste:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "간이 너무 세서 짰어요",
+      "channel": "coupangeats",
+      "topics": [
+        "taste:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "고기가 질겨서 씹기 힘들었어요",
+      "channel": "baemin",
+      "topics": [
+        "texture:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "튀김이 바삭바삭하고 고소해요",
+      "channel": "yogiyo",
+      "topics": [
+        "texture:+",
+        "taste:+"
+      ],
+      "sentiment": "positive"
+    },
+    {
+      "text": "주문을 잘못 받으셔서 다른 메뉴가 왔어요",
+      "channel": "baemin",
+      "topics": [
+        "missing_item:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "사장님이 친절하게 설명해 주셨어요",
+      "channel": "naver_place",
+      "topics": [
+        "service:+"
+      ],
+      "sentiment": "positive"
+    },
+    {
+      "text": "전화 응대가 불친절했어요",
+      "channel": "baemin",
+      "topics": [
+        "service:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "수저에 이물질이 묻어 있었어요",
+      "channel": "coupangeats",
+      "topics": [
+        "hygiene:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "매장이 깨끗하고 넓어서 좋아요",
+      "channel": "naver_place",
+      "topics": [
+        "hygiene:+",
+        "atmosphere:+"
+      ],
+      "sentiment": "positive"
+    },
+    {
+      "text": "자리가 협소해서 불편했어요",
+      "channel": "naver_place",
+      "topics": [
+        "atmosphere:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "메뉴가 다양해서 고르기 좋아요",
+      "channel": "naver_place",
+      "topics": [
+        "menu:+"
+      ],
+      "sentiment": "positive"
+    },
+    {
+      "text": "점심에 줄이 길어서 30분 기다렸어요",
+      "channel": "naver_place",
+      "topics": [
+        "wait_time:-"
+      ],
+      "sentiment": "negative"
+    },
+    {
+      "text": "주문하자마자 음식이 바로 나왔어요",
+      "channel": "naver_place",
+      "topics": [
+        "wait_time:+"
+      ],
+      "sentiment": "positive"
+    },
+    {
+      "text": "그냥 그래요",
+      "channel": "yogiyo",
+      "topics": [],
+      "sentiment": "neutral"
+    }
+  ]
+}
