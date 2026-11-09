@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "recorded_at": "2026-11-10T00:43:43+09:00",
-  "recorded_mode": "mock",
+  "recorded_at": "2026-11-10T02:38:32+09:00",
+  "recorded_mode": "live",
   "ladder": 0,
   "store_id": "store_ongi",
   "store": {
@@ -567,13 +567,13 @@
         "positive": 2,
         "negative": 2
       },
-      "portion": {
-        "positive": 2,
+      "taste": {
+        "positive": 12,
         "negative": 2
       },
-      "taste": {
-        "positive": 13,
-        "negative": 2
+      "portion": {
+        "positive": 2,
+        "negative": 1
       },
       "hygiene": {
         "positive": 1,
@@ -592,11 +592,11 @@
         "negative": 1
       },
       "texture": {
-        "positive": 1,
+        "positive": 0,
         "negative": 1
       },
       "menu": {
-        "positive": 3,
+        "positive": 2,
         "negative": 0
       },
       "wait_time": {
@@ -633,7 +633,7 @@
         "evidence": [
           {
             "review_id": "rv_ongi_001",
-            "quote": "안 들어 있었어요"
+            "quote": "공깃밥 추가했는데 안 들어 있었어요"
           },
           {
             "review_id": "rv_ongi_002",
@@ -641,7 +641,7 @@
           },
           {
             "review_id": "rv_ongi_003",
-            "quote": "누락됐어요"
+            "quote": "계란말이를 같이 시켰는데 누락됐어요"
           }
         ],
         "time_bands": {
@@ -664,13 +664,12 @@
         "last_at": "2026-11-06T19:50:00+09:00"
       },
       {
-        "issue_id": "iss_portion_taste",
+        "issue_id": "iss_taste",
         "topics": [
-          "portion",
           "taste"
         ],
-        "topic": "portion",
-        "topic_name": "양·맛",
+        "topic": "taste",
+        "topic_name": "맛",
         "review_count": 2,
         "is_repeated": false,
         "review_ids": [
@@ -684,7 +683,7 @@
           },
           {
             "review_id": "rv_ongi_007",
-            "quote": "고기 양이 줄었고 맛도 예전 같지 않아요"
+            "quote": "맛도 예전 같지 않아요"
           }
         ],
         "time_bands": {
@@ -721,7 +720,7 @@
         "evidence": [
           {
             "review_id": "rv_ongi_004",
-            "quote": "1시간 넘게 걸려서 왔어요"
+            "quote": "저녁 7시에 시켰는데 1시간 넘게 걸려서 왔어요"
           },
           {
             "review_id": "rv_ongi_005",
@@ -765,7 +764,7 @@
         "evidence": [
           {
             "review_id": "rv_ongi_001",
-            "quote": "안 들어 있었어요"
+            "quote": "공깃밥 추가했는데 안 들어 있었어요"
           },
           {
             "review_id": "rv_ongi_002",
@@ -773,7 +772,7 @@
           },
           {
             "review_id": "rv_ongi_003",
-            "quote": "누락됐어요"
+            "quote": "계란말이를 같이 시켰는데 누락됐어요"
           }
         ],
         "time_bands": {
@@ -817,7 +816,7 @@
         "topic_names": [
           "응대"
         ],
-        "quote": "응대가 퉁명스러웠어요",
+        "quote": "전화로 문의했는데 응대가 퉁명스러웠어요",
         "created_at": "2026-10-24T19:20:00+09:00",
         "channel": "baemin"
       },
@@ -866,12 +865,12 @@
           {
             "topic": "missing_item",
             "polarity": "negative",
-            "evidence": "안 들어 있었어요"
+            "evidence": "공깃밥 추가했는데 안 들어 있었어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "공깃밥 누락",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "missing_item"
@@ -887,9 +886,9 @@
             "evidence": "수저랑 젓가락이 빠져 있었어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "수저, 젓가락 누락",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "missing_item"
@@ -902,12 +901,12 @@
           {
             "topic": "missing_item",
             "polarity": "negative",
-            "evidence": "누락됐어요"
+            "evidence": "계란말이를 같이 시켰는데 누락됐어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "계란말이 누락됨",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "missing_item"
@@ -920,12 +919,12 @@
           {
             "topic": "delivery_time",
             "polarity": "negative",
-            "evidence": "1시간 넘게 걸려서 왔어요"
+            "evidence": "저녁 7시에 시켰는데 1시간 넘게 걸려서 왔어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "배달 시간 초과",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "delivery_time"
@@ -941,9 +940,9 @@
             "evidence": "배달이 예상 시간보다 40분 늦었어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "배달 시간 초과",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "delivery_time"
@@ -957,19 +956,15 @@
             "topic": "taste",
             "polarity": "negative",
             "evidence": "양도 적고 간도 너무 싱거웠어요"
-          },
-          {
-            "topic": "portion",
-            "polarity": "negative",
-            "evidence": "양도 적고 간도 너무 싱거웠어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
-        "warnings": [],
+        "summary": "양과 간 부족",
+        "method": "replay",
+        "model": "HCX-005",
+        "warnings": [
+          "규칙 비교: 규칙만 찾은 불만 portion"
+        ],
         "negative_topics": [
-          "portion",
           "taste"
         ]
       },
@@ -978,19 +973,19 @@
         "sentiment": "negative",
         "topics": [
           {
-            "topic": "taste",
-            "polarity": "negative",
-            "evidence": "고기 양이 줄었고 맛도 예전 같지 않아요"
-          },
-          {
             "topic": "portion",
             "polarity": "negative",
-            "evidence": "고기 양이 줄었고 맛도 예전 같지 않아요"
+            "evidence": "고기 양이 줄었고"
+          },
+          {
+            "topic": "taste",
+            "polarity": "negative",
+            "evidence": "맛도 예전 같지 않아요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "고기 양과 맛이 줄어듦",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "portion",
@@ -1007,9 +1002,9 @@
             "evidence": "반찬 그릇에 머리카락이 있었어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "반찬 그릇에 이물질 있음",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "hygiene"
@@ -1022,12 +1017,12 @@
           {
             "topic": "service",
             "polarity": "negative",
-            "evidence": "응대가 퉁명스러웠어요"
+            "evidence": "전화로 문의했는데 응대가 퉁명스러웠어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "전화 응대 불친절",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "service"
@@ -1043,9 +1038,9 @@
             "evidence": "순두부찌개가 미지근하게 왔어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "순두부찌개 미지근함",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "temperature"
@@ -1061,9 +1056,9 @@
             "evidence": "메뉴 가격이 많이 올라서 부담돼요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "메뉴 가격 상승으로 인한 부담",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "price"
@@ -1079,9 +1074,9 @@
             "evidence": "밥이 너무 질었어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "밥이 질음",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": [
           "texture"
@@ -1097,9 +1092,9 @@
             "evidence": "제육볶음이 불맛 나고 정말 맛있어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "제육볶음 맛있음",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1110,7 +1105,7 @@
           {
             "topic": "delivery_time",
             "polarity": "positive",
-            "evidence": "20분 만에 왔어요"
+            "evidence": "점심에 시켰는데 20분 만에 왔어요"
           },
           {
             "topic": "temperature",
@@ -1118,9 +1113,9 @@
             "evidence": "빠르고 따뜻했어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "배달 빠르고 음식 따뜻",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1132,16 +1127,11 @@
             "topic": "taste",
             "polarity": "positive",
             "evidence": "계란말이가 폭신하고 맛있어요"
-          },
-          {
-            "topic": "texture",
-            "polarity": "positive",
-            "evidence": "계란말이가 폭신하고 맛있어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "계란말이 폭신하고 맛있음",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1155,9 +1145,9 @@
             "evidence": "사장님이 정말 친절하세요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "친절한 사장님",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1171,9 +1161,9 @@
             "evidence": "된장찌개가 집밥 같아요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "된장찌개 집밥 같음",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1184,17 +1174,17 @@
           {
             "topic": "taste",
             "polarity": "positive",
-            "evidence": "국물이 진하고 뜨끈해서 좋았어요"
+            "evidence": "국물이 진하고"
           },
           {
             "topic": "temperature",
             "polarity": "positive",
-            "evidence": "국물이 진하고 뜨끈해서 좋았어요"
+            "evidence": "뜨끈해서 좋았어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "국물 진하고 뜨끈함",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1205,12 +1195,12 @@
           {
             "topic": "price",
             "polarity": "positive",
-            "evidence": "가성비 좋은 한식집이에요"
+            "evidence": "가성비 좋은"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "가성비 좋은 한식집",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1224,9 +1214,9 @@
             "evidence": "배달이 빨라서 좋았어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "배달 빠른 음식점",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1237,17 +1227,17 @@
           {
             "topic": "taste",
             "polarity": "positive",
-            "evidence": "점심 정식 구성이 알차고 맛있어요"
+            "evidence": "맛있어요"
           },
           {
             "topic": "menu",
             "polarity": "positive",
-            "evidence": "점심 정식 구성이 알차고 맛있어요"
+            "evidence": "점심 정식 구성이 알차고"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "점심 정식 구성, 맛 모두 좋아요",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1261,9 +1251,9 @@
             "evidence": "김치찌개 맛집 인정합니다"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "김치찌개 맛집",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1277,9 +1267,9 @@
             "evidence": "점심 손님이 많아도 금방 나와요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "손님 많아도 음식 빨리 나옴",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1290,17 +1280,17 @@
           {
             "topic": "taste",
             "polarity": "positive",
-            "evidence": "양도 넉넉하고 맛도 좋아요"
+            "evidence": "맛도 좋아요"
           },
           {
             "topic": "portion",
             "polarity": "positive",
-            "evidence": "양도 넉넉하고 맛도 좋아요"
+            "evidence": "양도 넉넉하고"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "양 많고 맛도 좋아요",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1314,9 +1304,9 @@
             "evidence": "밥 양이 넉넉해서 든든해요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "밥 양이 많아 든든함",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1330,9 +1320,9 @@
             "evidence": "주문 요청 사항을 잘 들어주셔서 감사해요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "요청 사항 잘 들어줌",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1340,9 +1330,9 @@
         "review_id": "rv_ongi_027",
         "sentiment": "neutral",
         "topics": [],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "무난함",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1351,7 +1341,7 @@
         "sentiment": "positive",
         "topics": [
           {
-            "topic": "taste",
+            "topic": "atmosphere",
             "polarity": "positive",
             "evidence": "매장 분위기도 깔끔하고 음식도 정갈해요"
           },
@@ -1359,16 +1349,11 @@
             "topic": "hygiene",
             "polarity": "positive",
             "evidence": "매장 분위기도 깔끔하고 음식도 정갈해요"
-          },
-          {
-            "topic": "atmosphere",
-            "polarity": "positive",
-            "evidence": "매장 분위기도 깔끔하고 음식도 정갈해요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "매장 분위기와 음식 모두 깔끔하고 정갈함",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1380,16 +1365,11 @@
             "topic": "price",
             "polarity": "positive",
             "evidence": "가격 대비 구성이 좋아요"
-          },
-          {
-            "topic": "menu",
-            "polarity": "positive",
-            "evidence": "가격 대비 구성이 좋아요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "가격 대비 구성이 좋음",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1403,9 +1383,9 @@
             "evidence": "포장이 꼼꼼해서 국물 하나 안 샜어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "포장이 꼼꼼하여 국물이 새지 않음",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1419,9 +1399,9 @@
             "evidence": "불고기 덮밥 달달하니 맛있어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "불고기 덮밥이 맛있어요.",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1435,9 +1415,9 @@
             "evidence": "항상 맛있어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "항상 맛있는 음식.",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1451,9 +1431,9 @@
             "evidence": "사장님이 반찬을 더 챙겨 주셨어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "친절한 사장님의 서비스.",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1467,9 +1447,9 @@
             "evidence": "제육이 맵지 않고 달달해서 아이도 잘 먹어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "아이도 잘 먹는 제육.",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1480,17 +1460,17 @@
           {
             "topic": "service",
             "polarity": "positive",
-            "evidence": "직원분들이 친절하고 음식이 빨리 나와요"
+            "evidence": "직원분들이 친절"
           },
           {
             "topic": "wait_time",
             "polarity": "positive",
-            "evidence": "직원분들이 친절하고 음식이 빨리 나와요"
+            "evidence": "음식이 빨리 나와요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "친절한 직원과 빠른 음식 제공.",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1498,9 +1478,9 @@
         "review_id": "rv_ongi_036",
         "sentiment": "neutral",
         "topics": [],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "보통의 맛.",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1514,9 +1494,9 @@
             "evidence": "반찬이 매일 바뀌어서 좋아요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "반찬이 매일 바뀌어 좋아요",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1530,9 +1510,9 @@
             "evidence": "포장이 깔끔하게 와서 좋았어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "포장이 깔끔하게 와 좋음",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1546,9 +1526,9 @@
             "evidence": "순두부찌개 얼큰하고 맛있어요"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "순두부찌개가 얼큰하고 맛있음",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       },
@@ -1559,17 +1539,17 @@
           {
             "topic": "taste",
             "polarity": "positive",
-            "evidence": "혼밥하기 편하고 음식도 맛있어요"
+            "evidence": "음식도 맛있어요"
           },
           {
             "topic": "atmosphere",
             "polarity": "positive",
-            "evidence": "혼밥하기 편하고 음식도 맛있어요"
+            "evidence": "혼밥하기 편하고"
           }
         ],
-        "summary": null,
-        "method": "rule",
-        "model": "kiwi",
+        "summary": "혼밥하기 편하며 음식도 맛있음",
+        "method": "replay",
+        "model": "HCX-005",
         "warnings": [],
         "negative_topics": []
       }
@@ -1605,8 +1585,8 @@
         ],
         "snapshot_ids": []
       },
-      "title": "포장 누락 3건 → 답글 + 재발 방지 공지",
-      "reason_source": "고정 문장",
+      "title": "포장 누락 3건 반복 → 재발 방지 공지 + 답글",
+      "reason_source": "HCX-005 검사 불통과 → 고정 문장",
       "checked_text": "포장 누락 불만이 3건 반복됐고, 모두 17~21시에 들어왔어요 [F1]",
       "facts": [
         {
@@ -1620,6 +1600,9 @@
               "value": 3,
               "unit": "건"
             }
+          ],
+          "keep": [
+            "17~21시"
           ]
         }
       ],
@@ -1627,7 +1610,7 @@
         {
           "type": "review",
           "id": "rv_ongi_001",
-          "text": "안 들어 있었어요"
+          "text": "공깃밥 추가했는데 안 들어 있었어요"
         },
         {
           "type": "review",
@@ -1637,25 +1620,61 @@
         {
           "type": "review",
           "id": "rv_ongi_003",
-          "text": "누락됐어요"
+          "text": "계란말이를 같이 시켰는데 누락됐어요"
         }
       ],
-      "problems": []
+      "problems": [
+        {
+          "type": "forbidden_phrase",
+          "detail": "추천드"
+        },
+        {
+          "type": "label_changed",
+          "detail": "근거 카드 표기를 그대로 써요: '17~21시'"
+        }
+      ],
+      "measures": {
+        "options": [
+          {
+            "id": "M1",
+            "text": "포장 마감 전 주문서 대조"
+          },
+          {
+            "id": "M2",
+            "text": "출발 전 품목 수량 확인"
+          },
+          {
+            "id": "M3",
+            "text": "소스·반찬 별도 체크리스트 부착"
+          },
+          {
+            "id": "M4",
+            "text": "음료 포함 여부 라벨 표시"
+          },
+          {
+            "id": "M5",
+            "text": "배달 파트너사에 온도 유지 요청"
+          }
+        ],
+        "default": [
+          "M1"
+        ]
+      }
     },
     {
       "card": {
         "card_id": "card_ongi_b",
         "store_id": "store_ongi",
         "kind": "promo",
-        "reason_text": "장승배기역 4번 상권의 저녁 시간대(17~24시) 추정매출(두 분기 공통 업종): 2026년 2분기, 전년 동기 대비 19.31% 감소\n저녁 손님을 다시 부르는 쿠폰 홍보를 제안해요.",
+        "reason_text": "장승배기역 4번 상권의 저녁 시간대 (17~24시) 추정 매출 (두 분기 공통 업종)은 2025년도 2분기보다 19.31% 감소했습니다. 저녁 손님을 다시 부르는 쿠폰 홍보를 제안해 보세요.",
         "review_ids": [],
         "snapshot_ids": [
           "snap_3110826_evening_17_24_common_yoy_2026Q2"
         ]
       },
       "title": "저녁 시간대(17~24시) 추정매출(두 분기 공통 업종) 하락 → 쿠폰 홍보",
-      "reason_source": "고정 문장",
-      "checked_text": "장승배기역 4번 상권의 저녁 시간대(17~24시) 추정매출(두 분기 공통 업종): 2026년 2분기, 전년 동기 대비 19.31% 감소 [F2]\n저녁 손님을 다시 부르는 쿠폰 홍보를 제안해요.",
+      "reason_source": "HCX-005 (검사기 통과)",
+      "checked_text": "장승배기역 4번 상권의 저녁 시간대 (17~24시) 추정 매출 (두 분기 공통 업종)은 2025년도 2분기보다 19.31% 감소했습니다[F2]. 저녁 손님을 다시 부르는 쿠폰 홍보를 제안해 보세요.",
       "facts": [
         {
           "id": "F2",
@@ -1668,6 +1687,10 @@
               "value": -19.31,
               "unit": "%"
             }
+          ],
+          "keep": [
+            "장승배기역 4번 상권",
+            "17~24시"
           ]
         }
       ],
@@ -1680,7 +1703,8 @@
           "note": "상권코드 3110826. 17~21시와 21~24시 추정매출 합산. 비교 두 분기 공통 12개 업종 기준: 2025Q2 2,778,386,532원 → 2026Q2 2,241,971,854원. 후보 5곳 비교로 선정; 서울 전체 하락률 1위가 아님. 관측 업종 합계는 -19.99%. 하루 전체 매출·개별 가게 실적과 구분."
         }
       ],
-      "problems": []
+      "problems": [],
+      "measures": {}
     }
   ],
   "no_card_b": null,
@@ -1692,12 +1716,12 @@
       "basis_label": null,
       "drafts": [
         {
-          "draft_id": "d_d368820d",
+          "draft_id": "d_7454170f",
           "card_id": "card_ongi_a",
           "store_id": "store_ongi",
           "generator": "reply_draft",
           "target_review_id": "rv_ongi_001",
-          "text": "안녕하세요 고객님 :) 공깃밥 추가로 보내드렸어요. 포장 마감 전 주문서를 다시 한번 확인하는 절차를 도입해서 이런 일이 다시 없도록 주의하겠습니다. 소중한 의견 감사합니다. 온기한식 드림",
+          "text": "안녕하세요 고객님 :) 아이고, 공깃밥이 빠졌나 보네요. 다음에는 꼭 챙길 수 있게 주문서랑 대조해볼게요. 죄송합니다. 온기한식 드림",
           "evidence_ids": [
             "F_rv_ongi_001",
             "M1"
@@ -1724,16 +1748,16 @@
           "status": "draft",
           "edited_text": null,
           "model": "HCX-005",
-          "elapsed_ms": 2511,
+          "elapsed_ms": 2710,
           "data_origin": "synthetic"
         },
         {
-          "draft_id": "d_1ee5ebed",
+          "draft_id": "d_6e8cadef",
           "card_id": "card_ongi_a",
           "store_id": "store_ongi",
           "generator": "reply_draft",
           "target_review_id": "rv_ongi_002",
-          "text": "안녕하세요 고객님 :) 주문하신 수저와 젓가락이 빠졌다니 정말 속상하시겠어요. 포장 마감 전 주문서와 대조하여 확인하는 절차를 도입하도록 하겠습니다. 다음번에는 꼼꼼히 챙긴 후 받아보실 수 있도록 최선을 다하겠습니다. 소중한 의견 감사합니다. 온기한식 드림",
+          "text": "안녕하세요 고객님 :) 수저와 젓가락이 빠졌다니 정말 속상하시겠어요. 포장 마감 전에 주문서를 한 번 더 꼼꼼히 확인하는 절차를 도입해서 이런 일이 다시 없도록 노력하겠습니다. 소중한 의견 감사합니다! 온기한식 드림",
           "evidence_ids": [
             "F_rv_ongi_002",
             "M1"
@@ -1755,23 +1779,24 @@
             "not_too_similar": true
           },
           "failed_reasons": [],
-          "rewrites": 0,
+          "rewrites": 1,
           "needs_input": [],
           "status": "draft",
           "edited_text": null,
           "model": "HCX-005",
-          "elapsed_ms": 2511,
+          "elapsed_ms": 2710,
           "data_origin": "synthetic"
         },
         {
-          "draft_id": "d_cb6450bc",
+          "draft_id": "d_fc3e2d05",
           "card_id": "card_ongi_a",
           "store_id": "store_ongi",
           "generator": "reply_draft",
           "target_review_id": "rv_ongi_003",
-          "text": "안녕하세요 고객님 :) 주문하신 계란말이가 빠졌다니 정말 속상하시겠어요. 다음에는 꼭 챙길 수 있도록 포장 마감 전 주문서를 한번 더 꼼꼼히 확인해볼게요. 소중한 의견 감사합니다! 온기한식 드림",
+          "text": "안녕하세요 고객님 :) 계란말이가 빠졌군요. 포장 마감 전 주문서를 꼭 대조해서 이런 일이 없도록 하겠습니다. 다음에는 요청사항에 적어주시면 더 꼼꼼히 챙길게요. 소중한 의견 감사합니다! 온기한식 드림",
           "evidence_ids": [
             "F_rv_ongi_003",
+            "P1",
             "M1"
           ],
           "checks": {
@@ -1791,21 +1816,21 @@
             "not_too_similar": true
           },
           "failed_reasons": [],
-          "rewrites": 0,
+          "rewrites": 1,
           "needs_input": [],
           "status": "draft",
           "edited_text": null,
           "model": "HCX-005",
-          "elapsed_ms": 2511,
+          "elapsed_ms": 2710,
           "data_origin": "synthetic"
         },
         {
-          "draft_id": "d_af7e466a",
+          "draft_id": "d_e5cc6118",
           "card_id": "card_ongi_a",
           "store_id": "store_ongi",
           "generator": "prevention_notice",
           "target_review_id": null,
-          "text": "안녕하세요 고객님 :) 주문이 잘못돼서 속상하셨죠? 진짜 죄송해요. 밥이랑 수저, 계란말이가 빠진 적이 몇 번 있었네요. 앞으론 주문서랑 꼼꼼히 비교해서 이런 실수 없게 할게요. 앞으로 포장 마감 전에 주문서와 한 번 더 대조할게요. 다음엔 요청 사항에 꼭 필요한 거 적어주시면 제가 특별히 더 잘 챙길게요! 온기한식 드림",
+          "text": "안녕하세요 고객님 :) 불편하셨을 텐데 정말 죄송해요. 공깃밥·수저·계란말이가 빠지는 일이 있었어요. 포장 마감 전 주문서를 꼼꼼히 확인하고 보내드리기 위해 노력할게요. 혹시라도 놓친 부분이 있다면 꼭 말씀해 주세요! 다음 주문 때 요청 사항에 적어주시면 더 잘 챙겨드릴게요. 온기한식 드림",
           "evidence_ids": [
             "F_rv_ongi_001",
             "F_rv_ongi_002",
@@ -1821,20 +1846,18 @@
             "not_quote_review": true,
             "no_stiff_words": true,
             "no_overpromise": true,
-            "has_apology": false,
+            "has_apology": true,
             "uses_opening": true,
             "uses_closing": true,
             "no_forbidden_phrase": true
           },
-          "failed_reasons": [
-            "첫 문장에 불편을 드려 죄송하다는 사과를 넣어 주세요."
-          ],
-          "rewrites": 1,
+          "failed_reasons": [],
+          "rewrites": 0,
           "needs_input": [],
           "status": "draft",
           "edited_text": null,
           "model": "HCX-005",
-          "elapsed_ms": 4309,
+          "elapsed_ms": 1926,
           "data_origin": "synthetic"
         }
       ],
@@ -1844,24 +1867,28 @@
           "text": "포장 마감 전 주문서 대조"
         }
       ],
-      "elapsed_ms": 6821,
-      "won": 24.94,
-      "source": "seed",
-      "source_note": "김수현 저장본(c6_cache_best.json, 샘플 카드 card_sample_a로 생성한 글). 이유 문장은 이 화면의 카드 문장으로 바꿈"
+      "elapsed_ms": 4636,
+      "won": 27.77,
+      "source": "live",
+      "needs_input": [
+        "팀 데이터에 없음: 사장님 말투(ToneProfile)",
+        "팀 데이터에 없음: 사장님 예전 답글",
+        "팀 데이터에 없음: 가게 정책"
+      ]
     },
     "card_ongi_b": {
       "card_id": "card_ongi_b",
       "kind": "promo",
-      "reason_text": "장승배기역 4번 상권의 저녁 시간대(17~24시) 추정매출(두 분기 공통 업종): 2026년 2분기, 전년 동기 대비 19.31% 감소\n저녁 손님을 다시 부르는 쿠폰 홍보를 제안해요.",
-      "basis_label": "기준: 2026 2분기 · 추정 · 출처 서울시",
+      "reason_text": "장승배기역 4번 상권의 저녁 시간대 (17~24시) 추정 매출 (두 분기 공통 업종)은 2025년도 2분기보다 19.31% 감소했습니다. 저녁 손님을 다시 부르는 쿠폰 홍보를 제안해 보세요. (기준: 2026 2분기 · 추정 · 출처 서울시 상권분석서비스 · https://data.seoul.go.kr/dataList/OA-15572/S/1/datasetView.do, -19.306697315937033%)",
+      "basis_label": "기준: 2026 2분기 · 추정 · 출처 서울시 상권분석서비스 · https://data.seoul.go.kr/dataList/OA-15572/S/1/datasetView.do",
       "drafts": [
         {
-          "draft_id": "d_9018bf15",
+          "draft_id": "d_771320a5",
           "card_id": "card_ongi_b",
           "store_id": "store_ongi",
           "generator": "coupon_promo",
           "target_review_id": null,
-          "text": "저녁 메뉴 아직 못 정했다면 이거 어때요? 손님들 사이에서 인기 폭발 중인 제육볶음이랑 언제 먹어도 맛있는 된장찌개를 준비했거든요. 밥 두 공기도 거뜬히 비우게 만드는 맛이라니까요!\n🎟 제육볶음 정식 1,000원 할인 쿠폰 · 받은 날 포함 14일",
+          "text": "요즘 저녁 뭐 드실지 고민되시죠? 저희 가게에서 인기 많은 제육볶음을 푸짐하게 준비했어요! 매콤달콤한 양념과 신선한 야채까지 듬뿍 넣어 정성껏 만들었답니다.\n🎟 제육볶음 정식 1,000원 할인 쿠폰 · 받은 날 포함 14일",
           "evidence_ids": [
             "snap_3110826_evening_17_24_common_yoy_2026Q2",
             "coupon:제육볶음 정식"
@@ -1873,30 +1900,30 @@
             "no_stiff_words": true,
             "no_fewshot_copy": true,
             "no_bad_promise": true,
-            "no_unknown_menu": false,
+            "no_unknown_menu": true,
             "no_markdown": true,
             "length_ok": true,
             "no_forbidden_phrase": true
           },
-          "failed_reasons": [
-            "메뉴에 있는 음식 이름만 써 주세요."
-          ],
-          "rewrites": 1,
-          "needs_input": [
-            "사장님 확인 필요"
-          ],
+          "failed_reasons": [],
+          "rewrites": 0,
+          "needs_input": [],
           "status": "draft",
           "edited_text": null,
           "model": "HCX-005",
-          "elapsed_ms": 4614,
+          "elapsed_ms": 2473,
           "data_origin": "synthetic"
         }
       ],
       "chosen_measures": [],
-      "elapsed_ms": 4614,
-      "won": 12.51,
-      "source": "seed",
-      "source_note": "김수현 저장본(c6_cache_best.json, 샘플 카드 card_sample_b로 생성한 글). 이유 문장은 이 화면의 카드 문장으로 바꿈"
+      "elapsed_ms": 2473,
+      "won": 8.33,
+      "source": "live",
+      "needs_input": [
+        "팀 데이터에 없음: 사장님 말투(ToneProfile)",
+        "팀 데이터에 없음: 사장님 예전 답글",
+        "팀 데이터에 없음: 가게 정책"
+      ]
     }
   }
 }

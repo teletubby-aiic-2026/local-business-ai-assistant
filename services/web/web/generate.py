@@ -87,6 +87,28 @@ def adapt_seed(seed: dict, card: RecommendationCard) -> dict | None:
     return result
 
 
+# ── 재발 방지 조치 (C6 measures.MEASURES) ───────────────────────────
+# 사장님이 고른 조치만 공지·답글에 들어가고, 고르지 않은 조치를 지어내면 C6 점검이 잡는다.
+# 기본 선택: 묶음 주제에 맞는 조치 하나 (사장님이 화면에서 바꿀 수 있음)
+DEFAULT_MEASURES = {"iss_missing_item": ["M1"]}   # 포장 누락 → 포장 마감 전 주문서 대조
+
+
+def measure_catalog() -> list[dict]:
+    try:
+        from c6.measures import MEASURES
+    except Exception:
+        return []
+    return [dict(m) for m in MEASURES]
+
+
+def pick_measures(ids: list[str] | None) -> list[dict]:
+    catalog = {m["id"]: m for m in measure_catalog()}
+    unknown = [i for i in (ids or []) if i not in catalog]
+    if unknown:
+        raise GenerateError(f"모르는 재발 방지 조치예요: {', '.join(unknown)}")
+    return [catalog[i] for i in (ids or [])]
+
+
 # ── live ─────────────────────────────────────────────────────────────
 def _context(store: StoreProfile, reviews: list[ReviewRecord], card: RecommendationCard,
              snapshots: list[AnalysisSnapshot]):
@@ -96,7 +118,7 @@ def _context(store: StoreProfile, reviews: list[ReviewRecord], card: Recommendat
 
 def run_live(card: RecommendationCard, *, store: StoreProfile, reviews: list[ReviewRecord],
              snapshots: list[AnalysisSnapshot], key: str, model: str, ladder: int,
-             cached: dict | None) -> dict:
+             cached: dict | None, chosen_measures: list[dict] | None = None) -> dict:
     """HCX-005 로 생성. ladder 가 1·2 이면 정해진 부분만 실시간이고 나머지는 cached(저장본)에서 가져온다."""
     if not key:
         raise GenerateError("HCX 키가 없어 실시간 생성을 할 수 없어요. APP_MODE=mock 또는 replay 로 실행하세요.")
@@ -106,14 +128,14 @@ def run_live(card: RecommendationCard, *, store: StoreProfile, reviews: list[Rev
     if ladder == 0 or card.kind != "complaint":
         if ladder != 0 and cached:   # 사다리에서 홍보글은 저장본
             return {**cached, "source": "replay", "source_note": f"사다리 {ladder}칸: 홍보글은 저장본"}
-        result = run_card(ctx, card, key, model=model).to_dict()
+        result = run_card(ctx, card, key, model=model, chosen_measures=chosen_measures).to_dict()
         result["source"] = "live"
         result["needs_input"] = list(ctx.needs_input)
         return result
 
     from c6.reply import generate_reply_draft
     live_card = card if ladder == 1 else replace(card, review_ids=card.review_ids[:1])
-    live = generate_reply_draft(ctx, live_card, key, model=model).to_dict()
+    live = generate_reply_draft(ctx, live_card, key, model=model, chosen_measures=chosen_measures).to_dict()
     live_ids = {d["target_review_id"] for d in live["drafts"]}
     rest = [d for d in (cached or {}).get("drafts", []) if d.get("target_review_id") not in live_ids]
     result = {**live, "card_id": card.card_id, "kind": card.kind, "reason_text": card.reason_text,
@@ -129,7 +151,8 @@ def draft_texts(result: dict) -> list[str]:
 
 # 사장님이 하지 않은 조치를 이미 한 것처럼 말하거나, 정하지 않은 보상을 약속하는 문장 (C6 점검이 잡지 못한 것).
 # 예: "공깃밥 추가로 보내드렸어요" (11/9 C6 저장본). 사과("불편을 드려")나 재발 방지 다짐("꼼꼼히 챙기겠습니다")은 잡지 않는다.
-_DONE_ACTION = re.compile(r"(보내|챙겨|넣어|환불|적립|교환|발송|처리|추가|지급|쿠폰)[^.!?\n]{0,12}?드렸")
+# "보내드렸어야 했는데"(했어야 했다는 사과)는 조치가 아니므로 뺀다 (11/10 live 1차 답글)
+_DONE_ACTION = re.compile(r"(보내|챙겨|넣어|환불|적립|교환|발송|처리|추가|지급|쿠폰)[^.!?\n]{0,12}?드렸(?!어야|더라면)")
 _DONE_PROCESS = re.compile(r"(환불|적립|재발송|발송|교환|보상)[^.!?\n]{0,6}?(완료|했습니다|했어요|해 드렸)")
 _PROMISE = re.compile(r"(서비스|쿠폰|환불|적립|보상|무료)[^.!?\n]{0,12}?(드릴게요|드리겠습니다|드릴 예정)")
 

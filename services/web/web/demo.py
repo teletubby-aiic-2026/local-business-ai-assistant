@@ -10,8 +10,10 @@ from shared.answer_check import check_answer, feedback
 from shared.contracts import LABELS_KO, AnalysisSnapshot, StoreProfile, quarter_label
 
 from . import c9
-from .cards import CardPlan, plan_cards, why_no_card_b
-from .generate import (GenerateError, adapt_seed, c6_available, ensure_marketing_on_path, load_seed,
+from .cards import (CardPlan, apply_writer, model_reason_failed, normalize_citations, plan_cards, reason_problems,
+                    why_no_card_b)
+from .generate import (DEFAULT_MEASURES, GenerateError, adapt_seed, c6_available, ensure_marketing_on_path, load_seed,
+                       measure_catalog, pick_measures,
                        run_live, summarize)
 from .settings import Settings
 from .sources import ReviewSource, SourceError, is_dev_fake, load_snapshots, to_review_records, to_store_profile
@@ -161,20 +163,53 @@ class Demo:
                 self._reason_memo[key] = plan_cards(
                     st["insight"], st["snapshots"], self.s.store_id, preferred_id=self.s.card_b_snapshot_id,
                     threshold=self.s.card_b_threshold, writer=writer)
+                if self.c6:   # 불만 카드에 재발 방지 조치 고르기 (C6 목록)
+                    catalog = measure_catalog()
+                    for plan in self._reason_memo[key]:
+                        if plan.card.kind == "complaint" and catalog:
+                            plan.measures = {"options": catalog,
+                                             "default": DEFAULT_MEASURES.get(st["insight"].get("top_issue_id"), [])}
+            elif writer is not None:
+                # 검사에 걸려 고정 문장으로 돌아간 카드만 다음 요청 때 다시 쓰게 한다. 통과한 문장은 그대로 둔다.
+                for plan in self._reason_memo[key]:
+                    if model_reason_failed(plan) and plan.rounds < self.REASON_ROUNDS:
+                        apply_writer(plan, writer)
             return self._reason_memo[key]
 
+    REASON_ROUNDS = 3  # 카드 하나에 대해 이유 쓰기를 다시 시도하는 요청 수 (라운드마다 REASON_TRIES 번)
+    REASON_TRIES = 5   # 사용자 지시(11/10): 확실한 결과가 나올 때까지 충분히 부른다
+    # 할 일을 완성된 문장으로 준다 ("~하는 것"으로 주면 모델이 "~것을 추천해요"로 끝내서 검사기에 걸림, 11/10 live 6차)
+    REASON_TODO = {"complaint": "같은 불만이 다시 안 생기게 재발 방지 공지를 올리고, 답글도 함께 달아요.",
+                   "promo": "저녁 손님을 다시 부르는 쿠폰 홍보를 제안해요."}
+
     def _reason_writer(self, kind: str, facts: list[dict], fixed: str) -> str:
-        """live: HCX-005 가 이유 한 문장을 쓴다. 검사기에 걸리면 피드백을 붙여 1회 다시 쓴다."""
+        """live: HCX-005 가 이유 문장을 쓴다. 규칙 검사(reason_problems)에 걸리면 고칠 점을 붙여 다시 쓴다 (최대 REASON_TRIES번)."""
         model = self._reason_model or self._clova_reason
-        system = ("소상공인 사장님에게 '왜 이 일을 먼저 하면 좋은지'를 해요체 한두 문장으로 설명해요. "
-                  "사실 카드에 있는 숫자와 분기만 쓰고, 숫자를 쓴 문장 끝에는 [F1]처럼 카드 번호를 붙여요. "
-                  "원인 단정('때문'), 보장, 추천('추천해요'), 좋아졌다/나빠졌다 같은 판단은 쓰지 않아요.")
-        user = f"사실 카드: {json.dumps(facts, ensure_ascii=False)}\n참고 문장: {fixed}"
-        text = model(system, user)
-        result = check_answer(text, facts)
-        if result["ok"]:
-            return text
-        return model(system, user + "\n고칠 점: " + feedback(result["problems"], facts))
+        # '사실 카드'라고 부르면 모델이 문장을 "사실 …"로 시작해서 '근거 카드'라고 부른다 (11/10 live 2차)
+        system = ("소상공인 사장님에게 오늘 이 카드를 먼저 처리하면 좋은 이유를 해요체 두 문장으로 써요.\n"
+                  "첫 문장: 근거 카드의 숫자를 소수점까지 적힌 그대로(예: 3건, 19.31%) 쓰고, 시간대·분기도 그대로 쓰고, 그 문장 끝에 [F1]처럼 카드 번호를 붙여요.\n"
+                  "둘째 문장: 아래 '할 일' 문장을 그대로 쓰거나 같은 뜻으로 짧게 써요. '추천'이라는 말은 쓰지 않아요.\n"
+                  "근거 카드에 없는 숫자, 원인 단정('때문'), 보장, 앞날 예측('~할 수 있어요', '예상', '가능성', '높아질', '늘어날'), "
+                  "좋아졌다/나빠졌다 같은 판단은 쓰지 않아요. 문장 앞에 '사실', '참고로' 같은 말을 붙이지 않아요.")
+        keep = [k for f in facts for k in f.get("keep", []) if k]
+        user = (f"근거 카드: {json.dumps(facts, ensure_ascii=False)}\n할 일: {self.REASON_TODO.get(kind, '')}\n"
+                + (f"글자 그대로 쓸 표기: {', '.join(repr(k) for k in keep)}\n" if keep else "")
+                + f"참고 문장(이 정도 길이, 근거 카드에 있는 사실만): {fixed}")
+        text, ask = "", user
+        for _ in range(self.REASON_TRIES):
+            text = normalize_citations(model(system, ask))
+            problems = reason_problems(text, facts)
+            if not problems:
+                return text
+            mine = ("no_citation", "no_fact_value", "empty", "unit_mismatch", "too_long", "prediction", "label_changed")
+            hints = [p for p in problems if p["type"] not in mine]
+            extra = [p["detail"] for p in problems if p["type"] in ("unit_mismatch", "too_long", "prediction", "label_changed")]
+            if any(p["type"] == "no_fact_value" for p in problems):
+                extra.append("근거 카드의 숫자(" + next(p["detail"] for p in problems if p["type"] == "no_fact_value") + ")를 그대로 넣어요")
+            if any(p["type"] == "no_citation" for p in problems):
+                extra.append("숫자를 쓴 문장 끝에 [F1]처럼 카드 번호를 붙여요")
+            ask = user + "\n고칠 점: " + " / ".join(([feedback(hints, facts)] if hints else []) + extra)
+        return text
 
     def _clova_reason(self, system: str, user: str) -> str:
         if not self.s.key_present:
@@ -188,7 +223,8 @@ class Demo:
         return (resp.get("content") or "").strip()
 
     # ── ③ ───────────────────────────────────────────────────────────
-    def run(self, card_id: str) -> dict:
+    def run(self, card_id: str, measures: list[str] | None = None) -> dict:
+        """measures: 사장님이 고른 재발 방지 조치 id. None 이면 카드의 기본값 (불만 카드만 씀)."""
         if self.s.mode == "replay":
             self._state()
             found = self.cache.get("results", {}).get(card_id)
@@ -208,9 +244,11 @@ class Demo:
                                 "키가 있으면 APP_MODE=live 로 생성하세요.", status=404)
         else:
             store, reviews = self._contract_inputs(st)
+            ids = plan.measures.get("default", []) if measures is None else measures
             try:
+                chosen = pick_measures(ids) if card.kind == "complaint" else []
                 result = run_live(card, store=store, reviews=reviews, snapshots=st["snapshots"], key=self.s.clova_key,
-                                  model=self.s.model, ladder=self.s.ladder, cached=cached)
+                                  model=self.s.model, ladder=self.s.ladder, cached=cached, chosen_measures=chosen)
             except GenerateError as exc:
                 raise DemoError(str(exc)) from None
         with self._lock:
@@ -218,6 +256,14 @@ class Demo:
         if self.s.mode == "live":
             self.record()   # live 결과는 바로 발표 모드 저장본에 남긴다
         return summarize(result)
+
+    def _cached_result_for(self, card) -> dict | None:
+        """기존 저장본에서 같은 카드 ID·같은 근거(리뷰·지표 ID)의 결과."""
+        cache = self.cache or {}
+        old = next((c["card"] for c in cache.get("cards", []) if c["card"]["card_id"] == card.card_id), None)
+        if not old or old.get("review_ids", []) != list(card.review_ids) or old.get("snapshot_ids", []) != list(card.snapshot_ids):
+            return None
+        return cache.get("results", {}).get(card.card_id)
 
     @staticmethod
     def _result_key(card) -> str:
@@ -262,7 +308,11 @@ class Demo:
 
     # ── C9 기록 ─────────────────────────────────────────────────────
     def record(self) -> dict:
-        """지금 화면(①~③)을 발표 모드 저장본으로 고정한다. 아직 실행하지 않은 카드는 mock 저장본으로 채운다."""
+        """지금 화면(①~③)을 발표 모드 저장본으로 고정한다.
+
+        아직 이 서버에서 실행하지 않은 카드는 ① 기존 저장본에 같은 카드(같은 근거)의 결과가 있으면 그것을,
+        ② 없으면 mock 저장본(C6 결과)을 쓴다. 서버를 다시 띄워도 live 로 만든 결과를 잃지 않게 하려는 것.
+        """
         if self.s.mode == "replay":
             raise DemoError("발표 모드에서는 저장본을 다시 쓰지 않아요.", 409)
         st = self._state()
@@ -271,6 +321,8 @@ class Demo:
         for plan in plans:
             cid = plan.card.card_id
             result = self._results.get(self._result_key(plan.card))
+            if result is None:
+                result = self._cached_result_for(plan.card)
             if result is None and plan.card.kind in self.seed:
                 result = adapt_seed(self.seed[plan.card.kind], plan.card)
             if result is not None:

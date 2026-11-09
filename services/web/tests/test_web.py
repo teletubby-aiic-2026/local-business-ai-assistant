@@ -2,7 +2,7 @@
 
 실행 (services/web 에서):
   PYTHONPATH=<저장소 루트> MARKETING_DIR=<experiments/marketing> python -m unittest tests.test_web -v
-MARKETING_DIR 가 없으면 C6 저장본이 필요한 시험만 건너뛴다.
+C6 저장본(기본: 저장소의 experiments/marketing)이 없으면 그 저장본이 필요한 시험만 건너뛴다.
 """
 from __future__ import annotations
 
@@ -25,7 +25,8 @@ from web.settings import Settings
 from web.sources import SourceError, to_review_records, to_store_profile
 
 FIX = Path(__file__).resolve().parent / "fixtures"
-MARKETING = Path(os.environ.get("MARKETING_DIR", "")) if os.environ.get("MARKETING_DIR") else None
+# main 에 #16 이 병합된 뒤로는 저장소 안의 experiments/marketing 을 기본으로 쓴다
+MARKETING = Path(os.environ.get("MARKETING_DIR") or Path(__file__).resolve().parents[3] / "experiments" / "marketing")
 HAS_C6 = bool(MARKETING and (MARKETING / "c6" / "replay" / "c6_cache_best.json").exists())
 
 
@@ -135,7 +136,7 @@ class CardRules(unittest.TestCase):
         self.assertTrue(action_flags("환불 처리 완료했습니다."))
         self.assertTrue(action_flags("다음 주문 때 서비스로 음료 드릴게요."))
         for ok in ("불편을 드려 죄송합니다.", "불편을 드렸네요, 죄송해요.", "다음부터는 꼼꼼히 챙겨 드리겠습니다.",
-                   "포장 마감 전 주문서를 한 번 더 확인할게요."):
+                   "포장 마감 전 주문서를 한 번 더 확인할게요.", "공깃밥 추가로 보내드렸어야 했는데 못 챙겼네요."):
             self.assertEqual(action_flags(ok), [], ok)
         r = summarize({"drafts": [{"text": "공깃밥 추가로 보내드렸어요."}, {"text": "죄송합니다."}]})
         self.assertEqual(r["flagged_count"], 1)
@@ -158,13 +159,129 @@ class CardRules(unittest.TestCase):
         self.assertEqual([p.card.kind for p in plan_cards(insight, snapshots(), "store_ongi")], ["promo"])
 
     def test_model_sentence_used_only_when_it_passes(self):
-        good = lambda kind, facts, fixed: "포장 누락이 3건이나 반복됐어요 [F1]" if kind == "complaint" else fixed
+        good = lambda kind, facts, fixed: "포장 누락이 3건, 모두 17~21시에 반복됐어요 [F1]" if kind == "complaint" else fixed
         bad = lambda kind, facts, fixed: "포장 누락이 5건 반복된 건 바쁘기 때문이에요 [F1]"
         plan = plan_cards(fixture("insight_ongi.json"), snapshots(), "store_ongi", writer=good)[0]
-        self.assertEqual(plan.card.reason_text, "포장 누락이 3건이나 반복됐어요")
+        self.assertEqual(plan.card.reason_text, "포장 누락이 3건, 모두 17~21시에 반복됐어요")
         plan = plan_cards(fixture("insight_ongi.json"), snapshots(), "store_ongi", writer=bad)[0]
         self.assertIn("검사 불통과", plan.reason_source)
         self.assertEqual(plan.card.reason_text, "포장 누락 불만이 3건 반복됐고, 모두 17~21시에 들어왔어요")
+
+    def test_generic_sentence_without_fact_value_is_rejected(self):
+        """11/10 live 1차: 검사기는 통과했지만 숫자 없는 일반론. 근거 숫자가 없으면 고정 문장으로."""
+        vague = lambda kind, facts, fixed: "리뷰 문제를 해결하면 고객 만족도가 높아지고 재구매로 이어질 수 있어요[F1]."
+        plan = plan_cards(fixture("insight_ongi.json"), snapshots(), "store_ongi", writer=vague)[0]
+        self.assertIn("검사 불통과", plan.reason_source)
+        self.assertIn("no_fact_value", [p["type"] for p in plan.problems])
+
+    def test_long_or_predicting_reason_is_rejected(self):
+        """11/10 live 8차: 문단 여러 개 + '개선할 수 있습니다'가 검사기를 통과함 → 규칙으로 막음."""
+        from web.cards import reason_problems
+        facts = plan_cards(fixture("insight_ongi.json"), [], "store_ongi")[0].facts
+        good = "포장 누락 불만 리뷰가 3건 있었고, 주로 17~21시에 들어왔어요[F1]. 재발 방지 공지를 올리고 답글도 달아요."
+        self.assertEqual(reason_problems(good, facts), [])
+        long = good + "\n\n" + "같은 불만을 가진 고객들의 마음을 돌리기 위해서는 빠른 대처가 필요합니다. " * 4
+        self.assertIn("too_long", [p["type"] for p in reason_problems(long, facts)])
+        pred = "포장 누락 불만이 3건이에요[F1]. 공지를 올리면 신뢰를 회복할 수 있어요."
+        self.assertIn("prediction", [p["type"] for p in reason_problems(pred, facts)])
+
+    def test_changed_area_or_time_label_is_rejected(self):
+        """11/10 live 9차: '장승배기역 4번 출구 상권', 17~24시 누락 → 표기를 그대로 써야 통과."""
+        from web.cards import reason_problems
+        evening = load_json(AnalysisSnapshot, FIX / "snapshot_pr17_evening.json")
+        facts = plan_cards(fixture("insight_ongi.json"), evening, "store_ongi")[1].facts
+        bad = "장승배기역 4번 출구 상권의 2026년 2분기 저녁 추정 매출은 전년 동기 대비 19.31% 감소했습니다[F2]. 쿠폰 홍보를 제안해요."
+        self.assertIn("label_changed", [p["type"] for p in reason_problems(bad, facts)])
+        good = ("장승배기역 4번 상권의 저녁 시간대(17~24시) 추정 매출은 2026년 2분기에 전년 동기 대비 19.31% 감소했어요[F2]. "
+                "저녁 손님을 다시 부르는 쿠폰 홍보를 제안해요.")
+        self.assertEqual(reason_problems(good, facts), [])
+        same = "포장 누락 불만 리뷰가 3건, 모두 17시부터 21시 사이에 들어왔어요[F1]. 재발 방지 공지를 올려요."
+        facts_a0 = plan_cards(fixture("insight_ongi.json"), [], "store_ongi")[0].facts
+        self.assertEqual(reason_problems(same, facts_a0), [])   # 같은 뜻의 시간 표기는 인정
+        twice = "포장 누락 불만이 3건, 17~21시에 들어왔어요[F1].\n\n같은 말을 한 번 더 해요."
+        facts_a = plan_cards(fixture("insight_ongi.json"), [], "store_ongi")[0].facts
+        self.assertIn("too_long", [p["type"] for p in reason_problems(twice, facts_a)])
+
+    def test_citation_spacing_normalized(self):
+        from web.cards import normalize_citations
+        self.assertEqual(normalize_citations("3건[ F1 ] 있어요 ［F2］"), "3건[F1] 있어요 [F2]")
+        self.assertEqual(normalize_citations("그대로 [F1]"), "그대로 [F1]")
+
+    @unittest.skipUnless(HAS_C6, "C6 저장본 없음")
+    def test_complaint_card_offers_prevention_measures(self):
+        """불만 카드: C6 조치 목록과 기본 선택(포장 누락 → M1 포장 마감 전 주문서 대조)을 화면에 준다."""
+        from web.generate import GenerateError, pick_measures
+        with tempfile.TemporaryDirectory() as tmp:
+            demo = Demo(settings(Path(tmp)), source=FakeSource())
+            card_a = demo.cards()["cards"][0]
+            self.assertEqual(card_a["measures"]["default"], ["M1"])
+            self.assertIn("M1", [o["id"] for o in card_a["measures"]["options"]])
+            client = TestClient(create_app(demo))
+            r = client.post(f"/api/cards/{card_a['card']['card_id']}/run", json={"measures": ["M1", "M3"]})
+            self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([m["id"] for m in pick_measures(["M1"])], ["M1"])
+        with self.assertRaises(GenerateError):
+            pick_measures(["M9"])
+
+    def test_percent_point_is_rejected(self):
+        """변화율(%)을 %p로 쓰면 탈락 (11/10 live 4차)."""
+        from web.cards import reason_problems
+        evening = load_json(AnalysisSnapshot, FIX / "snapshot_pr17_evening.json")
+        facts = plan_cards(fixture("insight_ongi.json"), evening, "store_ongi")[1].facts
+        bad = "장승배기역 4번 상권의 저녁(17~24시) 매출이 2025년 2분기 대비 19.31%p 감소했어요[F2]."
+        self.assertIn("unit_mismatch", [p["type"] for p in reason_problems(bad, facts)])
+        self.assertEqual(reason_problems(bad.replace("%p", "%"), facts), [])
+
+    def test_live_writer_retries_with_feedback(self):
+        """live 이유 문장: 규칙 검사에 걸리면 고칠 점을 붙여 다시 쓴다."""
+        asks = []
+        answers = iter(["재구매로 이어질 수 있어요[F1].", "포장 누락 불만이 3건, 모두 17~21시에 들어왔어요 [F1]\n재발 방지 공지를 올려요."])
+
+        def model(system, user):
+            asks.append(user)
+            return next(answers)
+        with tempfile.TemporaryDirectory() as tmp:
+            demo = Demo(settings(Path(tmp), mode="live"), source=FakeSource(), reason_model=model)
+            text = demo._reason_writer("complaint", plan_cards(fixture("insight_ongi.json"), [], "store_ongi")[0].facts, "x")
+        self.assertIn("3건", text)
+        self.assertEqual(len(asks), 2)
+        self.assertIn("고칠 점", asks[1])
+
+    def test_failed_reason_retried_on_next_request(self):
+        """live: 검사에 걸린 카드만 다음 요청 때 다시 쓰고, 통과한 문장은 그대로 둔다."""
+        calls = []
+
+        def model(system, user):
+            calls.append(user)
+            if len(calls) <= Demo.REASON_TRIES:   # 첫 라운드는 모두 숫자 없는 일반론
+                return "만족도가 높아질 수 있어요[F1]."
+            return "포장 누락 불만이 3건, 모두 17~21시에 들어왔어요 [F1]\n재발 방지 공지를 올려요."
+        with tempfile.TemporaryDirectory() as tmp:
+            demo = Demo(settings(Path(tmp), mode="live", snapshot_path=Path(tmp) / "none.json"),
+                        source=FakeSource(), reason_model=model)
+            first = demo.cards()["cards"][0]
+            self.assertIn("불통과", first["reason_source"])
+            second = demo.cards()["cards"][0]
+            self.assertEqual(second["reason_source"], "HCX-005 (검사기 통과)")
+            self.assertEqual(second["problems"], [])
+            n = len(calls)
+            demo.cards()
+            self.assertEqual(len(calls), n)   # 통과한 뒤에는 다시 부르지 않음
+
+    @unittest.skipUnless(HAS_C6, "C6 저장본 없음")
+    def test_record_keeps_previous_result_for_same_card(self):
+        """서버를 다시 띄운 뒤 저장해도, 같은 카드(같은 근거)의 기존 저장본 결과를 mock 저장본으로 덮지 않는다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            demo = Demo(settings(Path(tmp)), source=FakeSource())
+            demo.record()
+            cache = json.loads((Path(tmp) / "web_cache.json").read_text())
+            cid = cache["cards"][0]["card"]["card_id"]
+            cache["results"][cid]["drafts"][0]["text"] = "live 로 만든 글 (표시)"
+            (Path(tmp) / "web_cache.json").write_text(json.dumps(cache, ensure_ascii=False))
+            again = Demo(settings(Path(tmp)), source=FakeSource())   # 서버를 다시 띄운 것과 같음
+            again.record()
+            kept = json.loads((Path(tmp) / "web_cache.json").read_text())
+            self.assertEqual(kept["results"][cid]["drafts"][0]["text"], "live 로 만든 글 (표시)")
 
     def test_model_failure_falls_back(self):
         def boom(*_):

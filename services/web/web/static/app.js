@@ -90,6 +90,7 @@ function renderCards(data) {
       <div class="reason">${esc(c.reason_text)}</div>
       <div class="ev">${p.evidence.map((e) => `<span title="${esc(e.note || "")}">${e.type === "review" ? "리뷰 " + esc(e.id) + ": “" + esc(e.text) + "”" : esc(e.text) + " · " + esc(shortBasis(e.basis))}</span>`).join("")}</div>
       <div class="small muted">이유 문장: ${esc(p.reason_source)}${(p.problems || []).length ? " · 검사기 지적 " + p.problems.length + "건" : ""}</div>
+      ${measureBox(p)}
       <button type="button" class="primary" data-run="${esc(c.card_id)}">${label}</button>
     </div>`;
   }).join("") || '<p class="muted">오늘은 추천할 카드가 없어요.</p>';
@@ -99,11 +100,24 @@ function renderCards(data) {
   document.querySelectorAll("[data-run]").forEach((b) => b.addEventListener("click", () => runCard(b.dataset.run, b)));
 }
 
+// 불만 카드: 공지에 넣을 재발 방지 조치를 사장님이 고른다 (C6 목록, 고르지 않은 조치는 글에 못 들어감)
+function measureBox(p) {
+  const m = p.measures || {};
+  if (!(m.options || []).length) return "";
+  const replay = state.health && state.health.mode === "replay";
+  const on = new Set(m.default || []);
+  return `<fieldset class="measures"${replay ? " disabled" : ""}><legend class="small">공지에 넣을 재발 방지 조치${replay ? " (발표 모드: 저장된 선택)" : ""}</legend>
+    ${m.options.map((o) => `<label class="small"><input type="checkbox" data-measure="${esc(p.card.card_id)}" value="${esc(o.id)}"${on.has(o.id) ? " checked" : ""}> ${esc(o.text)}</label>`).join("")}
+  </fieldset>`;
+}
+
 // ── ③④ 결과·승인 ─────────────────────────────────────────────────
 async function runCard(cardId, button) {
   button.disabled = true; const old = button.textContent; button.textContent = "만드는 중…";
   try {
-    const result = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST" });
+    const boxes = [...document.querySelectorAll(`[data-measure="${CSS.escape(cardId)}"]`)];
+    const body = boxes.length ? JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) }) : undefined;
+    const result = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body });
     state.results[cardId] = result;
     renderResults();
     $("step3").hidden = false; $("step3").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -139,6 +153,7 @@ function renderResults() {
     return `<div class="result"><div class="group-head">${agent ? `<span class="agent">${esc(agent)}</span>` : ""}<strong>${esc(p.title)}</strong><span class="badge">${esc(src)}</span>
       ${r.flagged_count ? `<span class="badge warn">확인 필요 글 ${r.flagged_count}개</span>` : ""}</div>
       ${r.source_note ? `<p class="small muted">${esc(r.source_note)}</p>` : ""}
+      ${(r.chosen_measures || []).length ? `<p class="small">사장님이 고른 재발 방지 조치: ${r.chosen_measures.map((m) => esc(m.text)).join(", ")}</p>` : ""}
       ${[...(r.drafts || [])].sort(byGen).map(draftBlock).join("")}</div>`;
   });
   $("results").innerHTML = blocks.join("");

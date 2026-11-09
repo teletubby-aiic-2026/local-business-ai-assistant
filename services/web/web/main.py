@@ -32,6 +32,10 @@ class ApproveIn(BaseModel):
     original: str | None = None      # 생성된 원문
 
 
+class RunIn(BaseModel):
+    measures: list[str] | None = None   # 사장님이 고른 재발 방지 조치 id (C6 measures.MEASURES, 예: "M1"). 없으면 기본값
+
+
 class PasteIn(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     rating: int | None = Field(default=None, ge=1, le=5)
@@ -60,8 +64,8 @@ def create_app(demo: Demo | None = None) -> FastAPI:
         return demo.cards()
 
     @app.post("/api/cards/{card_id}/run")
-    def run(card_id: str):
-        return demo.run(card_id)
+    def run(card_id: str, body: RunIn | None = None):
+        return demo.run(card_id, measures=body.measures if body else None)
 
     @app.post("/api/drafts/{draft_id}/approve")
     def approve(draft_id: str, body: ApproveIn):

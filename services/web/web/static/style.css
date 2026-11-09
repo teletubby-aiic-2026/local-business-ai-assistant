@@ -86,3 +86,5 @@ button.ghost { background: transparent; }
 .agent { display: inline-block; font-size: .75rem; font-weight: 600; padding: 1px 8px; margin-right: 6px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent); vertical-align: middle; }
 .agents { margin: 6px 0 14px; }
 .foot { max-width: 1080px; margin: 0 auto; padding: 0 16px 32px; display: flex; gap: 10px; align-items: center; }
+.measures { border: 1px solid var(--line, #ddd); border-radius: 8px; padding: 6px 10px; margin: 8px 0; }
+.measures label { display: block; margin: 2px 0; }
