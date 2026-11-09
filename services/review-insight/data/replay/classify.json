@@ -1,0 +1,470 @@
+{
+ "0677e5d07e89d2aabbf1": {
+  "sentiment": "positive",
+  "summary": "손님 많아도 음식 빨리 나옴",
+  "topics": [
+   {
+    "evidence": "점심 손님이 많아도 금방 나와요",
+    "polarity": "positive",
+    "topic": "wait_time"
+   }
+  ]
+ },
+ "0a4742fb71b7c3e1a3e0": {
+  "sentiment": "positive",
+  "summary": "친절한 직원과 빠른 음식 제공.",
+  "topics": [
+   {
+    "evidence": "직원분들이 친절",
+    "polarity": "positive",
+    "topic": "service"
+   },
+   {
+    "evidence": "음식이 빨리 나와요",
+    "polarity": "positive",
+    "topic": "wait_time"
+   }
+  ]
+ },
+ "0a76d2d31bdadaab3535": {
+  "sentiment": "neutral",
+  "summary": "보통의 맛.",
+  "topics": []
+ },
+ "0de91e06a1578359abf7": {
+  "sentiment": "positive",
+  "summary": "제육볶음 맛있음",
+  "topics": [
+   {
+    "evidence": "제육볶음이 불맛 나고 정말 맛있어요!",
+    "polarity": "positive",
+    "topic": "taste"
+   }
+  ]
+ },
+ "142c5c226a347a4039e6": {
+  "sentiment": "negative",
+  "summary": "메뉴 가격 상승으로 인한 부담",
+  "topics": [
+   {
+    "evidence": "메뉴 가격이 많이 올라서 부담돼요",
+    "polarity": "negative",
+    "topic": "price"
+   }
+  ]
+ },
+ "145335c9dab6d49f75a2": {
+  "sentiment": "positive",
+  "summary": "가성비 좋은 한식집",
+  "topics": [
+   {
+    "evidence": "가성비 좋은",
+    "polarity": "positive",
+    "topic": "price"
+   }
+  ]
+ },
+ "209648c74cbd8df13342": {
+  "sentiment": "positive",
+  "summary": "밥 양이 많아 든든함",
+  "topics": [
+   {
+    "evidence": "밥 양이 넉넉해서 든든해요",
+    "polarity": "positive",
+    "topic": "portion"
+   }
+  ]
+ },
+ "2b566cca5ff4a4044030": {
+  "sentiment": "positive",
+  "summary": "김치찌개 맛집",
+  "topics": [
+   {
+    "evidence": "김치찌개 맛집 인정합니다",
+    "polarity": "positive",
+    "topic": "taste"
+   }
+  ]
+ },
+ "2c65897f42c1af7a5b91": {
+  "sentiment": "negative",
+  "summary": "계란말이 누락됨",
+  "topics": [
+   {
+    "evidence": "계란말이를 같이 시켰는데 누락됐어요",
+    "polarity": "negative",
+    "topic": "missing_item"
+   }
+  ]
+ },
+ "2e39889b9dc0d3b0ef1b": {
+  "sentiment": "negative",
+  "summary": "전화 응대 불친절",
+  "topics": [
+   {
+    "evidence": "전화로 문의했는데 응대가 퉁명스러웠어요",
+    "polarity": "negative",
+    "topic": "service"
+   }
+  ]
+ },
+ "30e773b8f47d785632c2": {
+  "sentiment": "negative",
+  "summary": "순두부찌개 미지근함",
+  "topics": [
+   {
+    "evidence": "순두부찌개가 미지근하게 왔어요",
+    "polarity": "negative",
+    "topic": "temperature"
+   }
+  ]
+ },
+ "376f8dd617ab0b27be2e": {
+  "sentiment": "positive",
+  "summary": "양 많고 맛도 좋아요",
+  "topics": [
+   {
+    "evidence": "맛도 좋아요",
+    "polarity": "positive",
+    "topic": "taste"
+   },
+   {
+    "evidence": "양도 넉넉하고",
+    "polarity": "positive",
+    "topic": "portion"
+   }
+  ]
+ },
+ "37a79614ed313dcbc735": {
+  "sentiment": "positive",
+  "summary": "반찬이 매일 바뀌어 좋아요",
+  "topics": [
+   {
+    "evidence": "반찬이 매일 바뀌어서 좋아요",
+    "polarity": "positive",
+    "topic": "menu"
+   }
+  ]
+ },
+ "3f985d319758974a6045": {
+  "sentiment": "positive",
+  "summary": "배달 빠르고 음식 따뜻",
+  "topics": [
+   {
+    "evidence": "점심에 시켰는데 20분 만에 왔어요.",
+    "polarity": "positive",
+    "topic": "delivery_time"
+   },
+   {
+    "evidence": "빠르고 따뜻했어요",
+    "polarity": "positive",
+    "topic": "temperature"
+   }
+  ]
+ },
+ "42267a704ba0d230777f": {
+  "sentiment": "positive",
+  "summary": "계란말이 폭신하고 맛있음",
+  "topics": [
+   {
+    "evidence": "계란말이가 폭신하고 맛있어요",
+    "polarity": "positive",
+    "topic": "taste"
+   }
+  ]
+ },
+ "4417f5f7285db407c95d": {
+  "sentiment": "negative",
+  "summary": "배달 시간 초과",
+  "topics": [
+   {
+    "evidence": "배달이 예상 시간보다 40분 늦었어요",
+    "polarity": "negative",
+    "topic": "delivery_time"
+   }
+  ]
+ },
+ "4663034077a0236ffefe": {
+  "sentiment": "negative",
+  "summary": "밥이 질음",
+  "topics": [
+   {
+    "evidence": "밥이 너무 질었어요",
+    "polarity": "negative",
+    "topic": "texture"
+   }
+  ]
+ },
+ "4cc7658e3c8d669b324f": {
+  "sentiment": "positive",
+  "summary": "요청 사항 잘 들어줌",
+  "topics": [
+   {
+    "evidence": "주문 요청 사항을 잘 들어주셔서 감사해요",
+    "polarity": "positive",
+    "topic": "service"
+   }
+  ]
+ },
+ "5e23621785e24c758c4f": {
+  "sentiment": "positive",
+  "summary": "점심 정식 구성, 맛 모두 좋아요",
+  "topics": [
+   {
+    "evidence": "맛있어요",
+    "polarity": "positive",
+    "topic": "taste"
+   },
+   {
+    "evidence": "점심 정식 구성이 알차고",
+    "polarity": "positive",
+    "topic": "menu"
+   }
+  ]
+ },
+ "64136c0b8134c75fc299": {
+  "sentiment": "positive",
+  "summary": "혼밥하기 편하며 음식도 맛있음",
+  "topics": [
+   {
+    "evidence": "음식도 맛있어요",
+    "polarity": "positive",
+    "topic": "taste"
+   },
+   {
+    "evidence": "혼밥하기 편하고",
+    "polarity": "positive",
+    "topic": "atmosphere"
+   }
+  ]
+ },
+ "6a3ca1962ee7c163ff02": {
+  "sentiment": "positive",
+  "summary": "국물 진하고 뜨끈함",
+  "topics": [
+   {
+    "evidence": "국물이 진하고",
+    "polarity": "positive",
+    "topic": "taste"
+   },
+   {
+    "evidence": "뜨끈해서 좋았어요",
+    "polarity": "positive",
+    "topic": "temperature"
+   }
+  ]
+ },
+ "6f20ba3981e0349880ae": {
+  "sentiment": "negative",
+  "summary": "수저, 젓가락 누락",
+  "topics": [
+   {
+    "evidence": "수저랑 젓가락이 빠져 있었어요",
+    "polarity": "negative",
+    "topic": "missing_item"
+   }
+  ]
+ },
+ "6f95a786e2a3bb5d406e": {
+  "sentiment": "positive",
+  "summary": "친절한 사장님",
+  "topics": [
+   {
+    "evidence": "사장님이 정말 친절하세요.",
+    "polarity": "positive",
+    "topic": "service"
+   }
+  ]
+ },
+ "86936766c78bbee0fe70": {
+  "sentiment": "positive",
+  "summary": "불고기 덮밥이 맛있어요.",
+  "topics": [
+   {
+    "evidence": "불고기 덮밥 달달하니 맛있어요.",
+    "polarity": "positive",
+    "topic": "taste"
+   }
+  ]
+ },
+ "89ece12723e55b696b44": {
+  "sentiment": "negative",
+  "summary": "반찬 그릇에 이물질 있음",
+  "topics": [
+   {
+    "evidence": "반찬 그릇에 머리카락이 있었어요",
+    "polarity": "negative",
+    "topic": "hygiene"
+   }
+  ]
+ },
+ "9be5856dac91f2a8a40e": {
+  "sentiment": "negative",
+  "summary": "고기 양과 맛이 줄어듦",
+  "topics": [
+   {
+    "evidence": "고기 양이 줄었고",
+    "polarity": "negative",
+    "topic": "portion"
+   },
+   {
+    "evidence": "맛도 예전 같지 않아요",
+    "polarity": "negative",
+    "topic": "taste"
+   }
+  ]
+ },
+ "a0d1c12714869c5589c4": {
+  "sentiment": "positive",
+  "summary": "매장 분위기와 음식 모두 깔끔하고 정갈함",
+  "topics": [
+   {
+    "evidence": "매장 분위기도 깔끔하고 음식도 정갈해요",
+    "polarity": "positive",
+    "topic": "atmosphere"
+   },
+   {
+    "evidence": "매장 분위기도 깔끔하고 음식도 정갈해요",
+    "polarity": "positive",
+    "topic": "hygiene"
+   }
+  ]
+ },
+ "bcdfba3fedcc1c565906": {
+  "sentiment": "neutral",
+  "summary": "무난함",
+  "topics": []
+ },
+ "c030427545bd1b010918": {
+  "sentiment": "positive",
+  "summary": "된장찌개 집밥 같음",
+  "topics": [
+   {
+    "evidence": "된장찌개가 집밥 같아요.",
+    "polarity": "positive",
+    "topic": "taste"
+   }
+  ]
+ },
+ "c7673775eb86557a6198": {
+  "sentiment": "positive",
+  "summary": "포장이 깔끔하게 와 좋음",
+  "topics": [
+   {
+    "evidence": "포장이 깔끔하게 와서 좋았어요",
+    "polarity": "positive",
+    "topic": "packaging"
+   }
+  ]
+ },
+ "cc2104ad6a6d2707b42f": {
+  "sentiment": "negative",
+  "summary": "양과 간 부족",
+  "topics": [
+   {
+    "evidence": "양도 적고 간도 너무 싱거웠어요",
+    "polarity": "negative",
+    "topic": "taste"
+   }
+  ]
+ },
+ "d2bb702402a1f035b53a": {
+  "sentiment": "negative",
+  "summary": "배달 시간 초과",
+  "topics": [
+   {
+    "evidence": "저녁 7시에 시켰는데 1시간 넘게 걸려서 왔어요",
+    "polarity": "negative",
+    "topic": "delivery_time"
+   }
+  ]
+ },
+ "dae105912842d9dbdafd": {
+  "sentiment": "positive",
+  "summary": "순두부찌개가 얼큰하고 맛있음",
+  "topics": [
+   {
+    "evidence": "순두부찌개 얼큰하고 맛있어요",
+    "polarity": "positive",
+    "topic": "taste"
+   }
+  ]
+ },
+ "e299ef98f2ba8ee7ac22": {
+  "sentiment": "positive",
+  "summary": "가격 대비 구성이 좋음",
+  "topics": [
+   {
+    "evidence": "가격 대비 구성이 좋아요",
+    "polarity": "positive",
+    "topic": "price"
+   }
+  ]
+ },
+ "e465006d8e58f77bc26d": {
+  "sentiment": "negative",
+  "summary": "공깃밥 누락",
+  "topics": [
+   {
+    "evidence": "공깃밥 추가했는데 안 들어 있었어요",
+    "polarity": "negative",
+    "topic": "missing_item"
+   }
+  ]
+ },
+ "e660e6c015f31930c3db": {
+  "sentiment": "positive",
+  "summary": "포장이 꼼꼼하여 국물이 새지 않음",
+  "topics": [
+   {
+    "evidence": "포장이 꼼꼼해서 국물 하나 안 샜어요",
+    "polarity": "positive",
+    "topic": "packaging"
+   }
+  ]
+ },
+ "ecd5f8ac13bbd29cea0a": {
+  "sentiment": "positive",
+  "summary": "친절한 사장님의 서비스.",
+  "topics": [
+   {
+    "evidence": "사장님이 반찬을 더 챙겨 주셨어요.",
+    "polarity": "positive",
+    "topic": "service"
+   }
+  ]
+ },
+ "f05446ccc84753084be1": {
+  "sentiment": "positive",
+  "summary": "아이도 잘 먹는 제육.",
+  "topics": [
+   {
+    "evidence": "제육이 맵지 않고 달달해서 아이도 잘 먹어요",
+    "polarity": "positive",
+    "topic": "taste"
+   }
+  ]
+ },
+ "f35fe7cf3083aeaa728f": {
+  "sentiment": "positive",
+  "summary": "배달 빠른 음식점",
+  "topics": [
+   {
+    "evidence": "배달이 빨라서 좋았어요",
+    "polarity": "positive",
+    "topic": "delivery_time"
+   }
+  ]
+ },
+ "f73acef28b4ef6b38b8f": {
+  "sentiment": "positive",
+  "summary": "항상 맛있는 음식.",
+  "topics": [
+   {
+    "evidence": "항상 맛있어요",
+    "polarity": "positive",
+    "topic": "taste"
+   }
+  ]
+ }
+}

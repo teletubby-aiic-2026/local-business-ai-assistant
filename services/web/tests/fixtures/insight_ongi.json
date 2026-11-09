@@ -1,0 +1,1029 @@
+{
+ "store_id": "store_ongi",
+ "period_start": "2026-10-12",
+ "period_end": "2026-11-08",
+ "review_count": 40,
+ "complaint_count": 12,
+ "sentiment_counts": {
+  "negative": 12,
+  "positive": 26,
+  "neutral": 2
+ },
+ "topic_counts": {
+  "missing_item": {
+   "positive": 0,
+   "negative": 3
+  },
+  "delivery_time": {
+   "positive": 2,
+   "negative": 2
+  },
+  "portion": {
+   "positive": 2,
+   "negative": 2
+  },
+  "taste": {
+   "positive": 13,
+   "negative": 2
+  },
+  "hygiene": {
+   "positive": 1,
+   "negative": 1
+  },
+  "service": {
+   "positive": 4,
+   "negative": 1
+  },
+  "temperature": {
+   "positive": 2,
+   "negative": 1
+  },
+  "price": {
+   "positive": 2,
+   "negative": 1
+  },
+  "texture": {
+   "positive": 1,
+   "negative": 1
+  },
+  "menu": {
+   "positive": 3,
+   "negative": 0
+  },
+  "wait_time": {
+   "positive": 2,
+   "negative": 0
+  },
+  "atmosphere": {
+   "positive": 2,
+   "negative": 0
+  },
+  "packaging": {
+   "positive": 2,
+   "negative": 0
+  }
+ },
+ "group_count": 3,
+ "single_complaint_count": 5,
+ "top_issue_id": "iss_missing_item",
+ "groups": [
+  {
+   "issue_id": "iss_missing_item",
+   "topics": [
+    "missing_item"
+   ],
+   "topic": "missing_item",
+   "topic_name": "포장 누락",
+   "review_count": 3,
+   "is_repeated": true,
+   "review_ids": [
+    "rv_ongi_001",
+    "rv_ongi_002",
+    "rv_ongi_003"
+   ],
+   "evidence": [
+    {
+     "review_id": "rv_ongi_001",
+     "quote": "안 들어 있었어요"
+    },
+    {
+     "review_id": "rv_ongi_002",
+     "quote": "수저랑 젓가락이 빠져 있었어요"
+    },
+    {
+     "review_id": "rv_ongi_003",
+     "quote": "누락됐어요"
+    }
+   ],
+   "time_bands": {
+    "00~06시": 0,
+    "06~11시": 0,
+    "11~14시": 0,
+    "14~17시": 0,
+    "17~21시": 3,
+    "21~24시": 0
+   },
+   "main_time_band": "17~21시",
+   "channels": {
+    "baemin": 1,
+    "coupangeats": 1,
+    "yogiyo": 1
+   },
+   "recent_count": 3,
+   "previous_count": 0,
+   "first_at": "2026-10-27T19:30:00+09:00",
+   "last_at": "2026-11-06T19:50:00+09:00"
+  },
+  {
+   "issue_id": "iss_portion_taste",
+   "topics": [
+    "portion",
+    "taste"
+   ],
+   "topic": "portion",
+   "topic_name": "양·맛",
+   "review_count": 2,
+   "is_repeated": false,
+   "review_ids": [
+    "rv_ongi_006",
+    "rv_ongi_007"
+   ],
+   "evidence": [
+    {
+     "review_id": "rv_ongi_006",
+     "quote": "양도 적고 간도 너무 싱거웠어요"
+    },
+    {
+     "review_id": "rv_ongi_007",
+     "quote": "고기 양이 줄었고 맛도 예전 같지 않아요"
+    }
+   ],
+   "time_bands": {
+    "00~06시": 0,
+    "06~11시": 0,
+    "11~14시": 0,
+    "14~17시": 0,
+    "17~21시": 2,
+    "21~24시": 0
+   },
+   "main_time_band": "17~21시",
+   "channels": {
+    "yogiyo": 1,
+    "baemin": 1
+   },
+   "recent_count": 2,
+   "previous_count": 0,
+   "first_at": "2026-10-30T18:50:00+09:00",
+   "last_at": "2026-11-05T19:10:00+09:00"
+  },
+  {
+   "issue_id": "iss_delivery_time",
+   "topics": [
+    "delivery_time"
+   ],
+   "topic": "delivery_time",
+   "topic_name": "배달 시간",
+   "review_count": 2,
+   "is_repeated": false,
+   "review_ids": [
+    "rv_ongi_004",
+    "rv_ongi_005"
+   ],
+   "evidence": [
+    {
+     "review_id": "rv_ongi_004",
+     "quote": "1시간 넘게 걸려서 왔어요"
+    },
+    {
+     "review_id": "rv_ongi_005",
+     "quote": "배달이 예상 시간보다 40분 늦었어요"
+    }
+   ],
+   "time_bands": {
+    "00~06시": 0,
+    "06~11시": 0,
+    "11~14시": 0,
+    "14~17시": 0,
+    "17~21시": 2,
+    "21~24시": 0
+   },
+   "main_time_band": "17~21시",
+   "channels": {
+    "baemin": 1,
+    "coupangeats": 1
+   },
+   "recent_count": 2,
+   "previous_count": 0,
+   "first_at": "2026-11-01T19:40:00+09:00",
+   "last_at": "2026-11-07T20:20:00+09:00"
+  }
+ ],
+ "repeated_issues": [
+  {
+   "issue_id": "iss_missing_item",
+   "topics": [
+    "missing_item"
+   ],
+   "topic": "missing_item",
+   "topic_name": "포장 누락",
+   "review_count": 3,
+   "is_repeated": true,
+   "review_ids": [
+    "rv_ongi_001",
+    "rv_ongi_002",
+    "rv_ongi_003"
+   ],
+   "evidence": [
+    {
+     "review_id": "rv_ongi_001",
+     "quote": "안 들어 있었어요"
+    },
+    {
+     "review_id": "rv_ongi_002",
+     "quote": "수저랑 젓가락이 빠져 있었어요"
+    },
+    {
+     "review_id": "rv_ongi_003",
+     "quote": "누락됐어요"
+    }
+   ],
+   "time_bands": {
+    "00~06시": 0,
+    "06~11시": 0,
+    "11~14시": 0,
+    "14~17시": 0,
+    "17~21시": 3,
+    "21~24시": 0
+   },
+   "main_time_band": "17~21시",
+   "channels": {
+    "baemin": 1,
+    "coupangeats": 1,
+    "yogiyo": 1
+   },
+   "recent_count": 3,
+   "previous_count": 0,
+   "first_at": "2026-10-27T19:30:00+09:00",
+   "last_at": "2026-11-06T19:50:00+09:00"
+  }
+ ],
+ "single_complaints": [
+  {
+   "review_id": "rv_ongi_008",
+   "topics": [
+    "hygiene"
+   ],
+   "topic_names": [
+    "위생"
+   ],
+   "quote": "반찬 그릇에 머리카락이 있었어요",
+   "created_at": "2026-10-21T12:40:00+09:00",
+   "channel": "naver_place"
+  },
+  {
+   "review_id": "rv_ongi_009",
+   "topics": [
+    "service"
+   ],
+   "topic_names": [
+    "응대"
+   ],
+   "quote": "응대가 퉁명스러웠어요",
+   "created_at": "2026-10-24T19:20:00+09:00",
+   "channel": "baemin"
+  },
+  {
+   "review_id": "rv_ongi_010",
+   "topics": [
+    "temperature"
+   ],
+   "topic_names": [
+    "음식 온도"
+   ],
+   "quote": "순두부찌개가 미지근하게 왔어요",
+   "created_at": "2026-10-29T20:00:00+09:00",
+   "channel": "coupangeats"
+  },
+  {
+   "review_id": "rv_ongi_011",
+   "topics": [
+    "price"
+   ],
+   "topic_names": [
+    "가격"
+   ],
+   "quote": "메뉴 가격이 많이 올라서 부담돼요",
+   "created_at": "2026-11-02T18:40:00+09:00",
+   "channel": "yogiyo"
+  },
+  {
+   "review_id": "rv_ongi_012",
+   "topics": [
+    "texture"
+   ],
+   "topic_names": [
+    "식감"
+   ],
+   "quote": "밥이 너무 질었어요",
+   "created_at": "2026-11-08T19:00:00+09:00",
+   "channel": "baemin"
+  }
+ ],
+ "classifications": [
+  {
+   "review_id": "rv_ongi_001",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "missing_item",
+     "polarity": "negative",
+     "evidence": "안 들어 있었어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "missing_item"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_002",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "missing_item",
+     "polarity": "negative",
+     "evidence": "수저랑 젓가락이 빠져 있었어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "missing_item"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_003",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "missing_item",
+     "polarity": "negative",
+     "evidence": "누락됐어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "missing_item"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_004",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "delivery_time",
+     "polarity": "negative",
+     "evidence": "1시간 넘게 걸려서 왔어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "delivery_time"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_005",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "delivery_time",
+     "polarity": "negative",
+     "evidence": "배달이 예상 시간보다 40분 늦었어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "delivery_time"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_006",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "negative",
+     "evidence": "양도 적고 간도 너무 싱거웠어요"
+    },
+    {
+     "topic": "portion",
+     "polarity": "negative",
+     "evidence": "양도 적고 간도 너무 싱거웠어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "portion",
+    "taste"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_007",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "negative",
+     "evidence": "고기 양이 줄었고 맛도 예전 같지 않아요"
+    },
+    {
+     "topic": "portion",
+     "polarity": "negative",
+     "evidence": "고기 양이 줄었고 맛도 예전 같지 않아요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "portion",
+    "taste"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_008",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "hygiene",
+     "polarity": "negative",
+     "evidence": "반찬 그릇에 머리카락이 있었어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "hygiene"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_009",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "service",
+     "polarity": "negative",
+     "evidence": "응대가 퉁명스러웠어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "service"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_010",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "temperature",
+     "polarity": "negative",
+     "evidence": "순두부찌개가 미지근하게 왔어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "temperature"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_011",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "price",
+     "polarity": "negative",
+     "evidence": "메뉴 가격이 많이 올라서 부담돼요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "price"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_012",
+   "sentiment": "negative",
+   "topics": [
+    {
+     "topic": "texture",
+     "polarity": "negative",
+     "evidence": "밥이 너무 질었어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": [
+    "texture"
+   ]
+  },
+  {
+   "review_id": "rv_ongi_013",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "제육볶음이 불맛 나고 정말 맛있어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_014",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "delivery_time",
+     "polarity": "positive",
+     "evidence": "20분 만에 왔어요"
+    },
+    {
+     "topic": "temperature",
+     "polarity": "positive",
+     "evidence": "빠르고 따뜻했어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_015",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "계란말이가 폭신하고 맛있어요"
+    },
+    {
+     "topic": "texture",
+     "polarity": "positive",
+     "evidence": "계란말이가 폭신하고 맛있어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_016",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "service",
+     "polarity": "positive",
+     "evidence": "사장님이 정말 친절하세요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_017",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "된장찌개가 집밥 같아요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_018",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "국물이 진하고 뜨끈해서 좋았어요"
+    },
+    {
+     "topic": "temperature",
+     "polarity": "positive",
+     "evidence": "국물이 진하고 뜨끈해서 좋았어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_019",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "price",
+     "polarity": "positive",
+     "evidence": "가성비 좋은 한식집이에요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_020",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "delivery_time",
+     "polarity": "positive",
+     "evidence": "배달이 빨라서 좋았어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_021",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "점심 정식 구성이 알차고 맛있어요"
+    },
+    {
+     "topic": "menu",
+     "polarity": "positive",
+     "evidence": "점심 정식 구성이 알차고 맛있어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_022",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "김치찌개 맛집 인정합니다"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_023",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "wait_time",
+     "polarity": "positive",
+     "evidence": "점심 손님이 많아도 금방 나와요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_024",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "양도 넉넉하고 맛도 좋아요"
+    },
+    {
+     "topic": "portion",
+     "polarity": "positive",
+     "evidence": "양도 넉넉하고 맛도 좋아요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_025",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "portion",
+     "polarity": "positive",
+     "evidence": "밥 양이 넉넉해서 든든해요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_026",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "service",
+     "polarity": "positive",
+     "evidence": "주문 요청 사항을 잘 들어주셔서 감사해요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_027",
+   "sentiment": "neutral",
+   "topics": [],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_028",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "매장 분위기도 깔끔하고 음식도 정갈해요"
+    },
+    {
+     "topic": "hygiene",
+     "polarity": "positive",
+     "evidence": "매장 분위기도 깔끔하고 음식도 정갈해요"
+    },
+    {
+     "topic": "atmosphere",
+     "polarity": "positive",
+     "evidence": "매장 분위기도 깔끔하고 음식도 정갈해요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_029",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "price",
+     "polarity": "positive",
+     "evidence": "가격 대비 구성이 좋아요"
+    },
+    {
+     "topic": "menu",
+     "polarity": "positive",
+     "evidence": "가격 대비 구성이 좋아요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_030",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "packaging",
+     "polarity": "positive",
+     "evidence": "포장이 꼼꼼해서 국물 하나 안 샜어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_031",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "불고기 덮밥 달달하니 맛있어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_032",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "항상 맛있어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_033",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "service",
+     "polarity": "positive",
+     "evidence": "사장님이 반찬을 더 챙겨 주셨어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_034",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "제육이 맵지 않고 달달해서 아이도 잘 먹어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_035",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "service",
+     "polarity": "positive",
+     "evidence": "직원분들이 친절하고 음식이 빨리 나와요"
+    },
+    {
+     "topic": "wait_time",
+     "polarity": "positive",
+     "evidence": "직원분들이 친절하고 음식이 빨리 나와요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_036",
+   "sentiment": "neutral",
+   "topics": [],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_037",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "menu",
+     "polarity": "positive",
+     "evidence": "반찬이 매일 바뀌어서 좋아요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_038",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "packaging",
+     "polarity": "positive",
+     "evidence": "포장이 깔끔하게 와서 좋았어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_039",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "순두부찌개 얼큰하고 맛있어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  },
+  {
+   "review_id": "rv_ongi_040",
+   "sentiment": "positive",
+   "topics": [
+    {
+     "topic": "taste",
+     "polarity": "positive",
+     "evidence": "혼밥하기 편하고 음식도 맛있어요"
+    },
+    {
+     "topic": "atmosphere",
+     "polarity": "positive",
+     "evidence": "혼밥하기 편하고 음식도 맛있어요"
+    }
+   ],
+   "summary": null,
+   "method": "rule",
+   "model": "kiwi",
+   "warnings": [],
+   "negative_topics": []
+  }
+ ],
+ "data_origin": "synthetic"
+}

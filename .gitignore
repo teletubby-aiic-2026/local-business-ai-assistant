@@ -1,0 +1,18 @@
+# 비밀: 키·토큰은 저장소 밖 ~/.config/teletubby-aiic/env 에만 둡니다. 저장소 안의 .env 는 올리지 않습니다.
+.env
+.env.*
+!.env.example
+
+# 실행 중에 생기는 것
+**/data/runtime/
+**/data/team/
+*.log
+
+# macOS
+.DS_Store
+
+# 파이썬
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
