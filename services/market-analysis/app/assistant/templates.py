@@ -81,11 +81,18 @@ def focus_line(card: dict, question: str) -> str | None:
     if not pairs or not text:
         return None
     values = {v.get("label"): v for v in card.get("values", []) if type(v.get("value")) is int}
-    segments, seen = [], set()
+    segments, seen, singles, parts = [], set(), [], {}
     for word, labels in pairs:
         if word not in text or labels in seen or not all(label in values for label in labels):
             continue
         seen.add(labels)
+        if f"{word} 합계" in values and f"{word} 하루 평균" in values:
+            # '평일은?': the five days together and per day, not one day picked out.
+            total, daily = values[f"{word} 합계"]["value"], values[f"{word} 하루 평균"]["value"]
+            days = "월~금" if word == "평일" else "토·일"
+            segments.append(f"{word}({days}){josa(word, '은')[len(word):]} 합계 {total:,}원, 하루 평균 {daily:,}원")
+            parts[word] = daily
+            continue
 
         def amount(label):
             share = values[label].get("share_percent")
@@ -99,9 +106,17 @@ def focus_line(card: dict, question: str) -> str | None:
         else:
             # The particle follows the word, not the bracket: 점심(11~14시)은.
             segments.append(f"{word}({labels[0]}){josa(word, '은')[len(word):]} {amount(labels[0])}")
+            singles.append((f"{word}({labels[0]})", word, values[labels[0]]["value"]))
     if not segments:
         return None
-    return "이고, ".join(segments) + f"이에요. [{card['id']}]"
+    line = "이고, ".join(segments) + f"이에요. [{card['id']}]"
+    if len(parts) == 2 and parts["주말"] != parts["평일"]:
+        bigger, smaller = ("주말", "평일") if parts["주말"] > parts["평일"] else ("평일", "주말")
+        line = f"하루 평균으로는 {josa(bigger, '이')} {smaller}보다 매출이 커요. [{card['id']}]\n" + line
+    if len(singles) == 2 and len(segments) == 2 and singles[0][2] != singles[1][2]:
+        (big, big_word, _), (small, _, _) = sorted(singles, key=lambda item: -item[2])
+        line = f"{big}{josa(big_word, '이')[len(big_word):]} {small}보다 매출이 커요. [{card['id']}]\n" + line
+    return line
 
 
 def data_answer(cards: list[dict], classification: dict, *, show_conditions: bool = True,
@@ -118,8 +133,11 @@ def data_answer(cards: list[dict], classification: dict, *, show_conditions: boo
             continue
         focus = focus_line(card, classification.get("text") or "")
         if focus:
-            lines.append(focus)  # the values the question named come first
-        lines.append(f"{soften(card['text'])} [{card['id']}]")
+            # The values the question named come first, with the market when several are shown.
+            lines.append("\n".join(f"{card['market']} 상권에서 {line}" for line in focus.split("\n"))
+                         if card.get("market") else focus)
+        # 'speech': a short spoken form for cards whose full text is written for the model.
+        lines.append(f"{soften(card.get('speech') or card['text'])} [{card['id']}]")
         cited.append(card["id"])
     extra, notes, suggestions = answer_extras(cards, classification)
     lines.extend(extra)
@@ -129,8 +147,18 @@ def data_answer(cards: list[dict], classification: dict, *, show_conditions: boo
 _MISSING_NOTE = re.compile(r"없습니다|없어요|없어서|알 수 없|제공되지|포함되어 있지|드릴 수 없|죄송")
 
 
+INSIGHT_MARK = "해석:"
+_VERDICT = re.compile(r"고르겠|고를 것|나아 보|낫다고|나을 것|유리해 보|추천|택하겠|선택하겠|해볼 만|신중")
+# A verdict inside a data answer ('연남동보다 강남역이 나아요', 2026-11-08 server test) rests on no criteria.
+_DATA_VERDICT = re.compile(r"나아요|나아 보|낫다|낫습|나은 편|더 나은|고르겠|유리해|유리할|장사가 ?(?:더 )?잘|추천")
+MAX_INSIGHT_CHARS = 80
+_ABOUT = re.compile(r"약\s*(?=[+-]?\d)")
+# A closing question the model may add without a card: short, no numbers ('주말 매출도 같이 볼까요?').
+_FOLLOW_UP = re.compile(r"[^\n]{4,60}[?？]")
+
+
 def model_body(text: str, cards: list[dict], *, show_conditions: bool = True, drop_missing_notes: bool = False,
-               changed: bool = False) -> str:
+               changed: bool = False, opinion: bool = False) -> str:
     """A model answer without the lines the server writes, the server's conditions line first.
 
     Returns "" when nothing of the model's own text is left. "참고" lines are
@@ -140,10 +168,12 @@ def model_body(text: str, cards: list[dict], *, show_conditions: bool = True, dr
     card supports the analysis conditions, not claims such as '주말이 더 잘 돼요 [F1]'.
     """
     conditions = next((card for card in cards if card["topic"] == "conditions"), None)
-    lines, insights = [], 0
+    lines, insights, follow_up = [], 0, None
     # '[F1,F3,F4]' or '[F1, F3]' -> '[F1][F3][F4]', the one form answer_check reads as citations.
     text = re.sub(r"\[\s*(F\d+(?:\s*,\s*F\d+)+)\s*\]",
                   lambda m: "".join(f"[{part.strip()}]" for part in m.group(1).split(",")), text or "")
+    text = re.sub(r"\((F\d+)\)", r"[\1]", text)  # '976,474,889원(F2)' -> '976,474,889원[F2]'
+    text = re.sub(r"(?<![\[\w])(F\d+)(?![\]\w])", r"[\1]", text)  # a bare 'F2' at the end of a line
     for line in text.replace("\r", "").replace("**", "").splitlines():
         line = line.strip().lstrip("#").lstrip("-•").strip()
         if not line or line.replace(" ", "").startswith(("참고:", "다음으로")):
@@ -159,13 +189,26 @@ def model_body(text: str, cards: list[dict], *, show_conditions: bool = True, dr
             line = "해석: " + line
         if is_insight(line):
             insights += 1
-            if insights > 2:
+            # One short interpretation; the long advice paragraphs HCX-005 wrote there said nothing from the data.
+            if insights > 1 or len(line) > MAX_INSIGHT_CHARS:
                 continue
+        elif not opinion and _DATA_VERDICT.search(line):
+            continue
+        elif not cited and _FOLLOW_UP.fullmatch(line) and not re.search(r"\d", line) and not follow_up:
+            follow_up = line  # '주말 매출도 같이 볼까요?': kept, and kept last
+            continue
+        elif not cited and not (opinion and _VERDICT.search(line)):
+            # A line that cites no card rests on nothing the server gave: '개성 있는 가게들이 많아 매력적인 곳이죠'
+            # (2026-11-08 server test). Only an opinion's own verdict line may stand without a citation.
+            continue
+        line = _ABOUT.sub("", line)  # '약 6,352,851,070원': the card number is exact, so '약' misleads
         lines.append(soften(line))  # '…원입니다.' -> '…원이에요.': the model still slips into report style
     if not lines:
         return ""
     if conditions and show_conditions:
         lines.insert(0, conditions_line(conditions, changed=changed))
+    if follow_up:
+        lines.append(soften(follow_up))
     return "\n".join(lines)
 
 
@@ -182,25 +225,142 @@ def industry_rank_answer(result: dict, cards: list[dict], classification: dict) 
         lines.append(f"- {item['rank']}위 {item['industry_name']}: 매출 {item['value']:,}원{stores} [{ranked['id']}]")
     if result.get("excluded"):
         lines.append(f"말씀하신 대로 {josa(', '.join(result['excluded']), '은')} 뺐어요.")
-    lines.append(f"이 상권에서 자료가 있는 {result['compared_count']:,}개 업종을 비교했어요. [{ranked['id']}]")
-    if result.get("items"):
+    seoul = result.get("area_code") is None
+    where = "서울 전체 상권에서" if seoul else "이 상권에서"
+    lines.append(f"{where} 자료가 있는 {result['compared_count']:,}개 업종을 비교했어요. [{ranked['id']}]")
+    if result.get("items") and not seoul:
         lines.append("궁금한 업종을 누르면 매출·점포 수·작년 대비 변화를 자세히 볼게요.")
     notes = [WARNING_INDUSTRY] + [w for w in ranked.get("warnings", []) if w != WARNING_INDUSTRY]
+    top = result["items"][0]["industry_name"] if result.get("items") else None
+    # Questions that follow from this list, not a fixed '카페 말고' that may already be answered.
+    suggestions = [f"{top} 말고 다른 업종은?" if top else "다른 업종은?",
+                   f"서울에서 {top} 매출 높은 곳은?" if top else "서울에서 매출 높은 곳은?"]
     return _reply("\n".join(lines), kind="industry_rank", cited=[conditions["id"], ranked["id"]], notes=notes,
-                  suggestions=["카페 말고 다른 업종은?", "서울에서 이 업종 매출 높은 곳은?"])
+                  suggestions=suggestions)
+
+
+def seoul_compare(markets: dict, market_card: dict, industries: dict | None, industry_card: dict | None) -> dict:
+    """'서울 전체 모든 상권들과 업종들로 비교해줘': the largest markets and, across industries, the largest industries."""
+    from app.assistant.ranking import item_label
+
+    what = "전체 업종을 합친" if markets.get("all_industries") else f"{markets['industry_name']} 업종의"
+    lines = [f"서울 전체를 {what} {markets['period_label']} 추정매출로 나눠 보면 이렇게 돼요. [{market_card['id']}]",
+             f"매출이 큰 상권 {len(markets['items'])}곳이에요. [{market_card['id']}]"]
+    lines += [f"- {item_label(item)}: {item['value']:,}원 [{market_card['id']}]" for item in markets["items"]]
+    cited = [market_card["id"]]
+    if industries and industry_card:
+        lines.append(f"업종별로는 이 순서로 매출이 커요. [{industry_card['id']}]")
+        lines += [f"- {item['rank']}위 {item['industry_name']}: {item['value']:,}원 [{industry_card['id']}]"
+                  for item in industries["items"]]
+        cited.append(industry_card["id"])
+    actions = [{"label": f"{item['rank']}위 {item['name']} 자세히",
+                "payload": {"type": "location", "kind": "neighborhood", "district_code": item["district_code"],
+                            "neighborhood_code": item["neighborhood_code"], "area_code": item["area_code"],
+                            "period": markets["period"]}}
+               for item in markets["items"] if item.get("selectable") and item.get("neighborhood_code") and item.get("district_code")]
+    return _reply("\n".join(lines), kind="seoul_compare", cited=cited, actions=actions,
+                  notes=list(market_card.get("warnings", [])),
+                  suggestions=["서울 연령대별 매출은?", "서울 시간대별 매출은?", "서울에서 창업한다면 어느 상권이 좋아 보여?"])
 
 
 def need_location() -> dict:
     return _reply("어느 곳의 상권을 볼까요? 역 이름이나 동 이름을 알려 주세요. 예: 합정역, 연남동", kind="need_location")
 
 
-def need_industry() -> dict:
-    return _reply("어떤 업종을 볼까요? 예: 카페, 한식, 미용실, 편의점", kind="need_industry")
+COMMON_INDUSTRIES = (("CS100010", "카페"), ("CS100001", "한식"), ("CS100007", "치킨"), ("CS100008", "분식"),
+                     ("CS100009", "호프·술집"), ("CS300002", "편의점"), ("CS200028", "미용실"))
+_FRANCHISE = re.compile(r"프랜차이즈|체인")
+
+
+def need_industry(*, repeated: bool = False, said: str = "") -> dict:
+    """Asked again with buttons, never the same sentence twice ('프랜차이즈' is a kind of shop, not an industry)."""
+    if not repeated:
+        return _reply("어떤 업종을 볼까요? 예: 카페, 한식, 미용실, 편의점", kind="need_industry")
+    first = ("프랜차이즈 수는 업종마다 따로 집계돼요. 어느 업종의 프랜차이즈를 볼까요?" if _FRANCHISE.search(said or "")
+             else "업종을 하나 정해야 그 업종 자료를 찾을 수 있어요. 아래에서 골라 주시거나 업종 이름을 말씀해 주세요.")
+    actions = [{"label": name, "payload": {"type": "industry", "industry_code": code}} for code, name in COMMON_INDUSTRIES]
+    return _reply(first, kind="need_industry", actions=actions)
+
+
+def site_costs_answer(cards: list[dict], lines: list[str]) -> dict:
+    """Arithmetic on what the user said: fixed wording, so no sum is ever restated differently."""
+    conditions = next((card for card in cards if card["topic"] == "conditions"), None)
+    head = [conditions_line(conditions)] if conditions else []
+    notes = [warning for card in cards if card["topic"] != "conditions" for warning in card.get("warnings", [])]
+    return _reply("\n".join([*head, *lines]), kind="site_costs", cited=[card["id"] for card in cards], notes=notes,
+                  suggestions=["여기 해볼 만해?", "입지 특성은 어때?"])
+
+
+def ask_site_costs() -> dict:
+    return _reply("임대료·권리금 시세는 공공 자료에 없어요. 아시는 금액을 알려 주시면 이 상권 평균 매출로 부담을 계산해 드릴게요. "
+                  "예: 월세 300만 원, 권리금 5천만 원이야", kind="ask_site_costs")
+
+
+def seoul_not_summed(what: str) -> dict:
+    return _reply(f"{what}는 상권끼리 범위가 겹치거나 기간 비교가 달라서 서울 전체로 합치지 않아요. 궁금한 상권을 말씀해 주시면 바로 볼게요.",
+                  kind="seoul_not_summed")
+
+
+def opinion_answer(cards: list[dict], lines: list[str], *, show_conditions: bool = True, caveat: str | None = None) -> dict:
+    """The fixed-form opinion: the conditions, opinion.fixed_lines, then what the data lacks."""
+    from app.assistant.opinion import CAVEAT
+
+    conditions = next((card for card in cards if card["topic"] == "conditions"), None)
+    head = [conditions_line(conditions)] if conditions and show_conditions else []
+    notes = [warning for card in cards if card["topic"] != "conditions" for warning in card.get("warnings", [])]
+    return _reply("\n".join([*head, *lines, caveat or CAVEAT]), kind="opinion", cited=[card["id"] for card in cards],
+                  notes=notes, suggestions=["입지 특성은 어때?", "작년이랑 비교하면?", "어느 연령대가 많이 사?"])
 
 
 def district_only(name: str) -> dict:
     return _reply(f"{josa(name, '은')} 범위가 넓어서 상권을 하나로 정할 수 없어요. "
                   f"{name} 안의 역이나 동 이름을 알려 주세요.", kind="district_only")
+
+
+def district_markets(district: str, industry: str | None, actions: list[dict]) -> dict:
+    """'강남구 연령층은?': no district total exists, so offer its markets that have data, larger ones first."""
+    what = f"{industry} 매출이 큰 상권" if industry else "매출이 큰 상권"
+    return _reply(f"{district} 전체를 합친 자료는 없어서, {district}에서 {what}부터 골라 볼 수 있어요. 어느 상권을 볼까요?",
+                  kind="choose_area", actions=actions)
+
+
+_SUBSTITUTE_LABEL = {"sales_total": "매출", "sales_weekday": "요일별 매출", "sales_time": "시간대별 매출",
+                     "sales_age": "연령별 매출", "stores_count": "점포 수", "stores_open_close": "개업·폐업",
+                     "population": "유동인구"}
+
+
+def substitute_label(card: dict) -> str:
+    """Name a substitute card by what it really holds: '유동인구(지나다니는 사람의 연령대)' only with age values."""
+    label = _SUBSTITUTE_LABEL.get(card["topic"], card["topic"])
+    if card["topic"] != "population":
+        return label
+    groups = [group for group in ("시간대", "연령대") if any(v.get("group") == group for v in card.get("values", []))]
+    return f"{label}(지나다니는 사람의 {'·'.join(groups)})" if groups else label
+
+
+def substitute_line(missing: list[str], shown: list[str], *, already_said: bool = False,
+                    labels: dict[str, str] | None = None) -> str:
+    """'이 상권은 연령별 매출 자료가 없어서, 대신 유동인구(…)를 보여 드릴게요.'
+
+    ``already_said``: a previous line already said the sales are missing, so only the substitute is named.
+    ``labels``: topic → name from :func:`substitute_label`, so the line never promises values the card lacks.
+    """
+    labels = labels or {}
+    want = "·".join(_SUBSTITUTE_LABEL.get(topic, topic) for topic in missing)
+    instead = "와 ".join(labels.get(topic) or _SUBSTITUTE_LABEL.get(topic, topic) for topic in shown)
+    if already_said:
+        return f"대신 이 상권의 {josa(instead, '을')} 보여 드릴게요."
+    return f"이 상권은 {want} 자료가 없어서, 대신 {josa(instead, '을')} 보여 드릴게요."
+
+
+NO_SALES_MARK = "어느 분기에도 없어요"
+NEARBY_POINTER = "아래 근처 상권을 누르면 그 상권 자료로 볼 수 있어요."
+
+
+def no_sales_anywhere_line(area: str, industry: str, periods: list[str], has_nearby: bool) -> str:
+    span = f"{periods[0][:4]}년 {periods[0][4]}분기~{periods[-1][:4]}년 {periods[-1][4]}분기" if periods else "모든 분기"
+    tail = " 근처에서 자료가 있는 상권을 골라 보세요." if has_nearby else ""
+    return f"{area} 상권은 {industry} 매출 자료가 {span} {NO_SALES_MARK}.{tail}"
 
 
 def choose_location(mention: str, candidates: list[dict]) -> dict:
@@ -230,7 +390,7 @@ def choose_industry(candidates: list[dict]) -> dict:
     return _reply("어떤 업종으로 볼까요? 하나를 골라 주세요.", kind="choose_industry", actions=actions)
 
 
-def choose_area(options: dict, period: str | None) -> dict:
+def choose_area(options: dict, period: str | None, *, repeated: bool = False) -> dict:
     actions = []
     for candidate in options.get("candidates", [])[:6]:
         if candidate.get("selection_blocked_reason"):
@@ -244,7 +404,9 @@ def choose_area(options: dict, period: str | None) -> dict:
     if not actions:
         return _reply("이 위치 주변에서 분석할 수 있는 공식 상권을 찾지 못했어요. 다른 역이나 동을 알려 주세요.",
                       kind="no_area")
-    return _reply("공식 상권 후보가 여러 곳이에요. 어느 상권으로 볼까요?", kind="choose_area", actions=actions)
+    text = ("아래 상권 가운데 하나를 먼저 골라 주세요. 고르시면 바로 이어서 볼게요." if repeated
+            else "공식 상권 후보가 여러 곳이에요. 어느 상권으로 볼까요?")
+    return _reply(text, kind="choose_area", actions=actions)
 
 
 def choose_market(actions: list[dict]) -> dict:
@@ -338,10 +500,12 @@ def ranking_answer(result: dict, card: dict, classification: dict, exclusion_tex
 
     question = classification.get("text") or ""
     lines = []
+    every = result.get("all_industries")
     if _RECOMMEND.search(question):
-        lines.append("어디가 좋은지는 매출만으로 정할 수는 없지만, 같은 업종 매출이 큰 상권부터 보여드릴게요.")
-    lines.append(f"{result['scope_label']} 상권 가운데 {result['industry_name']} 업종의 "
-                 f"{result['period_label']} 추정매출이 큰 곳이에요. [{card['id']}]")
+        lines.append("어디가 좋은지는 매출만으로 정할 수는 없지만, " + ("매출이 큰 상권부터" if every else "같은 업종 매출이 큰 상권부터")
+                     + " 보여드릴게요.")
+    what = "전체 업종을 합친" if every else f"{result['industry_name']} 업종의"
+    lines.append(f"{result['scope_label']} 상권 가운데 {what} {result['period_label']} 추정매출이 큰 곳이에요. [{card['id']}]")
     for item in result["items"]:
         lines.append(f"- {item_label(item)}: {item['value']:,}원 [{card['id']}]")
     if re.search(r"(무슨|어느|어떤|몇) ?구|구에|구가|구는", question):
@@ -351,6 +515,8 @@ def ranking_answer(result: dict, card: dict, classification: dict, exclusion_tex
             lines.append(f"위 상권들이 속한 구는 {'·'.join(districts)}예요. 구 전체 매출을 합친 순위는 아니에요.")
     if exclusion_text:
         lines.append(f"말씀하신 대로 {exclusion_text} 뺐어요.")
+    if result.get("near"):
+        lines.append(f"{josa(result['near']['label'], '은')} 빼고, 그 상권 중심에서 {result['near']['km']:g}km 안의 상권만 비교했어요.")
     lines.append(f"자료가 있는 {result['compared_count']:,}곳을 비교했어요. [{card['id']}]")
     actions = []
     for item in result["items"]:

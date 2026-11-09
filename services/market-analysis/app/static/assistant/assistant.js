@@ -379,6 +379,11 @@ if (typeof document !== "undefined") (() => {
   });
   nodes.input.addEventListener("input", resizeInput);
   nodes.clear.addEventListener("click", clearConversation);
+  // Development only: the server says whether the Markdown export is available (export.py).
+  api("/api/assistant/status").then((status) => {
+    const link = byId("export-link");
+    if (link && status && status.export === true) link.hidden = false;
+  }).catch(() => {});
   for (const starter of nodes.starters.querySelectorAll("button[data-text]")) {
     starter.addEventListener("click", () => send(starter.getAttribute("data-text")));
   }

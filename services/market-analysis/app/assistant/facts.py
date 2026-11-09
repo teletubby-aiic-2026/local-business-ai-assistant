@@ -10,7 +10,7 @@ from __future__ import annotations
 from app.assistant.korean import josa
 
 TOPIC_ORDER = ("conditions", "sales_total", "sales_weekday", "sales_time", "sales_age", "stores_count",
-               "stores_open_close", "population", "change_qoq", "change_yoy", "comparison")
+               "stores_open_close", "population", "change_qoq", "change_yoy", "comparison", "area_profile")
 _DISTRIBUTION_TOPIC = {"weekday": "sales_weekday", "time": "sales_time", "age": "sales_age"}
 _UNAVAILABLE = {"no_data": "자료가 없습니다", "not_collected": "원천 자료를 아직 확보하지 않았습니다",
                 "invalid": "원천 수치의 형식을 확인하지 못했습니다", "error": "자료를 불러오지 못했습니다",
@@ -47,7 +47,7 @@ def _age_label(name: str) -> str:
 
 
 def _unavailable_text(label, status, message=None):
-    return f"{label}: {message or _UNAVAILABLE.get(status, '자료를 확인하지 못했습니다')}."
+    return f"{label}: {(message or _UNAVAILABLE.get(status, '자료를 확인하지 못했습니다')).rstrip('.')}."
 
 
 def _source(name, result):
@@ -68,6 +68,26 @@ def conditions_card(selection: dict, profile: dict) -> dict:
         {"label": "기간", "value": period, "unit": None, "code": selection.get("period")}],
         warnings=[f"상권 지도는 {boundary} 공개 경계이며 선택 분기의 실제 경계와 같은지는 확인되지 않았습니다."],
         source={"analysis": "selection", "catalog_version": selection.get("catalog_version")})
+
+
+WEEKDAYS, WEEKEND = ("월", "화", "수", "목", "금"), ("토", "일")
+
+
+def weekday_aggregates(values: list[dict]) -> tuple[list[dict], str]:
+    """평일(월~금)·주말(토·일) totals and per-day averages from the seven day values (computed, marked so).
+
+    Marked ``aggregate`` so they are never compared with single days ('토요일이 가장 많아요').
+    """
+    days = {v["label"]: v["value"] for v in values if v.get("label") in WEEKDAYS + WEEKEND and type(v.get("value")) is int}
+    if len(days) != 7:
+        return [], ""
+    weekday, weekend = sum(days[d] for d in WEEKDAYS), sum(days[d] for d in WEEKEND)
+    extra = [{"label": label, "value": value, "unit": "원", "derived": True, "aggregate": True}
+             for label, value in (("평일 합계", weekday), ("평일 하루 평균", weekday // 5),
+                                  ("주말 합계", weekend), ("주말 하루 평균", weekend // 2))]
+    sentence = (f" 평일(월~금)은 합계 {weekday:,}원, 하루 평균 {weekday // 5:,}원이고, "
+                f"주말(토·일)은 합계 {weekend:,}원, 하루 평균 {weekend // 2:,}원입니다(계산값).")
+    return extra, sentence
 
 
 def sales_cards(result: dict) -> list[dict]:
@@ -96,10 +116,15 @@ def sales_cards(result: dict) -> list[dict]:
             high = ", ".join(ranking["highest"])
             low = ", ".join(ranking["lowest"])
             high_share = next((v["share_percent"] for v in values if v["label"] in ranking["highest"]), None)
-            text = (f"{dist['label']}에서 가장 높은 항목은 {high}({_number(ranking['highest_value'], '원')}"
-                    + (f", 비중 {_percent(high_share)}" if high_share is not None else "")
-                    + f"), 가장 낮은 항목은 {low}({_number(ranking['lowest_value'], '원')})입니다.")
+            # The amount outside brackets, so the reply can add '(약 9억 7,647만 원)' after it.
+            text = (f"{dist['label']}에서 가장 높은 항목은 {josa(high, '으로')} {_number(ranking['highest_value'], '원')}"
+                    + (f"(비중 {_percent(high_share)})" if high_share is not None else "")
+                    + f"이고, 가장 낮은 항목은 {josa(low, '으로')} {_number(ranking['lowest_value'], '원')}입니다.")
             warnings = list(dist.get("warnings", []))
+            if kind == "weekday":
+                extra, sentence = weekday_aggregates(values)
+                values += extra
+                text += sentence
             if kind == "age" and dist.get("classified_share_of_total_percent") is not None:
                 text += f" 연령이 분류된 매출은 전체의 {_percent(dist['classified_share_of_total_percent'])}입니다."
                 values.append({"label": "연령 분류 매출 비율", "value": dist["classified_share_of_total_percent"], "unit": "%"})
@@ -159,14 +184,15 @@ def population_cards(result: dict) -> list[dict]:
     if total.get("status") != "available":
         return [_card("population", _unavailable_text("유동인구", total.get("status")),
                       status=total.get("status") or "no_data", warnings=result.get("warnings", []), source=source)]
-    text = f"상권 전체의 원천 유동인구 총지표는 {_number(total['value'], '명')}입니다."
+    # '강남역 상권의 유동인구(…)는' reads well with a market name in front (multi.py adds it).
+    text = f"유동인구(상권 전체 원천 지표)는 {_number(total['value'], '명')}입니다."
     values = [{"label": "유동인구 원천 총지표", "value": total["value"], "unit": "명"}]
     for kind, label in (("time", "시간대"), ("age", "연령대")):
         dist = (result.get("distributions") or {}).get(kind) or {}
         ranking = dist.get("ranking") or {}
         if ranking.get("status") == "available":
             highest = [_age_label(name) for name in ranking["highest"]]
-            text += f" {label}별로는 {josa(', '.join(highest), '이')} 가장 많습니다({_number(ranking['highest_value'], '명')})."
+            text += f" {label}별로는 {josa(', '.join(highest), '이')} {_number(ranking['highest_value'], '명')}으로 가장 많습니다."
             values.extend({"label": _age_label(item["label"]), "group": label, "value": item.get("value"), "unit": "명",
                            "share_percent": item.get("share_percent")} for item in dist.get("items", []))
     return [_card("population", text, values=values, warnings=result.get("warnings", [])[:2], source=source)]
@@ -180,11 +206,16 @@ def _metric_values(metric, left_key, right_key):
 
 
 _HEADLINE_METRICS = ("sales", "stores_total", "floating_population", "stores_opened", "stores_closed")
+_COMPARISON_NAMES = {"추정매출": "분기 추정매출", "전체 점포": "점포 수", "지역 유동인구 원천 총지표": "유동인구"}
+
+
+_CHANGE_NAMES = {"추정매출": "매출", "전체 점포": "점포 수", "개업 점포": "개업 점포", "폐업 점포": "폐업 점포",
+                 "지역 유동인구 원천 총지표": "유동인구"}
 
 
 def changes_card(result: dict, comparison: str) -> dict:
     topic = "change_qoq" if comparison == "qoq" else "change_yoy"
-    label = "전분기" if comparison == "qoq" else "전년 동분기"
+    label = "지난 분기" if comparison == "qoq" else "작년 같은 분기"
     if result.get("status") == "error":
         return _card(topic, _unavailable_text(f"{label} 비교", "error", result.get("message")), status="error")
     previous = (result.get("previous_period") or {}).get("label", label)
@@ -198,11 +229,13 @@ def changes_card(result: dict, comparison: str) -> dict:
             direction = "증가" if delta and delta > 0 else "감소" if delta and delta < 0 else "변화 없음"
             change = f"{_number(abs(delta), metric['unit'])} {direction}" if delta else "변화 없음"
             percent = _percent(metric.get("percent"), signed=True)
-            parts.append(f"{metric['label']} {change}" + (f"({percent})" if percent else ""))
+            name = _CHANGE_NAMES.get(metric["label"], metric["label"])
+            parts.append(f"{josa(name, '은')} {change}" + (f"({percent})" if percent else ""))
     if not parts:
         return _card(topic, f"{josa(label + '(' + previous + ')', '과')} 비교할 수 있는 지표가 없습니다.", status="no_data",
                      warnings=result.get("warnings", [])[:2], source=_source("changes", result))
-    text = f"{label}({previous}) 대비 " + ", ".join(parts) + "입니다."
+    # One sentence a person would say (2026-11-08 export: the report-style line was hard to read).
+    text = f"{josa(label + '(' + previous + ')', '과')} 비교하면 " + ", ".join(parts) + "입니다."
     return _card(topic, text, values=values, warnings=result.get("warnings", [])[:2], source=_source("changes", result))
 
 
@@ -215,14 +248,19 @@ def comparison_card(result: dict) -> dict:
     for metric in result.get("metrics", []):
         if metric.get("status") != "available":
             continue
-        values.extend(_metric_values(metric, "base", "comparison"))
+        # The market names let answer_check settle '강남역이 연남동보다 매출이 커요'.
+        values.extend({**value, "market": {"base": base, "comparison": other}.get(value["role"])}
+                      if value["role"] in ("base", "comparison") else value
+                      for value in _metric_values(metric, "base", "comparison"))
         if metric["key"] in _HEADLINE_METRICS[:3]:
-            parts.append(f"{josa(metric['label'], '은')} {base} {_number(metric['base'].get('value'), metric['unit'])}, "
-                         f"{other} {_number(metric['comparison'].get('value'), metric['unit'])}")
+            name = _COMPARISON_NAMES.get(metric["label"], metric["label"])
+            parts.append(f"{josa(name, '은')} {base} {_number(metric['base'].get('value'), metric['unit'])}, "
+                         f"{other} {_number(metric['comparison'].get('value'), metric['unit'])}입니다.")
     if not parts:
         return _card("comparison", f"{josa(base, '과')} {josa(other, '을')} 비교할 수 있는 지표가 없습니다.", status="no_data",
                      warnings=result.get("warnings", [])[:2], source=_source("comparison", result))
-    text = f"{josa(base, '과')} {other} 비교: " + "; ".join(parts) + "."
+    # One sentence per metric: the fixed-form answer reads as talk, not a table row (user feedback 2026-11-08).
+    text = f"{josa(base, '과')} {josa(other, '을')} 견줘 보면 " + " ".join(parts)
     return _card("comparison", text, values=values, warnings=result.get("warnings", [])[:2],
                  source=_source("comparison", result))
 
@@ -252,5 +290,10 @@ def cards_from_snapshot(snapshot: dict) -> list[dict]:
 def select_cards(cards: list[dict], topics, *, max_cards: int = 6) -> list[dict]:
     """The conditions card first, then the requested topics, at most max_cards."""
     wanted = ["conditions", *[topic for topic in TOPIC_ORDER if topic in set(topics)]]
+    present = {card["topic"] for card in cards}
+    if any(topic.startswith("sales_") and topic not in present for topic in wanted) and "sales_total" in present:
+        # The sales file failed as a whole: only its sales_total error card exists, and it says why.
+        wanted = list(dict.fromkeys("sales_total" if topic.startswith("sales_") and topic not in present else topic
+                                    for topic in wanted))
     chosen = [card for topic in wanted for card in cards if card["topic"] == topic]
     return chosen[:max_cards]

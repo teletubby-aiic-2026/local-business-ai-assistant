@@ -123,7 +123,7 @@ class ToClassificationTests(unittest.TestCase):
         self.assertIsNone(plan("market_data", {"topics": [], "unavailable": "매출 1위 브랜드 3개"})["unavailable"])
         # Live run: '점심이랑 저녁 중에 언제 더 팔려?' came back with unavailable '점심, 저녁', which the data has.
         self.assertIsNone(plan("market_data", {"topics": ["sales_time"], "unavailable": "점심, 저녁"})["unavailable"])
-        self.assertEqual(plan("market_data", {"topics": [], "unavailable": "회사·직장인 수"})["unavailable"], "회사·직장인 수")
+        self.assertEqual(plan("market_data", {"topics": [], "unavailable": "브랜드별 매출"})["unavailable"], "브랜드별 매출")
         self.assertIsNone(plan("market_data", {"topics": [], "unavailable": "가" * 40})["unavailable"])
 
     def test_model_lines_that_only_repeat_the_missing_note_are_dropped(self):
@@ -159,7 +159,8 @@ class ToClassificationTests(unittest.TestCase):
                      "해석: 경기 때문일 수 있어요.", "직장인이 많이 찾을 것으로 예상됩니다. 점심은 300원이에요. [F4]"):
             self.assertFalse(check_answer(text, cards)["ok"], text)
         many = "\n".join(f"손님층이 {word}일 수 있음을 시사해요." for word in ("직장인", "학생", "관광객"))
-        self.assertEqual(templates.model_body(many, cards, show_conditions=False).count("해석:"), 2)
+        # One interpretation line at most (2026-11-08: a second, long advice paragraph said nothing from the data).
+        self.assertEqual(templates.model_body(many, cards, show_conditions=False).count("해석:"), 1)
 
     def test_market_choices_put_markets_with_data_first(self):
         from app.assistant.ranking import order_markets

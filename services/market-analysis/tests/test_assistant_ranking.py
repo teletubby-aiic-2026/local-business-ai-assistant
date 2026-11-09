@@ -266,7 +266,9 @@ class IndustryRankTests(_RankingEnv, unittest.TestCase):
         times = self.say("점심과 저녁 중 언제 잘 팔려?")["reply"]["text"]
         self.assertTrue(times.startswith("점심(11~14시)은 300원(30.00%)이고, 저녁(17~21시)은 300원(30.00%)이에요. [F"), times)
         days = self.say("주말이랑 평일 중 언제 더 팔려?")["reply"]["text"]
-        self.assertIn("주말은 토 200원(20.00%), 일 200원(20.00%)이고, 평일은 월 100원(10.00%)", days)
+        # User feedback 2026-11-08: '평일은?' wants the five days together and per day, not one day picked out.
+        self.assertTrue(days.startswith("하루 평균으로는 주말이 평일보다 매출이 커요. [F"), days)
+        self.assertIn("주말(토·일)은 합계 400원, 하루 평균 200원이고, 평일(월~금)은 합계 600원, 하루 평균 120원이에요.", days)
 
     def test_short_requests_follow_the_conversation_without_the_ai(self):
         # User feedback 2026-11-08: '추천해줘' after a 창업 question answered 'I cannot answer that'.
@@ -302,6 +304,168 @@ class IndustryRankTests(_RankingEnv, unittest.TestCase):
         again = self.say("주말은?")
         self.assertNotIn("상권의 커피-음료 업종을", again["reply"]["text"])
         self.assertEqual(again["cards"][0]["topic"], "conditions", "the card itself is still shown")
+
+
+class _WithMapoCafe(FakeRankingSource):
+    """One more selectable 마포구 market with coffee sales, for the nearby-market suggestions."""
+
+    def areas(self):
+        return {**super().areas(), "3000007": _area("3000007", "합정역", "11440", "마포구", "11440680", "합정동")}
+
+    def sales(self, period):
+        rows, version = super().sales(period)
+        return {**rows, ("3000007", COFFEE): {"THSMON_SELNG_AMT": 6500, "SVC_INDUTY_CD_NM": "커피-음료"}}, version
+
+
+class MissingDataTests(_RankingEnv, unittest.TestCase):
+    """User feedback 2026-11-08: missing data must lead somewhere, and other places must be reachable."""
+
+    def test_a_district_offers_its_markets_with_data(self):
+        data = self.say("강남구 카페 연령대는?")
+        self.assertEqual(data["reply"]["kind"], "choose_area", data["reply"]["text"])
+        self.assertTrue(data["reply"]["text"].startswith("강남구 전체를 합친 자료는 없어서"))
+        labels = [action["label"] for action in data["reply"]["actions"]]
+        self.assertEqual(labels, ["강남역", "신논현역"], "markets of 강남구, larger coffee sales first")
+        payload = data["reply"]["actions"][0]["payload"]
+        self.assertEqual((payload["area_code"], payload["industry_code"]), ("3000001", COFFEE))
+        pending = self.client.get("/api/assistant/conversation").json()["turns"][-1]
+        self.assertTrue(pending["reply"]["actions"])
+
+    def test_missing_sales_shows_the_nearest_data_this_market_has(self):
+        self.analyses.sales_error = True
+        data = self.say("합정역 카페 매출 어때?")
+        text = data["reply"]["text"]
+        self.assertIn("이 상권은 매출 자료가 없어서, 대신 점포 수와 유동인구", text)
+        topics = [card["topic"] for card in data["cards"]]
+        self.assertIn("population", topics)
+        self.assertIn("stores_count", topics)
+
+    def test_a_market_without_any_sales_suggests_nearby_markets(self):
+        import sys
+
+        self.source.__class__ = _WithMapoCafe
+        module = sys.modules["app.onboarding_analysis_catalog"]
+        no_sales = {"periods": [{"code": code, "label": code, "metrics": {"sales": {"status": "no_observation"}}}
+                                for code in ("20261", "20262")]}
+        self.stack.enter_context(patch.object(module, "get_area_availability", lambda area, industry: no_sales,
+                                              create=True))
+        self.analyses.sales_error = True
+        data = self.say("합정역 카페 매출 어때?")
+        self.assertIn("어느 분기에도 없어요. 근처에서 자료가 있는 상권을 골라 보세요.", data["reply"]["text"])
+        self.assertEqual([a["label"] for a in data["reply"]["actions"]], ["합정역 보기"])
+        self.assertEqual(data["reply"]["actions"][0]["payload"]["industry_code"], COFFEE)
+
+    def test_other_quarters_with_sales_are_named(self):
+        import sys
+
+        module = sys.modules["app.onboarding_analysis_catalog"]
+        some = {"periods": [{"code": "20253", "label": "2025년 3분기", "metrics": {"sales": {"status": "available"}}},
+                            {"code": "20262", "label": "2026년 2분기", "metrics": {"sales": {"status": "no_observation"}}}]}
+        self.stack.enter_context(patch.object(module, "get_area_availability", lambda area, industry: some, create=True))
+        self.analyses.sales_error = True
+        text = self.say("합정역 카페 매출 어때?")["reply"]["text"]
+        self.assertIn("이 분기에는 커피-음료 매출 자료가 없지만, 2025년 3분기 자료는 있어요.", text)
+
+    def test_the_substitute_is_named_by_what_its_card_really_holds(self):
+        from app.assistant import templates
+        from app.assistant.flow import _answers
+
+        times_only = {"topic": "population", "status": "available",
+                      "values": [{"label": "유동인구 원천 총지표", "value": 10, "unit": "명"},
+                                 {"label": "11~14시", "group": "시간대", "value": 5, "unit": "명"}]}
+        self.assertEqual(templates.substitute_label(times_only), "유동인구(지나다니는 사람의 시간대)")
+        self.assertFalse(_answers(times_only, "sales_age"), "no age values: it cannot stand in for ages")
+        self.assertTrue(_answers(times_only, "sales_time"))
+        line = templates.substitute_line(["sales_time"], ["population"], labels={"population": "유동인구(지나다니는 사람의 시간대)"})
+        self.assertEqual(line, "이 상권은 시간대별 매출 자료가 없어서, 대신 유동인구(지나다니는 사람의 시간대)를 보여 드릴게요.")
+
+    def test_no_sales_anywhere_is_said_once_for_the_same_market(self):
+        import sys
+
+        self.source.__class__ = _WithMapoCafe
+        module = sys.modules["app.onboarding_analysis_catalog"]
+        no_sales = {"periods": [{"code": "20262", "label": "2026년 2분기", "metrics": {"sales": {"status": "no_observation"}}}]}
+        self.stack.enter_context(patch.object(module, "get_area_availability", lambda area, industry: no_sales,
+                                              create=True))
+        self.analyses.sales_error = True
+        first = self.say("합정역 카페 매출 어때?")
+        self.assertIn("어느 분기에도 없어요", first["reply"]["text"])
+        again = self.say("합정역 카페 연령대는?")
+        self.assertNotIn("어느 분기에도 없어요", again["reply"]["text"])
+        self.assertEqual([a["label"] for a in again["reply"]["actions"]], ["합정역 보기"], "the buttons stay")
+
+    def test_one_place_in_a_comparison_question_is_what_to_compare_with(self):
+        areas = [{"area_code": code, "name": name, "district_code": district, "district_name": "", "selectable": True}
+                 for code, name, district in (("5000001", "강남 마이스 관광특구", "11680"), ("5000002", "강남개포시장", "11680"),
+                                              ("3000001", "강남역", "11650"), ("5000003", "강남구보훈회관", "11680"))]
+        compared = []
+
+        def comparison(selection, profile, area_code):
+            compared.append(area_code)
+            return self.analyses.comparison(selection, profile, area_code)
+
+        self.stack.enter_context(patch("app.onboarding_comparison.get_comparison_options",
+                                       lambda selection, profile: {"status": "ready", "areas": areas}))
+        self.stack.enter_context(patch("app.onboarding_comparison.build_comparison_analysis", comparison))
+        base = self.say("합정역 카페 매출 어때?")["conditions"]
+        data = self.say("강남역이랑 비교하면 어때?")
+        self.assertEqual(compared, ["3000001"], data["reply"]["text"])
+        self.assertIn("comparison", [card["topic"] for card in data["cards"]])
+        self.assertEqual(data["conditions"]["area_code"], base["area_code"], "합정역 stays the market being looked at")
+
+    def test_a_district_the_cards_never_name_is_rejected(self):
+        cards = [{"id": "F1", "topic": "conditions", "text": "분석 조건은 신논현역 상권입니다.", "values": []},
+                 {"id": "F2", "topic": "population", "text": "연령대별로는 20대가 가장 많습니다.", "values": []}]
+        wide = check_answer("강남구 상권은 20대가 가장 많아요. [F2]", cards)
+        self.assertIn({"type": "place_not_on_card", "detail": "강남구"}, wide["problems"])
+        self.assertTrue(check_answer("이 상권은 20대가 가장 많아요. [F2]", cards)["ok"])
+        self.assertTrue(check_answer("홍대입구역 출입구 근처예요. [F2]", cards)["ok"], "입구 is not a 구")
+
+    def test_soften_keeps_vowel_harmony_and_yeyo(self):
+        from app.assistant.korean import soften
+
+        self.assertEqual(soften("20대가 가장 많습니다(2,000명)."), "20대가 가장 많아요(2,000명).")
+        self.assertEqual(soften("매출이 늘었습니다. 점포가 없습니다."), "매출이 늘었어요. 점포가 없어요.")
+        self.assertEqual(soften("가장 많은 연령대는 50대에요."), "가장 많은 연령대는 50대예요.")
+        self.assertEqual(soften("그건 아니에요."), "그건 아니에요.")
+
+    def test_a_model_text_that_skips_the_promised_substitute_is_not_used(self):
+        from datetime import date
+
+        from starlette.requests import Request
+
+        from app.assistant.bridge import endpoint_table, request_with_session
+        from app.assistant.flow import AssistantService
+        from app.assistant.history import AssistantHistory
+        from app.onboarding import create_onboarding_router
+
+        self.analyses.sales_error = True
+        service = AssistantService(self.store, AssistantHistory(self.store), endpoint_table(create_onboarding_router(self.store)),
+                                   writer=lambda cards, cls: "매출 자료는 없어서 말씀드릴 수 없어요. [F2]",
+                                   use_morph=False, today=date(2026, 11, 7))
+        owner, token = self.store.session(None)
+        scope = {"type": "http", "method": "POST", "path": "/", "headers": [], "query_string": b""}
+        data = service.handle_message(owner, request_with_session(Request(scope), token), "합정역 카페 매출 어때?", None)
+        self.assertFalse(data["model_used"], data["reply"]["text"])
+        self.assertIn("6,000명", data["reply"]["text"], "the fixed-form answer shows the promised population card")
+
+    def test_saying_no_data_about_a_card_that_has_data_is_rejected(self):
+        ages = {"id": "F5", "topic": "sales_age", "status": "available", "text": "연령별 매출에서 가장 높은 항목은 50대입니다.",
+                "values": []}
+        empty = {"id": "F2", "topic": "sales_total", "status": "no_data", "text": "추정매출: 자료가 없습니다.", "values": []}
+        denied = check_answer("죄송합니다. 해당 상권의 연령층 정보는 없어요. [F5]", [ages])
+        self.assertIn("denies_available_card", [problem["type"] for problem in denied["problems"]])
+        self.assertTrue(check_answer("추정 매출 자료는 없어요. [F2]", [empty])["ok"])
+        self.assertTrue(check_answer("50대 매출이 가장 커요. [F5]", [ages])["ok"])
+
+    def test_the_same_place_again_is_not_a_change(self):
+        from app.assistant.flow import _names_same_market
+
+        self.assertTrue(_names_same_market("상도역", "상도역 1번"))
+        self.assertFalse(_names_same_market("강남역", "강남 마이스 관광특구"))
+        self.say("합정역 카페 매출 어때?")
+        again = self.say("합정역 카페 연령대는?")
+        self.assertNotIn("이번에는", again["reply"]["text"])
 
 
 class PromptValuesTests(unittest.TestCase):

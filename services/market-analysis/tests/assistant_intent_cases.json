@@ -5,8 +5,8 @@
   "latest_period": "20262",
   "labels": {
     "domain": ["market_analysis", "marketing", "customer", "general"],
-    "turn_type": ["data_question", "condition_change", "followup", "smalltalk", "advice", "handoff", "out_of_scope", "personal_metric", "unknown", "ranking"],
-    "topics": ["sales_total", "sales_weekday", "sales_time", "sales_age", "stores_count", "stores_open_close", "population", "change_qoq", "change_yoy", "comparison", "ranking"],
+    "turn_type": ["data_question", "condition_change", "followup", "smalltalk", "advice", "handoff", "out_of_scope", "personal_metric", "unknown", "ranking", "opinion", "seoul_overview"],
+    "topics": ["sales_total", "sales_weekday", "sales_time", "sales_age", "stores_count", "stores_open_close", "population", "change_qoq", "change_yoy", "comparison", "ranking", "opinion"],
     "default_topics": ["sales_total", "stores_count", "change_yoy"]
   },
   "cases": [
@@ -43,7 +43,8 @@
     {"id": "c16", "text": "옆 동네랑 비교해 줘",
      "expect": {"domain": "market_analysis", "turn_type": "data_question", "topics": ["comparison"], "signals": {"correction": false, "comparison": true}, "needs_user_choice": true}},
     {"id": "c17", "text": "연남동이랑 서교동 비교하면 어디가 나아?",
-     "expect": {"domain": "market_analysis", "turn_type": "data_question", "topics": ["comparison"], "locations": ["연남동", "서교동"], "signals": {"correction": false, "comparison": true}, "needs_user_choice": false}},
+     "note": "2026-11-08 사용자 결정: 두 곳 중 어디가 나은지 묻는 말은 자료 근거 의견(opinion)으로 답함",
+     "expect": {"domain": "market_analysis", "turn_type": "opinion", "topics": ["opinion"], "locations": ["연남동", "서교동"], "signals": {"correction": false, "comparison": true}, "needs_user_choice": false}},
     {"id": "c18", "text": "홍대 쪽 술집 상권 어때?",
      "expect": {"domain": "market_analysis", "turn_type": "data_question", "topics": ["sales_total", "stores_count", "change_yoy"], "locations": ["홍대입구역", "서교동"], "industries": ["CS100009"], "needs_user_choice": true}},
     {"id": "c19", "text": "강남 쪽 치킨집은?",

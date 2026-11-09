@@ -19,13 +19,17 @@ from app.assistant.morph import get_analyzer
 
 SCHEMA = "assistant-intent-v1"
 TOPIC_ORDER = ("sales_total", "sales_weekday", "sales_time", "sales_age", "stores_count",
-               "stores_open_close", "population", "change_qoq", "change_yoy", "comparison", "ranking", "industry_rank")
+               "stores_open_close", "population", "change_qoq", "change_yoy", "comparison", "ranking", "industry_rank",
+               "opinion", "area_profile")
 _MORPH_TAGS = ("NN", "VV", "VA", "XR", "NP", "MM", "MA")
 _COUNT = re.compile(r"(?:top|탑|상위|베스트)\s*(\d)|(\d|한|두|세|네|다섯)\s*(?:가지|개|종류|군데|순위)")
 _KOREAN_COUNT = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5}
 DEFAULT_TOPICS = ("sales_total", "stores_count", "change_yoy")
 _DISTRIBUTION = ("sales_weekday", "sales_time", "sales_age")
-_SUBJECTS = ("sales_total", *_DISTRIBUTION, "stores_count", "stores_open_close", "population")
+_SUBJECTS = ("sales_total", *_DISTRIBUTION, "stores_count", "stores_open_close", "population", "area_profile")
+# What kind of place it is (context.py); these words were 'not in the data' before 2026-11-08.
+_AREA_PROFILE = re.compile(r"직장인구|상주인구|세대수|집객시설|입지특성|입지유형|배후수요|회사많|직장인많|주민많|사는사람")
+_SEOUL_SUMS = ("sales_total", "stores_count", "stores_open_close")
 _CHANGE = ("change_qoq", "change_yoy")
 
 
@@ -166,6 +170,7 @@ def _period(text: _Text, kw: dict, today: date) -> tuple[dict, tuple | None]:
 
 
 _TRAILING = re.compile(r"[\s.!~,…ㅠㅜㅋㅎ^;]+$")
+_PAIRED = re.compile(r"(?:이랑|랑|과|와|하고|보다|에비해|대비)")
 _FIGURE = re.compile(r"\d+(?:%|프로|퍼센트|만원|천원|원|만)|\d{2,}(?:정도|쯤|찍|나와|벌)|반토막|절반")
 
 
@@ -192,6 +197,32 @@ def _condition_change(text: _Text, kw: dict, slots_end: set[int]) -> bool:
                 return True
             start = text.compact.find(marker, start + 1)
     return False
+
+
+# The assistant's own view is asked for (user decision 2026-11-08: answer with a data-based opinion).
+# Only cues that name a choice between known places or ask for the assistant's view; '어디가 좋아?' without
+# candidates stays a ranking.
+_OPINION_SELF = re.compile(r"너라면|니가보기|네가보기|너는어때|너는어떻게|너[가의]?생각|네생각|니생각|당신생각|어떻게생각|의견")
+_OPINION_CHOICE = re.compile(r"둘중|두(?:곳|군데|지역|상권|동네|개|데)중|어느쪽")
+_OPINION_SINGLE = re.compile(r"해볼만|차려도될|열어도될|해도될까|승산")
+# A choice is an opinion only with a word of judgment: '어느 쪽이 더 많아' asks for a count, not a view.
+_OPINION_PAIR = re.compile(r"나아|낫|좋아|좋을|좋은|추천|괜찮|유리|차릴|차리|창업|골라|고르")
+# Every industry of the market ('강남역 주말 모든 상권의 매출'): the saved industry must not stand in for it
+# (user feedback 2026-11-08: the answer kept saying 커피-음료).
+ALL_INDUSTRIES = re.compile(r"모든(?:업종|가게|매장|상권|곳)|전체(?:업종|가게|매장)|업종(?:전체|상관없|구분없|가리지)")
+# '커피-음료 말고 다른 상권분석도 해줘': the other industries of the market, not the named one again (2026-11-08 replay).
+_OTHER_BUSINESS = re.compile(r"(?:말고|빼고|제외하고)다른(?:상권분석|분석|업종)")
+# Around a place ('강남역 주변 다른 상권 중'): a radius around that market, not its whole 구 or all Seoul.
+NEAR = re.compile(r"주변|근처|인근|가까운|근방|주위")
+# Seoul as a whole: '서울시 모든 상권 연령층', '서울 전체 시간대별 매출'.
+_SEOUL_WIDE = re.compile(r"서울(?:시)?(?:의)?(?:전체|전역|모든|모두)|(?:모든|전체)상권|서울전체")
+
+
+def _opinion_requested(text: "_Text", others: list) -> bool:
+    c = text.compact
+    if _OPINION_SELF.search(c) or _OPINION_SINGLE.search(c):
+        return True
+    return (bool(_OPINION_CHOICE.search(c)) or len(others) >= 2) and bool(_OPINION_PAIR.search(c))
 
 
 def _ordered(topics) -> list[str]:
@@ -334,11 +365,18 @@ def classify(message: str, *, context: dict | None = None, today: date | None = 
         topics.add("change_qoq" if period["comparison"] == "qoq" else "change_yoy")
         if change and "stores_count" in topics:
             topics.add("stores_open_close")
+    # '강남역이랑 비교하면?': one place paired with 이랑·과·보다 is the other side of the comparison.
+    paired = len(places) == 1 and not period["comparison"] and \
+        bool(_PAIRED.match(text.compact[places[0]["start"] + len(places[0]["text"]):]))
     area_comparison = text.has(kw["comparison_words"]) and (
-        len(places) >= 2 or (text.has(kw["comparison_scope_words"]) and not (period["comparison"] and len(places) < 2)))
+        len(places) >= 2 or paired
+        or (text.has(kw["comparison_scope_words"]) and not (period["comparison"] and len(places) < 2)))
     if area_comparison:
         topics.add("comparison")
         topics.difference_update(_CHANGE if not change else ())
+
+    if _AREA_PROFILE.search(text.compact):
+        topics.add("area_profile")
 
     has_slot = bool(places or industries or period["period_code"])
     slot_ends = {m["start"] + len(m["text"]) for m in places + industries}
@@ -346,8 +384,12 @@ def classify(message: str, *, context: dict | None = None, today: date | None = 
         slot_ends.add(period_span[1])
     market_words = text.has(kw["market_words"])
     marketing_words = text.has(kw["marketing_words"]) or text.has(kw["growth_cues"])
-    industry_rank = not area_comparison and len(others) <= 1 and _industry_recommend_requested(text, kw, named_industries)
-    ranking = not area_comparison and not industry_rank and _ranking_requested(text, kw, topics, excluded, others)
+    opinion = _opinion_requested(text, others)
+    seoul_wide = not places and bool(_SEOUL_WIDE.search(text.compact))
+    industry_rank = (not opinion and not area_comparison and len(others) <= 1
+                     and _industry_recommend_requested(text, kw, named_industries))
+    ranking = (not opinion and not area_comparison and not industry_rank
+               and _ranking_requested(text, kw, topics, excluded, others))
 
     # 2. Domain and turn type --------------------------------------------------
     domain, turn, needs_model = "market_analysis", None, False
@@ -368,6 +410,13 @@ def classify(message: str, *, context: dict | None = None, today: date | None = 
         turn = "handoff" if text.has(kw["marketing_task_verbs"]) else "advice"
     elif personal and figures and not places and not text.has(kw["personal_scope_words"]):
         turn = "personal_metric"
+    elif seoul_wide and (topics.intersection(_DISTRIBUTION) or "비교" in text.compact or "순위" in text.compact
+                         or (topics.intersection(_SEOUL_SUMS) and not ranking and not industry_rank)):
+        turn = "seoul_overview"
+        reasons.append("서울 전체 분포 질문: 서울 모든 상권의 분기 추정매출을 코드가 합침")
+    elif opinion:
+        turn = "opinion"
+        reasons.append("의견 질문: 판단 기준을 코드가 계산하고 그 근거로 의견을 말함")
     elif industry_rank:
         turn = "industry_rank"
         reasons.append("업종 추천 질문: 상권 안 업종별 분기 추정매출을 코드가 정렬함")
@@ -415,11 +464,18 @@ def classify(message: str, *, context: dict | None = None, today: date | None = 
     elif turn == "industry_rank":
         topics = {"industry_rank"}
         places, industries = others, []
+    elif turn == "opinion":
+        topics = {"opinion"}
+        places = others
+    elif turn == "seoul_overview":
+        topics = topics.intersection((*_DISTRIBUTION, *_SEOUL_SUMS))
     elif turn == "data_question" and not topics.intersection(_SUBJECTS) and "comparison" not in topics:
         topics |= {"sales_total", "stores_count"}
         if not topics.intersection(_CHANGE):
             topics.add("change_yoy")
         defaulted = True
+
+    other_business = bool(excluded_industries) and bool(_OTHER_BUSINESS.search(text.compact))
 
     # 3. Does the user have to pick a candidate? --------------------------------
     needs_choice = False
@@ -457,6 +513,12 @@ def classify(message: str, *, context: dict | None = None, today: date | None = 
         "needs_model": needs_model,
         "analyzer": analyzer.name if analyzer is not None else "rules",
         "reasons": reasons,
+        # Also on a short follow-up the rules cannot place ('전체 업종으로 보면?' is 'unknown' on its own).
+        "other_business": other_business,
+        "all_industries": domain in ("market_analysis", "general") and (bool(ALL_INDUSTRIES.search(text.compact)) or other_business),
+        "near": domain in ("market_analysis", "general") and bool(NEAR.search(text.compact)),
+        # '서울 전체에서 매출 높은 업종': Seoul as a whole, not the saved market.
+        "seoul_scope": not places and "서울" in text.compact,
     }
 
 

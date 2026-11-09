@@ -135,7 +135,8 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(rules("홍대에서 매출 제일 높은 시간대 알려줘")["topics"], ["sales_time"])
         self.assertEqual(rules("요일별 매출 순위")["topics"], ["sales_weekday"])
         self.assertEqual(rules("홍대 유동인구 많은 곳이야?")["turn_type"], "data_question")
-        self.assertIn("comparison", rules("홍대랑 합정 중에 어디가 좋아?")["topics"])
+        # Two named places and '어디가 좋아': the assistant's view on those two (user decision 2026-11-08).
+        self.assertEqual(rules("홍대랑 합정 중에 어디가 좋아?")["turn_type"], "opinion")
         self.assertEqual(rules("노원구 분식집이랑 치킨집 중에 어느 쪽이 더 많아")["turn_type"], "data_question")
 
     def test_places_followed_by_malgo_are_excluded_from_a_ranking(self):

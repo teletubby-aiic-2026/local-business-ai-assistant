@@ -3,6 +3,7 @@
 POST /api/assistant/messages      one user message -> reply, fact cards, choices
 POST /api/assistant/actions       the user picked a choice card
 GET  /api/assistant/conversation  this session's turns and current conditions
+GET  /api/assistant/conversation.md  the same as a Markdown file (development only, export.py)
 DELETE /api/assistant/conversation
 GET  /api/assistant/status
 
@@ -15,9 +16,10 @@ import os
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.assistant import export
 from app.assistant.bridge import OnboardingBridge, endpoint_table, request_with_session
 from app.assistant.flow import AssistantService, _conditions
 from app.assistant.history import AssistantHistory
@@ -94,8 +96,11 @@ def create_assistant_router(store: OnboardingStore, onboarding_router=None, *, c
         owner, token = store.session(request.cookies.get(COOKIE_NAME))
         return owner, token, request_with_session(request, token)
 
+    can_export = export.enabled(cookie_secure)
+
     def respond(data, token):
-        result = JSONResponse(data)
+        # The decision details stay in the stored turn for the development export; the page does not need them.
+        result = JSONResponse({key: value for key, value in data.items() if key != "debug"})
         result.set_cookie(COOKIE_NAME, token, max_age=SESSION_TTL, httponly=True, samesite="strict",
                           secure=cookie_secure, path="/")
         result.headers["Cache-Control"] = "no-store"
@@ -110,7 +115,7 @@ def create_assistant_router(store: OnboardingStore, onboarding_router=None, *, c
         # Report only what is actually wired. Never include credentials or configuration values.
         tools = planner_actions() if planner is not None else []
         return {"enabled": True, "model_connected": writer is not None, "planner_connected": planner is not None,
-                "tools": tools,
+                "tools": tools, "export": can_export,
                 "pipeline": ["classify", "conditions", "snapshot", "fact_cards", "answer_check"]}
 
     @router.post("/messages")
@@ -139,6 +144,30 @@ def create_assistant_router(store: OnboardingStore, onboarding_router=None, *, c
                   "cards": t["response"].get("cards", []), "action": t["response"].get("action")}
                  for t in history.recent(owner)]
         return respond({"turns": turns, "conditions": _conditions(state)}, token)
+
+    @router.get("/conversation.md")
+    def conversation_markdown(request: Request):
+        if not can_export:
+            raise HTTPException(404, "대화 내보내기는 개발 환경에서만 쓸 수 있습니다.")
+        owner, token, scoped = session(request)
+        state = None
+        if table:
+            try:
+                state = OnboardingBridge(table, scoped).state()
+            except HTTPException:
+                state = None
+        text = export.conversation_markdown(history.recent(owner, 50), _conditions(state),
+                                            model=getattr(writer, "model", None))
+        saved = export.save_copy(text, owner)
+        stamp = export.datetime.now(export.KST).strftime("%Y%m%d-%H%M")
+        result = Response(text, media_type="text/markdown; charset=utf-8")
+        result.headers["Content-Disposition"] = f'attachment; filename="assistant-chat-{stamp}.md"'
+        result.headers["Cache-Control"] = "no-store"
+        if saved:
+            result.headers["X-Export-Saved"] = saved
+        result.set_cookie(COOKIE_NAME, token, max_age=SESSION_TTL, httponly=True, samesite="strict",
+                          secure=cookie_secure, path="/")
+        return result
 
     @router.delete("/conversation")
     def clear(request: Request):

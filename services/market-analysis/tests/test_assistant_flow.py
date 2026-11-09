@@ -236,7 +236,7 @@ class AssistantFlowTests(_Env, unittest.TestCase):
                    ("인스타 홍보글 써줘", "리뷰에 불만 글 달렸어 답글 써줘", "임대료는 얼마야?",
                     "우리 가게는 매출이 20% 줄었어요", "안녕하세요", "ㅁㄴㅇㄹ")}
         self.assertEqual(replies, {"인스타 홍보글 써줘": "handoff_marketing", "리뷰에 불만 글 달렸어 답글 써줘": "handoff_customer",
-                                   "임대료는 얼마야?": "out_of_scope", "우리 가게는 매출이 20% 줄었어요": "personal_metric",
+                                   "임대료는 얼마야?": "ask_site_costs", "우리 가게는 매출이 20% 줄었어요": "personal_metric",
                                    "안녕하세요": "smalltalk", "ㅁㄴㅇㄹ": "unknown"})
         self.assertIsNone(self.client.get("/api/onboarding/profile").json()["profile"])
         self.assertEqual(self.analyses.calls, [])
