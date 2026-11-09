@@ -1,0 +1,4 @@
+# Optional: Korean morphological analysis for the assistant question classifier.
+# The B1~B6 analysis app does not need this. Without it the classifier uses rules only.
+# kiwipiepy is Apache-2.0 licensed.
+kiwipiepy==0.24.1
