@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -126,7 +127,30 @@ def draft_texts(result: dict) -> list[str]:
     return [d["text"] for d in result.get("drafts", [])]
 
 
+# 사장님이 하지 않은 조치를 이미 한 것처럼 말하거나, 정하지 않은 보상을 약속하는 문장 (C6 점검이 잡지 못한 것).
+# 예: "공깃밥 추가로 보내드렸어요" (11/9 C6 저장본). 사과("불편을 드려")나 재발 방지 다짐("꼼꼼히 챙기겠습니다")은 잡지 않는다.
+_DONE_ACTION = re.compile(r"(보내|챙겨|넣어|환불|적립|교환|발송|처리|추가|지급|쿠폰)[^.!?\n]{0,12}?드렸")
+_DONE_PROCESS = re.compile(r"(환불|적립|재발송|발송|교환|보상)[^.!?\n]{0,6}?(완료|했습니다|했어요|해 드렸)")
+_PROMISE = re.compile(r"(서비스|쿠폰|환불|적립|보상|무료)[^.!?\n]{0,12}?(드릴게요|드리겠습니다|드릴 예정)")
+
+
+def action_flags(text: str) -> list[str]:
+    """하지 않은 조치·정하지 않은 보상 문장을 찾아 '확인 필요' 문구로 돌려준다."""
+    flags = []
+    checks = ((_DONE_ACTION, "이미 한 조치처럼 말함", "사장님이 실제로 했는지 확인"),
+              (_DONE_PROCESS, "이미 처리한 것처럼 말함", "사장님이 실제로 했는지 확인"),
+              (_PROMISE, "정하지 않은 보상 약속", "사장님이 정한 보상인지 확인"))
+    for pattern, why, ask in checks:
+        for match in pattern.finditer(text or ""):
+            flags.append(f"{why}: '{match.group(0)}' ({ask})")
+    return flags
+
+
 def summarize(result: dict[str, Any]) -> dict[str, Any]:
-    """화면에 바로 쓰기 좋은 모양: 확인이 필요한 글 수."""
-    flagged = [d for d in result.get("drafts", []) if d.get("failed_reasons") or d.get("needs_input")]
-    return {**result, "flagged_count": len(flagged)}
+    """화면에 바로 쓰기 좋은 모양: 글마다 C7 점검(하지 않은 조치)을 붙이고, 확인이 필요한 글 수를 센다."""
+    drafts = []
+    for d in result.get("drafts", []):
+        d = {**d, "c7_flags": action_flags(d.get("text", ""))}
+        drafts.append(d)
+    flagged = [d for d in drafts if d.get("failed_reasons") or d.get("needs_input") or d["c7_flags"]]
+    return {**result, "drafts": drafts, "flagged_count": len(flagged)}

@@ -83,4 +83,6 @@ button.ghost { background: transparent; }
 .issues { margin: 6px 0 0; padding-left: 18px; color: var(--warn); font-size: .85rem; }
 
 .kpi { font-weight: 700; margin-top: 10px; }
+.agent { display: inline-block; font-size: .75rem; font-weight: 600; padding: 1px 8px; margin-right: 6px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent); vertical-align: middle; }
+.agents { margin: 6px 0 14px; }
 .foot { max-width: 1080px; margin: 0 auto; padding: 0 16px 32px; display: flex; gap: 10px; align-items: center; }

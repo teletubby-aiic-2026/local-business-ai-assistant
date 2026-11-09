@@ -107,7 +107,8 @@ def _complaint_plan(insight: dict, store_id: str) -> CardPlan | None:
         card_id=f"card_{_store_key(store_id)}_a", store_id=store_id, kind="complaint",
         reason_text=strip_citations(fixed), review_ids=list(group["review_ids"]),
     )
-    return CardPlan(card=card, title=f"{name} {count}건 → 답글 + 재발 방지 공지", facts=[fact],
+    # 강조점: 같은 불만이 다시 안 생기게 하는 공지가 먼저, 답글은 함께 나오는 것 (결정안 덧붙임 2, 11/10)
+    return CardPlan(card=card, title=f"{name} {count}건 반복 → 재발 방지 공지 + 답글", facts=[fact],
                     checked_text=fixed, reason_source="고정 문장", evidence=evidence)
 
 

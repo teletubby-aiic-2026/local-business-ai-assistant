@@ -123,6 +123,24 @@ class CardRules(unittest.TestCase):
         self.assertIn("저녁 손님을", plan.card.reason_text)
         self.assertNotIn("변화율", plan.title)
 
+    def test_complaint_title_puts_prevention_first(self):
+        """강조점(11/10): 반복 → 재발 방지 공지가 먼저, 답글은 함께."""
+        plan = plan_cards(fixture("insight_ongi.json"), [], "store_ongi")[0]
+        self.assertEqual(plan.title, "포장 누락 3건 반복 → 재발 방지 공지 + 답글")
+
+    def test_action_flags(self):
+        """하지 않은 조치·정하지 않은 보상은 '확인 필요', 사과와 재발 방지 다짐은 통과."""
+        from web.generate import action_flags, summarize
+        self.assertTrue(action_flags("공깃밥 추가로 보내드렸어요."))
+        self.assertTrue(action_flags("환불 처리 완료했습니다."))
+        self.assertTrue(action_flags("다음 주문 때 서비스로 음료 드릴게요."))
+        for ok in ("불편을 드려 죄송합니다.", "불편을 드렸네요, 죄송해요.", "다음부터는 꼼꼼히 챙겨 드리겠습니다.",
+                   "포장 마감 전 주문서를 한 번 더 확인할게요."):
+            self.assertEqual(action_flags(ok), [], ok)
+        r = summarize({"drafts": [{"text": "공깃밥 추가로 보내드렸어요."}, {"text": "죄송합니다."}]})
+        self.assertEqual(r["flagged_count"], 1)
+        self.assertEqual(len(r["drafts"][0]["c7_flags"]), 1)
+
     def test_no_fall_through_to_another_metric(self):
         """고른 지표가 하락이 아니면 카드 ⓑ 없음. 하락인 다른 지표를 찾아 내려가지 않는다."""
         rising = snap(snapshot_id=EVENING_ID, value=3.0)
