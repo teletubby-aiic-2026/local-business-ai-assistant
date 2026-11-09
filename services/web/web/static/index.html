@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>텔레토비 AI 비서</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <strong>텔레토비 AI 비서</strong>
+      <span id="store-name" class="muted"></span>
+    </div>
+    <div class="top-right">
+      <span id="mode-chip" class="chip"></span>
+      <span id="timer" class="timer" title="시작 버튼부터 마지막 승인까지 (C8 측정용)">00:00</span>
+    </div>
+  </header>
+
+  <div id="honesty" class="honesty" aria-label="동작과 모의 표시"></div>
+  <div id="alert" class="alert" hidden></div>
+
+  <main>
+    <section id="hero" class="hero">
+      <p class="hero-time">밤 11시</p>
+      <h1 id="hero-title">오늘 들어온 리뷰를 정리해 둘게요</h1>
+      <p class="muted">불만이 반복된 것부터 답글·공지를 준비하고, 사장님은 확인하고 승인만 하시면 돼요.</p>
+      <button id="start" class="primary big" type="button" disabled>불러오는 중…</button>
+    </section>
+
+    <section id="step1" class="step" hidden>
+      <h2><span class="num">①</span> 오늘의 브리핑</h2>
+      <div id="funnel" class="funnel"></div>
+      <div class="grid2">
+        <div>
+          <h3>불만 묶음</h3>
+          <div id="groups"></div>
+          <details id="singles-box">
+            <summary id="singles-title">묶이지 않은 불만</summary>
+            <ul id="singles" class="plain"></ul>
+          </details>
+        </div>
+        <div>
+          <h3>상권 지표</h3>
+          <div id="market"></div>
+          <details id="paste-box" class="paste">
+            <summary>리뷰 직접 붙여넣기</summary>
+            <p class="muted small">배달앱에서 복사한 리뷰를 붙여 넣으면 바로 분류해 묶음에 더해요. 이름·전화번호는 가려서 저장해요.</p>
+            <textarea id="paste-text" rows="3" placeholder="예) 반찬이 하나 빠져서 왔어요"></textarea>
+            <div class="row">
+              <button id="paste-send" type="button">붙여넣기</button>
+              <button id="paste-reset" type="button" class="ghost">붙여넣은 리뷰 지우기</button>
+            </div>
+            <p id="paste-msg" class="small muted"></p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="step2" class="step" hidden>
+      <h2><span class="num">②</span> 오늘 할 일 추천</h2>
+      <div id="cards" class="cards"></div>
+      <p id="no-card-b" class="muted small"></p>
+    </section>
+
+    <section id="step3" class="step" hidden>
+      <h2><span class="num">③</span> 준비된 글 <span class="num">④</span> 확인하고 승인</h2>
+      <div id="results"></div>
+    </section>
+
+    <section id="log" class="step" hidden>
+      <h2>처리 완료 기록</h2>
+      <ul id="approvals" class="plain"></ul>
+      <p id="kpi" class="kpi"></p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <button id="record" type="button" class="ghost" hidden>발표 모드로 저장</button>
+    <span id="foot-msg" class="small muted"></span>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
