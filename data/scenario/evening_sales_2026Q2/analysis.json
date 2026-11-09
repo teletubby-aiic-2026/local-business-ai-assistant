@@ -1,0 +1,481 @@
+{
+  "schema_version": "c4-evening-comparison-v1",
+  "prepared_on_kst": "2026-11-09",
+  "previous_quarter": "2025Q2",
+  "current_quarter": "2026Q2",
+  "unit": "원",
+  "time_definition": {
+    "primary": "17:00-24:00",
+    "primary_fields": [
+      "TMZON_17_21_SELNG_AMT",
+      "TMZON_21_24_SELNG_AMT"
+    ],
+    "sensitivity": [
+      "17:00-21:00",
+      "21:00-24:00"
+    ],
+    "note": "팀 요청에 시간 경계가 없어 이 분석에서 명시적으로 정의. 하루 전체 매출과 구분."
+  },
+  "formula": "(current - previous) / previous * 100; previous=0 -> null",
+  "candidates": [
+    {
+      "area_code": "3110826",
+      "area_name": "장승배기역 4번",
+      "district": "동작구",
+      "area_type": "골목상권",
+      "observed_industry_counts": {
+        "20252": 14,
+        "20262": 12
+      },
+      "common_industry_count": 12,
+      "common_industries": [
+        {
+          "code": "CS100001",
+          "name": "한식음식점"
+        },
+        {
+          "code": "CS100008",
+          "name": "분식전문점"
+        },
+        {
+          "code": "CS100009",
+          "name": "호프-간이주점"
+        },
+        {
+          "code": "CS100010",
+          "name": "커피-음료"
+        },
+        {
+          "code": "CS200001",
+          "name": "일반교습학원"
+        },
+        {
+          "code": "CS200003",
+          "name": "예술학원"
+        },
+        {
+          "code": "CS200005",
+          "name": "스포츠 강습"
+        },
+        {
+          "code": "CS200028",
+          "name": "미용실"
+        },
+        {
+          "code": "CS200029",
+          "name": "네일숍"
+        },
+        {
+          "code": "CS200030",
+          "name": "피부관리실"
+        },
+        {
+          "code": "CS200031",
+          "name": "세탁소"
+        },
+        {
+          "code": "CS300001",
+          "name": "슈퍼마켓"
+        }
+      ],
+      "not_observed_in_current": [
+        {
+          "code": "CS300011",
+          "name": "일반의류"
+        },
+        {
+          "code": "CS300022",
+          "name": "화장품"
+        }
+      ],
+      "newly_observed_in_current": [],
+      "observed": {
+        "17_21": {
+          "previous": 2047243718,
+          "current": 1608711501,
+          "absolute_change": -438532217,
+          "change_percent": -21.42061607732822
+        },
+        "21_24": {
+          "previous": 755017699,
+          "current": 633260353,
+          "absolute_change": -121757346,
+          "change_percent": -16.126422752905558
+        },
+        "17_24": {
+          "previous": 2802261417,
+          "current": 2241971854,
+          "absolute_change": -560289563,
+          "change_percent": -19.994193246960727
+        }
+      },
+      "common": {
+        "17_21": {
+          "previous": 2023368833,
+          "current": 1608711501,
+          "absolute_change": -414657332,
+          "change_percent": -20.493413026689634
+        },
+        "21_24": {
+          "previous": 755017699,
+          "current": 633260353,
+          "absolute_change": -121757346,
+          "change_percent": -16.126422752905558
+        },
+        "17_24": {
+          "previous": 2778386532,
+          "current": 2241971854,
+          "absolute_change": -536414678,
+          "change_percent": -19.306697315937033
+        }
+      }
+    },
+    {
+      "area_code": "3110827",
+      "area_name": "NH농협은행 상도동지점",
+      "district": "동작구",
+      "area_type": "골목상권",
+      "observed_industry_counts": {
+        "20252": 12,
+        "20262": 14
+      },
+      "common_industry_count": 11,
+      "common_industries": [
+        {
+          "code": "CS100001",
+          "name": "한식음식점"
+        },
+        {
+          "code": "CS100008",
+          "name": "분식전문점"
+        },
+        {
+          "code": "CS100009",
+          "name": "호프-간이주점"
+        },
+        {
+          "code": "CS100010",
+          "name": "커피-음료"
+        },
+        {
+          "code": "CS200006",
+          "name": "일반의원"
+        },
+        {
+          "code": "CS200028",
+          "name": "미용실"
+        },
+        {
+          "code": "CS200037",
+          "name": "노래방"
+        },
+        {
+          "code": "CS300001",
+          "name": "슈퍼마켓"
+        },
+        {
+          "code": "CS300011",
+          "name": "일반의류"
+        },
+        {
+          "code": "CS300018",
+          "name": "의약품"
+        },
+        {
+          "code": "CS300019",
+          "name": "의료기기"
+        }
+      ],
+      "not_observed_in_current": [
+        {
+          "code": "CS100007",
+          "name": "치킨전문점"
+        }
+      ],
+      "newly_observed_in_current": [
+        {
+          "code": "CS200003",
+          "name": "예술학원"
+        },
+        {
+          "code": "CS200031",
+          "name": "세탁소"
+        },
+        {
+          "code": "CS300010",
+          "name": "반찬가게"
+        }
+      ],
+      "observed": {
+        "17_21": {
+          "previous": 1437361420,
+          "current": 2034611186,
+          "absolute_change": 597249766,
+          "change_percent": 41.55181554824256
+        },
+        "21_24": {
+          "previous": 337367389,
+          "current": 486653055,
+          "absolute_change": 149285666,
+          "change_percent": 44.25017677093858
+        },
+        "17_24": {
+          "previous": 1774728809,
+          "current": 2521264241,
+          "absolute_change": 746535432,
+          "change_percent": 42.06476100540947
+        }
+      },
+      "common": {
+        "17_21": {
+          "previous": 1387760409,
+          "current": 1856783420,
+          "absolute_change": 469023011,
+          "change_percent": 33.797117136233275
+        },
+        "21_24": {
+          "previous": 291302036,
+          "current": 340218983,
+          "absolute_change": 48916947,
+          "change_percent": 16.792518058473163
+        },
+        "17_24": {
+          "previous": 1679062445,
+          "current": 2197002403,
+          "absolute_change": 517939958,
+          "change_percent": 30.846974127874084
+        }
+      }
+    },
+    {
+      "area_code": "3110830",
+      "area_name": "상도초등학교",
+      "district": "동작구",
+      "area_type": "골목상권",
+      "observed_industry_counts": {
+        "20252": 7,
+        "20262": 7
+      },
+      "common_industry_count": 7,
+      "common_industries": [
+        {
+          "code": "CS100001",
+          "name": "한식음식점"
+        },
+        {
+          "code": "CS100010",
+          "name": "커피-음료"
+        },
+        {
+          "code": "CS200001",
+          "name": "일반교습학원"
+        },
+        {
+          "code": "CS200003",
+          "name": "예술학원"
+        },
+        {
+          "code": "CS200005",
+          "name": "스포츠 강습"
+        },
+        {
+          "code": "CS200028",
+          "name": "미용실"
+        },
+        {
+          "code": "CS300001",
+          "name": "슈퍼마켓"
+        }
+      ],
+      "not_observed_in_current": [],
+      "newly_observed_in_current": [],
+      "observed": {
+        "17_21": {
+          "previous": 466132579,
+          "current": 386705160,
+          "absolute_change": -79427419,
+          "change_percent": -17.039662657863698
+        },
+        "21_24": {
+          "previous": 129273919,
+          "current": 103354745,
+          "absolute_change": -25919174,
+          "change_percent": -20.049809118883445
+        },
+        "17_24": {
+          "previous": 595406498,
+          "current": 490059905,
+          "absolute_change": -105346593,
+          "change_percent": -17.693221917104438
+        }
+      },
+      "common": {
+        "17_21": {
+          "previous": 466132579,
+          "current": 386705160,
+          "absolute_change": -79427419,
+          "change_percent": -17.039662657863698
+        },
+        "21_24": {
+          "previous": 129273919,
+          "current": 103354745,
+          "absolute_change": -25919174,
+          "change_percent": -20.049809118883445
+        },
+        "17_24": {
+          "previous": 595406498,
+          "current": 490059905,
+          "absolute_change": -105346593,
+          "change_percent": -17.693221917104438
+        }
+      }
+    },
+    {
+      "area_code": "3110829",
+      "area_name": "장승배기역 5번",
+      "district": "동작구",
+      "area_type": "골목상권",
+      "observed_industry_counts": {
+        "20252": 2,
+        "20262": 2
+      },
+      "common_industry_count": 2,
+      "common_industries": [
+        {
+          "code": "CS100001",
+          "name": "한식음식점"
+        },
+        {
+          "code": "CS200028",
+          "name": "미용실"
+        }
+      ],
+      "not_observed_in_current": [],
+      "newly_observed_in_current": [],
+      "observed": {
+        "17_21": {
+          "previous": 19097188,
+          "current": 20532352,
+          "absolute_change": 1435164,
+          "change_percent": 7.5150540487950375
+        },
+        "21_24": {
+          "previous": 4138108,
+          "current": 3971619,
+          "absolute_change": -166489,
+          "change_percent": -4.023312103019061
+        },
+        "17_24": {
+          "previous": 23235296,
+          "current": 24503971,
+          "absolute_change": 1268675,
+          "change_percent": 5.460119810825737
+        }
+      },
+      "common": {
+        "17_21": {
+          "previous": 19097188,
+          "current": 20532352,
+          "absolute_change": 1435164,
+          "change_percent": 7.5150540487950375
+        },
+        "21_24": {
+          "previous": 4138108,
+          "current": 3971619,
+          "absolute_change": -166489,
+          "change_percent": -4.023312103019061
+        },
+        "17_24": {
+          "previous": 23235296,
+          "current": 24503971,
+          "absolute_change": 1268675,
+          "change_percent": 5.460119810825737
+        }
+      }
+    },
+    {
+      "area_code": "3110822",
+      "area_name": "신대방삼거리역 4번(대림초등학교)",
+      "district": "동작구",
+      "area_type": "골목상권",
+      "observed_industry_counts": {
+        "20252": 2,
+        "20262": 3
+      },
+      "common_industry_count": 2,
+      "common_industries": [
+        {
+          "code": "CS200028",
+          "name": "미용실"
+        },
+        {
+          "code": "CS300020",
+          "name": "서적"
+        }
+      ],
+      "not_observed_in_current": [],
+      "newly_observed_in_current": [
+        {
+          "code": "CS200001",
+          "name": "일반교습학원"
+        }
+      ],
+      "observed": {
+        "17_21": {
+          "previous": 2957541,
+          "current": 13343345,
+          "absolute_change": 10385804,
+          "change_percent": 351.16348344790487
+        },
+        "21_24": {
+          "previous": 0,
+          "current": 2820722,
+          "absolute_change": 2820722,
+          "change_percent": null
+        },
+        "17_24": {
+          "previous": 2957541,
+          "current": 16164067,
+          "absolute_change": 13206526,
+          "change_percent": 446.537376827574
+        }
+      },
+      "common": {
+        "17_21": {
+          "previous": 2957541,
+          "current": 4889633,
+          "absolute_change": 1932092,
+          "change_percent": 65.32764888128347
+        },
+        "21_24": {
+          "previous": 0,
+          "current": 0,
+          "absolute_change": 0,
+          "change_percent": null
+        },
+        "17_24": {
+          "previous": 2957541,
+          "current": 4889633,
+          "absolute_change": 1932092,
+          "change_percent": 65.32764888128347
+        }
+      }
+    }
+  ],
+  "selection": {
+    "candidate_count": 5,
+    "anchor_from_existing_pr17": "3110826",
+    "rule": "Among these five candidates, require negative observed and common-industry 17-24 YoY; select the lowest common-industry YoY (tie: area code).",
+    "selected_area_code": "3110826",
+    "selected_area_name": "장승배기역 4번",
+    "eligible_area_codes": [
+      "3110826",
+      "3110830"
+    ],
+    "claim_scope": "이 후보 5곳 안에서의 선택. 서울 전체 순위·통계적 유의성 검정·무작위 대표표본이 아님."
+  },
+  "source_row_count": 75,
+  "source_page_count": 44,
+  "missing_policy": "미관측 업종은 0으로 채우지 않음. 공통은 각 상권의 비교 두 분기 교집합이며 기존 8개 분기 공통과 다름.",
+  "source_url": "https://data.seoul.go.kr/dataList/OA-15572/S/1/datasetView.do"
+}
