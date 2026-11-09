@@ -1,193 +1,88 @@
-"""C6 contract 매핑 검증 — 팀 데이터 샘플로, AI 호출 없음."""
+"""C6 contract 검증 — shared.contracts 기준, AI 호출 없음."""
 
 import unittest
 
-from c6.contract import to_ctx, _merge_labels, _map_store, make_cards_from_c3
-
-# ── 팀 데이터 앞부분 샘플 (C2 store_basak 기준) ──────────────────────
-
-SAMPLE_STORE = {
-    "store_id": "store_basak",
-    "name": "바삭치킨 (가상)",
-    "business_type": "chicken",
-    "business_type_name": "치킨전문점",
-    "channels": ["baemin", "coupangeats", "yogiyo", "naver_place"],
-    "menu": ["후라이드", "양념치킨", "반반", "순살 치킨", "치즈볼", "콜라"],
-    "data_origin": "synthetic",
-}
-
-SAMPLE_REVIEWS = [
-    {
-        "review_id": "rv_basak_001",
-        "store_id": "store_basak",
-        "channel": "baemin",
-        "rating": 1,
-        "text": "양념 소스를 따로 요청했는데 안 왔어요",
-        "created_at": "2026-10-14T22:15:00+09:00",
-        "order_ref": None,
-        "input_method": "sample",
-        "pii_masked": False,
-        "status": "new",
-        "data_origin": "synthetic",
-    },
-    {
-        "review_id": "rv_basak_002",
-        "store_id": "store_basak",
-        "channel": "coupangeats",
-        "rating": 2,
-        "text": "치킨무가 빠져 있었어요. 치킨에 무가 없으면 어떡해요",
-        "created_at": "2026-10-20T21:40:00+09:00",
-        "order_ref": None,
-        "input_method": "sample",
-        "pii_masked": False,
-        "status": "new",
-        "data_origin": "synthetic",
-    },
-    {
-        "review_id": "rv_basak_003",
-        "store_id": "store_basak",
-        "channel": "yogiyo",
-        "rating": 2,
-        "text": "콜라 시켰는데 누락됐네요",
-        "created_at": "2026-10-27T22:30:00+09:00",
-        "order_ref": None,
-        "input_method": "sample",
-        "pii_masked": False,
-        "status": "new",
-        "data_origin": "synthetic",
-    },
-]
-
-SAMPLE_LABELS = [
-    {
-        "review_id": "rv_basak_001",
-        "expected_sentiment": "negative",
-        "expected_topics": [{"topic": "missing_item", "polarity": "negative"}],
-        "note": "소스 누락",
-    },
-    {
-        "review_id": "rv_basak_002",
-        "expected_sentiment": "negative",
-        "expected_topics": [{"topic": "missing_item", "polarity": "negative"}],
-        "note": "무 누락",
-    },
-    {
-        "review_id": "rv_basak_003",
-        "expected_sentiment": "negative",
-        "expected_topics": [{"topic": "missing_item", "polarity": "negative"}],
-        "note": "음료 누락",
-    },
-]
+from shared.contracts import (
+    StoreProfile, ReviewRecord, ToneProfile, RecommendationCard, AnalysisSnapshot,
+)
+from shared.sample_scenario import (
+    SAMPLE_STORE, SAMPLE_REVIEWS, SAMPLE_SNAPSHOTS, SAMPLE_TONE, SAMPLE_CARDS,
+)
+from c6.contract import C6Context, build_context
 
 
-class TestMergeLabels(unittest.TestCase):
-    def test_sentiment_mapped(self):
-        merged = _merge_labels(SAMPLE_REVIEWS, SAMPLE_LABELS)
-        self.assertEqual(merged[0]["sentiment"], "negative")
+class TestBuildContextDefaults(unittest.TestCase):
+    def test_defaults_populate_from_sample(self):
+        ctx = build_context()
+        self.assertIsInstance(ctx.store, StoreProfile)
+        self.assertEqual(ctx.store.store_id, "store_ongi")
+        self.assertEqual(len(ctx.reviews), 3)
+        for rv in ctx.reviews:
+            self.assertIsInstance(rv, ReviewRecord)
+        self.assertIsInstance(ctx.tone, ToneProfile)
+        self.assertEqual(ctx.tone.tone_id, "tone_ongi")
+        for card in ctx.cards:
+            self.assertIsInstance(card, RecommendationCard)
+        for snap in ctx.snapshots:
+            self.assertIsInstance(snap, AnalysisSnapshot)
+        self.assertIsInstance(ctx.owner_replies, list)
+        self.assertIsInstance(ctx.policies, list)
+        self.assertTrue(all("팀 데이터에 없음" in n for n in ctx.needs_input))
 
-    def test_topics_flat_list(self):
-        merged = _merge_labels(SAMPLE_REVIEWS, SAMPLE_LABELS)
-        self.assertEqual(merged[1]["topics"], ["missing_item"])
+    def test_custom_store_no_needs(self):
+        ctx = build_context(
+            store=SAMPLE_STORE,
+            reviews=list(SAMPLE_REVIEWS),
+            tone=SAMPLE_TONE,
+            cards=list(SAMPLE_CARDS),
+            snapshots=list(SAMPLE_SNAPSHOTS),
+            owner_replies=["안녕하세요"],
+            policies=[{"policy_id": "P1", "text": "정책"}],
+        )
+        self.assertEqual(ctx.needs_input, [])
+        self.assertEqual(ctx.store.store_id, "store_ongi")
+        self.assertEqual(len(ctx.reviews), 3)
 
-    def test_negative_topics_extracted(self):
-        merged = _merge_labels(SAMPLE_REVIEWS, SAMPLE_LABELS)
-        self.assertEqual(merged[2]["negative_topics"], ["missing_item"])
-
-    def test_urgency_none(self):
-        merged = _merge_labels(SAMPLE_REVIEWS, SAMPLE_LABELS)
-        for rv in merged:
-            self.assertIsNone(rv["urgency"])
-
-    def test_no_label_defaults(self):
-        merged = _merge_labels(SAMPLE_REVIEWS, [])
-        self.assertIsNone(merged[0]["sentiment"])
-        self.assertEqual(merged[0]["topics"], [])
-        self.assertEqual(merged[0]["negative_topics"], [])
-
-    def test_mixed_polarity(self):
-        labels = [{
-            "review_id": "rv_basak_001",
-            "expected_sentiment": "mixed",
-            "expected_topics": [
-                {"topic": "taste", "polarity": "positive"},
-                {"topic": "wait_time", "polarity": "negative"},
-            ],
-        }]
-        merged = _merge_labels(SAMPLE_REVIEWS[:1], labels)
-        self.assertEqual(merged[0]["topics"], ["taste", "wait_time"])
-        self.assertEqual(merged[0]["negative_topics"], ["wait_time"])
-
-
-class TestMapStore(unittest.TestCase):
-    def test_defaults_added(self):
-        mapped = _map_store(SAMPLE_STORE)
-        self.assertEqual(mapped["city"], "서울")
-        self.assertIsNone(mapped["area_name"])
-        self.assertEqual(mapped["menu_prices"], {})
-
-    def test_original_preserved(self):
-        mapped = _map_store(SAMPLE_STORE)
-        self.assertEqual(mapped["store_id"], "store_basak")
-        self.assertEqual(mapped["name"], "바삭치킨 (가상)")
+    def test_partial_fills_rest_with_dummy(self):
+        ctx = build_context(store=SAMPLE_STORE, reviews=list(SAMPLE_REVIEWS))
+        self.assertNotIn("리뷰", " ".join(ctx.needs_input))
+        self.assertIn("팀 데이터에 없음: 사장님 말투(ToneProfile)", ctx.needs_input)
 
 
-class TestMakeCards(unittest.TestCase):
-    def test_repeated_complaint_card(self):
-        classified = _merge_labels(SAMPLE_REVIEWS, SAMPLE_LABELS)
-        cards = make_cards_from_c3(classified, "store_basak")
-        complaint = [c for c in cards if c["kind"] == "complaint"]
-        self.assertEqual(len(complaint), 1)
-        self.assertIn("missing_item", complaint[0]["reason_text"])
-        self.assertEqual(len(complaint[0]["review_ids"]), 3)
+class TestC6Context(unittest.TestCase):
+    def test_slots(self):
+        ctx = build_context()
+        with self.assertRaises(AttributeError):
+            ctx.nonexistent = "test"  # type: ignore[attr-defined]
 
-    def test_promo_card_always_present(self):
-        classified = _merge_labels(SAMPLE_REVIEWS, SAMPLE_LABELS)
-        cards = make_cards_from_c3(classified, "store_basak")
-        promo = [c for c in cards if c["kind"] == "promo"]
-        self.assertEqual(len(promo), 1)
-        self.assertEqual(promo[0]["snapshot_ids"], ["snap_dummy_01"])
-
-    def test_no_repeated_no_complaint_card(self):
-        one_review = _merge_labels(SAMPLE_REVIEWS[:1], SAMPLE_LABELS[:1])
-        cards = make_cards_from_c3(one_review, "store_basak")
-        complaint = [c for c in cards if c["kind"] == "complaint"]
-        self.assertEqual(len(complaint), 0)
+    def test_dataclass_instances_used_directly(self):
+        ctx = build_context()
+        self.assertEqual(ctx.store.name, SAMPLE_STORE.name)
+        self.assertEqual(ctx.reviews[0].review_id, SAMPLE_REVIEWS[0].review_id)
+        self.assertEqual(ctx.tone.style_description, SAMPLE_TONE.style_description)
+        self.assertEqual(ctx.cards[0].kind, "complaint")
+        self.assertEqual(ctx.snapshots[0].snapshot_id, SAMPLE_SNAPSHOTS[0].snapshot_id)
 
 
-class TestToCtx(unittest.TestCase):
-    def test_full_team_data(self):
-        raw = {
-            "store": SAMPLE_STORE,
-            "reviews": SAMPLE_REVIEWS,
-            "labels": SAMPLE_LABELS,
-        }
-        ctx = to_ctx(raw)
-        self.assertEqual(ctx["store"]["city"], "서울")
-        self.assertEqual(len(ctx["reviews"]), 3)
-        self.assertEqual(ctx["reviews"][0]["sentiment"], "negative")
-        self.assertTrue(len(ctx["cards"]) >= 1)
-        self.assertIn("tone", ctx)
-        self.assertIn("owner_replies", ctx)
-        self.assertIn("policies", ctx)
-        self.assertIn("snapshots", ctx)
-        for item in ctx["needs_input"]:
-            self.assertIn("팀 데이터에 없음", item)
+class TestSampleDataIntegrity(unittest.TestCase):
+    def test_review_ids_match_card(self):
+        complaint_card = next(c for c in SAMPLE_CARDS if c.kind == "complaint")
+        review_ids = {r.review_id for r in SAMPLE_REVIEWS}
+        for rid in complaint_card.review_ids:
+            self.assertIn(rid, review_ids)
 
-    def test_empty_raw(self):
-        ctx = to_ctx({})
-        self.assertIn("store", ctx["needs_input"])
-        self.assertIn("reviews", ctx["needs_input"])
+    def test_snapshot_ids_match_promo_card(self):
+        promo_card = next(c for c in SAMPLE_CARDS if c.kind == "promo")
+        snapshot_ids = {s.snapshot_id for s in SAMPLE_SNAPSHOTS}
+        for sid in promo_card.snapshot_ids:
+            self.assertIn(sid, snapshot_ids)
 
-    def test_cards_auto_generated(self):
-        raw = {
-            "store": SAMPLE_STORE,
-            "reviews": SAMPLE_REVIEWS,
-            "labels": SAMPLE_LABELS,
-        }
-        ctx = to_ctx(raw)
-        self.assertNotIn("cards", ctx["needs_input"])
-        complaint = [c for c in ctx["cards"] if c["kind"] == "complaint"]
-        self.assertEqual(len(complaint), 1)
+    def test_tone_has_forbidden_phrases(self):
+        self.assertTrue(len(SAMPLE_TONE.forbidden_phrases) > 0)
+
+    def test_tone_has_style(self):
+        self.assertTrue(len(SAMPLE_TONE.style_description) > 0)
+        self.assertTrue(len(SAMPLE_TONE.example_sentences) > 0)
 
 
 if __name__ == "__main__":
