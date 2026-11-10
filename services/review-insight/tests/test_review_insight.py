@@ -431,3 +431,15 @@ def test_paste_keeps_scenario_window(client):
     assert (after["period_start"], after["period_end"]) == (before["period_start"], before["period_end"])
     assert after["review_count"] == before["review_count"] + 1
     client.delete("/api/review-insight/reviews/pasted")
+
+
+def test_benchmark_v1_is_valid_and_separate():
+    """벤치마크 v1: 원본이 정답 형식에 맞고, 연습용·시험용·AI 예문(review_examples.json)이 서로 겹치지 않는다."""
+    import json
+    from scripts import make_benchmark as mb
+    dev, test = mb.build("dev")[0], mb.build("test")[0]
+    assert (len(dev), len(test)) == (360, 240)
+    examples = {e["text"] for e in json.loads((mb.ROOT / "data" / "examples" / "review_examples.json").read_text(encoding="utf-8"))["examples"]}
+    texts_dev, texts_test = {r["text"] for r in dev}, {r["text"] for r in test}
+    assert not texts_dev & texts_test
+    assert not (texts_dev | texts_test) & examples

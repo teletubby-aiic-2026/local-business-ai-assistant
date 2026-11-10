@@ -1,0 +1,376 @@
+# 리뷰 분류 벤치마크 v1 · 연습용(dev) 원본. 이건영·Claude 작성 (HCX 미사용). 정답 기준은 ../GUIDE.md
+# 형식: 가게 별점 채널 | 감정 | 주제(+칭찬 -불만, 공백 구분) | 태그(쉼표) | 리뷰 글
+# 가게 hs 가온밥상(한식) ck 노을치킨 cf 모래커피 bs 또바기분식 cn 홍반점(중식) · 채널 bm 배민 cp 쿠팡이츠 yg 요기요 np 네이버플레이스(방문) · 별점 - 는 없음
+# 감정 p 칭찬 n 불만 m 섞임 u 보통
+
+## 가온밥상 (한식) 60
+hs 5 bm | p | taste+ | plain | 제육볶음이 집에서 해 먹는 맛이라 좋아요
+hs 5 cp | p | portion+ taste+ | multi | 양도 넉넉하고 간도 딱 맞았어요
+hs 2 bm | n | missing_item- | plain | 된장찌개 시켰는데 공깃밥이 안 왔어요
+hs 1 yg | n | delivery_time- temperature- | multi | 한 시간 넘게 걸려서 왔고 찌개가 다 식었어요
+hs 4 bm | m | taste+ portion- | multi,mixed | 맛은 좋은데 고기 양이 좀 적어요
+hs 5 cp | p | packaging+ | negation | 국물 하나 안 새고 꼼꼼하게 포장돼 왔어요
+hs 3 bm | u | | no_topic | 보통이에요
+hs 5 yg | p | | no_topic,short | 또 시킬게요
+hs 2 cp | n | taste- | plain | 김치찌개가 너무 짜서 물 붓고 먹었어요
+hs 4 bm | p | menu+ | plain | 반찬 가짓수가 많아서 좋아요
+hs 1 bm | n | hygiene- | plain | 반찬에서 머리카락이 나왔어요
+hs 5 bm | p | service+ | request | 요청사항에 적은 대로 맵기 조절해 주셔서 감사해요
+hs 2 yg | n | service- | request | 덜 맵게 해 달라고 적었는데 그대로 매웠어요
+hs 5 cp | p | taste+ | typo | 존맛 제육 맛잇어요 진짜
+hs 4 bm | p | delivery_time+ temperature+ | multi | 배달이 빨라서 밥이 따끈따끈했어요
+hs 3 bm | m | taste+ price- | multi,mixed | 맛은 괜찮은데 만오천원은 좀 비싸요
+hs 2 cp | n | portion- price- | multi,compare | 가격은 올랐는데 양은 예전보다 줄었어요
+hs 5 bm | p | taste+ | slang | 불고기덮밥 ㄹㅇ 맛집 인정 ㅋㅋ
+hs 1 yg | n | delivery_time- | sarcasm | 배달 참 빠르네요 1시간 20분 ㅎㅎ
+hs 5 bm | n | packaging- | rating_mismatch | 별 다섯 개 드리지만 찌개 국물이 봉투에 다 샜어요
+hs 4 cp | m | texture+ temperature- | multi,mixed | 계란말이는 부드러웠는데 밥이 좀 식어 있었어요
+hs 2 bm | n | missing_item- | plain | 계란말이 추가했는데 빠져 있었어요
+hs 5 bm | p | taste+ | plain | 반찬이 정갈하고 맛있어서 기분 좋게 먹었어요
+hs 3 yg | m | taste+ texture- | multi,mixed | 맛은 있는데 고기가 좀 질겨요
+hs 5 cp | p | service+ | plain | 서비스로 계란후라이 넣어 주셔서 감사합니다
+hs 1 bm | n | missing_item- | plain | 된장찌개 시켰는데 김치찌개가 왔어요
+hs 4 bm | p | portion+ | negation | 양이 적지 않아서 둘이 나눠 먹었어요
+hs 2 cp | n | temperature- | typo | 밥이 차갑게왔어요 전자렌지 돌려먹엇네요
+hs 5 bm | p | | short,no_topic | 굿
+hs 1 yg | n | | short,no_topic | 다신 안 시켜요
+hs 4 bm | m | taste+ menu- | multi,mixed | 맛은 좋은데 반찬이 매번 똑같아요
+hs 5 cp | p | taste+ portion+ price+ | multi | 이 가격에 이 양에 이 맛이면 가성비 최고예요
+hs 2 bm | n | packaging- | plain | 뚜껑이 제대로 안 닫혀서 반찬이 섞여 왔어요
+hs 3 bm | u | | no_topic | 그냥 그래요 무난합니다
+hs 5 yg | p | taste+ | long | 혼자 사는데 집밥이 그리울 때마다 시켜요. 된장찌개가 엄마가 끓여 주던 맛이에요. 앞으로도 자주 시킬게요
+hs 2 cp | n | delivery_time- missing_item- | multi | 늦게 온 것도 모자라 수저도 없었어요
+hs 4 bm | p | temperature+ | negation | 좀 멀리 사는데도 하나도 안 식었어요
+hs 1 bm | n | taste- | plain | 고기에서 잡내가 나요
+hs 5 cp | p | menu+ | plain | 메뉴가 다양해서 고르는 재미가 있어요
+hs 3 yg | m | portion+ taste- | multi,mixed | 양은 많은데 간이 너무 싱거워요
+hs - bm | n | missing_item- | plain | 반찬 하나가 덜 왔어요
+hs 5 bm | p | packaging+ | plain | 포장이 깔끔해서 선물해도 되겠어요
+hs 2 cp | n | service- | plain | 전화로 문의했는데 너무 퉁명스럽게 받으셨어요
+hs 4 bm | p | taste+ | compare | 예전보다 맛이 더 좋아졌어요
+hs 1 yg | n | hygiene- | plain | 밥에서 작은 돌이 씹혔어요
+hs 5 bm | p | taste+ service+ | multi | 맛있고 사장님 손편지까지 들어 있어서 감동이에요
+hs 3 cp | m | delivery_time+ temperature- | multi,mixed | 배달은 빨랐는데 국이 미지근했어요
+hs 2 bm | n | texture- | plain | 돈까스가 눅눅해서 아쉬웠어요
+hs 5 bm | p | taste+ | slang,emoji | 제육 미쳤어요 👍👍
+hs 4 yg | p | | no_topic | 번창하세요 사장님
+hs 1 cp | n | missing_item- | plain | 두 개 시켰는데 하나만 들어 있었어요
+hs 5 bm | p | portion+ | plain | 밥 양이 넉넉해요
+hs 2 bm | n | menu- | plain | 주문한 메뉴가 품절이라고 다른 걸로 바꿔서 보내셨어요
+hs 4 cp | p | taste+ packaging+ | multi | 맛도 좋고 포장도 깔끔했어요
+hs 3 bm | m | taste+ delivery_time- | multi,mixed | 맛있는데 배달이 좀 늦었어요
+hs 5 bm | p | taste+ | pii | 너무 맛있어요 단체 주문 문의는 010-2345-6789로 연락 부탁드려요
+hs 1 yg | n | taste- temperature- | multi,negation | 맛도 없고 따뜻하지도 않았어요
+hs 5 cp | p | price+ | plain | 가격이 착해서 자주 시켜요
+hs 2 bm | n | portion- | short,slang | 양 실화?
+hs 4 bm | p | texture+ | plain | 계란말이가 폭신폭신해요
+
+## 노을치킨 (치킨) 60
+ck 5 bm | p | texture+ | plain | 튀김옷이 바삭바삭해요
+ck 2 cp | n | texture- | plain | 치킨이 눅눅하게 왔어요
+ck 1 bm | n | missing_item- | plain | 양념 소스가 안 왔어요
+ck 5 yg | p | taste+ texture+ | multi,slang | 겉바속촉 존맛탱
+ck 3 bm | m | texture+ taste- | multi,mixed | 바삭하긴 한데 양념이 너무 달아요
+ck 2 cp | n | portion- | plain | 닭이 너무 작아요
+ck 5 bm | p | delivery_time+ | plain | 30분도 안 돼서 왔어요
+ck 1 yg | n | delivery_time- | plain | 주문하고 두 시간 만에 왔어요
+ck 4 bm | p | temperature+ | plain | 따뜻하게 잘 왔어요
+ck 2 bm | n | temperature- texture- | multi | 식어서 눅눅했어요
+ck 5 cp | p | service+ | plain | 서비스로 콜라 큰 거 주셔서 감사해요
+ck 1 bm | n | missing_item- | plain | 치즈볼 추가했는데 빠졌어요
+ck 4 yg | m | taste+ price- | multi,mixed | 맛있는데 2만 5천원은 부담돼요
+ck 5 bm | p | taste+ | typo | 양념이 달달하니 맛잇네요
+ck 2 cp | n | packaging- | plain | 양념이 다 쏟아져서 박스가 엉망이었어요
+ck 3 bm | u | | no_topic | 평범한 치킨이에요
+ck 5 bm | p | portion+ | plain | 한 마리인데 두 마리 같은 양이에요
+ck 1 yg | n | hygiene- | plain | 치킨에서 깃털이 나왔어요
+ck 5 cp | n | texture- | rating_mismatch | 별점은 다섯 개인데 오늘은 좀 눅눅했어요
+ck 4 bm | p | texture+ | negation | 소스를 부어도 안 눅눅해요
+ck 2 bm | n | taste- | plain | 기름 냄새가 너무 심해요
+ck 5 yg | p | taste+ | slang | 반반 ㄹㅇ 최고 ㅠㅠ
+ck 1 cp | n | delivery_time- | sarcasm | 치킨이 걸어서 왔나 봐요 ^^
+ck 3 bm | m | portion+ texture- | multi,mixed | 양은 많은데 퍽퍽해요
+ck 5 bm | p | taste+ service+ | multi | 맛있고 사장님이 친절하세요
+ck 2 yg | n | missing_item- | plain | 무가 없었어요
+ck 4 cp | p | texture+ temperature+ | multi | 따끈하고 바삭하게 도착했어요
+ck 1 bm | n | missing_item- service- | multi,request | 순살로 시켰는데 뼈로 왔어요 전화해도 미안하다는 말도 없네요
+ck 5 bm | p | | no_topic,short | 최고
+ck 2 cp | n | price- | compare | 가격이 또 올랐네요
+ck 4 bm | m | taste+ portion- | multi,mixed,compare | 맛은 그대로인데 양이 예전 같지 않아요
+ck 5 yg | p | packaging+ | plain | 소스가 따로 꼼꼼하게 포장돼 있었어요
+ck 3 bm | m | delivery_time- temperature+ | multi,mixed | 좀 늦게 왔는데 그래도 따뜻했어요
+ck 1 cp | n | texture- | typo | 너무 딱딱해서 이빨빠질뻔
+ck 5 bm | p | taste+ | long | 동네 치킨집 중에 여기가 제일이에요. 양념이 너무 달지 않고 마늘 향이 좋아요. 주말마다 시켜 먹어요
+ck 2 bm | n | taste- | plain | 너무 짜요
+ck 4 yg | p | menu+ | plain | 사이드 메뉴가 다양해서 좋아요
+ck 1 bm | n | missing_item- delivery_time- | multi | 한 시간 기다렸는데 다른 집 치킨이 왔어요
+ck 5 cp | p | portion+ price+ | multi | 이 가격에 이 양이면 혜자예요
+ck 3 bm | u | | no_topic | 먹을 만해요
+ck 2 bm | n | temperature- | plain | 감자튀김이 다 식었어요
+ck 5 yg | p | texture+ | slang,emoji | 바삭함 미쳤다 🍗
+ck 4 cp | m | texture+ texture- | mixed | 치킨은 바삭한데 감자튀김은 눅눅했어요
+ck 1 bm | n | | no_topic | 최악이에요
+ck 5 bm | p | taste+ | pii | 맛있어요 이벤트 당첨되면 chicken_lover@naver.com 으로 연락 주세요
+ck 2 yg | n | packaging- | plain | 박스가 찌그러져서 왔어요
+ck 4 bm | p | service+ | request | 소스 많이 달라고 했더니 두 개나 넣어 주셨어요
+ck 3 cp | m | taste+ packaging- | multi,mixed | 맛은 있는데 박스에 기름이 너무 흥건해요
+ck 5 bm | p | delivery_time+ temperature+ texture+ | multi | 빨리 와서 따뜻하고 바삭했어요
+ck 1 yg | n | taste- | plain | 닭이 신선하지 않은 것 같아요 냄새가 나요
+ck 2 bm | n | portion- | short | 양이 너무 적음
+ck 5 cp | p | taste+ | short | 맛있어요
+ck 4 bm | p | | no_topic | 다음에 또 주문할게요
+ck 3 bm | m | price+ taste- | multi,mixed | 싸긴 한데 맛은 그냥 그래요
+ck 1 cp | n | delivery_time- service- | multi | 늦는다고 전화했더니 오히려 화를 내셨어요
+ck 5 yg | p | texture+ | negation | 순살인데도 하나도 퍽퍽하지 않아요
+ck 2 bm | n | missing_item- | typo | 콜라 누락됐어여
+ck 4 bm | p | taste+ portion+ | multi | 양념 맛있고 양도 많아요
+ck 5 cp | p | hygiene+ taste+ | multi,negation | 기름을 자주 가시는지 깨끗하고 냄새가 하나도 안 나요
+ck 1 bm | n | texture- temperature- | multi,slang | 식어서 딱딱함 ㅡㅡ
+
+## 모래커피 (카페, 방문·배달) 60
+cf 5 np | p | atmosphere+ | visit | 창가 자리가 넓고 분위기가 좋아요
+cf 4 np | m | taste+ wait_time- | visit,multi,mixed | 커피는 맛있는데 주문하고 20분 기다렸어요
+cf 2 np | n | atmosphere- | visit | 너무 시끄러워서 대화가 안 돼요
+cf 5 bm | p | taste+ | plain | 라떼가 고소해요
+cf 1 cp | n | temperature- | plain | 아이스 아메리카노 얼음이 다 녹아서 왔어요
+cf 5 np | p | hygiene+ | visit | 매장이 깨끗하고 화장실도 깔끔해요
+cf 3 bm | m | taste+ price- | multi,mixed | 맛은 좋은데 한 잔에 6천원은 비싸요
+cf 2 bm | n | packaging- | plain | 컵 뚜껑이 열려서 커피가 쏟아졌어요
+cf 5 np | p | service+ | visit | 직원분들이 친절하세요
+cf 1 np | n | service- | visit | 주문 받는 직원이 너무 불친절했어요
+cf 4 cp | p | taste+ | negation | 케이크가 너무 달지 않아서 좋아요
+cf 2 yg | n | missing_item- | plain | 샷 추가했는데 안 돼 있었어요
+cf 5 np | p | wait_time+ | visit | 사람 많은데도 음료가 빨리 나왔어요
+cf 3 np | m | atmosphere+ atmosphere- | visit,mixed | 인테리어는 예쁜데 의자가 불편해요
+cf 5 bm | p | texture+ | plain | 크로플이 겉은 바삭하고 안은 쫀득해요
+cf 1 bm | n | taste- | plain | 원두가 탄 맛이 나요
+cf 4 np | p | menu+ | visit | 디저트 종류가 많아서 고르기 좋아요
+cf 2 np | n | wait_time- | visit | 웨이팅이 너무 길어요
+cf 5 cp | p | packaging+ temperature+ | multi | 컵홀더까지 챙겨 주셔서 따뜻하게 잘 왔어요
+cf 3 bm | u | | no_topic | 무난해요
+cf 5 np | p | atmosphere+ | visit,slang | 감성 미쳤다 사진 맛집
+cf 2 cp | n | delivery_time- temperature- | multi | 늦게 와서 아이스가 미지근했어요
+cf 4 np | m | taste+ atmosphere- | visit,multi,mixed | 커피는 맛있는데 자리가 너무 좁아요
+cf 1 bm | n | | no_topic,short | 별로
+cf 5 yg | p | taste+ | typo | 바닐라라떼 너무맛잇어요
+cf 2 np | n | hygiene- | visit | 테이블이 끈적거렸어요
+cf 5 bm | p | service+ | request | 시럽 적게 해 달라는 요청 잘 들어주셨어요
+cf 3 cp | m | portion- taste+ | multi,mixed | 맛은 있는데 양이 너무 적어요 반 컵이에요
+cf 4 np | p | atmosphere+ | visit,negation | 주말인데도 시끄럽지 않아서 작업하기 좋아요
+cf 1 np | n | wait_time- service- | visit,multi | 30분을 기다렸는데 순서를 깜빡하셨대요
+cf 5 bm | p | taste+ | long | 동네 카페 중에 원두가 제일 좋아요. 산미가 적고 고소해서 매일 아침 한 잔씩 시켜요. 사장님 늘 감사합니다
+cf 2 bm | n | price- | plain | 배달비까지 하면 커피 한 잔에 만 원이에요
+cf 5 np | p | atmosphere+ | visit | 주차가 편해서 좋아요
+cf 3 np | u | | visit,no_topic | 그냥 평범한 카페예요
+cf 4 cp | m | delivery_time+ packaging- | multi,mixed | 빨리 오긴 했는데 컵이 좀 새 있었어요
+cf 1 yg | n | taste- | sarcasm | 물에 커피 탄 줄 알았어요 아주 연하네요
+cf 5 np | p | taste+ service+ | visit,multi | 커피도 맛있고 사장님이 원두 설명도 친절하게 해 주셨어요
+cf 2 np | n | menu- | visit | 메뉴판에 있는 디저트가 다 품절이었어요
+cf 5 bm | p | texture+ | negation | 마카롱이 하나도 안 딱딱하고 쫀득해요
+cf 4 np | m | wait_time- atmosphere+ | visit,multi,mixed | 자리는 좋은데 음료 나오는 데 한참 걸려요
+cf 1 cp | n | missing_item- | plain | 케이크가 안 들어 있었어요
+cf 5 np | p | | visit,no_topic | 단골 될게요
+cf 3 bm | m | taste+ texture- | multi,mixed | 맛은 괜찮은데 빵이 퍽퍽해요
+cf 2 np | n | atmosphere- | visit | 에어컨이 너무 세서 추웠어요
+cf 5 yg | p | packaging+ | plain | 케이크가 하나도 안 흐트러지고 왔어요
+cf 4 bm | p | price+ | plain | 쿠폰 할인 덕분에 저렴하게 먹었어요
+cf 1 np | n | hygiene- | visit | 컵에 립스틱 자국이 있었어요
+cf 5 np | p | wait_time+ | visit,short | 빨리 나와요
+cf 2 bm | n | temperature- | plain | 따뜻한 라떼를 시켰는데 미지근했어요
+cf 3 np | m | taste+ service- | visit,multi,mixed | 커피는 맛있는데 직원분이 좀 무뚝뚝해요
+cf 5 cp | p | taste+ | slang | 아인슈페너 존맛 ㅠㅠ
+cf 1 np | n | wait_time- | visit,sarcasm | 커피 한 잔에 40분이라니 정성이 대단하네요
+cf 4 np | p | menu+ | visit,compare | 시즌 메뉴가 예전보다 다양해졌어요
+cf 2 cp | n | missing_item- | plain | 아메리카노 두 잔 시켰는데 라떼가 왔어요
+cf 5 bm | p | taste+ portion+ | multi | 사이즈도 크고 맛있어요
+cf 3 np | m | atmosphere+ price- | visit,multi,mixed | 분위기는 좋은데 가격이 좀 비싸요
+cf 5 np | p | atmosphere+ hygiene+ | visit,multi | 넓고 깨끗해서 아이랑 오기 좋아요
+cf 1 bm | n | packaging- delivery_time- | multi | 늦게 왔는데 빨대도 안 꽂히게 뚜껑이 찌그러져 있었어요
+cf 4 yg | u | | no_topic | 잘 받았습니다
+cf 2 np | n | service- | visit,request | 디카페인으로 바꿔 달라고 했는데 그냥 나왔어요
+
+## 또바기분식 (분식) 60
+bs 5 bm | p | taste+ | plain | 떡볶이가 달달하니 맛있어요
+bs 2 cp | n | texture- | plain | 떡이 너무 딱딱해요
+bs 1 bm | n | texture- | plain | 라면이 다 불어서 왔어요
+bs 4 yg | p | portion+ price+ | multi | 싸고 양 많아요
+bs 3 bm | m | taste+ temperature- | multi,mixed | 맛은 좋은데 튀김이 식어서 왔어요
+bs 2 bm | n | missing_item- | plain | 순대 간이 안 왔어요
+bs 5 cp | p | texture+ | plain | 김밥이 꽉 차 있고 밥이 고슬고슬해요
+bs 1 yg | n | taste- | plain | 떡볶이가 너무 매워서 못 먹었어요
+bs 5 bm | p | delivery_time+ | short | 배달 빨라요
+bs 2 bm | n | packaging- | plain | 떡볶이 국물이 새서 튀김이 다 젖었어요
+bs 4 cp | m | portion+ taste- | multi,mixed | 양은 많은데 너무 싱거워요
+bs 5 bm | p | service+ | plain | 어묵 서비스 감사해요
+bs 1 bm | n | delivery_time- | plain | 주문하고 1시간 30분 걸렸어요
+bs 3 yg | u | | no_topic | 평범해요
+bs 5 cp | p | taste+ | typo | 떡볶이 진짜 맜있어요
+bs 2 bm | n | price- | compare | 떡볶이 1인분이 예전보다 천 원이나 올랐어요
+bs 4 bm | p | texture+ | negation | 튀김이 시간 지나도 안 눅눅해요
+bs 1 cp | n | missing_item- | plain | 김밥 두 줄 시켰는데 한 줄 왔어요
+bs 5 yg | p | taste+ portion+ | multi,slang | 양 혜자에 맛도 미쳤음
+bs 3 bm | m | texture- taste+ | multi,mixed | 맛있는데 떡이 좀 퍼졌어요
+bs 2 bm | n | hygiene- | plain | 김밥에서 비닐 조각이 나왔어요
+bs 5 cp | p | packaging+ | plain | 국물이랑 튀김을 따로 담아 주셔서 좋았어요
+bs 4 bm | p | menu+ | plain | 세트 구성이 알차요
+bs 1 yg | n | service- | request | 덜 맵게 해 달라고 했는데 엄청 매웠어요
+bs 5 bm | n | temperature- | rating_mismatch | 별 다섯 개요 근데 오늘은 많이 식어서 왔어요
+bs 3 cp | m | delivery_time+ texture- | multi,mixed | 빨리 오긴 했는데 라면이 좀 불었어요
+bs 2 bm | n | portion- | plain | 순대가 몇 개 안 들어 있어요
+bs 5 bm | p | taste+ | long | 학교 앞에서 먹던 그 맛이에요. 떡볶이 국물에 튀김 찍어 먹으니까 옛날 생각이 나네요. 자주 시킬게요
+bs 4 yg | p | temperature+ | plain | 어묵탕이 뜨끈하게 왔어요
+bs 1 bm | n | price- | short | 돈 아까워요
+bs 5 cp | p | | no_topic,short | 또 올게요
+bs 2 bm | n | taste- texture- | multi | 순대가 비리고 질겨요
+bs 3 bm | m | price+ portion- | multi,mixed | 가격은 착한데 양이 좀 아쉬워요
+bs 5 yg | p | taste+ | slang,emoji | 로제떡볶이 꾸덕하니 최고 😋
+bs 2 cp | n | missing_item- | typo | 단무지 안왔어요ㅠ
+bs 4 bm | p | service+ | plain | 사장님이 전화로 친절하게 안내해 주셨어요
+bs 1 bm | n | delivery_time- | sarcasm | 떡볶이 만드시느라 고생 많으셨겠어요 두 시간이나 걸렸네요
+bs 5 cp | p | texture+ temperature+ | multi | 튀김이 따뜻하고 바삭해요
+bs 3 yg | m | menu- taste+ | multi,mixed | 맛은 있는데 메뉴가 너무 적어요
+bs 2 bm | n | packaging- | plain | 비닐이 찢어져서 왔어요
+bs 4 bm | m | taste+ price- | multi,mixed | 맛있는데 배달비가 너무 비싸요
+bs 1 cp | n | hygiene- | plain | 떡볶이에 벌레가 있었어요
+bs 5 bm | p | portion+ | negation | 둘이 먹어도 모자라지 않아요
+bs 2 yg | n | taste- | short | 너무 짬
+bs 4 bm | p | taste+ | compare | 다른 데보다 여기가 훨씬 맛있어요
+bs 3 bm | u | | no_topic | 그냥저냥
+bs 5 cp | p | delivery_time+ temperature+ | multi | 금방 와서 뜨거웠어요
+bs 1 bm | n | missing_item- service- | multi | 튀김이 빠져서 전화했는데 안 받으시네요
+bs 5 yg | p | taste+ | pii | 맛있어요 혹시 남은 거 포장 되면 010 9876 5432로 문자 주세요
+bs 2 bm | n | texture- | slang | 김말이 완전 눅눅 ㅡㅡ
+bs 4 cp | p | menu+ | plain | 신메뉴 치즈떡볶이 추천해요
+bs 3 bm | m | portion+ texture- | multi,mixed | 김밥은 큰데 밥이 질척해요
+bs 1 yg | n | temperature- delivery_time- | multi,typo | 늦게와서 다식엇어요
+bs 5 bm | p | hygiene+ | plain | 주방이 보이는데 깨끗해서 믿고 먹어요
+bs 2 bm | n | price- | plain | 김밥 한 줄에 오천 원은 너무해요
+bs 4 cp | p | taste+ portion+ price+ | multi | 가격 대비 양도 많고 맛도 좋아요
+bs 5 bm | p | | no_topic | 사장님 번창하세요 ^^
+bs 1 bm | n | portion- | sarcasm | 떡볶이 1인분에 떡이 열 개라니 다이어트 메뉴인가요
+bs 3 yg | m | temperature+ taste- | multi,mixed | 따뜻하게 오긴 했는데 맛이 좀 밍밍해요
+bs 2 cp | n | missing_item- | plain | 쿨피스 같이 시켰는데 안 왔어요
+
+## 홍반점 (중식, 방문·배달) 60
+cn 5 bm | p | taste+ | plain | 짜장면이 불맛 나고 맛있어요
+cn 2 cp | n | texture- | plain | 짬뽕 면이 다 불어서 왔어요
+cn 1 bm | n | delivery_time- | plain | 한 시간 반 만에 왔어요
+cn 5 np | p | wait_time+ | visit | 주문하자마자 바로 나왔어요
+cn 4 np | m | taste+ wait_time- | visit,multi,mixed | 맛은 좋은데 점심시간 웨이팅이 길어요
+cn 2 bm | n | texture- | plain | 탕수육이 눅눅해요
+cn 5 yg | p | texture+ | plain | 탕수육이 찹쌀이라 쫄깃하고 바삭해요
+cn 3 bm | m | portion+ taste- | multi,mixed | 양은 많은데 짬뽕이 너무 짜요
+cn 1 cp | n | missing_item- | plain | 탕수육 소스가 안 왔어요
+cn 5 np | p | atmosphere+ | visit | 단체석이 있어서 회식하기 좋아요
+cn 2 np | n | hygiene- | visit | 식탁이 기름때로 끈적했어요
+cn 4 bm | p | service+ | plain | 군만두 서비스 감사합니다
+cn 5 bm | p | portion+ price+ | multi | 짜장면 곱빼기가 이 가격이면 대박이에요
+cn 1 bm | n | packaging- | plain | 짬뽕 국물이 다 새서 왔어요
+cn 3 cp | u | | no_topic | 그럭저럭 먹을 만해요
+cn 5 np | p | service+ | visit | 사장님이 직접 서빙해 주시고 친절하세요
+cn 2 yg | n | taste- | plain | 짜장이 너무 달아요
+cn 4 bm | p | temperature+ | negation | 배달인데 짬뽕이 하나도 안 식었어요
+cn 1 np | n | service- | visit | 반찬 더 달라고 했더니 눈치를 주셨어요
+cn 5 cp | p | taste+ | typo | 짬뽕국물 진하고 맛잇음
+cn 3 bm | m | texture+ temperature- | multi,mixed | 탕수육은 바삭한데 짜장면이 식었어요
+cn 2 bm | n | missing_item- | plain | 단무지랑 양파가 없었어요
+cn 5 np | p | atmosphere+ | visit,negation | 점심인데도 별로 시끄럽지 않고 좋았어요
+cn 4 bm | p | menu+ | plain | 세트 메뉴가 다양해요
+cn 1 cp | n | taste- | slang | 짬뽕 맛 실화냐 맹물임
+cn 5 bm | p | packaging+ | plain | 면이랑 국물을 따로 포장해 주셔서 안 불었어요
+cn 2 np | n | wait_time- | visit | 자리 비어 있는데도 음식이 30분 넘게 안 나왔어요
+cn 3 bm | m | price- taste+ | multi,mixed | 맛있긴 한데 요즘 가격이 많이 올랐어요
+cn 5 yg | p | delivery_time+ | plain | 20분 만에 왔어요
+cn 1 bm | n | hygiene- | plain | 짜장면에서 머리카락 나왔어요
+cn 4 np | m | atmosphere- taste+ | visit,multi,mixed | 맛은 있는데 주차할 데가 없어요
+cn 2 cp | n | portion- | compare | 탕수육 양이 예전보다 많이 줄었어요
+cn 5 bm | p | taste+ | long | 이 동네에서 이십 년 넘게 먹은 집이에요. 짜장 맛이 변하지 않아서 좋아요. 아이들도 여기 짜장만 먹어요
+cn 1 yg | n | delivery_time- | sarcasm | 짜장면을 직접 뽑아서 오셨나 봐요 1시간 40분
+cn 3 np | u | | visit,no_topic | 무난한 동네 중국집이에요
+cn 5 bm | m | taste+ missing_item- | multi,mixed,rating_mismatch | 맛있어서 별 다섯인데 군만두가 빠져 있었어요
+cn 4 cp | p | taste+ texture+ | multi | 짬뽕 해물이 탱글탱글하고 국물이 시원해요
+cn 2 bm | n | temperature- | plain | 짬뽕이 미지근하게 왔어요
+cn 5 np | p | hygiene+ | visit | 오픈 주방이 깔끔해요
+cn 1 bm | n | | no_topic,short | 실망
+cn 4 yg | m | delivery_time- taste+ | multi,mixed | 좀 늦었지만 맛은 좋았어요
+cn 2 bm | n | menu- | plain | 볶음밥이 메뉴에서 없어졌어요 아쉬워요
+cn 5 cp | p | | no_topic | 감사합니다 잘 먹었습니다
+cn 3 bm | m | portion+ texture- | multi,mixed | 양은 푸짐한데 면이 퍼졌어요
+cn 1 np | n | wait_time- service- | visit,multi | 40분 기다렸는데 주문이 안 들어가 있었어요
+cn 5 bm | p | service+ | request | 덜 짜게 해 달라는 요청 잘 들어주셨어요
+cn 2 yg | n | packaging- | plain | 랩이 뜯겨서 짜장이 넘쳤어요
+cn 4 np | p | wait_time+ | visit,negation | 사람이 많은데도 오래 안 기다렸어요
+cn 1 cp | n | missing_item- | typo | 탕수육시켰는데 깐풍기가옴
+cn 5 bm | p | taste+ | slang,emoji | 고추짬뽕 ㄹㅇ 칼칼 🔥
+cn 3 bm | m | price+ texture- | multi,mixed | 가격은 싼데 탕수육 고기가 퍽퍽해요
+cn 2 np | n | atmosphere- | visit | 의자가 낡아서 불편해요
+cn 5 cp | p | portion+ | short | 양 많아요
+cn 1 bm | n | taste- | plain | 기름 쩐내가 나요
+cn 4 bm | p | | no_topic | 다음에 또 시킬게요
+cn 2 cp | n | delivery_time- temperature- texture- | multi,long | 50분 넘게 걸렸어요. 그 사이에 면은 퉁퉁 불었고 국물도 다 식었어요. 다음엔 매장에 가서 먹어야겠어요
+cn 5 np | p | service+ wait_time+ | visit,multi | 직원분들 친절하고 음식도 금방 나와요
+cn 3 yg | m | taste+ menu- | multi,mixed | 맛은 괜찮은데 세트 구성이 바뀌어서 아쉬워요
+cn 5 bm | p | taste+ | pii | 너무 맛있어요 사장님 메일 hong.chef@gmail.com 맞죠? 감사 인사 드릴게요
+cn 1 bm | n | packaging- missing_item- | multi | 포장이 터져서 왔고 짬뽕 국물도 한 개 빠졌어요
+
+## 컨셉 리뷰 (연습용 60) — 실제 리뷰 말투 유형을 조사해서 직접 쓴 글 (원문 복사 없음)
+hs 5 bm | p | taste+ | concept,slang | 맛있으면 짓는 개: 왈왈왈왈ㄹ왈왈왕
+ck 5 cp | p | taste+ | concept,slang | 맛있으면 우는 고양이 냐아아아옹냥냥
+bs 5 yg | m | taste+ portion- | concept,multi,mixed | 맛 10/10 양 6/10 다음엔 곱빼기로
+cn 4 bm | m | taste+ portion+ delivery_time- | concept,multi,mixed | 맛 ★★★★★ 양 ★★★★★ 배달 ★★
+ck 5 bm | p | texture+ | concept | 치: 치킨이 / 킨: 킨짜 바삭해서 / 집: 집에서 또 시킴
+hs 5 cp | p | taste+ portion+ | concept,template | 리뷰 이벤트 참여합니다 맛있어요 양도 많아요
+bs 5 bm | p | taste+ | concept,template | 리뷰 약속 지켜요 잘 먹었습니다 맛있어요
+cf 5 bm | p | | concept,template,no_topic | 리뷰 이벤트 참여해요 감사합니다
+cn 5 cp | p | | concept,platform,no_topic | 비 오는데 기사님이 너무 친절하셨어요
+ck 1 bm | n | | concept,platform,no_topic | 배민 쿠폰이 적용이 안 돼서 짜증나요
+hs 5 bm | p | taste+ | concept,slang,short | ㅈㅁㅌ
+cf 5 cp | p | taste+ delivery_time+ | concept,multi | taste 완벽 delivery 빠름 very good
+bs 4 bm | p | taste+ temperature+ | concept,long | 사장님께. 야근하고 들어와서 따뜻한 떡볶이 먹으니 하루가 풀렸어요. 맛있게 만들어 주셔서 감사합니다
+cn 5 yg | p | taste+ portion+ | concept | 짜장면 매우 훌륭했습니다. 양 충분했습니다. 충성!
+bs 5 cp | p | taste+ | concept | 이 떡볶이, 과인의 입맛에 꼭 맞도다
+ck 4 bm | m | texture+ missing_item- | concept,multi,mixed | 치킨 치킨 바삭 치킨 yo 소스는 빠졌지만 그래도 굿 yo
+bs 5 bm | p | taste+ | concept | 오늘은 시험 끝난 날. 떡볶이로 자축했다. 매웠지만 행복했다.
+hs 5 yg | p | portion+ | concept,slang | 다이어트는 내일부터... 양이 너무 많아서 다 먹어 버림
+hs 5 bm | p | taste+ | concept | 다섯 살 아들이 계란말이만 세 개 먹었어요
+ck 5 cp | p | taste+ | concept,typo | 너무 맛있다 다음 또 주문 할게요 감사 합니다
+hs 5 bm | p | taste+ | concept,typo | 음식이잘와씀니다 맛도조아요 수고하세요
+ck 5 bm | p | taste+ | concept,slang | 맛있어요!!!!!!!!!!!!!!!
+cn 1 cp | n | | concept,no_topic,short | 그냥 별 하나
+bs 4 bm | m | taste+ portion+ delivery_time+ packaging- | concept,multi,mixed | ✔ 맛 ✔ 양 ✔ 배달 ✘ 포장 (국물 좀 샘)
+cf 5 np | p | taste+ | concept,visit | 라떼 한 모금에 우주를 봤어요
+ck 3 cp | u | | concept,no_topic,short | 사진 참고
+hs 5 bm | p | taste+ | concept,slang | 맛있어요 맛있어요 맛있어요 맛있어요
+cn 2 bm | n | taste- | concept,compare | 본점에서 먹던 맛이 아니에요
+cn 1 yg | n | taste- | concept,sarcasm | 아주 그냥 소금을 한 바가지 들이부으셨네요
+bs 3 cp | n | taste- | concept,compare | 혹시 레시피 바뀌었나요? 맛이 예전이랑 달라요
+ck 1 bm | n | missing_item- | concept | 왜... 왜 양념이 없는 거죠... 제 후라이드가 울고 있어요
+cf 2 bm | n | packaging- | concept,slang | 에이드 열자마자 분수처럼 터짐 ㅋㅋㅋ 옷 다 젖었어요
+ck 5 yg | p | taste+ | concept | ★★★★★ 인생 치킨
+bs 5 bm | p | taste+ | concept,slang | 개맛있음 또 시킴
+cf 5 cp | p | | concept,emoji,no_topic | 😋😋😋
+cn 5 bm | p | taste+ | concept,long | 회사에서 하루 종일 깨지고 와서 먹은 짬뽕이 큰 위로가 됐어요. 국물 한 숟갈에 눈물 날 뻔했어요. 사장님 오래오래 장사해 주세요
+hs 4 cp | p | service+ | concept | 사장님 손글씨 메모 보고 기분 좋아졌어요 번창하세요
+ck 5 bm | p | service+ | concept | 사장님 센스 최고 콜라를 두 개나 주시다니 사랑합니다
+bs 2 yg | n | taste- | concept,slang | 떡볶이 맵기 무슨 일? 혀가 사라짐
+cf 4 np | p | atmosphere+ | concept,visit,slang | 여기 완전 내 아지트 각
+cn 3 bm | m | portion+ taste- | concept,multi,mixed | 양: 산더미 / 맛: 평범 / 재주문: 글쎄요
+hs 1 cp | n | delivery_time- temperature- | concept,sarcasm | 따뜻한 밥이 식은 밥이 되는 과정을 실시간으로 지켜봤어요 (배달 1시간)
+ck 4 bm | u | | concept,question,no_topic | 혹시 매장에서도 먹을 수 있나요?
+bs 5 bm | p | menu+ | concept,slang | 메뉴판 보고 행복 회로 돌아감 다 먹고 싶어요
+cf 2 cp | n | taste- | concept,slang | 아아가 아니라 보리차 아닌가요 ㅋㅋ 너무 연해요
+cn 5 np | p | service+ | concept,visit | 사장님이 아이 생일이라고 서비스로 꿔바로우를 주셨어요 평생 단골합니다
+ck 2 bm | n | texture- | concept,compare | 지난주에 먹은 치킨이랑 같은 가게 맞나요? 오늘은 너무 눅눅해요
+bs 4 cp | p | taste+ price+ | concept,multi,slang | 이 가격에 이 맛? 사장님 남는 거 있으세요?
+hs 3 bm | u | | concept,no_topic | 먹었습니다
+cf 5 bm | p | texture+ | concept,slang | 크로플 바삭 소리 ASMR 찍을 뻔
+cn 2 cp | n | missing_item- | concept,typo | 단무지 어디감?? 단무지 업으면 짜장면 못먹는대ㅠ
+ck 5 yg | p | taste+ | concept,long | 우리 집 가족 회의 결과 만장일치로 이 집이 동네 치킨 1등으로 선정됐습니다. 축하드립니다. 상품은 다음 주 재주문입니다
+bs 1 bm | n | hygiene- | concept | 떡볶이에서 정체를 알 수 없는 물체가 나왔어요... 그 뒤로 기억이 없습니다
+cf 4 np | m | taste+ wait_time- | concept,visit,multi,mixed | 커피 맛: 합격 / 기다림: 수행 / 마음: 평화
+hs 5 yg | p | taste+ | concept,emoji | 제육 🐷🔥 최고
+ck 2 cp | n | portion- | concept,sarcasm | 다리 하나 날개 하나... 이 닭은 다이어트 중이었나 봐요
+cn 4 bm | p | temperature+ | concept,slang | 짬뽕 국물 뜨거워서 입천장 까짐 근데 좋아
+bs 5 cp | p | | concept,no_topic | 사장님 혹시 천사세요?
+cf 1 bm | n | missing_item- | concept,slang | 케이크 시켰는데 포크만 옴 ㅋㅋㅋㅋ 포크로 뭘 먹어요
+hs 2 bm | n | menu- | concept | 반찬이 김치 하나... 미니멀리즘 실천 중이신가요
