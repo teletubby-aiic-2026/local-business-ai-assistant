@@ -12,4 +12,6 @@ PRICE_PER_1K = {"HCX-005": 7, "HCX-007": 7}  # 대략 요금(원), 실제 요금
 
 
 def get_api_key():
-    return os.environ.get("CLOVA_API_KEY") or input("CLOVA Studio API 키: ").strip()
+    """환경변수에 키가 없으면 None. input() 은 여기서 쓰지 않는다 —
+    사람이 직접 실행하는 테스트 스크립트에서만 필요하면 그쪽에서 input() 을 쓸 것."""
+    return os.environ.get("CLOVA_API_KEY")

@@ -1,8 +1,9 @@
-"""재발 방지 공지 생성기 — complaint 카드의 반복 불만에 대한 공지.
+"""재발 방지 공지 생성기 — complaint 카드의 반복 불만을 '모든 손님에게 알리는 플레이스 소식'으로 쓴다.
 
-AI 는 본문만 쓴다(인사·마무리 금지, JSON 강제하지 않음 — 답글처럼 문장 그대로 받는다).
-시작 인사·마무리는 코드가 답글과 같은 방식으로 조립한다(c6.style.assemble, style 문자열 그대로
-공백 포함 정확히). 근거(F_리뷰id·M id)도 코드가 붙인다. AI 본문은 절대 버리지 않는다.
+reply(답글)는 손님 한 명에게 해요체로 말하지만, notice(공지)는 모든 손님에게 합니다체로 알리는 글이라
+구조·말투가 다르다. AI 는 본문 4문장만 쓴다(제목·시작 인사·마무리 금지, 줄바꿈으로 문장을 나눔).
+제목 줄·시작 줄·마무리 줄은 코드가 조립한다(assemble_notice). 근거(F_리뷰id·M id)도 코드가 붙인다.
+AI 본문은 절대 버리지 않는다.
 """
 
 import time
@@ -12,28 +13,42 @@ import clova
 from c6 import checks
 from c6 import parsing
 from c6.measures import MEASURE_FALLBACK_SENTENCES
-from c6.style import assemble, few_shot_examples, insert_before_last_sentence, owner_style, tone_style_section
 from c6.output import DraftOutput, CardResult
+from common.korean import display_name, eul
+
+NOTICE_FEWSHOT = (
+    "최근 공깃밥, 수저, 계란말이가 빠진 상태로 배달된 일이 있었습니다.\n"
+    "불편을 드려 죄송합니다.\n"
+    "오늘부터 포장 마감 전에 주문서와 한 번 더 대조해보고 배달해드리겠습니다.\n"
+    "이외에도 필요한 게 있으면 요청사항에 적어 주세요."
+)
+
+_TOPIC_LABELS = {"missing_item": "포장 누락"}
+_DEFAULT_TOPIC = "운영 개선"
 
 SYSTEM_TMPL = """\
-당신은 {store_name} 사장님입니다. 반복되는 고객 불만에 대한 재발 방지 공지의 "본문만" 쓰세요.
-인사말이나 마무리 인사는 쓰지 마세요. 코드가 따로 붙입니다. JSON이 아니라 문장 그대로 답해도 됩니다.
+당신은 {store_name} 사장님입니다. 반복되는 손님 불만에 대해 "모든 손님에게 알리는 공지" 본문 4문장만 쓰세요.
+제목·시작 인사·마무리 인사는 쓰지 마세요. 코드가 따로 붙입니다. JSON이 아니라 문장 그대로 답해도 됩니다.
 
 ## 말투
-{style_section}
+합니다체로 쓸 것(해요체·반말 금지). "고객님"·"주문하신"처럼 손님 한 명을 가리키는 말은 쓰지 말 것 —
+이 공지는 한 손님에게 보내는 답글이 아니라 모든 손님에게 알리는 글입니다.
+문장마다 줄을 바꿀 것(한 줄 = 한 문장, 총 4줄).
 
-## 좋은 예시 (이런 느낌으로)
-{examples_section}
+## 좋은 예시 (이런 느낌으로, 그대로 베끼지 말 것)
+{fewshot}
 
-## 본문 순서
-1. 첫 문장: 불편을 드려 죄송하다는 사과 (예: "불편하셨을 텐데 정말 죄송해요")
-2. 아래 리뷰들에서 빠졌던 품목을 묶어 한 줄로 짧게 인정 (예: "공깃밥·수저·계란말이가 빠지는 일이 있었어요")
-3. 개선 약속: {measure_rule}
-4. 다음 주문 때는 요청사항에 적어 주시면 챙기겠다고 안내
+## 본문 순서 (4문장, 줄바꿈으로 구분)
+1. 최근 있었던 일을 한 문장으로: 아래 리뷰들에서 빠졌던 품목을 묶어서, 특정 손님을 가리키지 않고 서술
+2. 짧은 사과 한 문장
+3. "{start_label}"로 시작해서 개선 조치를 알릴 것: {measure_rule}
+4. 손님이 도와줄 수 있는 것: 다음 주문 때 요청사항에 적어 주시면 챙기겠다는 안내
 
 ## 길이·금지
-120~250자. 아래 리뷰 원문을 그대로 베끼지 말고 새로 쓸 것. 금전 보상 약속·고객 개인정보 금지.
-"없을 거예요"·"절대"·"완벽" 같은 장담이나 "도입했으니"처럼 이미 끝난 일처럼 말하지 말고, "~할게요"처럼 앞으로 할 일로만 쓸 것
+한 문장(줄)마다 60자 안팎, 총 4줄. 아래 리뷰 원문을 그대로 베끼지 말고 새로 쓸 것. 금전 보상 약속·고객 개인정보 금지.
+"없을 것입니다"·"절대"·"완벽" 같은 장담이나 "도입했습니다"처럼 이미 끝난 일처럼 말하지 말고,
+"~하겠습니다"처럼 앞으로 할 일로만 쓸 것.
+"보내드렸습니다"·"챙겨 드렸"·"환불해 드렸"·"다시 보내"·"재발송"처럼 아직 하지 않은 조치를 이미 처리한 것처럼 말하지 말 것.
 {measures_section}
 
 ## 반복 불만 리뷰
@@ -41,16 +56,48 @@ SYSTEM_TMPL = """\
 """
 
 
-def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=None):
+def _notice_topic(target_reviews):
+    counts: dict[str, int] = {}
+    for rv in target_reviews:
+        for t in (rv.negative_topics or rv.topics or []):
+            counts[t] = counts.get(t, 0) + 1
+    if not counts:
+        return _DEFAULT_TOPIC
+    top = max(counts, key=counts.get)
+    return _TOPIC_LABELS.get(top, _DEFAULT_TOPIC)
+
+
+def assemble_notice(title: str, start_line: str, body: str, closing: str) -> str:
+    """제목 줄 + 시작 줄 + 본문(줄마다 문장) + 마무리 줄을 줄바꿈으로 조립한다."""
+    body_lines = [ln.strip() for ln in body.strip().splitlines() if ln.strip()]
+    if not body_lines and body.strip():
+        body_lines = [body.strip()]
+    return "\n".join([title, start_line, *body_lines, closing])
+
+
+def _insert_measure_line(body: str, line: str) -> str:
+    """조치 키워드가 본문에 없을 때, 마지막 줄(요청사항 안내) 바로 앞에 줄을 끼워 넣는다."""
+    lines = [ln for ln in body.strip().splitlines() if ln.strip()]
+    if not lines:
+        return line
+    if len(lines) == 1:
+        return f"{lines[0]}\n{line}"
+    return "\n".join(lines[:-1] + [line] + lines[-1:])
+
+
+def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=None,
+                                reply_texts=None, start_label="오늘부터"):
     store = ctx.store
     tone = ctx.tone
     review_map = {r.review_id: r for r in ctx.reviews}
     target_reviews = [review_map[rid] for rid in card.review_ids if rid in review_map]
     forbidden_phrases = list(tone.forbidden_phrases) if tone.forbidden_phrases else []
-    style_info = owner_style(ctx.owner_replies)
-    opening = style_info.get("시작 인사") or "안녕하세요 고객님"
-    closing = style_info.get("마무리") or f"{store.name} 드림"
-    examples_section = few_shot_examples(ctx)
+
+    store_display = display_name(store.name)
+    topic = _notice_topic(target_reviews)
+    title = f"[안내] {topic} 관련"
+    start_line = f"{store_display}{eul(store_display)} 찾아 주시는 분들께"
+    closing_line = f"늘 찾아 주셔서 감사합니다. {store_display} 드림"
 
     review_lines = []
     for rv in target_reviews:
@@ -66,9 +113,9 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         measures_section = ""
 
     system = SYSTEM_TMPL.format(
-        store_name=store.name,
-        style_section=tone_style_section(tone, ctx.owner_replies),
-        examples_section="\n".join(f"- {s}" for s in examples_section),
+        store_name=store_display,
+        fewshot=NOTICE_FEWSHOT,
+        start_label=start_label,
         measure_rule=measure_rule,
         measures_section=measures_section,
         review_lines="\n".join(review_lines),
@@ -84,25 +131,28 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         result = {
             "no_bad_promise": not checks.promises_not_in_policy(text, ctx.policies),
             "no_personal_info": not checks.personal_info(text),
-            "length_ok": checks.length_ok(body, 120, 250),
+            "length_ok": checks.length_ok(body, 60, 220),
             "chosen_measure_included": checks.chosen_measure_included(text, chosen_measures),
             "no_invented_measure": not checks.has_invented_measure(text, chosen_measures),
             "not_quote_review": not checks.quotes_review(body, target_reviews),
             "no_stiff_words": not checks.has_stiff_words(text),
             "no_overpromise": not checks.has_overpromise(text),
-            "has_apology": checks.has_apology(body),
-            "uses_opening": True,
-            "uses_closing": True,
+            "no_claimed_action": not checks.has_claimed_action(text),
+            "has_apology": "죄송" in body,
+            "notice_has_start": checks.notice_has_start(body, start_label),
+            "notice_not_personal": checks.notice_not_personal(text),
+            "notice_formal": checks.notice_formal(body),
+            "notice_vs_reply": checks.notice_vs_reply(text, reply_texts),
         }
         if forbidden_phrases:
             result["no_forbidden_phrase"] = not checks.forbidden_phrase(text, forbidden_phrases)
         return result
 
-    retry_exempt = ("length_ok", "uses_opening", "uses_closing")
+    retry_exempt = ("length_ok",)
     evidence_ids = _compute_evidence()
 
     def _check(body_):
-        text_ = assemble(opening, body_, closing)
+        text_ = assemble_notice(title, start_line, body_, closing_line)
         chk_ = _run_notice_checks(body_, text_)
         failed_ = [k for k, v in chk_.items() if not v and k not in retry_exempt]
         return text_, chk_, failed_
@@ -139,12 +189,12 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
     if not check_results.get("no_stiff_words", True):
         body = checks.fix_stiff_words(body)
 
-    # 조치 키워드가 본문에 이미 없을 때만 표준 문장을 마지막 문장(감사·사과) 바로 앞에 끼워 넣는다
+    # 조치 키워드가 본문에 이미 없을 때만 표준 문장을 마지막 줄(요청사항 안내) 바로 앞에 끼워 넣는다
     if chosen_measures and not checks.chosen_measure_included(body, chosen_measures):
         fallback = MEASURE_FALLBACK_SENTENCES.get(chosen_measures[0]["id"], chosen_measures[0]["text"])
-        body = insert_before_last_sentence(body, fallback)
+        body = _insert_measure_line(body, f"{start_label} {fallback}")
 
-    # 최종 조립 = 시작 인사 + AI 본문(그대로) + (필요하면 끼워 넣은 표준 문장) + 마무리
+    # 최종 조립 = 제목 줄 + 시작 줄 + AI 본문(그대로, 필요하면 끼워 넣은 줄 포함) + 마무리 줄
     text, check_results, failed = _check(body)
 
     elapsed_ms = round((time.perf_counter() - start) * 1000)

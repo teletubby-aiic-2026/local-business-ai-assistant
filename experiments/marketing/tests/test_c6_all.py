@@ -9,6 +9,9 @@ complaint 카드는 조치 후보(MEASURES) 중 첫 번째를 chosen_measures �
   python -m tests.test_c6_all --mock   (mock 만. 가짜 CLOVA 응답으로 전체 경로 확인, API 호출 없음)
   두 모드는 같은 파일을 덮어쓰지 않는다.
 
+  python -m tests.test_c6_all --save-best                 (live 결과가 전부 깨끗하면 저장본 덮어씀)
+  python -m tests.test_c6_all --save-best --cards complaint  (홍보 카드는 빼고 complaint 만 실행·저장)
+
 결과 (live)
   results/c6_results.md   발표 모드용 보고서 — 맨 위에 "모드: live", 카드별 걸린 시간(초)·요금,
                            이유·근거 표시·선택된 조치, 초안마다 글·근거 ID(내용 포함)·
@@ -19,6 +22,7 @@ complaint 카드는 조치 후보(MEASURES) 중 첫 번째를 chosen_measures �
   results/c6_results_mock.md, results/c6_cache_mock.json   위와 같은 내용, mock 전용 파일
 """
 
+import argparse
 import json
 import os
 import sys
@@ -32,11 +36,25 @@ from shared.sample_scenario import (
 )
 from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
-from c6.measures import MEASURES, MEASURE_FALLBACK_SENTENCES
-from c6.registry import run_card
+from c6.measures import MEASURES, REPLY_STYLES, REPLY_STYLE_REGISTER, REPLY_OPENING, M1_SENTENCES, P1_SENTENCES
+from c6.registry import run_card, REPLAY_PATH
 from c6.output import CardResult
+from common.korean import display_name
 
-MOCK = "--mock" in sys.argv
+
+def _parse_cli_flags():
+    """이 파일만 아는 --mock/--save-best/--cards 를 먼저 꺼낸다.
+    unittest.main 은 이 플래그들을 모르니, 남은 인자(rest)만 넘겨야 한다
+    (안 그러면 "unrecognized arguments" 로 죽는다)."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--mock", action="store_true")
+    parser.add_argument("--save-best", action="store_true")
+    parser.add_argument("--cards", default=None)
+    args, rest = parser.parse_known_args(sys.argv[1:])
+    return args.mock, args.save_best, args.cards, rest
+
+
+MOCK, SAVE_BEST, CARDS_FILTER, _UNITTEST_ARGV = _parse_cli_flags()
 
 CTX = build_context(
     store=SAMPLE_STORE,
@@ -70,13 +88,25 @@ def _evidence_content(eid):
     return "(내용 확인 불가)"
 
 
-def run_all_cards(key, model="HCX-005"):
-    """registry.run_card 로 store_ongi 의 카드 전부 실행 -> CardResult 목록 (카드 1장 = 1개)."""
+def run_all_cards(key, model="HCX-005", kinds=None):
+    """registry.run_card 로 store_ongi 의 카드를 실행 -> CardResult 목록 (카드 1장 = 1개).
+    kinds 를 주면 그 종류(예: ["complaint"])만 실행한다. 없으면 전부."""
     results = []
     for card in CTX.cards:
+        if kinds and card.kind not in kinds:
+            continue
         chosen = [MEASURES[0]] if card.kind == "complaint" else None
         results.append(run_card(CTX, card, key, model=model, chosen_measures=chosen))
     return results
+
+
+def _clean_run(results):
+    """failed_reasons·needs_input 이 하나도 없으면 True."""
+    for r in results:
+        for d in r.drafts:
+            if d.failed_reasons or d.needs_input:
+                return False
+    return True
 
 
 def write_report(results, path, mode):
@@ -99,6 +129,8 @@ def write_report(results, path, mode):
         for d in r.drafts:
             title = f"{d.target_review_id} ({d.generator})" if d.target_review_id else d.generator
             lines.append(f"### {title}")
+            if d.style:
+                lines.append(f"- 말투: {d.style}")
             lines.append(f"- 글: {d.text or '(생성 실패)'}")
             if d.evidence_ids:
                 ev = "; ".join(f"{eid} ({_evidence_content(eid)})" for eid in d.evidence_ids)
@@ -123,28 +155,22 @@ def write_cache(results, path):
     )
 
 
-# ── --mock: 가짜 CLOVA 응답. 이제 AI 는 본문만 주고, 인사·마무리는 코드가 조립한다 ──
-# reply 는 리뷰 1개당 1콜이라 review_id 로 구분해 서로 다른 본문을 돌려준다.
+# ── --mock: 가짜 CLOVA 응답. reply.py 는 이제 AI 가 공감·사과만 주고, 조치(M1)·요청사항(P1)·
+# 인사·마무리는 코드가 붙인다. reply 는 리뷰 1개당 1콜이라 review_id 로 구분해 서로 다른 본문을 돌려준다.
 
+# 리뷰 순서대로 haeyo(해요체)/hamnida(합니다체)/mixed(공감 해요체) 말투라, 본문도 그 말투에 맞춘다.
 REPLY_BODIES = {
-    "rv_ongi_001": (
-        "주문하신 공깃밥이 빠져서 정말 죄송해요. 앞으로 포장 마감 전에 주문서와 한 번 더 맞춰 볼게요. "
-        "다음 주문 때 요청사항에 적어 주시면 꼭 챙겨 드릴게요."
-    ),
-    "rv_ongi_002": (
-        "수저랑 젓가락이 빠져서 불편하셨죠, 정말 죄송해요. 앞으로 포장 마감 전에 주문서와 대조해서 다시 없도록 할게요. "
-        "또 빠진 게 있으면 다음 주문 요청사항에 적어 주세요."
-    ),
-    "rv_ongi_003": (
-        "계란말이가 빠져서 아쉬우셨겠어요, 죄송합니다. 앞으로 포장 마감 전에 주문서와 대조하여 이런 일이 없도록 할게요. "
-        "요청사항에 남겨 주시면 바로 챙길게요."
-    ),
+    "rv_ongi_001": "주문하신 공깃밥이 빠져서 정말 죄송해요.",  # haeyo
+    "rv_ongi_002": "수저랑 젓가락이 빠져서 불편하셨을 텐데 죄송합니다.",  # hamnida
+    "rv_ongi_003": "계란말이가 빠져서 아쉬우셨겠어요, 정말 죄송해요.",  # mixed(AI 는 해요체)
 }
 
+# notice.py: 본문 4문장, 줄마다 문장(합니다체, 특정 손님 가리키는 말 없음)
 NOTICE_BODY = (
-    "최근 몇몇 주문에서 포장할 때 품목이 하나씩 빠지는 일이 있었어요, 정말 죄송한 마음입니다. "
-    "앞으로는 포장 마감 전에 주문서와 대조해서 빠지는 품목이 없도록 더 꼼꼼히 챙기겠습니다. "
-    "소중한 말씀들 덕분에 더 나아질 수 있었어요, 진심으로 감사합니다."
+    "최근 몇몇 주문에서 포장할 때 공깃밥·수저·계란말이 같은 품목이 하나씩 빠지는 일이 있었습니다.\n"
+    "불편을 드려 죄송합니다.\n"
+    "오늘부터 포장 마감 전에 주문서와 대조해서 빠지는 품목이 없도록 하겠습니다.\n"
+    "이외에도 필요한 게 있으면 요청사항에 적어 주시기 바랍니다."
 )
 
 # 처음 2번(동시 생성되는 후보 2개)은 '반값·코드'가 섞인 본문(coupon_invented 로 둘 다 걸려야 함)
@@ -176,7 +202,7 @@ def _mock_clova(key, system, messages, model="HCX-005", **kw):
                 return _ok(body)
         return {"content": "{}", "won": 0.0, "tokens": 0, "seconds": 0}
 
-    if "재발 방지 공지" in system:       # notice.py
+    if "공지" in system:                # notice.py
         return _ok(NOTICE_BODY, won=0.03)
 
     if "쿠폰 홍보글" in system:          # promo.py: 동시에 생성되는 후보 2개는 일부러 틀리게, 다시 쓰기 때 정상
@@ -216,19 +242,34 @@ class TestAllCardsMock(unittest.TestCase):
         generators = {d.generator for d in complaint.drafts}
         self.assertEqual(generators, {"reply_draft", "prevention_notice"})
 
+        store_display = display_name(SAMPLE_STORE.name)
         reply_drafts = [d for d in complaint.drafts if d.generator == "reply_draft"]
+
+        # 리뷰 순서대로 haeyo/hamnida/mixed 말투가 지정됨
+        self.assertEqual(
+            {d.target_review_id: d.style for d in reply_drafts},
+            {"rv_ongi_001": "haeyo", "rv_ongi_002": "hamnida", "rv_ongi_003": "mixed"},
+        )
+
         for d in reply_drafts:
-            # 인사 없는 본문 -> 조립 후 통과
-            self.assertTrue(d.text.startswith("안녕하세요 고객님 :)"), d.text)
-            self.assertTrue(d.text.endswith("온기한식 드림"), d.text)
+            register = REPLY_STYLE_REGISTER[d.style]
+            opening = REPLY_OPENING[d.style].format(store=store_display)
+            # 말투별 고정 인사·마무리로 조립 후 통과
+            self.assertTrue(d.text.startswith(opening), d.text)
+            self.assertTrue(d.text.endswith(f"{store_display} 드림"), d.text)
             self.assertTrue(d.checks["uses_opening"] and d.checks["uses_closing"])
-            # "주문서와 대조하여" 같은 자연스러운 표현도 조치 포함으로 통과
+            # 코드가 붙인 M1 조치 문장이 들어 있으니 조치 포함으로 통과
             self.assertTrue(d.checks["chosen_measure_included"], d.checks)
+            self.assertTrue(d.checks["ai_part_only_empathy"], d.checks)
+            self.assertTrue(d.checks["style_match"], d.checks)
             self.assertIn("M1", d.evidence_ids)
-            # 최종 글에 AI 본문이 그대로 포함됨 (조립에서 버려지지 않음)
+            self.assertIn("P1", d.evidence_ids)
+            # 최종 글에 AI 본문(공감·사과)이 그대로 포함됨 (조립에서 버려지지 않음)
             self.assertIn(REPLY_BODIES[d.target_review_id], d.text)
-            # 본문에 조치 키워드가 이미 있으니 코드가 표준 문장을 덧붙이지 않음
-            self.assertNotIn(MEASURE_FALLBACK_SENTENCES["M1"], d.text)
+            # 코드가 붙인 말투별 M1·P1 고정 문장이 들어 있음
+            self.assertIn(M1_SENTENCES[register], d.text)
+            self.assertIn(P1_SENTENCES[register], d.text)
+            self.assertEqual(d.rewrites, 0)
 
         # 리뷰 3개의 최종 글이 서로 다름 (복붙이 아니라 리뷰마다 다른 답글)
         self.assertEqual(len({d.text for d in reply_drafts}), 3)
@@ -236,6 +277,18 @@ class TestAllCardsMock(unittest.TestCase):
         notice_draft = next(d for d in complaint.drafts if d.generator == "prevention_notice")
         self.assertTrue(notice_draft.checks["chosen_measure_included"])
         self.assertTrue(all(eid != "snap_sample_01" for eid in notice_draft.evidence_ids))
+        # 공지는 모두에게 알리는 글 — 제목·시작·마무리는 코드가 조립, 줄바꿈 포함
+        # 글에 쓰는 가게 이름은 "(가상)" 괄호 표기를 지운 이름을 쓴다
+        self.assertNotIn("(가상)", notice_draft.text)
+        self.assertTrue(notice_draft.text.startswith("[안내] 포장 누락 관련\n"), notice_draft.text)
+        self.assertIn(f"{store_display}을 찾아 주시는 분들께", notice_draft.text)
+        self.assertTrue(notice_draft.text.endswith(f"{store_display} 드림"), notice_draft.text)
+        self.assertIn("\n", notice_draft.text)
+        self.assertTrue(notice_draft.checks["notice_has_start"], notice_draft.checks)
+        self.assertTrue(notice_draft.checks["notice_not_personal"], notice_draft.checks)
+        self.assertTrue(notice_draft.checks["notice_formal"], notice_draft.checks)
+        self.assertTrue(notice_draft.checks["notice_vs_reply"], notice_draft.checks)
+        self.assertEqual(notice_draft.rewrites, 0)
 
         promo = next(r for r in results if r.kind == "promo")
         self.assertIsNotNone(promo.basis_label)
@@ -252,6 +305,51 @@ class TestAllCardsMock(unittest.TestCase):
               f"{config.RESULTS_DIR / 'c6_cache_mock.json'}")
 
 
+# AI 는 이제 공감·사과만 쓰므로, 두 본문 모두 조치·요청사항 표현은 없어야 한다(안 그러면
+# reply_ai_body_clean 에 걸려 claimed_action 과 상관없는 이유로 재작성된다).
+CLAIMED_ACTION_BODY = "주문하신 공깃밥이 빠져서 정말 죄송해요. 깜빡하고 빠뜨린 공깃밥은 추가로 보내드렸어요."
+CLAIMED_ACTION_FIXED_BODY = "주문하신 공깃밥이 빠져서 정말 죄송해요. 깜빡하고 빠뜨려서 많이 속상하셨겠어요."
+
+_claimed_action_calls = {"n": 0}
+
+
+def _mock_clova_claimed_action(key, system, messages, model="HCX-005", **kw):
+    content = messages[0]["content"] if messages else ""
+    if "rv_ongi_001" in content:
+        with _mock_lock:
+            _claimed_action_calls["n"] += 1
+            n = _claimed_action_calls["n"]
+        return _ok(CLAIMED_ACTION_BODY if n == 1 else CLAIMED_ACTION_FIXED_BODY)
+    for rid, body in REPLY_BODIES.items():
+        if rid in content:
+            return _ok(body)
+    return {"content": "{}", "won": 0.0, "tokens": 0, "seconds": 0}
+
+
+class TestClaimedActionMock(unittest.TestCase):
+    """"보내드렸어요"처럼 하지 않은 조치를 한 것처럼 말하면 걸러지고 다시 써야 한다."""
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_claimed_action_rejected_and_rewritten(self):
+        from c6 import checks
+
+        # 점검 함수 자체: 과거형("보내드렸어요")은 걸리고, 정책 P1 의 미래형("챙겨 드릴게요")은 통과한다
+        self.assertTrue(checks.has_claimed_action(CLAIMED_ACTION_BODY))
+        self.assertFalse(checks.has_claimed_action(CLAIMED_ACTION_FIXED_BODY))
+
+        _claimed_action_calls["n"] = 0
+        card = next(c for c in CTX.cards if c.kind == "complaint")
+        with patch("clova.call", side_effect=_mock_clova_claimed_action):
+            result = run_card(CTX, card, "fake-key", chosen_measures=[MEASURES[0]])
+
+        draft = next(d for d in result.drafts
+                     if d.generator == "reply_draft" and d.target_review_id == "rv_ongi_001")
+        self.assertEqual(draft.rewrites, 1)
+        self.assertTrue(draft.checks["no_claimed_action"], draft.checks)
+        self.assertNotIn("보내드렸어요", draft.text)
+        self.assertFalse(draft.failed_reasons, draft.failed_reasons)
+
+
 class TestAllCardsLive(unittest.TestCase):
     """기본(인자 없음)일 때만 실행: 실제 CLOVA 호출로 store_ongi 의 카드를 전부 돌린다."""
 
@@ -261,9 +359,11 @@ class TestAllCardsLive(unittest.TestCase):
     )
     def test_run_all_live(self):
         key = os.environ["CLOVA_API_KEY"]
-        results = run_all_cards(key)
+        kinds = [CARDS_FILTER] if CARDS_FILTER else None
+        results = run_all_cards(key, kinds=kinds)
 
-        self.assertEqual(len(results), 2)
+        if kinds is None:
+            self.assertEqual(len(results), 2)
         for r in results:
             self.assertIsInstance(r, CardResult)
 
@@ -272,7 +372,18 @@ class TestAllCardsLive(unittest.TestCase):
         print(f"\n결과 저장: {config.RESULTS_DIR / 'c6_results.md'}, "
               f"{config.RESULTS_DIR / 'c6_cache.json'}")
 
+        if SAVE_BEST:
+            if _clean_run(results):
+                write_cache(results, REPLAY_PATH)
+                print(f"저장본 갱신: {REPLAY_PATH}")
+            else:
+                reasons = sorted({
+                    reason
+                    for r in results for d in r.drafts
+                    for reason in (d.failed_reasons or (["needs_input"] if d.needs_input else []))
+                })
+                print(f"저장 안 함: failed_reasons/needs_input 있음 ({', '.join(reasons) or '있음'})")
+
 
 if __name__ == "__main__":
-    argv = [a for a in sys.argv if a != "--mock"]
-    unittest.main(argv=argv, verbosity=2)
+    unittest.main(argv=[sys.argv[0]] + _UNITTEST_ARGV, verbosity=2)

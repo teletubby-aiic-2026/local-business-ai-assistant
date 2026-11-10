@@ -18,8 +18,13 @@ _COUPON_WORDS = re.compile(r"할인|쿠폰|코드|반값|%|원")
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _ALL_MEASURE_TEXTS = [m["text"] for m in MEASURES]
 _OVERPROMISE = re.compile(r"없을\s*거예요|절대|다시는\s*없|완벽|도입했|마련했|이미\s*(도입|마련|적용)")
+_CLAIMED_ACTION = re.compile(r"(?:보내|챙겨|환불해|다시\s*보내)\s*드렸|재발송(?:했|\s*드렸)")
 _APOLOGY = re.compile(r"죄송")
 _FEWSHOT_WORDS = ("국물", "넉넉하다", "집밥")
+_PERSONAL_ADDRESS = re.compile(r"고객님|주문하신|구매하신|손님께서는")
+_AI_EMPATHY_FORBIDDEN = re.compile(r"챙기|확인|대조|요청|다음에|다음부터|앞으로|감사")
+_FORMAL_END = re.compile(r"(합니다|습니다|됩니다|입니다|바랍니다|드립니다)[.!?]?\s*$")
+_INFORMAL_END = re.compile(r"(해요|게요|어요|아요|예요|죠)[.!?]?\s*$")
 
 STIFF_WORDS = {
     "기재": "적어", "이러한": "이런", "해당": "그",
@@ -31,6 +36,7 @@ STIFF_WORDS = {
     "제공돼요": None,
     "제공하고 있으니": None, "맛보시길 바랍니다": None,
     "합리적인 가격": None, "많은 참여 부탁": None,
+    "절차를 도입": None, "소중한 지적": None, "과정에서": None,
 }
 
 _MARKDOWN = re.compile(r"\*\*|#|`")
@@ -125,10 +131,71 @@ def has_overpromise(text: str) -> bool:
     return bool(_OVERPROMISE.search(text))
 
 
+def has_claimed_action(text: str) -> bool:
+    """'공깃밥 추가로 보내드렸어요'처럼 아직 하지 않은 보상·조치를 이미 처리한 것처럼 말하면 True.
+    reply·notice 공용 — P1(다음 주문 요청사항에 적어 주시면 챙겨 드림)은 미래형으로만 말해야 한다."""
+    return bool(_CLAIMED_ACTION.search(text))
+
+
 def has_apology(text: str) -> bool:
     """글의 첫 문장에 사과("죄송")가 있으면 True."""
     first = _SENT_SPLIT.split(text.strip())[0] if text and text.strip() else ""
     return bool(_APOLOGY.search(first))
+
+
+def ai_part_only_empathy(text: str) -> bool:
+    """답글에서 AI 가 쓰는 건 공감·사과뿐 — 조치·요청사항·감사 인사는 코드가 붙이니,
+    AI 가 쓴 부분에 '챙기'·'확인'·'대조'·'요청'·'다음에'·'다음부터'·'앞으로'·'감사' 가 없어야 True."""
+    if not text:
+        return True
+    return not bool(_AI_EMPATHY_FORBIDDEN.search(text))
+
+
+def style_match(ai_part: str, body: str, style: str) -> bool:
+    """답글 말투가 고른 style 과 맞는지. haeyo/hamnida 는 본문(AI+M1+P1) 전체 문장이,
+    mixed 는 AI 가 쓴 부분만 해당 말투 어미로 끝나야 True."""
+    def _all_end_with(text: str, suffix: str) -> bool:
+        sentences = [s.strip() for s in _SENT_SPLIT.split(text.strip())] if text and text.strip() else []
+        sentences = [s for s in sentences if s]
+        if not sentences:
+            return False
+        return all(s.rstrip(".!?").endswith(suffix) for s in sentences)
+
+    if style == "haeyo":
+        return _all_end_with(body, "요")
+    if style == "hamnida":
+        return _all_end_with(body, "니다")
+    if style == "mixed":
+        return _all_end_with(ai_part, "요")
+    return True
+
+
+def notice_has_start(text: str, start_label: str) -> bool:
+    """공지 본문에 시작 시점 표현(start_label, 예: '오늘부터')이 그대로 들어 있으면 True."""
+    return bool(start_label) and start_label in text
+
+
+def notice_not_personal(text: str) -> bool:
+    """공지는 손님 한 명이 아니라 모두에게 알리는 글이라, '고객님'·'주문하신'처럼
+    한 사람을 가리키는 말이 없어야 True."""
+    return not bool(_PERSONAL_ADDRESS.search(text))
+
+
+def notice_formal(text: str) -> bool:
+    """공지 문장이 합니다체 위주면 True. 문장마다 줄바꿈된 줄을 한 줄 = 한 문장으로 본다."""
+    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return False
+    formal = sum(1 for ln in lines if _FORMAL_END.search(ln))
+    informal = sum(1 for ln in lines if _INFORMAL_END.search(ln) and not _FORMAL_END.search(ln))
+    return formal > 0 and formal >= informal
+
+
+def notice_vs_reply(text: str, reply_texts: list[str] | None) -> bool:
+    """공지가 답글들과 너무 비슷하면(too_similar) False. reply_texts 가 없으면 True."""
+    if not reply_texts:
+        return True
+    return not any(too_similar(text, rt) for rt in reply_texts)
 
 
 def fewshot_copied(text: str, menu_names: list[str], review_texts: list[str]) -> bool:
@@ -229,7 +296,15 @@ def fix_hints(failed: list[str]) -> list[str]:
         "no_stiff_words": "딱딱한 표현 대신 편한 구어체로 바꿔 주세요.",
         "no_overpromise": "'없을 거예요'·'절대'·'완벽' 같은 장담이나 '도입했으니'처럼 이미 끝난 일처럼 쓰지 말고, "
                            "'~할게요'처럼 앞으로 할 일로 다시 써 주세요.",
+        "no_claimed_action": "'보내드렸어요'·'챙겨 드렸'·'환불해 드렸'·'다시 보내'·'재발송'처럼 아직 하지 않은 "
+                              "보상·조치를 이미 처리한 것처럼 쓰지 말고, '챙겨 드릴게요'처럼 앞으로 할 일로 써 주세요.",
         "has_apology": "첫 문장에 불편을 드려 죄송하다는 사과를 넣어 주세요.",
+        "notice_has_start": "시작 시점 표현(예: '오늘부터')을 그대로 넣어 주세요.",
+        "notice_not_personal": "'고객님'·'주문하신'처럼 한 사람을 가리키는 말 대신, 모든 손님에게 알리는 투로 써 주세요.",
+        "notice_formal": "해요체 대신 합니다체로 써 주세요.",
+        "notice_vs_reply": "답글과 너무 비슷해요. 공지만의 말투로 다시 써 주세요.",
+        "ai_part_only_empathy": "공감·사과만 써 주세요. 조치·요청사항·감사 인사는 코드가 따로 붙여요.",
+        "style_match": "말투를 섞지 말고 지정된 말투(해요체 또는 합니다체)로만 써 주세요.",
         "no_fewshot_copy": "예시 문구의 단어를 그대로 베끼지 말고, 같은 단어를 가까이서 반복하지 말아 주세요.",
         "no_unknown_menu": "메뉴에 있는 음식 이름만 써 주세요.",
         "no_markdown": "마크다운 기호(**, #, ` 등) 없이 일반 문장으로 써 주세요.",

@@ -35,3 +35,9 @@ def i_ga(word):
 
 def nospace(s):
     return re.sub(r"\s+", "", s or "")
+
+
+def display_name(name: str) -> str:
+    """상호명 끝에 붙은 "(가상)" 같은 괄호 표기를 지운, 글에 쓰는 이름."""
+    stripped = re.sub(r"\s*\([^)]*\)\s*$", "", name or "").strip()
+    return stripped or (name or "")

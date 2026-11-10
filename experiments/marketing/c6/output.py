@@ -6,6 +6,7 @@ from typing import Any
 
 _VALID_GENERATORS = ("reply_draft", "prevention_notice", "coupon_promo")
 _VALID_STATUSES = ("draft", "edited", "approved")
+_VALID_STYLES = ("haeyo", "hamnida", "mixed")
 
 
 @dataclass
@@ -26,6 +27,7 @@ class DraftOutput:
     model: str | None = None
     elapsed_ms: int = 0
     data_origin: str = "synthetic"
+    style: str | None = None  # 답글 말투: haeyo/hamnida/mixed (reply_draft 전용, 그 외는 None)
 
     def __post_init__(self) -> None:
         if not self.draft_id:
@@ -43,6 +45,11 @@ class DraftOutput:
             raise ValueError(
                 f"DraftOutput.status는 {_VALID_STATUSES} 중 하나여야 합니다"
                 f" (받은 값: {self.status!r})"
+            )
+        if self.style is not None and self.style not in _VALID_STYLES:
+            raise ValueError(
+                f"DraftOutput.style은 {_VALID_STYLES} 중 하나거나 None이어야 합니다"
+                f" (받은 값: {self.style!r})"
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,6 +70,7 @@ class DraftOutput:
             "model": self.model,
             "elapsed_ms": self.elapsed_ms,
             "data_origin": self.data_origin,
+            "style": self.style,
         }
 
     @classmethod
