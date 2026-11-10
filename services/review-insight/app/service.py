@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -73,6 +74,23 @@ def _save_pasted(store_id: str, rows: list[Review]) -> None:
     path.write_text(json.dumps([r.to_dict() for r in rows], ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 
 
+def scenario_now(store_id: str, n: int = 1) -> datetime:
+    """붙여넣은 리뷰의 작성 시각.
+
+    합성 가게는 '마지막 합성 리뷰가 있는 날 밤 11시'(발표 장면)부터 1분씩 늦춘 시각을 씁니다.
+    실제 오늘 날짜를 쓰면 분석 기간(최근 28일)이 오늘 기준으로 밀려서 오래된 합성 리뷰가 빠지고,
+    40건 → 불만 12건 같은 숫자가 바뀌기 때문입니다 (11/10 확인). REVIEW_PASTE_REAL_TIME=1 이면 실제 시각.
+    """
+    if os.getenv("REVIEW_PASTE_REAL_TIME", "").strip() in ("1", "true", "yes"):
+        return datetime.now(KST)
+    try:
+        last = max(datetime.fromisoformat(r.created_at) for r in sample_reviews(store_id))
+    except (ValueError, FileNotFoundError):
+        return datetime.now(KST)
+    base = last.astimezone(KST).replace(hour=23, minute=0, second=0, microsecond=0)
+    return base + timedelta(minutes=n - 1)
+
+
 def add_pasted(text: str, rating: int | None = None, channel: str | None = None, now: datetime | None = None,
                store_id: str = DEFAULT_STORE) -> Review:
     """S2: 사장님이 붙여넣은 리뷰 한 건. 저장·모델 전송 전에 전화번호·이메일·링크를 가립니다."""
@@ -88,8 +106,9 @@ def add_pasted(text: str, rating: int | None = None, channel: str | None = None,
         rows = pasted_reviews(store_id)
         n = max([int(r.review_id.split("_")[-1]) for r in rows] or [0]) + 1
         short = store_id.removeprefix("store_")
+        when = now or scenario_now(store_id, n)
         review = Review(review_id=f"rv_{short}_paste_{n:03d}", store_id=store_id, channel=channel, rating=rating,
-                        text=masked, created_at=(now or datetime.now(KST)).isoformat(timespec="seconds"),
+                        text=masked, created_at=when.isoformat(timespec="seconds"),
                         input_method="paste", pii_masked=changed,
                         data_origin="synthetic")   # 대회 동안 붙여넣기에도 합성 리뷰만 씀 (모듈 규격 9.2)
         rows.append(review)

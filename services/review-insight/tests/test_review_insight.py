@@ -420,3 +420,14 @@ def test_access_token_when_deployed(client, monkeypatch):
     assert h["token_required"] is True and client.get("/").status_code == 200
     spec = client.get("/openapi.json").json()
     assert "X-Access-Token" in str(spec["components"]["securitySchemes"])         # /docs 에 Authorize 버튼
+
+
+def test_paste_keeps_scenario_window(client):
+    """붙여넣은 리뷰가 오늘 날짜로 찍히면 분석 기간이 밀려 오래된 합성 리뷰가 빠졌다 (11/10). 발표 장면 시각으로 찍는다."""
+    before = client.get("/api/review-insight/insight").json()
+    d = client.post("/api/review-insight/reviews", json={"text": "반찬이 또 빠져 있었어요", "rating": 1}).json()
+    assert d["review"]["created_at"].startswith(before["period_end"] + "T23:00")
+    after = client.get("/api/review-insight/insight").json()
+    assert (after["period_start"], after["period_end"]) == (before["period_start"], before["period_end"])
+    assert after["review_count"] == before["review_count"] + 1
+    client.delete("/api/review-insight/reviews/pasted")
