@@ -5,35 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>리뷰 분석 확인</title>
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2433; --sub:#667085; --line:#e4e7ec; --neg:#d92d20; --pos:#079455; --acc:#2e6be6; }
+  /* 공통 토큰: 텔레토비 AI 비서 화면(services/web)과 같은 값 */
+  :root { --bg:#f7f9fa; --card:#fff; --ink:#17212b; --sub:#5f6c7b; --line:#dde3e8; --field-line:#7e8a97; --neg:#c43d3d; --neg-bg:#fcefef; --pos:#087f5b; --pos-bg:#edf7f2; --acc:#087f5b; --warn:#9a5b00; --chip:#eef1f4; --meta:13px; }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 -apple-system, "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; }
   main { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
-  h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 0 0 12px; }
+  h1 { font-size: 24px; margin: 0 0 4px; } h2 { font-size: 18px; margin: 0 0 12px; }
   .sub { color: var(--sub); font-size: 13px; }
-  .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3538cd; margin-right:6px; }
+  .tag { display:inline-block; font-size:var(--meta); padding:2px 8px; border-radius:999px; background:var(--chip); color:var(--ink); margin-right:6px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin-top:16px; }
-  textarea { width:100%; min-height:90px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font:inherit; resize:vertical; }
+  textarea { width:100%; min-height:90px; padding:10px 12px; border:1px solid var(--field-line); border-radius:8px; font:inherit; resize:vertical; }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; }
-  select, button { font:inherit; padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:#fff; }
-  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); font-weight:600; cursor:pointer; }
+  select, button { font:inherit; padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--ink); }
+  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); font-weight:700; cursor:pointer; }
   button:disabled { opacity:.5; }
   .chips button { font-size:13px; padding:5px 10px; cursor:pointer; }
   .topic { display:inline-flex; gap:6px; align-items:baseline; margin:4px 8px 4px 0; padding:4px 10px; border-radius:8px; font-size:14px; }
-  .topic.negative { background:#fef3f2; color:var(--neg); } .topic.positive { background:#ecfdf3; color:var(--pos); }
+  .topic.negative { background:var(--neg-bg); color:var(--neg); } .topic.positive { background:var(--pos-bg); color:var(--pos); }
   .topic q { color:var(--ink); font-size:13px; }
-  .warn { color:#b54708; font-size:12px; margin-top:6px; }
+  .warn { color:var(--warn); font-size:var(--meta); margin-top:6px; }
   .issues { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:12px; }
   .issue { border:1px solid var(--line); border-radius:10px; padding:14px; }
   .issue.new { outline:2px solid var(--acc); }
   .issue h3 { margin:0; font-size:15px; display:flex; justify-content:space-between; }
-  .issue.rep { border-color:#fda29b; background:#fffbfa; }
-  .badge { font-size:11px; padding:1px 7px; border-radius:999px; background:var(--neg); color:#fff; margin-left:6px; vertical-align:middle; }
+  .issue.rep { border-color:var(--acc); }
+  .badge { font-size:var(--meta); padding:1px 8px; border-radius:999px; background:var(--acc); color:#fff; margin-left:6px; vertical-align:middle; }
   .brief { font-size:16px; font-weight:600; margin:4px 0 2px; }
   .singles { margin:14px 0 0; padding-left:16px; font-size:13px; color:var(--sub); }
-  .bars { display:grid; grid-template-columns: 58px 1fr 22px; gap:3px 8px; font-size:12px; color:var(--sub); margin:10px 0; align-items:center; }
-  .bar { height:8px; background:#f2f4f7; border-radius:4px; overflow:hidden; } .bar i { display:block; height:100%; background:var(--neg); }
+  .bars { display:grid; grid-template-columns: 62px 1fr 22px; gap:3px 8px; font-size:var(--meta); color:var(--sub); margin:10px 0; align-items:center; }
+  .bar { height:8px; background:var(--chip); border-radius:4px; overflow:hidden; } .bar i { display:block; height:100%; background:var(--neg); }
   .quotes { font-size:13px; color:var(--sub); margin:0; padding-left:16px; }
   .err { color:var(--neg); margin-top:8px; }
 </style>
@@ -43,10 +44,18 @@
   <h1>리뷰 분석 확인 <span class="tag">합성 데이터</span><span class="tag" id="mode">-</span></h1>
   <div class="row" id="tokenRow" hidden>
     <label for="token" class="sub">접근 토큰</label>
-    <input id="token" type="password" autocomplete="off" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;font:inherit">
+    <input id="token" type="password" autocomplete="off" style="padding:8px 12px;border:1px solid var(--field-line);border-radius:8px;font:inherit">
     <button id="tokenSave">저장</button>
   </div>
   <div class="row" style="margin-top:6px"><select id="store"></select><span class="sub" id="storeLine">불러오는 중…</span></div>
+
+  <!-- 순서: 매장·기간·건수 → 반복 불만 → 리뷰 하나씩 확인 (재정비/05 UI 디자인 레퍼런스 4절 A) -->
+  <section class="card">
+    <h2>불만 묶음 (C3)</h2>
+    <div class="brief" id="brief"></div>
+    <div class="sub" id="period"></div>
+    <div class="issues" id="issues" style="margin-top:12px"></div>
+  </section>
 
   <section class="card">
     <h2>리뷰 직접 붙여넣기 (S2)</h2>
@@ -59,13 +68,6 @@
       <button id="reset" title="붙여넣은 리뷰만 지웁니다">붙여넣기 초기화</button>
     </div>
     <div id="result"></div>
-  </section>
-
-  <section class="card">
-    <h2>불만 묶음 (C3)</h2>
-    <div class="brief" id="brief"></div>
-    <div class="sub" id="period"></div>
-    <div class="issues" id="issues" style="margin-top:12px"></div>
   </section>
 </main>
 <script>
@@ -100,7 +102,7 @@ function renderIssues(d, highlight = []) {
   $('issues').innerHTML = (list.length ? list.map(i => {
     const max = Math.max(...Object.values(i.time_bands), 1);
     return `<div class="issue ${i.is_repeated ? 'rep' : ''} ${highlight.includes(i.issue_id) ? 'new' : ''}">
-      <h3><span>${esc(i.topic_name)}${i.is_repeated ? '<span class="badge">반복</span>' : ''}${i.issue_id === d.top_issue_id ? '<span class="badge" style="background:#1d2433">카드 ⓐ</span>' : ''}</span><span>${i.review_count}건</span></h3>
+      <h3><span>${esc(i.topic_name)}${i.is_repeated ? '<span class="badge">반복</span>' : ''}${i.issue_id === d.top_issue_id ? '<span class="badge" style="background:var(--ink)">카드 ⓐ</span>' : ''}</span><span>${i.review_count}건</span></h3>
       <div class="sub">${i.main_time_band ? `주로 ${i.main_time_band}` : '여러 시간대'} · 앞 2주 ${i.previous_count}건 → 최근 2주 ${i.recent_count}건</div>
       <div class="bars">${Object.entries(i.time_bands).map(([b, n]) => `<span>${b}</span><span class="bar"><i style="width:${n / max * 100}%"></i></span><span>${n}</span>`).join('')}</div>
       <ul class="quotes">${i.evidence.slice(0, 3).map(e => `<li>“${esc(e.quote)}” <span class="sub">${e.review_id}</span></li>`).join('')}</ul>

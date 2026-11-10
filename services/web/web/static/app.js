@@ -27,8 +27,20 @@ async function api(path, options = {}) {
 
 function showAlert(msg) { const el = $("alert"); el.hidden = !msg; el.textContent = msg || ""; }
 
+// ── 테마 (재정비/05 검토 9번 결정 5: 발표 때는 라이트로 고정) ──────────────
+// 발표 모드(replay)와 사다리(발표용 live 일부 실시간)는 운영체제가 다크여도 라이트로 보인다.
+// 그 밖(mock·live)은 운영체제 설정을 따른다. 주소 뒤 ?theme=light 는 언제나 라이트, ?theme=auto 는 언제나 운영체제 설정.
+function applyTheme(h) {
+  const want = new URLSearchParams(location.search).get("theme");
+  const presenting = h.mode === "replay" || Number(h.ladder) > 0;
+  const light = want === "light" || (want !== "auto" && presenting);
+  if (light) document.documentElement.dataset.theme = "light";
+  else delete document.documentElement.dataset.theme;
+}
+
 // ── 맨 위 띠 ─────────────────────────────────────────────────────
 function renderHealth(h) {
+  applyTheme(h);
   const chip = $("mode-chip");
   chip.textContent = h.mode_label + (h.ladder ? ` · 사다리 ${h.ladder}칸` : "");
   chip.className = "chip " + h.mode;
@@ -49,6 +61,13 @@ function renderBriefing(b) {
   $("store-name").textContent = `${b.store.name || ""} · ${b.store.business_type_name || ""}${b.store.area_name ? " · " + b.store.area_name + " 상권" : ""}`;
   const c = b.counts;
   $("hero-title").textContent = `오늘까지 리뷰 ${c.review_count}건이 들어왔어요`;
+  // 오늘의 핵심 문제 한 줄 (재정비/05 검토 9번 결정 1): 카드 ⓐ가 가리키는 묶음을 첫 화면에 먼저 보인다.
+  // 시간대는 불만이 몰린 구간(17~21시)만 쓴다. 상권 지표의 17~24시와 섞지 않는다.
+  const top = (b.groups || []).find((g) => g.issue_id === b.top_issue_id);
+  $("hero-problem").hidden = !top;
+  $("hero-problem").innerHTML = top
+    ? `<span class="label">오늘의 핵심 문제</span><span>${esc(top.topic_name)} ${esc(top.review_count)}건${top.is_repeated ? " 반복" : ""}${top.main_time_band ? ` · ${esc(top.main_time_band)}에 몰림` : ""}</span>`
+    : "";
   $("funnel").innerHTML = `
     <div class="box"><div class="n">${esc(c.review_count)}</div><div class="small muted">리뷰</div></div><span class="arrow">→</span>
     <div class="box"><div class="n">${esc(c.complaint_count)}</div><div class="small muted">불만</div></div><span class="arrow">→</span>
@@ -125,17 +144,26 @@ async function runCard(cardId, button) {
   finally { button.disabled = false; button.textContent = old; }
 }
 
+// 글 상태 (재정비/05 검토 9번 결정 4): 점검 실패와 확인 필요를 나눈다.
+//  점검 실패 = C6 자동 점검에 걸림(failed_reasons) → 글을 고쳐야 함
+//  확인 필요 = 빠진 정보(needs_input)·하지 않은 조치/정하지 않은 보상(c7_flags) → 사장님이 사실을 확인
+const failedOf = (d) => d.failed_reasons || [];
+const checksOf = (d) => [...(d.needs_input || []), ...(d.c7_flags || [])];
+
 function draftBlock(d) {
   const review = d.target_review_id ? state.reviews[d.target_review_id] : null;
-  const issues = [...(d.failed_reasons || []), ...(d.needs_input || []), ...(d.c7_flags || [])];
+  const failed = failedOf(d), checks = checksOf(d);
   const approved = state.approved.has(d.draft_id);
   return `<div class="draft ${approved ? "approved" : ""}" id="draft-${esc(d.draft_id)}">
     <div class="draft-head"><strong>${esc(GEN_NAMES[d.generator] || d.generator)}</strong>
       ${review ? `<span class="small muted">→ “${esc(review.text)}”</span>` : ""}
-      ${issues.length ? `<span class="badge warn">확인 필요 ${issues.length}</span>` : '<span class="badge ok">점검 통과</span>'}
+      ${failed.length ? `<span class="badge bad">점검 실패 ${failed.length}</span>` : ""}
+      ${checks.length ? `<span class="badge warn">확인 필요 ${checks.length}</span>` : ""}
+      ${failed.length || checks.length ? "" : '<span class="badge ok">점검 통과</span>'}
       ${approved ? '<span class="badge ok">승인됨</span>' : ""}</div>
     <textarea rows="4" data-text="${esc(d.draft_id)}">${esc(state.pending[d.draft_id] ?? d.edited_text ?? d.text)}</textarea>
-    ${issues.length ? `<ul class="issues">${issues.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${failed.length ? `<ul class="issues bad">${failed.map((x) => `<li><b>점검 실패</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${checks.length ? `<ul class="issues">${checks.map((x) => `<li><b>확인 필요</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
     <div class="row">
       <button type="button" class="primary" data-approve="${esc(d.draft_id)}">${approved ? "다시 승인" : "승인"}</button>
       <button type="button" data-copy="${esc(d.draft_id)}">복사</button>
@@ -150,8 +178,11 @@ function renderResults() {
     const r = state.results[p.card.card_id];
     const src = { live: "실시간 HCX-005", seed: "저장본", replay: "발표 모드 저장본", "live+replay": "일부 실시간" }[r.source] || r.source || "";
     const agent = KIND_AGENT[p.card.kind];
+    const nFailed = (r.drafts || []).filter((d) => failedOf(d).length).length;
+    const nChecks = (r.drafts || []).filter((d) => checksOf(d).length).length;
     return `<div class="result"><div class="group-head">${agent ? `<span class="agent">${esc(agent)}</span>` : ""}<strong>${esc(p.title)}</strong><span class="badge">${esc(src)}</span>
-      ${r.flagged_count ? `<span class="badge warn">확인 필요 글 ${r.flagged_count}개</span>` : ""}</div>
+      ${nFailed ? `<span class="badge bad">점검 실패 글 ${nFailed}개</span>` : ""}
+      ${nChecks ? `<span class="badge warn">확인 필요 글 ${nChecks}개</span>` : ""}</div>
       ${r.source_note ? `<p class="small muted">${esc(r.source_note)}</p>` : ""}
       ${(r.chosen_measures || []).length ? `<p class="small">사장님이 고른 재발 방지 조치: ${r.chosen_measures.map((m) => esc(m.text)).join(", ")}</p>` : ""}
       ${[...(r.drafts || [])].sort(byGen).map(draftBlock).join("")}</div>`;
@@ -256,6 +287,8 @@ async function boot() {
     $("start").textContent = `밤 11시, 오늘 리뷰 ${state.briefing.counts.review_count}건 확인하기`;
   } catch (e) { showAlert(e.message); $("start").textContent = "불러오지 못했어요"; }
 }
+
+applyTheme({}); // ?theme=light 는 서버 응답을 기다리지 않고 바로 (발표 모드 판정은 /api/health 뒤)
 
 $("start").addEventListener("click", () => {
   startTimer();
