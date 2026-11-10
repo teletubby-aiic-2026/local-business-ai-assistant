@@ -45,7 +45,7 @@ function route() {
   const name = currentRoute();
   if (name === "draft") renderDraft();
   if (name === "done") renderDone();
-  if (name === "today" && state.cards.length) renderAgents();
+  if (name === "today") renderDash();
   document.querySelectorAll("[data-view]").forEach((v) => (v.hidden = v.dataset.view !== name));
   document.querySelectorAll(".menu a").forEach((a) => {
     if (a.dataset.route === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
@@ -104,6 +104,11 @@ function renderBriefing(b) {
   $("stat-repeated").textContent = repeated.reduce((n, g) => n + g.review_count, 0);
   $("stat-repeated-sub").textContent = repeated.map((g) => g.topic_name).join(", ") || "없음";
   renderKeywords(b);
+  renderHourChart(b);
+  const snap = (b.snapshots || []).find((x) => x.value !== null && !x.dev_fake);
+  $("stat-market").textContent = snap ? `${snap.value > 0 ? "+" : ""}${Number(snap.value).toFixed(2)}${snap.unit}` : "–";
+  $("stat-market-sub").textContent = snap ? `${snap.area_name} · 전년 같은 분기 대비` : "상권 지표 없음";
+  $("staff-data").textContent = `리뷰 ${c.review_count}건 정리 끝`;
   // 오늘의 핵심 문제 (05 결정 1): 카드 ⓐ가 가리키는 묶음. 시간대는 불만이 몰린 구간(17~21시)만, 상권 지표의 17~24시와 섞지 않는다.
   const top = (b.groups || []).find((g) => g.issue_id === b.top_issue_id);
   $("hero-problem").textContent = top
@@ -140,18 +145,46 @@ function renderBriefing(b) {
     </div>`).join("") || '<p class="muted">상권 지표 파일이 아직 없어요 (C4).</p>';
 }
 
-// 키워드 칩 (R1): 불만 키워드는 브리핑의 묶음·단발 불만 주제에서 센다 (리뷰 하나에 주제 하나 기준).
-// 칭찬 키워드는 브리핑에 주제별 긍정 수(topic_counts)가 있을 때만 보인다. 지금 브리핑·발표 모드 저장본에는 없다 (05 16번).
+// 홈 차트 (11/11 대시보드 시안 v2). 브리핑의 불만 리뷰(묶음 + 묶이지 않은 불만)만 센다. 리뷰 하나에 주제 하나 기준.
+// 주제별 불만: 상위 3개 + 그 밖. 반복 묶음(핵심 문제) 주제는 빨간 막대. 칭찬 주제는 브리핑에 없어 그리지 않는다 (05 16번).
+function complaintsOf(b) {
+  const list = [];
+  (b.groups || []).forEach((g) => g.reviews.forEach((r) => list.push({ topic: g.topic_name, at: r.created_at, top: g.issue_id === b.top_issue_id })));
+  (b.single_complaints || []).forEach((x) => list.push({ topic: (x.topic_names || [])[0], at: x.created_at, top: false }));
+  return list;
+}
 function renderKeywords(b) {
-  const neg = new Map();
-  (b.groups || []).forEach((g) => neg.set(g.topic_name, (neg.get(g.topic_name) || 0) + g.review_count));
-  (b.single_complaints || []).forEach((s) => (s.topic_names || []).forEach((t) => neg.set(t, (neg.get(t) || 0) + 1)));
-  const pos = Object.entries(b.topic_counts || {}).map(([t, v]) => [b.topic_names?.[t] || t, v.positive || 0]).filter(([, n]) => n > 0);
-  const chips = (list, tone) => [...list].sort((x, y) => y[1] - x[1]).slice(0, 8)
-    .map(([t, n]) => `<span class="kw-chip ${tone}">${esc(t)}<b>${esc(n)}</b></span>`).join("");
-  $("keywords").innerHTML =
-    (pos.length ? `<p class="kw-row"><span class="kw-title">칭찬 키워드</span>${chips(pos, "pos")}</p>` : "") +
-    `<p class="kw-row"><span class="kw-title">불만 키워드</span>${neg.size ? chips(neg, "neg") : '<span class="small muted">없음</span>'}</p>`;
+  const counts = new Map(), top = new Set();
+  complaintsOf(b).forEach((r) => { if (!r.topic) return; counts.set(r.topic, (counts.get(r.topic) || 0) + 1); if (r.top) top.add(r.topic); });
+  const sorted = [...counts].sort((x, y) => y[1] - x[1]);
+  const rows = sorted.slice(0, 3);
+  const rest = sorted.slice(3);
+  const max = Math.max(1, ...rows.map((r) => r[1]));   // 막대 길이는 상위 주제끼리만 비교 (그 밖 합계가 1등처럼 보이지 않게)
+  $("keywords").innerHTML = (rows.map(([t, n]) => `
+    <div class="tb-row"><span class="tb-name">${esc(t)}</span>
+      <span class="tb-track"><i class="${top.has(t) ? "hot" : ""}" style="width:${Math.round((n / max) * 100)}%"></i></span>
+      <span class="tb-n">${esc(n)}건</span></div>`).join("")
+    + (rest.length ? `<p class="tb-rest small muted">그 밖 ${rest.length}개 주제: ${rest.map(([t, n]) => `${esc(t)} ${esc(n)}`).join(" · ")}</p>` : ""))
+    || '<p class="small muted">불만 리뷰가 없어요.</p>';
+}
+// 불만 리뷰가 몰린 시간: 11~23시 막대. 핵심 문제 묶음의 몰린 시간대(예: 17~21시)는 빨간 막대, 같은 뜻을 글자로도 쓴다.
+function renderHourChart(b) {
+  const by = new Map();
+  complaintsOf(b).forEach((r) => { const h = Number(String(r.at || "").slice(11, 13)); if (Number.isFinite(h)) by.set(h, (by.get(h) || 0) + 1); });
+  const hours = [...by.keys()];
+  const from = Math.min(11, ...hours), to = Math.max(23, ...hours);
+  const top = (b.groups || []).find((g) => g.issue_id === b.top_issue_id);
+  const band = String(top?.main_time_band || "").match(/(\d+)\D+(\d+)/);
+  const hot = (h) => band && h >= Number(band[1]) && h < Number(band[2]);
+  const max = Math.max(1, ...by.values());
+  const cols = [];
+  for (let h = from; h <= to; h++) {
+    const n = by.get(h) || 0;
+    cols.push(`<div class="hc-col${hot(h) ? " hot" : ""}"><span class="hc-n">${n || ""}</span><i style="height:${n ? Math.max(6, Math.round((n / max) * 100)) : 2}%"></i><span class="hc-h">${h}</span></div>`);
+  }
+  $("hour-chart").innerHTML = cols.join("");
+  $("hour-chart").setAttribute("aria-label", "시간대별 불만 리뷰: " + ([...by].sort((x, y) => x[0] - y[0]).map(([h, n]) => `${h}시 ${n}건`).join(", ") || "없음"));
+  $("chart-note").textContent = band ? `빨간 막대 = ${top.topic_name}이 몰린 ${top.main_time_band}` : "시 단위";
 }
 
 // ── 2 제안 ───────────────────────────────────────────────────────
@@ -187,42 +220,74 @@ function renderCards(data) {
   const used = new Set(data.cards.flatMap((p) => p.card.snapshot_ids || []));
   document.querySelectorAll("[data-snap]").forEach((el) => { el.querySelector("[data-used]").hidden = !used.has(el.dataset.snap); });
   document.querySelectorAll("#cards [data-run]").forEach((b) => b.addEventListener("click", () => choose(b.dataset.run, b)));
-  renderAgents();
+  renderDash();
 }
 
-// ── 1 오늘 대시보드: AI 직원 카드 (11/11 시안) ─────────────────────────
-// 카드 ⓐ(불만) = 고객 응대 비서, 카드 ⓑ(홍보) = 마케팅 에이전트. 숫자는 지금 API 응답(카드·브리핑)에서만 가져온다.
-function renderAgents() {
+// ── 홈 대시보드: 오늘 할 일 + 왼쪽 메뉴의 승인 대기 수·AI 직원 상태 (11/11 시안 v2) ─────────
+// 할 일은 지금 카드에서 만든다: 카드 ⓐ(불만) → 재발 방지 공지, 답글 n개 / 카드 ⓑ(홍보) → 쿠폰 홍보글.
+// 누르면 아직 안 만든 글은 만들고(타이머 시작), 만든 글은 3 초안 화면에서 그 글을 연다.
+const TODO_ICON = { done: "✓", wait: "", none: "" };
+function todosOf() {
   const care = state.cards.find((p) => p.card.kind === "complaint");
   const mkt = state.cards.find((p) => p.card.kind === "promo");
-  const fill = (p, prefix, body) => {
-    const btn = $(prefix + "-run");
-    if (!p) { $(prefix + "-title").textContent = "오늘은 할 일이 없어요"; btn.disabled = true; return; }
-    $(prefix + "-title").textContent = p.title;
-    body(p);
-    const res = state.results[p.card.card_id];
-    btn.disabled = false;
-    btn.dataset.card = p.card.card_id;
-    btn.textContent = res ? "만든 글 보기" : prefix === "care" ? "재발 방지 공지·답글 만들기" : "홍보글 만들기";
-  };
-  fill(care, "care", (p) => {
-    const n = p.evidence.filter((e) => e.type === "review").length;
-    $("care-body").textContent = `만들 글: 재발 방지 공지 1개 + 답글 ${n}개`;
-    const drafts = state.results[p.card.card_id]?.drafts || [];
-    const done = drafts.filter((d) => state.approved.has(d.draft_id)).length;
-    $("care-status").textContent = drafts.length ? `승인 ${done} / ${drafts.length}` : "아직 만들지 않았어요";
-  });
-  fill(mkt, "mkt", (p) => {
-    const snap = (state.briefing?.snapshots || []).find((s) => (p.card.snapshot_ids || []).includes(s.snapshot_id));
-    $("mkt-metric").textContent = snap && snap.value !== null ? `${snap.value > 0 ? "+" : ""}${Number(snap.value).toFixed(2)}${snap.unit}` : "";
-    $("mkt-basis").textContent = snap ? `${snap.area_name} · ${snap.metric_name} · ${shortBasis(snap.basis_label)}` : sourceLine(p);
-  });
+  const items = [];
+  const of = (p, gen) => draftsOf(p.card.card_id).filter((d) => d.generator === gen);
+  const status = (p, ds, made) => !made ? ["none", "만들기"] : ds.length && ds.every((d) => state.approved.has(d.draft_id)) ? ["done", "완료"]
+    : ["wait", `승인 ${ds.filter((d) => state.approved.has(d.draft_id)).length} / ${ds.length}`];
+  if (care) {
+    const made = !!state.results[care.card.card_id];
+    const n = care.evidence.filter((e) => e.type === "review").length;
+    items.push({ key: "notice", card: care, cid: care.card.card_id, gen: "prevention_notice", urgent: true, title: "재발 방지 공지 승인", sub: $("hero-problem").textContent, agent: "고객 응대 비서", st: status(care, of(care, "prevention_notice"), made) });
+    items.push({ key: "reply", card: care, cid: care.card.card_id, gen: "reply_draft", title: `답글 ${made ? of(care, "reply_draft").length : n}개 승인`, sub: "같은 불만을 남긴 손님에게", agent: "고객 응대 비서", st: status(care, of(care, "reply_draft"), made) });
+  }
+  if (mkt) {
+    const made = !!state.results[mkt.card.card_id];
+    items.push({ key: "promo", card: mkt, cid: mkt.card.card_id, gen: "coupon_promo", title: "쿠폰 홍보글", sub: `저녁 매출 ${$("stat-market").textContent} · 저녁 손님 다시 부르기`, agent: "마케팅 에이전트", st: status(mkt, of(mkt, "coupon_promo"), made) });
+  }
+  return items;
 }
-function runFromDash(button) {
-  const id = button.dataset.card;
-  if (!id) return;
-  if (!state.startedAt) startTimer();   // KPI 타이머: 대시보드에서 바로 만들어도 여기서 시작
-  choose(id, button);
+function renderDash() {
+  if (!state.cards.length) return;
+  const items = todosOf();
+  const left = items.filter((t) => t.st[0] !== "done").length;
+  $("todo").innerHTML = items.map((t) => `
+    <li><button type="button" class="todo-item ${t.urgent && t.st[0] !== "done" ? "urgent" : ""} ${t.st[0]}" data-todo="${esc(t.key)}">
+      <span class="todo-check" aria-hidden="true">${TODO_ICON[t.st[0]]}</span>
+      <span class="todo-text"><strong>${t.urgent && t.st[0] !== "done" ? '<span class="todo-urgent">급함</span>' : ""}${esc(t.title)}</strong><span class="small">${esc(t.sub)}</span><span class="small muted">${esc(t.agent)}</span></span>
+      <span class="todo-st">${esc(t.st[1])}</span>
+    </button></li>`).join("") || '<li class="small muted">오늘은 할 일이 없어요.</li>';
+  $("todo-count").textContent = `${items.length - left} / ${items.length} 끝`;
+  $("dash-title").textContent = left ? `사장님, 오늘 처리할 일 ${left}가지` : "사장님, 오늘 할 일을 모두 끝냈어요";
+  document.querySelectorAll("[data-todo]").forEach((b) => b.addEventListener("click", () => runTodo(items.find((t) => t.key === b.dataset.todo), b)));
+  // 왼쪽 메뉴: 승인 대기 수, AI 직원 상태 (점 색과 같은 뜻을 글자로)
+  const all = Object.values(state.results).flatMap((r) => r.drafts || []);
+  const waiting = all.filter((d) => !state.approved.has(d.draft_id)).length;
+  $("nav-draft-count").hidden = !waiting;
+  $("nav-draft-count").textContent = waiting;
+  const staff = (prefix, list) => {
+    const made = list.some((t) => t.st[0] !== "none");
+    const done = list.length && list.every((t) => t.st[0] === "done");
+    const wait = list.flatMap((t) => draftsOf(t.cid).filter((d) => d.generator === t.gen && !state.approved.has(d.draft_id))).length;
+    $("dot-" + prefix).className = "dot " + (done ? "ok" : "warn");
+    $("staff-" + prefix).textContent = !list.length ? "오늘 할 일 없음" : done ? "오늘 몫 끝" : made ? `승인 대기 ${wait}개` : "만들 차례";
+  };
+  staff("care", items.filter((t) => t.agent === "고객 응대 비서"));
+  staff("mkt", items.filter((t) => t.agent === "마케팅 에이전트"));
+}
+async function runTodo(t, button) {
+  if (!t) return;
+  const id = t.cid;   // t.card는 카드 묶음({card, title, …})이라 id는 t.card.card.card_id
+  if (!state.results[id]) {
+    if (!state.startedAt) startTimer();   // KPI 타이머: 홈에서 바로 만들어도 여기서 시작
+    // runCard에 버튼을 넘기지 않는다: runCard는 버튼 글자를 통째로 바꿔 할 일 칸(체크·글·상태)이 깨진다
+    if (button) { button.disabled = true; const st = button.querySelector(".todo-st"); if (st) st.textContent = "만드는 중…"; }
+    await runCard(id);
+    if (!state.results[id]) { renderDash(); return; }   // 실패하면 할 일 목록을 원래대로
+  }
+  const ds = draftsOf(id).filter((d) => d.generator === t.gen);
+  state.current = id;
+  state.draftId = (ds.find((d) => !state.approved.has(d.draft_id)) || ds[0] || {}).draft_id || null;
+  if (currentRoute() === "draft") renderDraft(); else go("draft");
 }
 
 // 불만 카드: 공지에 넣을 재발 방지 조치를 사장님이 고른다 (C6 목록, 고르지 않은 조치는 글에 못 들어감)
@@ -370,6 +435,7 @@ async function approve(id) {
     d.edited_text = entry.edited ? box.value : null;
     delete state.pending[id];
     state.approved.add(id);
+    renderDash();
     const card = state.cards.find((p) => (state.results[p.card.card_id]?.drafts || []).includes(d));
     state.approvedLog = state.approvedLog.filter((x) => x.id !== id);
     state.approvedLog.push({ id, at: entry.approved_at || new Date().toISOString(), edited: !!entry.edited,
@@ -481,6 +547,8 @@ async function record() {
 
 // ── 챗봇 서랍 자리 (S1 질문창, PR #13이 들어올 곳) ─────────────────────
 // 지금은 'AI에게 묻기' 버튼이 숨겨져 있어 열 수 없다. 여닫기·자리만 있고 질문·답 기능은 없다 (05 17번).
+// 상단 바 높이: 왼쪽 메뉴·서랍이 상단 바 아래에 붙게
+function setTopH() { document.documentElement.style.setProperty("--top-h", document.querySelector(".top").offsetHeight + "px"); }
 function toggleAssistant(open) {
   const box = $("assistant"), btn = $("ask-ai");
   const on = open ?? box.hidden;
@@ -507,6 +575,7 @@ async function boot() {
     $("start").disabled = false;
     $("start").textContent = "무엇을 할까요?";
   } catch (e) { showAlert(e.message); $("start").textContent = "불러오지 못했어요"; }
+  setTopH();
   route();
 }
 
@@ -518,8 +587,7 @@ $("paste-reset").addEventListener("click", resetPaste);
 $("record").addEventListener("click", record);
 $("ask-ai").addEventListener("click", () => toggleAssistant());
 $("ask-open").addEventListener("click", () => toggleAssistant(true));
-$("care-run").addEventListener("click", (e) => runFromDash(e.currentTarget));
-$("mkt-run").addEventListener("click", (e) => runFromDash(e.currentTarget));
+window.addEventListener("resize", setTopH);
 $("assistant-close").addEventListener("click", () => toggleAssistant(false));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("assistant").hidden) toggleAssistant(false); });
 window.addEventListener("hashchange", route);
