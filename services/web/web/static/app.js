@@ -109,6 +109,7 @@ function renderBriefing(b) {
   $("stat-market").textContent = snap ? `${snap.value > 0 ? "+" : ""}${Number(snap.value).toFixed(2)}${snap.unit}` : "–";
   $("stat-market-sub").textContent = snap ? `${snap.area_name} · 전년 같은 분기 대비` : "상권 지표 없음";
   $("staff-data").textContent = `리뷰 ${c.review_count}건 정리 끝`;
+  syncStaffStrip();
   // 오늘의 핵심 문제 (05 결정 1): 카드 ⓐ가 가리키는 묶음. 시간대는 불만이 몰린 구간(17~21시)만, 상권 지표의 17~24시와 섞지 않는다.
   const top = (b.groups || []).find((g) => g.issue_id === b.top_issue_id);
   $("hero-problem").textContent = top
@@ -273,6 +274,14 @@ function renderDash() {
   };
   staff("care", items.filter((t) => t.agent === "고객 응대 비서"));
   staff("mkt", items.filter((t) => t.agent === "마케팅 에이전트"));
+  syncStaffStrip();
+}
+// 375px 홈의 직원 상태 줄: 왼쪽 메뉴 'AI 직원' 목록(#staff)을 그대로 옮겨 그린다 (내용은 한 곳에서만 정함)
+function syncStaffStrip() {
+  $("staff-strip").innerHTML = [...document.querySelectorAll("#staff li")].map((li) => {
+    const dot = li.querySelector(".dot");
+    return `<li><span class="${esc(dot ? dot.className : "dot")}" aria-hidden="true"></span><b>${esc(li.querySelector("b")?.textContent)}</b> <span class="muted">${esc(li.querySelector("b + span")?.textContent)}</span></li>`;
+  }).join("");
 }
 async function runTodo(t, button) {
   if (!t) return;
@@ -549,13 +558,17 @@ async function record() {
 // 지금은 'AI에게 묻기' 버튼이 숨겨져 있어 열 수 없다. 여닫기·자리만 있고 질문·답 기능은 없다 (05 17번).
 // 상단 바 높이: 왼쪽 메뉴·서랍이 상단 바 아래에 붙게
 function setTopH() { document.documentElement.style.setProperty("--top-h", document.querySelector(".top").offsetHeight + "px"); }
-function toggleAssistant(open) {
-  const box = $("assistant"), btn = $("ask-ai");
+// 닫으면 서랍을 연 그 버튼(상단 'AI에게 묻기' 또는 홈 입력줄)으로 포커스를 돌려준다. 그 버튼이 화면에 없으면 상단 버튼으로.
+function toggleAssistant(open, opener) {
+  const box = $("assistant");
   const on = open ?? box.hidden;
   document.documentElement.style.setProperty("--top-h", document.querySelector(".top").offsetHeight + "px"); // 서랍이 상단 바 아래에 붙게
+  if (on && opener) state.askFrom = opener;
   box.hidden = !on;
-  btn.setAttribute("aria-expanded", String(on));
-  if (on) $("assistant-close").focus(); else if (!btn.hidden) btn.focus();
+  ["ask-ai", "ask-open"].forEach((id) => $(id).setAttribute("aria-expanded", String(on)));
+  if (on) { $("assistant-close").focus(); return; }
+  const back = state.askFrom && state.askFrom.offsetParent !== null ? state.askFrom : $("ask-ai");
+  if (!back.hidden) back.focus();
 }
 
 // ── 시작 ─────────────────────────────────────────────────────────
@@ -585,8 +598,8 @@ $("start").addEventListener("click", () => { startTimer(); go("cards"); });
 $("paste-send").addEventListener("click", paste);
 $("paste-reset").addEventListener("click", resetPaste);
 $("record").addEventListener("click", record);
-$("ask-ai").addEventListener("click", () => toggleAssistant());
-$("ask-open").addEventListener("click", () => toggleAssistant(true));
+$("ask-ai").addEventListener("click", (e) => toggleAssistant(undefined, e.currentTarget));
+$("ask-open").addEventListener("click", (e) => toggleAssistant(true, e.currentTarget));
 window.addEventListener("resize", setTopH);
 $("assistant-close").addEventListener("click", () => toggleAssistant(false));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("assistant").hidden) toggleAssistant(false); });

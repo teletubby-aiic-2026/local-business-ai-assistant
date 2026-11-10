@@ -60,6 +60,8 @@
         </div>
         <p class="problem compact"><span class="label">오늘의 핵심 문제</span><strong id="hero-problem">오늘 들어온 리뷰를 정리하고 있어요</strong></p>
       </div>
+      <!-- 375px: 왼쪽 메뉴가 위쪽 가로 메뉴가 되면 그 아래 'AI 직원' 상태가 숨는다 → 홈에 한 줄로 (데스크톱에서는 숨김) -->
+      <ul id="staff-strip" class="staff-strip plain" aria-label="AI 직원 상태"></ul>
       <dl class="stats tiles">
         <div class="stat-card">
           <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5c0 4-3.6 7.2-8 7.2-.9 0-1.7-.1-2.5-.3L5 20l.9-3.6C4.7 15.1 4 13.4 4 11.5c0-4 3.6-7.2 8-7.2s8 3.2 8 7.2z"/></svg>리뷰</dt>
@@ -94,7 +96,7 @@
           </div>
         </section>
       </div>
-      <button id="ask-open" class="ask-bar" type="button" aria-controls="assistant">
+      <button id="ask-open" class="ask-bar" type="button" aria-controls="assistant" aria-expanded="false">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2z"/></svg><span class="ask-ph">AI에게 묻기 · 예) 포장 누락은 언제 많아요?</span><span class="badge">준비 중</span>
       </button>
     </section>
