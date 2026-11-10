@@ -443,3 +443,5 @@ def test_benchmark_v1_is_valid_and_separate():
     texts_dev, texts_test = {r["text"] for r in dev}, {r["text"] for r in test}
     assert not texts_dev & texts_test
     assert not (texts_dev | texts_test) & examples
+    from app.classify import SHOT_REVIEWS
+    assert not (texts_dev | texts_test) & {x[2] for x in SHOT_REVIEWS}   # 프롬프트 고정 예시도 시험 문제와 다르게
