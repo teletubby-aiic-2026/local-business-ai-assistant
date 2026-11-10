@@ -45,6 +45,7 @@ function route() {
   const name = currentRoute();
   if (name === "draft") renderDraft();
   if (name === "done") renderDone();
+  if (name === "today" && state.cards.length) renderAgents();
   document.querySelectorAll("[data-view]").forEach((v) => (v.hidden = v.dataset.view !== name));
   document.querySelectorAll(".menu a").forEach((a) => {
     if (a.dataset.route === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
@@ -185,7 +186,43 @@ function renderCards(data) {
   $("no-card-b").textContent = data.no_card_b || "";
   const used = new Set(data.cards.flatMap((p) => p.card.snapshot_ids || []));
   document.querySelectorAll("[data-snap]").forEach((el) => { el.querySelector("[data-used]").hidden = !used.has(el.dataset.snap); });
-  document.querySelectorAll("[data-run]").forEach((b) => b.addEventListener("click", () => choose(b.dataset.run, b)));
+  document.querySelectorAll("#cards [data-run]").forEach((b) => b.addEventListener("click", () => choose(b.dataset.run, b)));
+  renderAgents();
+}
+
+// ── 1 오늘 대시보드: AI 직원 카드 (11/11 시안) ─────────────────────────
+// 카드 ⓐ(불만) = 고객 응대 비서, 카드 ⓑ(홍보) = 마케팅 에이전트. 숫자는 지금 API 응답(카드·브리핑)에서만 가져온다.
+function renderAgents() {
+  const care = state.cards.find((p) => p.card.kind === "complaint");
+  const mkt = state.cards.find((p) => p.card.kind === "promo");
+  const fill = (p, prefix, body) => {
+    const btn = $(prefix + "-run");
+    if (!p) { $(prefix + "-title").textContent = "오늘은 할 일이 없어요"; btn.disabled = true; return; }
+    $(prefix + "-title").textContent = p.title;
+    body(p);
+    const res = state.results[p.card.card_id];
+    btn.disabled = false;
+    btn.dataset.card = p.card.card_id;
+    btn.textContent = res ? "만든 글 보기" : prefix === "care" ? "재발 방지 공지·답글 만들기" : "홍보글 만들기";
+  };
+  fill(care, "care", (p) => {
+    const n = p.evidence.filter((e) => e.type === "review").length;
+    $("care-body").textContent = `만들 글: 재발 방지 공지 1개 + 답글 ${n}개`;
+    const drafts = state.results[p.card.card_id]?.drafts || [];
+    const done = drafts.filter((d) => state.approved.has(d.draft_id)).length;
+    $("care-status").textContent = drafts.length ? `승인 ${done} / ${drafts.length}` : "아직 만들지 않았어요";
+  });
+  fill(mkt, "mkt", (p) => {
+    const snap = (state.briefing?.snapshots || []).find((s) => (p.card.snapshot_ids || []).includes(s.snapshot_id));
+    $("mkt-metric").textContent = snap && snap.value !== null ? `${snap.value > 0 ? "+" : ""}${Number(snap.value).toFixed(2)}${snap.unit}` : "";
+    $("mkt-basis").textContent = snap ? `${snap.area_name} · ${snap.metric_name} · ${shortBasis(snap.basis_label)}` : sourceLine(p);
+  });
+}
+function runFromDash(button) {
+  const id = button.dataset.card;
+  if (!id) return;
+  if (!state.startedAt) startTimer();   // KPI 타이머: 대시보드에서 바로 만들어도 여기서 시작
+  choose(id, button);
 }
 
 // 불만 카드: 공지에 넣을 재발 방지 조치를 사장님이 고른다 (C6 목록, 고르지 않은 조치는 글에 못 들어감)
@@ -480,6 +517,9 @@ $("paste-send").addEventListener("click", paste);
 $("paste-reset").addEventListener("click", resetPaste);
 $("record").addEventListener("click", record);
 $("ask-ai").addEventListener("click", () => toggleAssistant());
+$("ask-open").addEventListener("click", () => toggleAssistant(true));
+$("care-run").addEventListener("click", (e) => runFromDash(e.currentTarget));
+$("mkt-run").addEventListener("click", (e) => runFromDash(e.currentTarget));
 $("assistant-close").addEventListener("click", () => toggleAssistant(false));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("assistant").hidden) toggleAssistant(false); });
 window.addEventListener("hashchange", route);

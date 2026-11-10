@@ -18,7 +18,7 @@
       <span id="store-name" class="store"></span>
       <div class="top-right">
         <!-- 챗봇(S1 질문창, PR #13) 자리: 아직 숨김. 탭이 아니라 보조 서랍으로 연다 (05 17번) -->
-        <button id="ask-ai" class="ask" type="button" aria-controls="assistant" aria-expanded="false" hidden>
+        <button id="ask-ai" class="ask" type="button" aria-controls="assistant" aria-expanded="false">
           <svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>AI에게 묻기
         </button>
         <span id="mode-chip" class="chip"></span>
@@ -41,12 +41,17 @@
   <!-- 단계 화면(main) + 오른쪽 서랍(aside). 서랍이 열리면 main이 남은 폭으로 줄고 카드는 좁으면 1열 -->
   <div class="shell">
   <main>
-    <!-- 1 오늘: 숫자 카드 줄 → 키워드 칩 → 핵심 문제 한 줄 → 무엇을 할까요? -->
-    <section class="view narrow" data-view="today">
+    <!-- 1 오늘 = 대시보드 (11/11 시안, feat/dashboard): 핵심 문제 → 숫자 카드 → AI 직원 3명 카드 → AI에게 묻기 자리.
+         카드를 누르면 지금의 단계 화면(2 제안·3 초안·분석)으로 들어간다. API·저장본은 그대로. -->
+    <section class="view" data-view="today">
       <div class="page-head">
-        <p class="eyebrow"><span class="agent">데이터 분석 비서</span><span>밤 11시 브리핑</span></p>
-        <h1 tabindex="-1">오늘의 리뷰 요약</h1>
+        <p class="eyebrow"><span>밤 11시 브리핑</span></p>
+        <h1 tabindex="-1">오늘의 가게 현황</h1>
         <p id="today-source" class="small muted">불러오는 중…</p>
+      </div>
+      <div class="problem">
+        <span class="label">오늘의 핵심 문제</span>
+        <h2 id="hero-problem">오늘 들어온 리뷰를 정리하고 있어요</h2>
       </div>
       <dl class="stats">
         <div class="stat-card">
@@ -62,13 +67,39 @@
           <dd><span id="stat-repeated" class="stat-n">–</span><span class="stat-unit">건</span><span id="stat-repeated-sub" class="stat-sub"></span></dd>
         </div>
       </dl>
-      <div id="keywords" class="panel kw"><p class="kw-row small muted">불러오는 중…</p></div>
-      <div class="problem">
-        <span class="label">오늘의 핵심 문제</span>
-        <h2 id="hero-problem">오늘 들어온 리뷰를 정리하고 있어요</h2>
+      <h2 class="dash-title">AI 직원 3명</h2>
+      <div class="agents">
+        <article class="agent-card">
+          <p class="agent-name"><span class="agent">데이터 분석 비서</span></p>
+          <h3>리뷰를 묶어 반복 불만을 찾았어요</h3>
+          <div id="keywords" class="kw"><p class="kw-row small muted">불러오는 중…</p></div>
+          <div class="agent-foot"><a class="btn-link" href="#/analysis">분석 자세히 보기</a></div>
+        </article>
+        <article class="agent-card">
+          <p class="agent-name"><span class="agent">고객 응대 비서</span></p>
+          <h3 id="care-title">불러오는 중…</h3>
+          <p id="care-body" class="small"></p>
+          <p id="care-status" class="small muted"></p>
+          <div class="agent-foot"><button id="care-run" type="button" class="primary" disabled>재발 방지 공지·답글 만들기</button></div>
+        </article>
+        <article class="agent-card">
+          <p class="agent-name"><span class="agent">마케팅 에이전트</span></p>
+          <h3 id="mkt-title">불러오는 중…</h3>
+          <p id="mkt-metric" class="metric-big"></p>
+          <p id="mkt-basis" class="small muted"></p>
+          <div class="agent-foot"><button id="mkt-run" type="button" class="primary" disabled>홍보글 만들기</button></div>
+        </article>
+      </div>
+      <div class="panel ask-panel">
+        <div>
+          <h2 class="ask-title">AI에게 묻기 <span class="badge">준비 중</span></h2>
+          <p class="small muted">숫자의 근거를 물어보는 질문창(S1)이 들어올 자리예요. 답은 근거와 함께, 처리는 위 카드에서 해요.</p>
+          <p class="ask-chips" aria-label="질문 예시"><span class="kw-chip">포장 누락은 언제 많아요?</span><span class="kw-chip">우리 상권 저녁 매출은?</span><span class="kw-chip">쿠폰은 얼마가 적당해요?</span></p>
+        </div>
+        <button id="ask-open" type="button" class="ghost">열어 보기</button>
       </div>
       <button id="start" class="primary big" type="button" disabled>불러오는 중…</button>
-      <p class="small foot-link"><a href="#/analysis">분석 자세히 보기</a></p>
+      <p class="small foot-link">카드 2장을 나란히 보고 고르려면 위 버튼, 바로 만들려면 각 직원 카드의 버튼</p>
     </section>
 
     <!-- 2 제안: 카드 2장 중 하나 -->
