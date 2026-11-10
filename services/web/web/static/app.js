@@ -442,6 +442,17 @@ async function record() {
   catch (e) { showAlert(e.message); }
 }
 
+// ── 챗봇 서랍 자리 (S1 질문창, PR #13이 들어올 곳) ─────────────────────
+// 지금은 'AI에게 묻기' 버튼이 숨겨져 있어 열 수 없다. 여닫기·자리만 있고 질문·답 기능은 없다 (05 17번).
+function toggleAssistant(open) {
+  const box = $("assistant"), btn = $("ask-ai");
+  const on = open ?? box.hidden;
+  document.documentElement.style.setProperty("--top-h", document.querySelector(".top").offsetHeight + "px"); // 서랍이 상단 바 아래에 붙게
+  box.hidden = !on;
+  btn.setAttribute("aria-expanded", String(on));
+  if (on) $("assistant-close").focus(); else if (!btn.hidden) btn.focus();
+}
+
 // ── 시작 ─────────────────────────────────────────────────────────
 async function refresh() {
   state.briefing = await api("/api/briefing"); renderBriefing(state.briefing);
@@ -468,6 +479,9 @@ $("start").addEventListener("click", () => { startTimer(); go("cards"); });
 $("paste-send").addEventListener("click", paste);
 $("paste-reset").addEventListener("click", resetPaste);
 $("record").addEventListener("click", record);
+$("ask-ai").addEventListener("click", () => toggleAssistant());
+$("assistant-close").addEventListener("click", () => toggleAssistant(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("assistant").hidden) toggleAssistant(false); });
 window.addEventListener("hashchange", route);
 route();
 boot();

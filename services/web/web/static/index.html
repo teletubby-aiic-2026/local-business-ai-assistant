@@ -17,6 +17,10 @@
       </a>
       <span id="store-name" class="store"></span>
       <div class="top-right">
+        <!-- 챗봇(S1 질문창, PR #13) 자리: 아직 숨김. 탭이 아니라 보조 서랍으로 연다 (05 17번) -->
+        <button id="ask-ai" class="ask" type="button" aria-controls="assistant" aria-expanded="false" hidden>
+          <svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>AI에게 묻기
+        </button>
         <span id="mode-chip" class="chip"></span>
         <span id="timer" class="timer" title="무엇을 할까요? 버튼부터 재발 방지 공지 승인까지 (C8 KPI)">00:00</span>
       </div>
@@ -34,6 +38,8 @@
 
   <div id="alert" class="alert" role="alert" hidden></div>
 
+  <!-- 단계 화면(main) + 오른쪽 서랍(aside). 서랍이 열리면 main이 남은 폭으로 줄고 카드는 좁으면 1열 -->
+  <div class="shell">
   <main>
     <!-- 1 오늘: 숫자 카드 줄 → 키워드 칩 → 핵심 문제 한 줄 → 무엇을 할까요? -->
     <section class="view narrow" data-view="today">
@@ -119,6 +125,26 @@
       </div>
     </section>
   </main>
+
+  <!-- 챗봇 서랍 자리 (기능은 아직 없음). 데스크톱 = 오른쪽 380px, 375px = 아래에서 올라오는 시트 -->
+  <aside id="assistant" class="drawer" aria-labelledby="assistant-title" hidden>
+    <div class="drawer-head">
+      <h2 id="assistant-title">AI에게 묻기</h2>
+      <button id="assistant-close" type="button" class="ghost" aria-label="AI에게 묻기 닫기">닫기</button>
+    </div>
+    <div class="drawer-body">
+      <div id="assistant-chips" class="drawer-chips" aria-label="추천 질문"></div>
+      <div id="assistant-log" class="drawer-log">
+        <p class="small muted">S1 질문창(PR #13)이 들어올 자리예요. 아직 동작하지 않아요.</p>
+      </div>
+    </div>
+    <div class="drawer-input">
+      <label for="assistant-q" class="sr">질문</label>
+      <input id="assistant-q" type="text" placeholder="예) 포장 누락은 언제 많아요?" disabled>
+      <button type="button" class="primary" disabled>보내기</button>
+    </div>
+  </aside>
+  </div>
 
   <footer class="foot">
     <span id="foot-msg" class="small muted"></span>
