@@ -22,9 +22,10 @@ _CLAIMED_ACTION = re.compile(r"(?:보내|챙겨|환불해|다시\s*보내)\s*드
 _APOLOGY = re.compile(r"죄송")
 _FEWSHOT_WORDS = ("국물", "넉넉하다", "집밥")
 _PERSONAL_ADDRESS = re.compile(r"고객님|주문하신|구매하신|손님께서는")
-_AI_EMPATHY_FORBIDDEN = re.compile(r"챙기|확인|대조|요청|다음에|다음부터|앞으로|감사")
+_AI_EMPATHY_FORBIDDEN = re.compile(r"챙기|대조|요청사항|앞으로|다음부터")
 _FORMAL_END = re.compile(r"(합니다|습니다|됩니다|입니다|바랍니다|드립니다)[.!?]?\s*$")
 _INFORMAL_END = re.compile(r"(해요|게요|어요|아요|예요|죠)[.!?]?\s*$")
+_STYLE_SUFFIX = {"haeyo": "요", "hamnida": "니다", "mixed": "요"}
 
 STIFF_WORDS = {
     "기재": "적어", "이러한": "이런", "해당": "그",
@@ -145,29 +146,24 @@ def has_apology(text: str) -> bool:
 
 def ai_part_only_empathy(text: str) -> bool:
     """답글에서 AI 가 쓰는 건 공감·사과뿐 — 조치·요청사항·감사 인사는 코드가 붙이니,
-    AI 가 쓴 부분에 '챙기'·'확인'·'대조'·'요청'·'다음에'·'다음부터'·'앞으로'·'감사' 가 없어야 True."""
+    AI 가 쓴 부분에 '챙기'·'대조'·'요청사항'·'앞으로'·'다음부터' 가 없어야 True.
+    ('감사'·'다음에'는 자연스러운 공감 표현에도 섞여 나올 수 있어 허용한다)"""
     if not text:
         return True
     return not bool(_AI_EMPATHY_FORBIDDEN.search(text))
 
 
-def style_match(ai_part: str, body: str, style: str) -> bool:
-    """답글 말투가 고른 style 과 맞는지. haeyo/hamnida 는 본문(AI+M1+P1) 전체 문장이,
-    mixed 는 AI 가 쓴 부분만 해당 말투 어미로 끝나야 True."""
-    def _all_end_with(text: str, suffix: str) -> bool:
-        sentences = [s.strip() for s in _SENT_SPLIT.split(text.strip())] if text and text.strip() else []
-        sentences = [s for s in sentences if s]
-        if not sentences:
-            return False
-        return all(s.rstrip(".!?").endswith(suffix) for s in sentences)
-
-    if style == "haeyo":
-        return _all_end_with(body, "요")
-    if style == "hamnida":
-        return _all_end_with(body, "니다")
-    if style == "mixed":
-        return _all_end_with(ai_part, "요")
-    return True
+def style_match(ai_part: str, style: str) -> bool:
+    """AI 가 쓴 공감·사과 부분만 본다(코드가 붙이는 M1·P1·인사·마무리는 점검 대상이 아니다).
+    haeyo/mixed 는 해요체(어미 '요'), hamnida 는 합니다체(어미 '니다')로 끝나야 True."""
+    suffix = _STYLE_SUFFIX.get(style)
+    if suffix is None:
+        return True
+    sentences = [s.strip() for s in _SENT_SPLIT.split(ai_part.strip())] if ai_part and ai_part.strip() else []
+    sentences = [s for s in sentences if s]
+    if not sentences:
+        return False
+    return all(s.rstrip(".!?").endswith(suffix) for s in sentences)
 
 
 def notice_has_start(text: str, start_label: str) -> bool:

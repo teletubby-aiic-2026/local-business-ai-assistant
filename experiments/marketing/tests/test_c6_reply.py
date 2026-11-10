@@ -94,7 +94,8 @@ class TestReplyDraftMock(unittest.TestCase):
         self.assertEqual(d001.store_id, "store_ongi")
         # length_ok 는 참고 항목(재작성을 강제하지 않음)이라 제외. not_too_similar 는
         # 말투가 같은 다른 리뷰와 M1·P1 고정 문장을 공유할 수 있어 아래에서 haeyo 기준으로만 본다.
-        _exempt = {"length_ok", "not_too_similar"}
+        # used_fallback 은 정보용 플래그라 False(기본값)가 "실패"를 뜻하지 않는다.
+        _exempt = {"length_ok", "not_too_similar", "used_fallback"}
         self.assertTrue(
             all(v for k, v in d001.checks.items() if k not in _exempt),
             f"001 checks failed: {d001.checks}",

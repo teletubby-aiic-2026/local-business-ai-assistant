@@ -135,7 +135,9 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
             "chosen_measure_included": checks.chosen_measure_included(text, chosen_measures),
             "no_invented_measure": not checks.has_invented_measure(text, chosen_measures),
             "not_quote_review": not checks.quotes_review(body, target_reviews),
-            "no_stiff_words": not checks.has_stiff_words(text),
+            # AI 가 쓴 본문(body)만 본다 — 코드가 붙이는 제목·시작·마무리 줄은 대상이 아니다.
+            # 사전(STIFF_WORDS)에 있는 단어만 걸리고, 합니다체 자체는 딱딱함으로 보지 않는다.
+            "no_stiff_words": not checks.has_stiff_words(body),
             "no_overpromise": not checks.has_overpromise(text),
             "no_claimed_action": not checks.has_claimed_action(text),
             "has_apology": "죄송" in body,

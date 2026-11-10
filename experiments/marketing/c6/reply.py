@@ -22,11 +22,13 @@ from c6 import checks
 from c6 import parsing
 from c6.measures import (
     MEASURES, REPLY_STYLES, REPLY_STYLE_REGISTER, REPLY_AI_REGISTER,
-    REPLY_OPENING, REPLY_CLOSING, M1_SENTENCES, P1_SENTENCES, REPLY_FEWSHOT,
+    REPLY_OPENING, REPLY_CLOSING, M1_SENTENCES, P1_SENTENCES, REPLY_FEWSHOT, REPLY_FALLBACK_TMPL,
 )
 from c6.style import assemble
 from c6.output import DraftOutput, CardResult
-from common.korean import display_name
+from common.korean import display_name, josa
+
+_MAX_REWRITES = 2  # 공감 부분을 이만큼 다시 써도 점검을 못 넘으면 코드 템플릿으로 바꿔 넣는다
 
 # --mock 으로 돌릴 때는 live 결과 파일(c6_reply_raw.txt)을 더럽히지 않도록 따로 쓴다
 _RAW_LOG = config.RESULTS_DIR / ("c6_reply_raw_mock.txt" if "--mock" in sys.argv else "c6_reply_raw.txt")
@@ -188,6 +190,8 @@ def _compute_evidence(review):
 
 def _run_checks(text, review, menu_names, allowed_numbers, policies,
                  forbidden_phrases, evidence, valid_ids):
+    """전체 조립 글 기준 점검. no_stiff_words·style_match·ai_part_only_empathy·not_too_similar 는
+    코드가 붙이는 M1·P1·인사·마무리를 건드리지 않도록 AI 가 쓴 부분만 따로 본다(_check 참고)."""
     missing = _missing_items(review.text, menu_names)
     result = {
         "evidence_valid": bool(evidence) and all(e in valid_ids for e in evidence),
@@ -198,7 +202,6 @@ def _run_checks(text, review, menu_names, allowed_numbers, policies,
         "no_bad_number": not checks.has_number_not_in(text, allowed_numbers),
         "no_personal_info": not checks.personal_info(text),
         "length_ok": checks.length_ok(text, 120, 260),
-        "no_stiff_words": not checks.has_stiff_words(text),
         "no_overpromise": not checks.has_overpromise(text),
         "no_claimed_action": not checks.has_claimed_action(text),
         "uses_opening": True,
@@ -207,6 +210,15 @@ def _run_checks(text, review, menu_names, allowed_numbers, policies,
     if forbidden_phrases:
         result["no_forbidden_phrase"] = not checks.forbidden_phrase(text, forbidden_phrases)
     return result
+
+
+def _fallback_sentence(review, menu_names, register):
+    """공감 부분을 2번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿. 품목은 리뷰에서 빠진 품목,
+    없으면 '주문하신 품목'. 조사(이/가)는 common.korean.josa 로 고른다."""
+    missing = _missing_items(review.text, menu_names)
+    item = missing[0] if missing else "주문하신 품목"
+    particle = josa(item, "이", "가")
+    return REPLY_FALLBACK_TMPL[register].format(item=item, particle=particle)
 
 
 def _process_review(review, *, idx, card_id, store, store_display, menu_names, allowed_numbers,
@@ -247,26 +259,36 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
         evidence_ = _compute_evidence(review)
         chk_ = _run_checks(text_, review, menu_names, allowed_numbers, policies,
                             forbidden_phrases, evidence_, valid_ids)
+        # AI 가 쓴 공감·사과 부분만 본다 — 코드가 붙이는 M1·P1·인사·마무리는 대상이 아니다
+        chk_["no_stiff_words"] = not checks.has_stiff_words(ai_part)
         chk_["ai_part_only_empathy"] = checks.ai_part_only_empathy(ai_part)
-        chk_["style_match"] = checks.style_match(ai_part, body_, style)
+        chk_["style_match"] = checks.style_match(ai_part, style)
         failed_ = [k for k, v in chk_.items() if not v and k not in _RETRY_EXEMPT]
         return text_, evidence_, chk_, failed_
 
     ai_body = _call(user_line)
     text, evidence, chk, failed = _check(ai_body)
 
-    if failed and ai_body:
+    while failed and ai_body and rewrites < _MAX_REWRITES:
         hints = checks.fix_hints(failed)
         ai_body2 = _call(user_line + "\n\n수정 지시:\n" + "\n".join(f"- {h}" for h in hints))
+        rewrites += 1
         if ai_body2:
             ai_body = ai_body2
-            rewrites = 1
         text, evidence, chk, failed = _check(ai_body)
 
     # 딱딱한 표현이 남으면 AI 가 쓴 공감·사과 부분에만 사전대로 단어를 바꾼다 (추가 호출 없음)
-    if not chk.get("no_stiff_words", True):
+    if failed and not chk.get("no_stiff_words", True):
         ai_body = checks.fix_stiff_words(ai_body)
         text, evidence, chk, failed = _check(ai_body)
+
+    # 그래도(총 1 + _MAX_REWRITES 번 시도) 점검을 못 넘으면 코드 템플릿으로 바꿔 넣고 통과 처리한다.
+    # needs_input 에는 남기지 않는다 — 대체 문장은 늘 점검을 통과하므로 사람이 볼 필요가 없다.
+    used_fallback = bool(failed)
+    if used_fallback:
+        ai_body = _fallback_sentence(review, menu_names, ai_register)
+        text, evidence, chk, failed = _check(ai_body)
+    chk["used_fallback"] = used_fallback
 
     draft = DraftOutput(
         draft_id=f"d_{uuid.uuid4().hex[:8]}",
@@ -283,7 +305,7 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
         data_origin=store.data_origin,
         style=style,
     )
-    return draft, won
+    return draft, won, ai_body
 
 
 def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None):
@@ -315,17 +337,19 @@ def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None):
             ): i
             for i, rv in enumerate(target_reviews)
         }
+        ai_parts = [None] * len(target_reviews)
         for fut in futures:
             i = futures[fut]
-            draft, won = fut.result()
+            draft, won, ai_part = fut.result()
             drafts[i] = draft
+            ai_parts[i] = ai_part
             total_won += won
 
-    # 같은 리뷰 묶음이니 서로 너무 비슷하지 않은지는 전부 끝난 뒤에 본다 (추가 호출 없음)
-    texts = [d.text for d in drafts]
+    # 같은 리뷰 묶음이니 서로 너무 비슷하지 않은지는 전부 끝난 뒤에 본다 (추가 호출 없음).
+    # 코드가 붙이는 M1·P1·인사·마무리는 다 같이 겹치므로, AI 가 쓴 공감·사과 부분만 비교한다.
     for i, d in enumerate(drafts):
-        others = [t for j, t in enumerate(texts) if j != i]
-        similar = any(checks.too_similar(d.text, o) for o in others)
+        others = [t for j, t in enumerate(ai_parts) if j != i and t]
+        similar = bool(ai_parts[i]) and any(checks.too_similar(ai_parts[i], o) for o in others)
         d.checks["not_too_similar"] = not similar
         if similar:
             d.failed_reasons = list(d.failed_reasons) + checks.fix_hints(["not_too_similar"])

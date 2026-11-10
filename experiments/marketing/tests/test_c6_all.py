@@ -34,6 +34,7 @@ import config
 from shared.sample_scenario import (
     SAMPLE_CARDS, SAMPLE_REVIEWS, SAMPLE_SNAPSHOTS, SAMPLE_STORE, SAMPLE_TONE,
 )
+from c6 import checks
 from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
 from c6.measures import MEASURES, REPLY_STYLES, REPLY_STYLE_REGISTER, REPLY_OPENING, M1_SENTENCES, P1_SENTENCES
@@ -137,7 +138,17 @@ def write_report(results, path, mode):
             else:
                 ev = "없음"
             lines.append(f"- 근거: {ev}")
-            lines.append("- 실패 항목: " + ("; ".join(d.failed_reasons) if d.failed_reasons else "없음"))
+            # 실패 항목이 있으면 어느 답글/공지(title)의 어느 점검(key)인지 같이 보인다.
+            # length_ok(참고용)·used_fallback(정보용, False=기본값이라 "실패"가 아님)은 제외한다.
+            failed_keys = [k for k, v in d.checks.items() if not v and k not in ("length_ok", "used_fallback")]
+            if failed_keys:
+                hints = checks.fix_hints(failed_keys)
+                detail = "; ".join(f"[{title}] {k}: {h}" for k, h in zip(failed_keys, hints))
+                lines.append(f"- 실패 항목: {detail}")
+            else:
+                lines.append("- 실패 항목: 없음")
+            if d.checks.get("used_fallback"):
+                lines.append("- 대체 문장 사용: 예 (공감 부분을 코드 템플릿으로 교체)")
             lines.append(f"- 다시 쓴 횟수: {d.rewrites}")
             if d.needs_input:
                 lines.append(f"- ⚠ needs_input: {d.needs_input}")
