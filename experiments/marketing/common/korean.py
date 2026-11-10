@@ -33,6 +33,21 @@ def i_ga(word):
     return "이" if (ord(hangul[-1]) - 0xAC00) % 28 else "가"
 
 
+def and_join(items):
+    """목록을 자연스러운 조사로 연결한다. 받침 없으면 '와', 있으면 '과'.
+    예: ["수저", "젓가락"] -> "수저와 젓가락", ["소스", "반찬", "음료"] -> "소스, 반찬과 음료"."""
+    items = [i for i in items if i]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    *head, last = items
+    connector = "과" if has_batchim(head[-1][-1]) else "와"
+    if len(head) > 1:
+        return f"{', '.join(head[:-1])}, {head[-1]}{connector} {last}"
+    return f"{head[0]}{connector} {last}"
+
+
 def nospace(s):
     return re.sub(r"\s+", "", s or "")
 

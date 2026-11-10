@@ -2,9 +2,15 @@
 
 구조: 시작 인사 + [AI 공감·사과 1~2문장] + [코드 조치 문장(M1)] + [코드 요청사항 문장(P1)] + 마무리.
 AI 는 리뷰에서 빠진 품목을 짚는 공감·사과만 쓴다 — 조치·요청사항·감사 인사는 전부 코드가 붙인다.
-답글마다 말투 3종(haeyo/hamnida/mixed)을 카드 리뷰 순서대로 돌아가며 쓴다(c6.measures.REPLY_STYLES) —
+답글 말투는 reply_style 인자로 정한다(기본 "auto"):
+- "auto": ToneProfile(c6.style.detect_register)로 사장님 말투가 해요체/합니다체인지 봐서 haeyo 또는 hamnida
+  하나로 전부 통일한다(판단 불가하면 haeyo).
+- "rotate": 카드 리뷰 순서대로 haeyo/hamnida/mixed 를 돌아가며 쓴다(c6.measures.REPLY_STYLES) — 데모·테스트용.
+- "haeyo"/"hamnida"/"mixed": 그 말투로 전부.
 haeyo 는 전부 해요체, hamnida 는 전부 합니다체, mixed 는 공감(AI)만 해요체이고 조치·요청사항은 합니다체다.
-시작 인사·마무리·M1·P1 고정 문구는 모두 c6.measures 에 말투별로 정의돼 있고, c6.style.assemble 로 조립한다.
+시작 인사·마무리 고정 문구는 c6.measures 에 말투별로 정의돼 있고, c6.style.assemble 로 조립한다.
+M1·P1 고정 문구는 말투별로 3개씩 있어(c6.measures.M1_SENTENCES/P1_SENTENCES) 리뷰 순서(idx)로
+돌려 쓴다 — reply_style="auto" 처럼 답글 3개의 말투가 전부 같아도 문장이 겹치지 않게 하기 위해서다.
 근거 ID(F_리뷰id·M1·P1)는 늘 고정으로 붙는다.
 """
 
@@ -23,10 +29,11 @@ from c6 import parsing
 from c6.measures import (
     MEASURES, REPLY_STYLES, REPLY_STYLE_REGISTER, REPLY_AI_REGISTER,
     REPLY_OPENING, REPLY_CLOSING, M1_SENTENCES, P1_SENTENCES, REPLY_FEWSHOT, REPLY_FALLBACK_TMPL,
+    COMPONENT_ITEMS,
 )
-from c6.style import assemble
+from c6.style import assemble, detect_register
 from c6.output import DraftOutput, CardResult
-from common.korean import display_name, josa
+from common.korean import display_name, josa, and_join
 
 _MAX_REWRITES = 2  # 공감 부분을 이만큼 다시 써도 점검을 못 넘으면 코드 템플릿으로 바꿔 넣는다
 
@@ -163,12 +170,25 @@ JSON이 아니라 문장 그대로 답해도 됩니다.
 """
 
 
+_MISSING_KW = r"(?:안\s*왔|빠져|빠졌|누락|없|안\s*들어)"
+# 메뉴·구성품 사전으로 못 찾을 때 쓰는 최후 수단: "OO이/가/을/를 ... 빠졌/누락/없음" 꼴에서 OO 을 꺼낸다.
+_ITEM_FALLBACK_RE = re.compile(rf"(\S+?)(?:이|가|을|를)\s*\S*\s*{_MISSING_KW}")
+
+
 def _missing_items(review_text, menu_names):
+    """리뷰에서 빠졌다고 한 품목을 찾는다. 1순위: 메뉴판 이름 + 포장 구성품 사전(c6.measures.COMPONENT_ITEMS)
+    중 빠짐 표현(_MISSING_KW)과 가까이(20자 안) 나오는 것 전부. 못 찾으면 2순위: 조사(이/가/을/를) +
+    빠짐 표현으로 느슨하게 추출한 단어 1개. 둘 다 없으면 빈 리스트(호출부가 '주문하신 품목'으로 대신한다)."""
     found = []
-    for m in menu_names:
-        if re.search(rf"{re.escape(m)}.{{0,8}}(안 왔|빠져|빠졌|누락|없|안 들어)", review_text):
-            found.append(m)
-    return found
+    for item in list(menu_names) + COMPONENT_ITEMS:
+        if item in found:
+            continue
+        if re.search(rf"{re.escape(item)}.{{0,20}}{_MISSING_KW}", review_text):
+            found.append(item)
+    if found:
+        return found
+    m = _ITEM_FALLBACK_RE.search(review_text)
+    return [m.group(1)] if m else []
 
 
 def _fact_line(review, menu_names):
@@ -213,23 +233,28 @@ def _run_checks(text, review, menu_names, allowed_numbers, policies,
 
 
 def _fallback_sentence(review, menu_names, register):
-    """공감 부분을 2번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿. 품목은 리뷰에서 빠진 품목,
-    없으면 '주문하신 품목'. 조사(이/가)는 common.korean.josa 로 고른다."""
+    """공감 부분을 2번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿. 품목은 리뷰에서 빠진 품목
+    전부를 common.korean.and_join 으로 연결(예: "수저와 젓가락"), 없으면 '주문하신 품목'.
+    조사(이/가)는 common.korean.josa 로 고른다."""
     missing = _missing_items(review.text, menu_names)
-    item = missing[0] if missing else "주문하신 품목"
+    item = and_join(missing) if missing else "주문하신 품목"
     particle = josa(item, "이", "가")
     return REPLY_FALLBACK_TMPL[register].format(item=item, particle=particle)
 
 
 def _process_review(review, *, idx, card_id, store, store_display, menu_names, allowed_numbers,
-                     policies, forbidden_phrases, valid_ids, key, model):
-    style = REPLY_STYLES[idx % len(REPLY_STYLES)]
+                     policies, forbidden_phrases, valid_ids, key, model, fixed_style):
+    style = fixed_style if fixed_style else REPLY_STYLES[idx % len(REPLY_STYLES)]
     ai_register = REPLY_AI_REGISTER[style]
     measure_register = REPLY_STYLE_REGISTER[style]
     opening = REPLY_OPENING[style].format(store=store_display)
     closing = REPLY_CLOSING.format(store=store_display)
-    measure_line = M1_SENTENCES[measure_register]
-    request_line = P1_SENTENCES[measure_register]
+    # 말투(해요체/합니다체)별로 3개씩 있는 M1·P1 고정 문장 중 리뷰 순서(idx)로 하나를 고른다 —
+    # reply_style="auto" 처럼 답글 3개의 말투가 전부 같아도 문장이 겹치지 않게 하기 위해서다.
+    measure_variants = M1_SENTENCES[measure_register]
+    request_variants = P1_SENTENCES[measure_register]
+    measure_line = measure_variants[idx % len(measure_variants)]
+    request_line = request_variants[idx % len(request_variants)]
 
     system = SYSTEM_TMPL.format(
         store_name=store_display, register=ai_register, fewshot=REPLY_FEWSHOT[ai_register],
@@ -308,9 +333,20 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
     return draft, won, ai_body
 
 
-def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None):
+def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None, reply_style="auto"):
     # chosen_measures 는 registry 호출 시그니처 호환용으로 받지만 쓰지 않는다 — 답글은
     # 늘 M1 조치 문장 + P1 요청사항 문장을 코드가 고정으로 붙인다(구조 설명은 모듈 docstring 참고).
+    if reply_style == "auto":
+        fixed_style = detect_register(ctx.tone)
+    elif reply_style == "rotate":
+        fixed_style = None
+    elif reply_style in REPLY_STYLES:
+        fixed_style = reply_style
+    else:
+        raise ValueError(
+            f"reply_style은 'auto'/'rotate'/{REPLY_STYLES} 중 하나여야 합니다 (받은 값: {reply_style!r})"
+        )
+
     store = ctx.store
     store_display = display_name(store.name)
     menu_names = list(store.menu)
@@ -333,7 +369,7 @@ def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None):
                 store=store, store_display=store_display, menu_names=menu_names,
                 allowed_numbers=allowed_numbers, policies=policies,
                 forbidden_phrases=forbidden_phrases,
-                valid_ids=valid_ids, key=key, model=model,
+                valid_ids=valid_ids, key=key, model=model, fixed_style=fixed_style,
             ): i
             for i, rv in enumerate(target_reviews)
         }

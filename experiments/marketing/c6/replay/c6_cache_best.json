@@ -6,12 +6,12 @@
     "basis_label": null,
     "drafts": [
       {
-        "draft_id": "d_ddb50f2d",
+        "draft_id": "d_02b72a1b",
         "card_id": "card_sample_a",
         "store_id": "store_ongi",
         "generator": "reply_draft",
         "target_review_id": "rv_ongi_001",
-        "text": "안녕하세요 고객님 :) 공깃밥이 누락되었다니 정말 속상하시겠어요. 앞으로는 포장 마감 전에 주문서와 한 번 더 맞춰 보고 보내드릴게요. 다음 주문 때 요청사항에 적어 주시면 꼭 챙겨 드릴게요. 온기한식 드림",
+        "text": "안녕하세요 고객님 :) 공깃밥 추가하셨는데 빠뜨렸다니 정말 속상하시겠어요. 앞으로는 포장 마감 전에 주문서와 한 번 더 맞춰 보고 보내드릴게요. 다음 주문 때 요청사항에 적어 주시면 꼭 챙겨 드릴게요. 온기한식 드림",
         "evidence_ids": [
           "F_rv_ongi_001",
           "M1",
@@ -25,7 +25,7 @@
           "no_bad_promise": true,
           "no_bad_number": true,
           "no_personal_info": true,
-          "length_ok": false,
+          "length_ok": true,
           "no_overpromise": true,
           "no_claimed_action": true,
           "uses_opening": true,
@@ -38,22 +38,22 @@
           "not_too_similar": true
         },
         "failed_reasons": [],
-        "rewrites": 1,
+        "rewrites": 2,
         "needs_input": [],
         "status": "draft",
         "edited_text": null,
         "model": "HCX-005",
-        "elapsed_ms": 1840,
+        "elapsed_ms": 4227,
         "data_origin": "synthetic",
         "style": "haeyo"
       },
       {
-        "draft_id": "d_9f2048d5",
+        "draft_id": "d_ea51962c",
         "card_id": "card_sample_a",
         "store_id": "store_ongi",
         "generator": "reply_draft",
         "target_review_id": "rv_ongi_002",
-        "text": "안녕하세요, 온기한식입니다. 수저와 젓가락이 없어 많이 당황하셨겠습니다. 앞으로는 포장 마감 전에 주문서와 한 번 더 대조한 뒤 보내드리겠습니다. 다음 주문 때 요청사항에 적어 주시면 꼭 챙겨 드리겠습니다. 온기한식 드림",
+        "text": "안녕하세요 고객님 :) 수저, 젓가락이 빠졌다니 정말 불편하셨겠어요. 포장 마감 전에 주문서랑 한 번 더 대조해서 빠지는 게 없도록 할게요. 꼭 필요한 게 있으면 요청사항에 남겨 주세요, 잊지 않고 챙길게요. 온기한식 드림",
         "evidence_ids": [
           "F_rv_ongi_002",
           "M1",
@@ -80,22 +80,22 @@
           "not_too_similar": true
         },
         "failed_reasons": [],
-        "rewrites": 1,
+        "rewrites": 2,
         "needs_input": [],
         "status": "draft",
         "edited_text": null,
         "model": "HCX-005",
-        "elapsed_ms": 1840,
+        "elapsed_ms": 4227,
         "data_origin": "synthetic",
-        "style": "hamnida"
+        "style": "haeyo"
       },
       {
-        "draft_id": "d_02703a32",
+        "draft_id": "d_26a30396",
         "card_id": "card_sample_a",
         "store_id": "store_ongi",
         "generator": "reply_draft",
         "target_review_id": "rv_ongi_003",
-        "text": "안녕하세요 고객님 :) 계란말이가 빠졌다니 정말 속상하시겠어요. 다음에는 꼭 챙겨드릴게요. 앞으로는 포장 마감 전에 주문서와 한 번 더 대조한 뒤 보내드리겠습니다. 다음 주문 때 요청사항에 적어 주시면 꼭 챙겨 드리겠습니다. 온기한식 드림",
+        "text": "안녕하세요 고객님 :) 계란말이가 빠졌다니 정말 속상하시겠어요. 다음부터는 포장하기 전에 주문서를 한 번 더 확인하고 보내드릴게요. 다음에 주문하실 때 요청사항에 적어 주시면 더 꼼꼼히 챙길게요. 온기한식 드림",
         "evidence_ids": [
           "F_rv_ongi_003",
           "M1",
@@ -109,7 +109,7 @@
           "no_bad_promise": true,
           "no_bad_number": true,
           "no_personal_info": true,
-          "length_ok": true,
+          "length_ok": false,
           "no_overpromise": true,
           "no_claimed_action": true,
           "uses_opening": true,
@@ -122,22 +122,22 @@
           "not_too_similar": true
         },
         "failed_reasons": [],
-        "rewrites": 0,
+        "rewrites": 2,
         "needs_input": [],
         "status": "draft",
         "edited_text": null,
         "model": "HCX-005",
-        "elapsed_ms": 1840,
+        "elapsed_ms": 4227,
         "data_origin": "synthetic",
-        "style": "mixed"
+        "style": "haeyo"
       },
       {
-        "draft_id": "d_94431d97",
+        "draft_id": "d_2a13838e",
         "card_id": "card_sample_a",
         "store_id": "store_ongi",
         "generator": "prevention_notice",
         "target_review_id": null,
-        "text": "[안내] 포장 누락 관련\n온기한식을 찾아 주시는 분들께\n최근 공깃밥, 수저, 계란말이가 빠진 상태로 배달된 일이 있었습니다.\n불편을 드려 죄송합니다.\n오늘부터 포장 마감 전에 주문서와 한 번 더 대조해보고 배달해드리겠습니다.\n이외에도 필요하신 것이 있다면 요청사항에 적어 주세요.\n늘 찾아 주셔서 감사합니다. 온기한식 드림",
+        "text": "[안내] 포장 누락 관련\n온기한식을 찾아 주시는 분들께\n최근 공깃밥, 수저, 계란말이가 빠진 상태로 배달된 일이 있었습니다.\n불편을 드려 죄송합니다.\n오늘부터 포장 마감 전 주문서와 한 번 더 대조해 보고 배달해 드리겠습니다.\n필요한 것이 있다면 요청사항에 적어주세요.\n늘 찾아 주셔서 감사합니다. 온기한식 드림",
         "evidence_ids": [
           "F_rv_ongi_001",
           "F_rv_ongi_002",
@@ -167,7 +167,7 @@
         "status": "draft",
         "edited_text": null,
         "model": "HCX-005",
-        "elapsed_ms": 1946,
+        "elapsed_ms": 1944,
         "data_origin": "synthetic",
         "style": null
       }
@@ -178,7 +178,7 @@
         "text": "포장 마감 전 주문서 대조"
       }
     ],
-    "elapsed_ms": 3787,
-    "won": 22.01
+    "elapsed_ms": 6172,
+    "won": 36.7
   }
 ]

@@ -22,7 +22,10 @@ _CLAIMED_ACTION = re.compile(r"(?:보내|챙겨|환불해|다시\s*보내)\s*드
 _APOLOGY = re.compile(r"죄송")
 _FEWSHOT_WORDS = ("국물", "넉넉하다", "집밥")
 _PERSONAL_ADDRESS = re.compile(r"고객님|주문하신|구매하신|손님께서는")
-_AI_EMPATHY_FORBIDDEN = re.compile(r"챙기|대조|요청사항|앞으로|다음부터")
+_AI_EMPATHY_FORBIDDEN = re.compile(
+    r"챙[기겨길]|대조|요청사항|앞으로|다음부터|다음에[는도]?\s*(?:꼭|잘)"
+    r"|(?:드릴게요?|드리겠습니다|드리겠어요)[.!?]?(?=\s|$)"
+)
 _FORMAL_END = re.compile(r"(합니다|습니다|됩니다|입니다|바랍니다|드립니다)[.!?]?\s*$")
 _INFORMAL_END = re.compile(r"(해요|게요|어요|아요|예요|죠)[.!?]?\s*$")
 _STYLE_SUFFIX = {"haeyo": "요", "hamnida": "니다", "mixed": "요"}
@@ -146,7 +149,8 @@ def has_apology(text: str) -> bool:
 
 def ai_part_only_empathy(text: str) -> bool:
     """답글에서 AI 가 쓰는 건 공감·사과뿐 — 조치·요청사항·감사 인사는 코드가 붙이니,
-    AI 가 쓴 부분에 '챙기'·'대조'·'요청사항'·'앞으로'·'다음부터' 가 없어야 True.
+    AI 가 쓴 부분에 '챙기/챙겨/챙길'·'대조'·'요청사항'·'앞으로'·'다음부터'·'다음에는 꼭/잘',
+    또는 '드릴게요'·'드리겠습니다'로 끝나는 약속형 문장이 없어야 True.
     ('감사'·'다음에'는 자연스러운 공감 표현에도 섞여 나올 수 있어 허용한다)"""
     if not text:
         return True
@@ -299,7 +303,7 @@ def fix_hints(failed: list[str]) -> list[str]:
         "notice_not_personal": "'고객님'·'주문하신'처럼 한 사람을 가리키는 말 대신, 모든 손님에게 알리는 투로 써 주세요.",
         "notice_formal": "해요체 대신 합니다체로 써 주세요.",
         "notice_vs_reply": "답글과 너무 비슷해요. 공지만의 말투로 다시 써 주세요.",
-        "ai_part_only_empathy": "공감·사과만 써 주세요. 조치·요청사항·감사 인사는 코드가 따로 붙여요.",
+        "ai_part_only_empathy": "공감·사과만 써 주세요. 챙겨 드리겠다는 약속이나 조치·요청사항·감사 인사는 코드가 따로 붙여요.",
         "style_match": "말투를 섞지 말고 지정된 말투(해요체 또는 합니다체)로만 써 주세요.",
         "no_fewshot_copy": "예시 문구의 단어를 그대로 베끼지 말고, 같은 단어를 가까이서 반복하지 말아 주세요.",
         "no_unknown_menu": "메뉴에 있는 음식 이름만 써 주세요.",

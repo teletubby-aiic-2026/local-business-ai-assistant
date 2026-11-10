@@ -9,6 +9,9 @@ complaint 카드는 조치 후보(MEASURES) 중 첫 번째를 chosen_measures �
   python -m tests.test_c6_all --mock   (mock 만. 가짜 CLOVA 응답으로 전체 경로 확인, API 호출 없음)
   두 모드는 같은 파일을 덮어쓰지 않는다.
 
+  --reply-style auto|rotate|haeyo|hamnida|mixed  (기본 auto. live 실행에 쓰임. 자세한 뜻은
+                                                   c6.reply.generate_reply_draft 참고)
+
   python -m tests.test_c6_all --save-best                 (live 결과가 전부 깨끗하면 저장본 덮어씀)
   python -m tests.test_c6_all --save-best --cards complaint  (홍보 카드는 빼고 complaint 만 실행·저장)
 
@@ -31,6 +34,7 @@ import unittest
 from unittest.mock import patch
 
 import config
+from shared.contracts import ToneProfile
 from shared.sample_scenario import (
     SAMPLE_CARDS, SAMPLE_REVIEWS, SAMPLE_SNAPSHOTS, SAMPLE_STORE, SAMPLE_TONE,
 )
@@ -40,6 +44,7 @@ from c6.dummy import OWNER_REPLIES, POLICIES
 from c6.measures import MEASURES, REPLY_STYLES, REPLY_STYLE_REGISTER, REPLY_OPENING, M1_SENTENCES, P1_SENTENCES
 from c6.registry import run_card, REPLAY_PATH
 from c6.output import CardResult
+from c6.style import detect_register
 from common.korean import display_name
 
 
@@ -51,11 +56,12 @@ def _parse_cli_flags():
     parser.add_argument("--mock", action="store_true")
     parser.add_argument("--save-best", action="store_true")
     parser.add_argument("--cards", default=None)
+    parser.add_argument("--reply-style", default="auto")
     args, rest = parser.parse_known_args(sys.argv[1:])
-    return args.mock, args.save_best, args.cards, rest
+    return args.mock, args.save_best, args.cards, args.reply_style, rest
 
 
-MOCK, SAVE_BEST, CARDS_FILTER, _UNITTEST_ARGV = _parse_cli_flags()
+MOCK, SAVE_BEST, CARDS_FILTER, REPLY_STYLE, _UNITTEST_ARGV = _parse_cli_flags()
 
 CTX = build_context(
     store=SAMPLE_STORE,
@@ -89,15 +95,19 @@ def _evidence_content(eid):
     return "(내용 확인 불가)"
 
 
-def run_all_cards(key, model="HCX-005", kinds=None):
+def run_all_cards(key, model="HCX-005", kinds=None, reply_style=None):
     """registry.run_card 로 store_ongi 의 카드를 실행 -> CardResult 목록 (카드 1장 = 1개).
-    kinds 를 주면 그 종류(예: ["complaint"])만 실행한다. 없으면 전부."""
+    kinds 를 주면 그 종류(예: ["complaint"])만 실행한다. 없으면 전부.
+    reply_style 을 안 주면 CLI --reply-style 값(기본 auto)을 쓴다."""
     results = []
     for card in CTX.cards:
         if kinds and card.kind not in kinds:
             continue
         chosen = [MEASURES[0]] if card.kind == "complaint" else None
-        results.append(run_card(CTX, card, key, model=model, chosen_measures=chosen))
+        results.append(run_card(
+            CTX, card, key, model=model, chosen_measures=chosen,
+            reply_style=reply_style if reply_style is not None else REPLY_STYLE,
+        ))
     return results
 
 
@@ -234,7 +244,9 @@ class TestAllCardsMock(unittest.TestCase):
         _reply_calls_seen.clear()
         _promo_call_count["n"] = 0
 
-        results = run_all_cards("fake-key")
+        # 이 테스트는 haeyo/hamnida/mixed 3종 회전(rotate)을 보여주는 데모·테스트용이라
+        # CLI --reply-style(기본 auto)과 상관없이 rotate 로 고정해 돌린다.
+        results = run_all_cards("fake-key", reply_style="rotate")
 
         # 카드 2장: complaint(card_sample_a, drafts=답글3+공지1) + promo(card_sample_b, drafts=1)
         self.assertEqual(len(results), 2)
@@ -262,6 +274,7 @@ class TestAllCardsMock(unittest.TestCase):
             {"rv_ongi_001": "haeyo", "rv_ongi_002": "hamnida", "rv_ongi_003": "mixed"},
         )
 
+        review_order = ["rv_ongi_001", "rv_ongi_002", "rv_ongi_003"]
         for d in reply_drafts:
             register = REPLY_STYLE_REGISTER[d.style]
             opening = REPLY_OPENING[d.style].format(store=store_display)
@@ -277,9 +290,10 @@ class TestAllCardsMock(unittest.TestCase):
             self.assertIn("P1", d.evidence_ids)
             # 최종 글에 AI 본문(공감·사과)이 그대로 포함됨 (조립에서 버려지지 않음)
             self.assertIn(REPLY_BODIES[d.target_review_id], d.text)
-            # 코드가 붙인 말투별 M1·P1 고정 문장이 들어 있음
-            self.assertIn(M1_SENTENCES[register], d.text)
-            self.assertIn(P1_SENTENCES[register], d.text)
+            # 코드가 붙인 말투별 M1·P1 고정 문장(리뷰 순서로 고른 변형)이 들어 있음
+            idx = review_order.index(d.target_review_id)
+            self.assertIn(M1_SENTENCES[register][idx % len(M1_SENTENCES[register])], d.text)
+            self.assertIn(P1_SENTENCES[register][idx % len(P1_SENTENCES[register])], d.text)
             self.assertEqual(d.rewrites, 0)
 
         # 리뷰 3개의 최종 글이 서로 다름 (복붙이 아니라 리뷰마다 다른 답글)
@@ -314,6 +328,56 @@ class TestAllCardsMock(unittest.TestCase):
         write_cache(results, config.RESULTS_DIR / "c6_cache_mock.json")
         print(f"\n결과 저장: {config.RESULTS_DIR / 'c6_results_mock.md'}, "
               f"{config.RESULTS_DIR / 'c6_cache_mock.json'}")
+
+
+class TestMissingItemExtractionMock(unittest.TestCase):
+    """_missing_items: 메뉴판 + 구성품 사전(c6.measures.COMPONENT_ITEMS)으로 rv_ongi_001~003
+    원문에서 빠진 품목을 뽑는다. 못 찾으면 조사(이/가/을/를) + 빠짐 표현으로 느슨하게 꺼낸다."""
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_extracts_items_from_sample_reviews(self):
+        from c6.reply import _missing_items
+        from common.korean import and_join
+
+        menu_names = list(SAMPLE_STORE.menu)
+        cases = {
+            "rv_ongi_001": ["공깃밥"],              # "공깃밥 추가했는데 안 들어 있었어요"
+            "rv_ongi_002": ["수저", "젓가락"],        # "수저랑 젓가락이 빠져 있었어요"
+            "rv_ongi_003": ["계란말이"],             # "계란말이를 같이 시켰는데 누락됐어요" (메뉴 이름)
+        }
+        for rid, expected in cases.items():
+            text = REVIEW_MAP[rid].text
+            self.assertEqual(_missing_items(text, menu_names), expected, text)
+
+        self.assertEqual(and_join(["수저", "젓가락"]), "수저와 젓가락")
+
+
+class TestAutoReplyStyleMock(unittest.TestCase):
+    """reply_style="auto" 판단: ToneProfile 예문의 문장 끝(요/니다) 비율로 haeyo/hamnida 를 고른다."""
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_haeyo_examples_pick_haeyo(self):
+        tone = ToneProfile(
+            tone_id="tone_test_haeyo", store_id=SAMPLE_STORE.store_id,
+            style_description="손님에게 부드럽게 해요체로 말해요.",
+            example_sentences=[
+                "주문 확인이 늦어서 불편하셨죠, 죄송해요.",
+                "다음 주문부터는 포장 전에 한 번 더 확인할게요.",
+            ],
+        )
+        self.assertEqual(detect_register(tone), "haeyo")
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_hamnida_examples_pick_hamnida(self):
+        tone = ToneProfile(
+            tone_id="tone_test_hamnida", store_id=SAMPLE_STORE.store_id,
+            style_description="손님에게 정중하게 합니다체로 안내합니다.",
+            example_sentences=[
+                "주문 확인이 늦어 불편을 드려 죄송합니다.",
+                "다음 주문부터는 포장 전에 한 번 더 확인하겠습니다.",
+            ],
+        )
+        self.assertEqual(detect_register(tone), "hamnida")
 
 
 # AI 는 이제 공감·사과만 쓰므로, 두 본문 모두 조치·요청사항 표현은 없어야 한다(안 그러면
@@ -358,6 +422,48 @@ class TestClaimedActionMock(unittest.TestCase):
         self.assertEqual(draft.rewrites, 1)
         self.assertTrue(draft.checks["no_claimed_action"], draft.checks)
         self.assertNotIn("보내드렸어요", draft.text)
+        self.assertFalse(draft.failed_reasons, draft.failed_reasons)
+
+
+PROMISE_BODY = "계란말이가 빠졌다니 속상하시겠어요. 다음에는 꼭 챙겨드릴게요."
+PROMISE_FIXED_BODY = "계란말이가 빠져서 아쉬우셨겠어요, 정말 죄송해요."
+
+_promise_calls = {"n": 0}
+
+
+def _mock_clova_promise(key, system, messages, model="HCX-005", **kw):
+    content = messages[0]["content"] if messages else ""
+    if "rv_ongi_003" in content:
+        with _mock_lock:
+            _promise_calls["n"] += 1
+            n = _promise_calls["n"]
+        return _ok(PROMISE_BODY if n == 1 else PROMISE_FIXED_BODY)
+    for rid, body in REPLY_BODIES.items():
+        if rid in content:
+            return _ok(body)
+    return {"content": "{}", "won": 0.0, "tokens": 0, "seconds": 0}
+
+
+class TestPromiseEmpathyMock(unittest.TestCase):
+    """AI 부분에 '챙겨드릴게요'처럼 약속형 문장이 들어가면 걸러지고 다시 써야 한다."""
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_promise_rejected_and_rewritten(self):
+        self.assertFalse(checks.ai_part_only_empathy(PROMISE_BODY))
+        self.assertTrue(checks.ai_part_only_empathy(PROMISE_FIXED_BODY))
+        for bad in ("챙길게요.", "다음에는 잘 드릴게요.", "꼭 드리겠습니다."):
+            self.assertFalse(checks.ai_part_only_empathy(bad), bad)
+
+        _promise_calls["n"] = 0
+        card = next(c for c in CTX.cards if c.kind == "complaint")
+        with patch("clova.call", side_effect=_mock_clova_promise):
+            result = run_card(CTX, card, "fake-key", chosen_measures=[MEASURES[0]], reply_style="auto")
+
+        draft = next(d for d in result.drafts
+                     if d.generator == "reply_draft" and d.target_review_id == "rv_ongi_003")
+        self.assertEqual(draft.rewrites, 1)
+        self.assertTrue(draft.checks["ai_part_only_empathy"], draft.checks)
+        self.assertNotIn("챙겨드릴게요", draft.text)
         self.assertFalse(draft.failed_reasons, draft.failed_reasons)
 
 

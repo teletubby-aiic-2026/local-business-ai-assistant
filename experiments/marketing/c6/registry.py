@@ -36,12 +36,13 @@ def _replay_card(card):
     )
 
 
-def run_card(ctx, card, key, model="HCX-005", chosen_measures=None):
+def run_card(ctx, card, key, model="HCX-005", chosen_measures=None, reply_style="auto"):
     """카드 1장에 해당하는 생성기를 모두 돌려 CardResult 하나로 합친다.
 
     complaint 카드는 reply_draft(답글 여러 개) + prevention_notice(공지 1개)를 함께 실행해
     drafts 에 모두 담는다. elapsed_ms 는 생성기 호출 전체를 감싼 실제 시간이고, won 은 합계다.
     key 가 None 이면(CLOVA_API_KEY 없음) 실제 호출 없이 저장본(c6/replay)에서 같은 card_id 결과를 돌려준다.
+    reply_style 은 reply_draft 에만 쓰인다 (c6.reply.generate_reply_draft 참고: auto/rotate/haeyo/hamnida/mixed).
     """
     if key is None:
         return _replay_card(card)
@@ -56,6 +57,8 @@ def run_card(ctx, card, key, model="HCX-005", chosen_measures=None):
     for name in generator_names:
         fn = CARD_GENERATORS[name]
         kwargs = {"chosen_measures": chosen_measures}
+        if name == "reply_draft":
+            kwargs["reply_style"] = reply_style
         if name == "prevention_notice":
             # 공지가 답글들과 너무 비슷하지 않은지(notice_vs_reply) 보려고 먼저 만든 답글 글을 넘긴다
             kwargs["reply_texts"] = [d.text for d in drafts if d.generator == "reply_draft"]
