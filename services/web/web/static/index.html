@@ -7,36 +7,67 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <!-- 단계별 화면: 오늘 → 제안 → 초안 → 완료, 그리고 분석 (재정비/05 UI 디자인 레퍼런스 15번) -->
   <header class="top">
-    <div class="brand">
-      <strong>텔레토비 AI 비서</strong>
-      <span id="store-name" class="muted"></span>
+    <div class="top-row">
+      <a class="brand" href="#/today"><strong>텔레토비 AI 비서</strong></a>
+      <span id="store-name" class="small muted"></span>
+      <div class="top-right">
+        <span id="mode-chip" class="chip"></span>
+        <span id="timer" class="timer" title="무엇을 할까요? 버튼부터 재발 방지 공지 승인까지 (C8 KPI)">00:00</span>
+      </div>
     </div>
-    <div class="top-right">
-      <span id="mode-chip" class="chip"></span>
-      <span id="timer" class="timer" title="시작 버튼부터 재발 방지 공지 승인까지 (C8 KPI)">00:00</span>
-    </div>
+    <nav class="menu" aria-label="단계">
+      <a href="#/today" data-route="today"><span class="n">1</span>오늘</a>
+      <a href="#/cards" data-route="cards"><span class="n">2</span>제안</a>
+      <a href="#/draft" data-route="draft"><span class="n">3</span>초안</a>
+      <a href="#/done" data-route="done"><span class="n">4</span>완료</a>
+      <a href="#/analysis" data-route="analysis" class="menu-side">분석</a>
+    </nav>
   </header>
 
-  <div id="honesty" class="honesty" aria-label="동작과 모의 표시"></div>
-  <div id="alert" class="alert" hidden></div>
+  <div id="alert" class="alert" role="alert" hidden></div>
 
   <main>
-    <section id="hero" class="hero">
-      <p class="hero-time">밤 11시</p>
-      <h1 id="hero-title">오늘 들어온 리뷰를 정리해 둘게요</h1>
-      <p id="hero-problem" class="hero-problem" hidden></p>
-      <p class="muted">같은 불만이 다시 안 생기게 할 공지부터 준비하고, 빠진 손님을 다시 부를 홍보도 챙겨요. 사장님은 확인하고 승인만 하시면 돼요.</p>
-      <p class="agents"><span class="agent">데이터 분석 비서</span><span class="agent">고객 응대 비서</span><span class="agent">마케팅 에이전트</span></p>
+    <!-- 1 오늘: 숫자 하나 + 핵심 문제 → 무엇을 할까요? -->
+    <section class="view narrow" data-view="today">
+      <p class="eyebrow"><span class="agent">데이터 분석 비서</span><span>밤 11시 브리핑</span></p>
+      <p class="stat"><span id="today-num" class="stat-n">–</span><span id="today-num-label" class="muted">불러오는 중…</span></p>
+      <div class="problem">
+        <span class="label">오늘의 핵심 문제</span>
+        <h1 id="hero-problem" tabindex="-1">오늘 들어온 리뷰를 정리하고 있어요</h1>
+      </div>
+      <p id="today-source" class="small muted"></p>
       <button id="start" class="primary big" type="button" disabled>불러오는 중…</button>
+      <p class="small"><a href="#/analysis">분석 자세히 보기</a></p>
     </section>
 
-    <section id="step1" class="step" hidden>
-      <h2><span class="num">①</span> 오늘의 브리핑 <span class="agent">데이터 분석 비서</span></h2>
+    <!-- 2 제안: 카드 2장 중 하나 -->
+    <section class="view" data-view="cards" hidden>
+      <h1 tabindex="-1">무엇을 할까요?</h1>
+      <p class="small muted">어떤 카드를 띄울지는 규칙이 정해요. 하나를 골라 주세요.</p>
+      <div id="cards" class="cards"></div>
+      <p id="no-card-b" class="small muted"></p>
+    </section>
+
+    <!-- 3 초안: 글 하나를 크게, 고치고 승인 -->
+    <section class="view narrow" data-view="draft" hidden>
+      <div id="draft"></div>
+    </section>
+
+    <!-- 4 완료: 승인 결과 + KPI → 처음으로 -->
+    <section class="view narrow" data-view="done" hidden>
+      <div id="done"></div>
+    </section>
+
+    <!-- 분석: 리뷰 묶음·상권 지표·붙여넣기 (예전 ① 브리핑 전체) -->
+    <section class="view" data-view="analysis" hidden>
+      <h1 tabindex="-1">분석 <span class="agent">데이터 분석 비서</span></h1>
+      <p id="analysis-link" class="small"></p>
       <div id="funnel" class="funnel"></div>
       <div class="grid2">
         <div>
-          <h3>불만 묶음</h3>
+          <h2>불만 묶음</h2>
           <div id="groups"></div>
           <details id="singles-box">
             <summary id="singles-title">묶이지 않은 불만</summary>
@@ -44,7 +75,7 @@
           </details>
         </div>
         <div>
-          <h3>상권 지표</h3>
+          <h2>상권 지표</h2>
           <div id="market"></div>
           <details id="paste-box" class="paste">
             <summary>리뷰 직접 붙여넣기</summary>
@@ -59,28 +90,15 @@
         </div>
       </div>
     </section>
-
-    <section id="step2" class="step" hidden>
-      <h2><span class="num">②</span> 오늘 할 일 추천 <span class="small muted">어떤 카드를 띄울지는 규칙이 정해요</span></h2>
-      <div id="cards" class="cards"></div>
-      <p id="no-card-b" class="muted small"></p>
-    </section>
-
-    <section id="step3" class="step" hidden>
-      <h2><span class="num">③</span> 준비된 글 <span class="num">④</span> 확인하고 승인</h2>
-      <div id="results"></div>
-    </section>
-
-    <section id="log" class="step" hidden>
-      <h2>처리 완료 기록</h2>
-      <ul id="approvals" class="plain"></ul>
-      <p id="kpi" class="kpi"></p>
-    </section>
   </main>
 
   <footer class="foot">
-    <button id="record" type="button" class="ghost" hidden>발표 모드로 저장</button>
     <span id="foot-msg" class="small muted"></span>
+    <details class="honesty-box">
+      <summary class="small">동작·모의 표시</summary>
+      <div id="honesty" class="honesty" aria-label="동작과 모의 표시"></div>
+    </details>
+    <button id="record" type="button" class="ghost" hidden>발표 모드로 저장</button>
   </footer>
 
   <script src="/static/app.js"></script>
