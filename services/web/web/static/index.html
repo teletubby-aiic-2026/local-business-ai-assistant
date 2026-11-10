@@ -7,50 +7,75 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <!-- 단계별 화면: 오늘 → 제안 → 초안 → 완료, 그리고 분석 (재정비/05 UI 디자인 레퍼런스 15번) -->
+  <!-- 단계별 화면: 오늘 → 제안 → 초안 → 완료, 그리고 분석 (재정비/05 UI 디자인 레퍼런스 15·16번)
+       모양: 흰 상단 바 + 흰 탭 메뉴(현재 탭 녹색 밑줄) + 회색 바탕 위 흰 카드 (11/10 스마트플레이스풍) -->
   <header class="top">
-    <div class="top-row">
-      <a class="brand" href="#/today"><strong>텔레토비 AI 비서</strong></a>
-      <span id="store-name" class="small muted"></span>
+    <div class="bar">
+      <a class="brand" href="#/today">
+        <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 3C6.9 3 3 6.4 3 10.6c0 2.4 1.3 4.6 3.4 6L5.8 20.5l4-2.3c.7.1 1.4.2 2.2.2 5.1 0 9-3.4 9-7.8S17.1 3 12 3z"/></svg></span>
+        <strong>텔레토비 AI 비서</strong>
+      </a>
+      <span id="store-name" class="store"></span>
       <div class="top-right">
         <span id="mode-chip" class="chip"></span>
         <span id="timer" class="timer" title="무엇을 할까요? 버튼부터 재발 방지 공지 승인까지 (C8 KPI)">00:00</span>
       </div>
     </div>
-    <nav class="menu" aria-label="단계">
-      <a href="#/today" data-route="today"><span class="n">1</span>오늘</a>
-      <a href="#/cards" data-route="cards"><span class="n">2</span>제안</a>
-      <a href="#/draft" data-route="draft"><span class="n">3</span>초안</a>
-      <a href="#/done" data-route="done"><span class="n">4</span>완료</a>
-      <a href="#/analysis" data-route="analysis" class="menu-side">분석</a>
+    <nav class="menu-wrap" aria-label="단계">
+      <div class="menu">
+        <a href="#/today" data-route="today"><span class="n">1</span>오늘</a>
+        <a href="#/cards" data-route="cards"><span class="n">2</span>제안</a>
+        <a href="#/draft" data-route="draft"><span class="n">3</span>초안</a>
+        <a href="#/done" data-route="done"><span class="n">4</span>완료</a>
+        <a href="#/analysis" data-route="analysis" class="menu-side">분석</a>
+      </div>
     </nav>
   </header>
 
   <div id="alert" class="alert" role="alert" hidden></div>
 
   <main>
-    <!-- 1 오늘: 숫자 하나 + 핵심 문제 → 무엇을 할까요? -->
+    <!-- 1 오늘: 숫자 카드 줄 → 키워드 칩 → 핵심 문제 한 줄 → 무엇을 할까요? -->
     <section class="view narrow" data-view="today">
-      <p class="eyebrow"><span class="agent">데이터 분석 비서</span><span>밤 11시 브리핑</span></p>
-      <p class="stat"><span id="today-num" class="stat-n">–</span><span id="today-num-label" class="muted">불러오는 중…</span></p>
+      <div class="page-head">
+        <p class="eyebrow"><span class="agent">데이터 분석 비서</span><span>밤 11시 브리핑</span></p>
+        <h1 tabindex="-1">오늘의 리뷰 요약</h1>
+        <p id="today-source" class="small muted">불러오는 중…</p>
+      </div>
+      <dl class="stats">
+        <div class="stat-card">
+          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5c0 4-3.6 7.2-8 7.2-.9 0-1.7-.1-2.5-.3L5 20l.9-3.6C4.7 15.1 4 13.4 4 11.5c0-4 3.6-7.2 8-7.2s8 3.2 8 7.2z"/></svg>리뷰</dt>
+          <dd><span id="stat-reviews" class="stat-n">–</span><span class="stat-unit">건</span><span id="stat-reviews-sub" class="stat-sub"></span></dd>
+        </div>
+        <div class="stat-card">
+          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>불만</dt>
+          <dd><span id="stat-complaints" class="stat-n">–</span><span class="stat-unit">건</span><span id="stat-complaints-sub" class="stat-sub"></span></dd>
+        </div>
+        <div class="stat-card">
+          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3l3 3-3 3"/><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/></svg>반복 불만</dt>
+          <dd><span id="stat-repeated" class="stat-n">–</span><span class="stat-unit">건</span><span id="stat-repeated-sub" class="stat-sub"></span></dd>
+        </div>
+      </dl>
+      <div id="keywords" class="panel kw"><p class="kw-row small muted">불러오는 중…</p></div>
       <div class="problem">
         <span class="label">오늘의 핵심 문제</span>
-        <h1 id="hero-problem" tabindex="-1">오늘 들어온 리뷰를 정리하고 있어요</h1>
+        <h2 id="hero-problem">오늘 들어온 리뷰를 정리하고 있어요</h2>
       </div>
-      <p id="today-source" class="small muted"></p>
       <button id="start" class="primary big" type="button" disabled>불러오는 중…</button>
-      <p class="small"><a href="#/analysis">분석 자세히 보기</a></p>
+      <p class="small foot-link"><a href="#/analysis">분석 자세히 보기</a></p>
     </section>
 
     <!-- 2 제안: 카드 2장 중 하나 -->
     <section class="view" data-view="cards" hidden>
-      <h1 tabindex="-1">무엇을 할까요?</h1>
-      <p class="small muted">어떤 카드를 띄울지는 규칙이 정해요. 하나를 골라 주세요.</p>
+      <div class="page-head">
+        <h1 tabindex="-1">무엇을 할까요?</h1>
+        <p class="small muted">어떤 카드를 띄울지는 규칙이 정해요. 하나를 골라 주세요.</p>
+      </div>
       <div id="cards" class="cards"></div>
       <p id="no-card-b" class="small muted"></p>
     </section>
 
-    <!-- 3 초안: 글 하나를 크게, 고치고 승인 -->
+    <!-- 3 초안: 원 리뷰와 AI 초안을 한 카드에 위아래로, 고치고 승인 -->
     <section class="view narrow" data-view="draft" hidden>
       <div id="draft"></div>
     </section>
@@ -62,11 +87,14 @@
 
     <!-- 분석: 리뷰 묶음·상권 지표·붙여넣기 (예전 ① 브리핑 전체) -->
     <section class="view" data-view="analysis" hidden>
-      <h1 tabindex="-1">분석 <span class="agent">데이터 분석 비서</span></h1>
-      <p id="analysis-link" class="small"></p>
-      <div id="funnel" class="funnel"></div>
+      <div class="page-head">
+        <p class="eyebrow"><span class="agent">데이터 분석 비서</span></p>
+        <h1 tabindex="-1">분석</h1>
+        <p id="analysis-link" class="small"></p>
+      </div>
+      <div class="panel"><div id="funnel" class="funnel"></div></div>
       <div class="grid2">
-        <div>
+        <div class="panel">
           <h2>불만 묶음</h2>
           <div id="groups"></div>
           <details id="singles-box">
@@ -74,7 +102,7 @@
             <ul id="singles" class="plain"></ul>
           </details>
         </div>
-        <div>
+        <div class="panel">
           <h2>상권 지표</h2>
           <div id="market"></div>
           <details id="paste-box" class="paste">

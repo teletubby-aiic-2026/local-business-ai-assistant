@@ -93,9 +93,16 @@ function renderHealth(h) {
 function renderBriefing(b) {
   $("store-name").textContent = `${b.store.name || ""} · ${b.store.business_type_name || ""}${b.store.area_name ? " · " + b.store.area_name + " 상권" : ""}`;
   const c = b.counts;
-  // 숫자 하나: 리뷰 N건 중 불만 M건 (대본 0~5초)
-  $("today-num").textContent = `${c.complaint_count}건`;
-  $("today-num-label").textContent = `리뷰 ${c.review_count}건 중 불만`;
+  // 숫자 카드 줄 (R1 통계 요약 카드, 05 16번): 리뷰 · 불만 · 반복 불만
+  const days = Math.round((new Date(b.period.end) - new Date(b.period.start)) / 86400000) + 1;
+  const repeated = (b.groups || []).filter((g) => g.is_repeated);
+  $("stat-reviews").textContent = c.review_count;
+  $("stat-reviews-sub").textContent = Number.isFinite(days) ? `${days}일 동안` : "";
+  $("stat-complaints").textContent = c.complaint_count;
+  $("stat-complaints-sub").textContent = c.review_count ? `리뷰의 ${Math.round((c.complaint_count / c.review_count) * 100)}%` : "";
+  $("stat-repeated").textContent = repeated.reduce((n, g) => n + g.review_count, 0);
+  $("stat-repeated-sub").textContent = repeated.map((g) => g.topic_name).join(", ") || "없음";
+  renderKeywords(b);
   // 오늘의 핵심 문제 (05 결정 1): 카드 ⓐ가 가리키는 묶음. 시간대는 불만이 몰린 구간(17~21시)만, 상권 지표의 17~24시와 섞지 않는다.
   const top = (b.groups || []).find((g) => g.issue_id === b.top_issue_id);
   $("hero-problem").textContent = top
@@ -130,6 +137,20 @@ function renderBriefing(b) {
         ${sourceUrl(s.source) ? ` · <a href="${esc(sourceUrl(s.source))}" target="_blank" rel="noopener">원본</a>` : ""}</div>
       ${s.dev_fake ? '<div class="badge bad">개발용 가짜 값</div>' : ""}
     </div>`).join("") || '<p class="muted">상권 지표 파일이 아직 없어요 (C4).</p>';
+}
+
+// 키워드 칩 (R1): 불만 키워드는 브리핑의 묶음·단발 불만 주제에서 센다 (리뷰 하나에 주제 하나 기준).
+// 칭찬 키워드는 브리핑에 주제별 긍정 수(topic_counts)가 있을 때만 보인다. 지금 브리핑·발표 모드 저장본에는 없다 (05 16번).
+function renderKeywords(b) {
+  const neg = new Map();
+  (b.groups || []).forEach((g) => neg.set(g.topic_name, (neg.get(g.topic_name) || 0) + g.review_count));
+  (b.single_complaints || []).forEach((s) => (s.topic_names || []).forEach((t) => neg.set(t, (neg.get(t) || 0) + 1)));
+  const pos = Object.entries(b.topic_counts || {}).map(([t, v]) => [b.topic_names?.[t] || t, v.positive || 0]).filter(([, n]) => n > 0);
+  const chips = (list, tone) => [...list].sort((x, y) => y[1] - x[1]).slice(0, 8)
+    .map(([t, n]) => `<span class="kw-chip ${tone}">${esc(t)}<b>${esc(n)}</b></span>`).join("");
+  $("keywords").innerHTML =
+    (pos.length ? `<p class="kw-row"><span class="kw-title">칭찬 키워드</span>${chips(pos, "pos")}</p>` : "") +
+    `<p class="kw-row"><span class="kw-title">불만 키워드</span>${neg.size ? chips(neg, "neg") : '<span class="small muted">없음</span>'}</p>`;
 }
 
 // ── 2 제안 ───────────────────────────────────────────────────────
@@ -205,9 +226,27 @@ async function runCard(cardId, button) {
 //  확인 필요 = 빠진 정보(needs_input)·하지 않은 조치/정하지 않은 보상(c7_flags) → 사장님이 사실을 확인
 const failedOf = (d) => d.failed_reasons || [];
 const checksOf = (d) => [...(d.needs_input || []), ...(d.c7_flags || [])];
-const statusOf = (d) => state.approved.has(d.draft_id) ? ["ok", "승인됨"]
+const statusOf = (d) => state.approved.has(d.draft_id) ? ["ok", "승인 완료"]
   : failedOf(d).length ? ["bad", "점검 실패"] : checksOf(d).length ? ["warn", "확인 필요"] : ["ok", "점검 통과"];
 const draftsOf = (cardId) => [...((state.results[cardId] || {}).drafts || [])].sort(byGen);
+
+// 초안 카드 윗부분 (R2): 이 글이 답하는 원 리뷰. 답글 = 그 리뷰 1건, 공지 = 카드 근거 리뷰, 홍보글 = 카드 근거 지표
+const ICON_AI = '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>';
+const stars = (n) => (n >= 1 && n <= 5 ? `<span class="stars" role="img" aria-label="별점 ${n}점">${"★".repeat(n)}${"☆".repeat(5 - n)}</span>` : "");
+function reviewItem(r) {
+  const when = String(r.created_at || "").slice(5, 16).replace("T", " ");
+  return `<li><div class="rv-meta">${stars(r.rating)}${r.channel ? `<span>${esc(r.channel)}</span>` : ""}${when ? `<span>${esc(when)}</span>` : ""}${r.input_method === "paste" ? "<span>붙여넣음</span>" : ""}</div>
+    <p class="rv-text">${esc(r.text)}</p></li>`;
+}
+function sourceBlock(p, d) {
+  const target = d.target_review_id ? state.reviews[d.target_review_id] : null;
+  if (target) return `<div class="rv"><p class="rv-title">손님 리뷰</p><ul class="rv-list">${reviewItem(target)}</ul></div>`;
+  const reviews = p.evidence.filter((e) => e.type === "review").map((e) => state.reviews[e.id] || { text: e.text });
+  if (reviews.length) return `<div class="rv"><p class="rv-title">근거 리뷰 ${reviews.length}건</p><ul class="rv-list">${reviews.map(reviewItem).join("")}</ul></div>`;
+  const snaps = p.evidence.filter((e) => e.type !== "review");
+  if (snaps.length) return `<div class="rv"><p class="rv-title">근거 지표</p>${snaps.map((e) => `<p class="rv-text">${esc(e.text)}</p><div class="rv-meta"><span>${esc(shortBasis(e.basis))}</span></div>`).join("")}</div>`;
+  return "";
+}
 
 function saveEdits() {
   // 다시 그리기 전에, 아직 승인하지 않은 글에서 고친 내용을 보존한다
@@ -219,8 +258,9 @@ function renderDraft() {
   const el = $("draft");
   const made = state.cards.filter((p) => state.results[p.card.card_id]);
   if (!made.length) {
-    el.innerHTML = `<h1 tabindex="-1">초안</h1><p class="muted">아직 만든 글이 없어요. 제안에서 카드를 하나 골라 주세요.</p>
-      <a class="button primary" href="#/cards">제안 보기</a>`;
+    el.innerHTML = `<div class="page-head"><h1 tabindex="-1">초안</h1></div>
+      <div class="panel"><p class="muted" style="margin-top:0">아직 만든 글이 없어요. 제안에서 카드를 하나 골라 주세요.</p>
+      <a class="button primary" href="#/cards">제안 보기</a></div>`;
     return;
   }
   if (!state.results[state.current]) state.current = made[0].card.card_id;
@@ -230,42 +270,48 @@ function renderDraft() {
   if (!drafts.some((d) => d.draft_id === state.draftId)) state.draftId = (drafts.find((d) => !state.approved.has(d.draft_id)) || drafts[0] || {}).draft_id;
   const d = drafts.find((x) => x.draft_id === state.draftId);
   const agent = KIND_AGENT[p.card.kind];
-  const review = d && d.target_review_id ? state.reviews[d.target_review_id] : null;
   const failed = d ? failedOf(d) : [], checks = d ? checksOf(d) : [];
+  const done = drafts.filter((x) => state.approved.has(x.draft_id)).length;
   const approved = d && state.approved.has(d.draft_id);
   const [, statusText] = d ? statusOf(d) : [];
   // 발표 모드는 저장본을 그대로 돌려주므로 r.source 가 기록 당시 값(live)이다 → '발표 모드 저장본 · 기록 당시 …'로 밝힌다
   const srcName = SOURCE_NAMES[r.source] || r.source || "";
   const srcLabel = isReplay() ? `발표 모드 저장본 · 기록 당시 ${srcName}` : srcName;
 
+  const name = GEN_NAMES[d?.generator] || d?.generator || "";
   el.innerHTML = `
-    <p class="eyebrow">${agent ? `<span class="agent">${esc(agent)}</span>` : ""}<span class="badge">${esc(srcLabel)}</span></p>
-    <h1 tabindex="-1">${esc(p.title)}</h1>
-    ${made.length > 1 ? `<div class="seg" role="group" aria-label="카드">${made.map((q, i) => `<button type="button" data-card="${esc(q.card.card_id)}"${q.card.card_id === state.current ? ' aria-current="true"' : ""}>${state.cards.indexOf(q) === 0 ? "ⓐ" : "ⓑ"} ${esc(KIND_NAMES[q.card.kind] || q.card.kind)}</button>`).join("")}</div>` : ""}
+    <div class="page-head">
+      <p class="eyebrow">${agent ? `<span class="agent">${esc(agent)}</span>` : ""}<span class="badge">${esc(srcLabel)}</span></p>
+      <h1 tabindex="-1">${esc(p.title)}</h1>
+    </div>
+    ${made.length > 1 ? `<div class="seg" role="group" aria-label="카드">${made.map((q) => `<button type="button" data-card="${esc(q.card.card_id)}"${q.card.card_id === state.current ? ' aria-current="true"' : ""}>${state.cards.indexOf(q) === 0 ? "ⓐ" : "ⓑ"} ${esc(KIND_NAMES[q.card.kind] || q.card.kind)}</button>`).join("")}</div>` : ""}
     ${r.source_note ? `<p class="small muted">${esc(r.source_note)}</p>` : ""}
     ${(r.chosen_measures || []).length ? `<p class="small">사장님이 고른 재발 방지 조치: ${r.chosen_measures.map((m) => esc(m.text)).join(", ")}</p>` : ""}
+    <div class="progress"><span>승인 ${done} / ${drafts.length}</span><span class="track" aria-hidden="true"><i style="width:${drafts.length ? Math.round((done / drafts.length) * 100) : 0}%"></i></span></div>
     <ol class="draft-list" aria-label="글 ${drafts.length}개">${drafts.map((x, i) => {
       const [tone, text] = statusOf(x);
       return `<li><button type="button" data-pick="${esc(x.draft_id)}"${x.draft_id === state.draftId ? ' aria-current="true"' : ""}>${i + 1}. ${esc(GEN_NAMES[x.generator] || x.generator)} <span class="st ${tone}">${text}</span></button></li>`;
     }).join("")}</ol>
     ${d ? `<article class="draft ${approved ? "approved" : ""}" id="draft-${esc(d.draft_id)}">
-      <div class="draft-head"><h2>${esc(GEN_NAMES[d.generator] || d.generator)}</h2>
+      <div class="draft-head"><h2>${esc(name)}</h2>
+        ${approved ? '<span class="badge ok">승인 완료</span>' : ""}
         ${failed.length ? `<span class="badge bad">점검 실패 ${failed.length}</span>` : ""}
         ${checks.length ? `<span class="badge warn">확인 필요 ${checks.length}</span>` : ""}
-        ${failed.length || checks.length ? "" : '<span class="badge ok">점검 통과</span>'}
-        ${approved ? '<span class="badge ok">승인됨</span>' : ""}</div>
-      ${review ? `<p class="target small">손님 리뷰: “${esc(review.text)}”</p>` : ""}
-      <label class="sr" for="text-${esc(d.draft_id)}">${esc(GEN_NAMES[d.generator] || d.generator)} 내용 (${esc(statusText)})</label>
-      <textarea id="text-${esc(d.draft_id)}" rows="7" data-text="${esc(d.draft_id)}">${esc(state.pending[d.draft_id] ?? d.edited_text ?? d.text)}</textarea>
-      ${failed.length ? `<ul class="issues bad">${failed.map((x) => `<li><b>점검 실패</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
-      ${checks.length ? `<ul class="issues">${checks.map((x) => `<li><b>확인 필요</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
+        ${failed.length || checks.length || approved ? "" : '<span class="badge ok">점검 통과</span>'}</div>
+      ${sourceBlock(p, d)}
+      <div class="reply">
+        <label class="reply-label" for="text-${esc(d.draft_id)}">${ICON_AI}AI ${esc(name)} 초안<span class="sr"> (${esc(statusText)})</span></label>
+        <textarea id="text-${esc(d.draft_id)}" rows="7" data-text="${esc(d.draft_id)}">${esc(state.pending[d.draft_id] ?? d.edited_text ?? d.text)}</textarea>
+        ${failed.length ? `<ul class="issues bad">${failed.map((x) => `<li><b>점검 실패</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
+        ${checks.length ? `<ul class="issues">${checks.map((x) => `<li><b>확인 필요</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
+      </div>
       <div class="row">
         <button type="button" class="primary" data-approve="${esc(d.draft_id)}">${approved ? "다시 승인" : "승인"}</button>
         <button type="button" data-copy="${esc(d.draft_id)}">복사</button>
         ${isReplay() ? "" : `<button type="button" class="ghost" data-rerun="${esc(state.current)}">다시 만들기</button>`}
       </div>
-      <p class="small muted">${esc(d.model || "")}${d.elapsed_ms ? " · " + (d.elapsed_ms / 1000).toFixed(1) + "초" : ""}</p>
-    </article>` : '<p class="muted">이 카드에서 만든 글이 없어요.</p>'}`;
+      <p class="small muted model">${esc(d.model || "")}${d.elapsed_ms ? " · " + (d.elapsed_ms / 1000).toFixed(1) + "초" : ""}</p>
+    </article>` : '<div class="panel"><p class="muted">이 카드에서 만든 글이 없어요.</p></div>'}`;
 
   el.querySelectorAll("[data-card]").forEach((b) => b.addEventListener("click", () => { saveEdits(); state.current = b.dataset.card; state.draftId = null; renderDraft(); }));
   el.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => { saveEdits(); state.draftId = b.dataset.pick; renderDraft(); }));
@@ -316,17 +362,21 @@ function renderDone() {
   const el = $("done");
   const log = state.approvedLog;
   if (!log.length) {
-    el.innerHTML = `<h1 tabindex="-1">완료</h1><p class="muted">아직 승인한 글이 없어요.</p>
-      <a class="button primary" href="#/draft">초안으로</a>`;
+    el.innerHTML = `<div class="page-head"><h1 tabindex="-1">완료</h1></div>
+      <div class="panel"><p class="muted" style="margin-top:0">아직 승인한 글이 없어요.</p>
+      <a class="button primary" href="#/draft">초안으로</a></div>`;
     return;
   }
   const lines = kpiLines();
   const total = Object.values(state.results).flatMap((r) => r.drafts || []).length;
   el.innerHTML = `
-    <h1 tabindex="-1">처리 완료</h1>
-    ${lines.length ? `<p class="kpi">${lines.map(esc).join("<br>")}</p>` : `<p class="small muted">타이머는 1 오늘의 '무엇을 할까요?'부터 잽니다.</p>`}
-    <p class="muted">승인한 글 ${log.length}개 / 만든 글 ${total}개 · 게시는 복사해서 직접 올려요</p>
-    <ul class="plain log">${log.map((a) => `<li><span class="badge ok">승인됨</span> ${esc(a.name)} <span class="small muted">· ${esc(a.card)} · ${esc(String(a.at).slice(11, 19))}${a.edited ? " · 사장님이 고침" : ""}</span></li>`).join("")}</ul>
+    <div class="page-head"><h1 tabindex="-1">처리 완료</h1>
+      <p class="muted">승인한 글 ${log.length}개 / 만든 글 ${total}개 · 게시는 복사해서 직접 올려요</p></div>
+    <div class="panel">
+      ${lines.length ? `<p class="kpi">${lines.map(esc).join("<br>")}</p>` : `<p class="small muted" style="margin-top:0">타이머는 1 오늘의 '무엇을 할까요?'부터 잽니다.</p>`}
+      <div class="progress"><span>승인 ${log.length} / ${total}</span><span class="track" aria-hidden="true"><i style="width:${total ? Math.round((log.length / total) * 100) : 0}%"></i></span></div>
+      <ul class="plain log">${log.map((a) => `<li><span class="badge ok">승인 완료</span> ${esc(a.name)} <span class="small muted">· ${esc(a.card)} · ${esc(String(a.at).slice(11, 19))}${a.edited ? " · 사장님이 고침" : ""}</span></li>`).join("")}</ul>
+    </div>
     <button type="button" class="primary big" id="restart">처음으로</button>
     <details class="more"><summary class="small">서버 처리 기록</summary><ul id="approvals" class="plain small"></ul></details>`;
   $("restart").addEventListener("click", restart);
