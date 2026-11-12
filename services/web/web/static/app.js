@@ -1,22 +1,31 @@
-// ①→④ 한 화면. 외부 라이브러리 없이 동작 (발표장 오프라인 대비).
+// 텔레토비 AI 비서: 단계별 화면 (1 오늘 → 2 제안 → 3 초안 → 4 완료) + 분석. 외부 라이브러리 없이 동작 (발표장 오프라인 대비).
+// 화면은 주소 해시로 바꾼다: #/today #/cards #/draft #/done #/analysis (재정비/05 UI 디자인 레퍼런스 15번, 박건영 결정 11/10)
+// 화면마다 할 일은 하나. API·저장본은 그대로 쓴다 (/api/health, briefing, cards, cards/{id}/run, drafts/{id}/approve, approvals, reviews, c9/record).
 "use strict";
 
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const GEN_NAMES = { reply_draft: "답글", prevention_notice: "재발 방지 공지", coupon_promo: "쿠폰 홍보글" };
 const KIND_NAMES = { complaint: "불만 대응", promo: "쿠폰 홍보" };
-// AI 직원 3명: ① 데이터 분석 비서, 카드 ⓐ·③ 고객 응대 비서, 카드 ⓑ 마케팅 에이전트
+// AI 직원 3명: 오늘·분석 = 데이터 분석 비서, 카드 ⓐ·초안 = 고객 응대 비서, 카드 ⓑ = 마케팅 에이전트
 const KIND_AGENT = { complaint: "고객 응대 비서", promo: "마케팅 에이전트" };
-// 재발 방지 공지를 답글보다 위에 (강조점: 다시 안 생기게 하는 조치가 먼저)
+// 재발 방지 공지를 답글보다 먼저 (강조점: 다시 안 생기게 하는 조치가 먼저)
 const GEN_ORDER = { prevention_notice: 0, coupon_promo: 1, reply_draft: 2 };
 const byGen = (a, b) => (GEN_ORDER[a.generator] ?? 9) - (GEN_ORDER[b.generator] ?? 9);
 const KPI_GEN = "prevention_notice";
+const SOURCE_NAMES = { live: "실시간 HCX-005", seed: "저장본", replay: "발표 모드 저장본", "live+replay": "일부 실시간" };
+const ROUTES = ["today", "cards", "draft", "done", "analysis"];
 
-const state = { health: null, briefing: null, cards: [], results: {}, approved: new Set(), startedAt: null, timer: null, reviews: {}, pending: {} };
+const state = {
+  health: null, briefing: null, cards: [], results: {}, approved: new Set(), approvedLog: [],
+  startedAt: null, timer: null, kpiAt: null, allAt: null, reviews: {}, pending: {},
+  current: null,   // 초안 화면에 보이는 카드
+  draftId: null,   // 초안 화면에 크게 보이는 글
+};
 // 출처 문자열에서 URL 을 떼어 화면에는 이름만 (URL 은 링크로)
-const sourceName = (s) => String(s || "").split(/\s·\s(?=https?:)/)[0];
 const sourceUrl = (s) => (String(s || "").match(/https?:\/\/\S+/) || [""])[0];
 const shortBasis = (t) => String(t || "").replace(/\s·\s*https?:\/\/\S+/g, "");
+const isReplay = () => state.health && state.health.mode === "replay";
 
 async function api(path, options = {}) {
   const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
@@ -27,8 +36,40 @@ async function api(path, options = {}) {
 
 function showAlert(msg) { const el = $("alert"); el.hidden = !msg; el.textContent = msg || ""; }
 
-// ── 맨 위 띠 ─────────────────────────────────────────────────────
+// ── 화면 전환 ─────────────────────────────────────────────────────
+function currentRoute() {
+  const r = (location.hash.match(/^#\/(\w+)/) || [])[1];
+  return ROUTES.includes(r) ? r : "today";
+}
+function route() {
+  const name = currentRoute();
+  if (name === "draft") renderDraft();
+  if (name === "done") renderDone();
+  if (name === "today") renderDash();
+  document.querySelectorAll("[data-view]").forEach((v) => (v.hidden = v.dataset.view !== name));
+  document.querySelectorAll(".menu a").forEach((a) => {
+    if (a.dataset.route === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+  window.scrollTo(0, 0);
+  const h = document.querySelector(`[data-view="${name}"] h1`);
+  if (h) h.focus({ preventScroll: true });
+}
+const go = (name) => { if (currentRoute() === name) route(); else location.hash = "#/" + name; };
+
+// ── 테마 (재정비/05 검토 9번 결정 5: 발표 때는 라이트로 고정) ──────────────
+// 발표 모드(replay)와 사다리(발표용 live 일부 실시간)는 운영체제가 다크여도 라이트로 보인다.
+// 그 밖(mock·live)은 운영체제 설정을 따른다. 주소 뒤 ?theme=light 는 언제나 라이트, ?theme=auto 는 언제나 운영체제 설정.
+function applyTheme(h) {
+  const want = new URLSearchParams(location.search).get("theme");
+  const presenting = h.mode === "replay" || Number(h.ladder) > 0;
+  const light = want === "light" || (want !== "auto" && presenting);
+  if (light) document.documentElement.dataset.theme = "light";
+  else delete document.documentElement.dataset.theme;
+}
+
+// ── 맨 위 띠·바닥 ─────────────────────────────────────────────────
 function renderHealth(h) {
+  applyTheme(h);
   const chip = $("mode-chip");
   chip.textContent = h.mode_label + (h.ladder ? ` · 사다리 ${h.ladder}칸` : "");
   chip.className = "chip " + h.mode;
@@ -42,13 +83,40 @@ function renderHealth(h) {
   $("record").hidden = h.mode === "replay";
   const c = h.cache || {};
   $("foot-msg").textContent = c.exists ? `발표 모드 저장본: ${c.recorded_at} (${c.recorded_mode})` : "발표 모드 저장본 없음";
+  // 분석 탭 → 리뷰 분석 화면(A)은 그 서비스가 떠 있을 때만 (발표 모드·라이브데모 링크에는 A가 없음)
+  const rs = h.review_service || {};
+  $("analysis-link").innerHTML = rs.status === "ok" && rs.url
+    ? `<a href="${esc(rs.url)}/" target="_blank" rel="noopener">리뷰 분석 화면에서 리뷰 하나씩 보기 ↗</a>`
+    : `<span class="muted">${h.mode === "replay" ? "발표 모드에서는 리뷰 분석 화면을 따로 띄우지 않아요. 아래가 저장된 같은 결과예요." : "리뷰 분석 화면에 연결할 수 없어요."}</span>`;
 }
 
-// ── ① 브리핑 ─────────────────────────────────────────────────────
+// ── 1 오늘 + 분석 (브리핑) ───────────────────────────────────────────
 function renderBriefing(b) {
   $("store-name").textContent = `${b.store.name || ""} · ${b.store.business_type_name || ""}${b.store.area_name ? " · " + b.store.area_name + " 상권" : ""}`;
   const c = b.counts;
-  $("hero-title").textContent = `오늘까지 리뷰 ${c.review_count}건이 들어왔어요`;
+  // 숫자 카드 줄 (R1 통계 요약 카드, 05 16번): 리뷰 · 불만 · 반복 불만
+  const days = Math.round((new Date(b.period.end) - new Date(b.period.start)) / 86400000) + 1;
+  const repeated = (b.groups || []).filter((g) => g.is_repeated);
+  $("stat-reviews").textContent = c.review_count;
+  $("stat-reviews-sub").textContent = Number.isFinite(days) ? `${days}일 동안` : "";
+  $("stat-complaints").textContent = c.complaint_count;
+  $("stat-complaints-sub").textContent = c.review_count ? `리뷰의 ${Math.round((c.complaint_count / c.review_count) * 100)}%` : "";
+  $("stat-repeated").textContent = repeated.reduce((n, g) => n + g.review_count, 0);
+  $("stat-repeated-sub").textContent = repeated.map((g) => g.topic_name).join(", ") || "없음";
+  renderKeywords(b);
+  renderHourChart(b);
+  const snap = (b.snapshots || []).find((x) => x.value !== null && !x.dev_fake);
+  $("stat-market").textContent = snap ? `${snap.value > 0 ? "+" : ""}${Number(snap.value).toFixed(2)}${snap.unit}` : "–";
+  $("stat-market-sub").textContent = snap ? `${snap.area_name} · 전년 같은 분기 대비` : "상권 지표 없음";
+  $("staff-data").textContent = `리뷰 ${c.review_count}건 정리 끝`;
+  syncStaffStrip();
+  // 오늘의 핵심 문제 (05 결정 1): 카드 ⓐ가 가리키는 묶음. 시간대는 불만이 몰린 구간(17~21시)만, 상권 지표의 17~24시와 섞지 않는다.
+  const top = (b.groups || []).find((g) => g.issue_id === b.top_issue_id);
+  $("hero-problem").textContent = top
+    ? `${top.topic_name} ${top.review_count}건${top.is_repeated ? " 반복" : ""}${top.main_time_band ? ` · ${top.main_time_band}에 몰림` : ""}`
+    : "오늘은 반복되는 불만이 없어요";
+  $("today-source").textContent = `${b.period.start} ~ ${b.period.end} · 리뷰는 합성 데이터`;
+
   $("funnel").innerHTML = `
     <div class="box"><div class="n">${esc(c.review_count)}</div><div class="small muted">리뷰</div></div><span class="arrow">→</span>
     <div class="box"><div class="n">${esc(c.complaint_count)}</div><div class="small muted">불만</div></div><span class="arrow">→</span>
@@ -78,87 +146,289 @@ function renderBriefing(b) {
     </div>`).join("") || '<p class="muted">상권 지표 파일이 아직 없어요 (C4).</p>';
 }
 
-// ── ② 카드 ───────────────────────────────────────────────────────
+// 홈 차트 (11/11 대시보드 시안 v2). 브리핑의 불만 리뷰(묶음 + 묶이지 않은 불만)만 센다. 리뷰 하나에 주제 하나 기준.
+// 주제별 불만: 상위 3개 + 그 밖. 반복 묶음(핵심 문제) 주제는 빨간 막대. 칭찬 주제는 브리핑에 없어 그리지 않는다 (05 16번).
+function complaintsOf(b) {
+  const list = [];
+  (b.groups || []).forEach((g) => g.reviews.forEach((r) => list.push({ topic: g.topic_name, at: r.created_at, top: g.issue_id === b.top_issue_id })));
+  (b.single_complaints || []).forEach((x) => list.push({ topic: (x.topic_names || [])[0], at: x.created_at, top: false }));
+  return list;
+}
+function renderKeywords(b) {
+  const counts = new Map(), top = new Set();
+  complaintsOf(b).forEach((r) => { if (!r.topic) return; counts.set(r.topic, (counts.get(r.topic) || 0) + 1); if (r.top) top.add(r.topic); });
+  const sorted = [...counts].sort((x, y) => y[1] - x[1]);
+  const rows = sorted.slice(0, 3);
+  const rest = sorted.slice(3);
+  const max = Math.max(1, ...rows.map((r) => r[1]));   // 막대 길이는 상위 주제끼리만 비교 (그 밖 합계가 1등처럼 보이지 않게)
+  $("keywords").innerHTML = (rows.map(([t, n]) => `
+    <div class="tb-row"><span class="tb-name">${esc(t)}</span>
+      <span class="tb-track"><i class="${top.has(t) ? "hot" : ""}" style="width:${Math.round((n / max) * 100)}%"></i></span>
+      <span class="tb-n">${esc(n)}건</span></div>`).join("")
+    + (rest.length ? `<p class="tb-rest small muted">그 밖 ${rest.length}개 주제: ${rest.map(([t, n]) => `${esc(t)} ${esc(n)}`).join(" · ")}</p>` : ""))
+    || '<p class="small muted">불만 리뷰가 없어요.</p>';
+}
+// 불만 리뷰가 몰린 시간: 11~23시 막대. 핵심 문제 묶음의 몰린 시간대(예: 17~21시)는 빨간 막대, 같은 뜻을 글자로도 쓴다.
+function renderHourChart(b) {
+  const by = new Map();
+  complaintsOf(b).forEach((r) => { const h = Number(String(r.at || "").slice(11, 13)); if (Number.isFinite(h)) by.set(h, (by.get(h) || 0) + 1); });
+  const hours = [...by.keys()];
+  const from = Math.min(11, ...hours), to = Math.max(23, ...hours);
+  const top = (b.groups || []).find((g) => g.issue_id === b.top_issue_id);
+  const band = String(top?.main_time_band || "").match(/(\d+)\D+(\d+)/);
+  const hot = (h) => band && h >= Number(band[1]) && h < Number(band[2]);
+  const max = Math.max(1, ...by.values());
+  const cols = [];
+  for (let h = from; h <= to; h++) {
+    const n = by.get(h) || 0;
+    cols.push(`<div class="hc-col${hot(h) ? " hot" : ""}"><span class="hc-n">${n || ""}</span><i style="height:${n ? Math.max(6, Math.round((n / max) * 100)) : 2}%"></i><span class="hc-h">${h}</span></div>`);
+  }
+  $("hour-chart").innerHTML = cols.join("");
+  $("hour-chart").setAttribute("aria-label", "시간대별 불만 리뷰: " + ([...by].sort((x, y) => x[0] - y[0]).map(([h, n]) => `${h}시 ${n}건`).join(", ") || "없음"));
+  $("chart-note").textContent = band ? `빨간 막대 = ${top.topic_name}이 몰린 ${top.main_time_band}` : "시 단위";
+}
+
+// ── 2 제안 ───────────────────────────────────────────────────────
+// 카드마다 출처·시점 한 줄은 늘 보이고(05 5절·7절), 근거 리뷰·이유 문장 출처는 '근거 보기'로 접는다.
+function sourceLine(p) {
+  const reviews = p.evidence.filter((e) => e.type === "review");
+  const snaps = p.evidence.filter((e) => e.type !== "review");
+  const parts = [];
+  if (reviews.length) parts.push(`리뷰 ${reviews.length}건 · 합성 데이터`);
+  snaps.forEach((e) => parts.push(shortBasis(e.basis)));
+  return parts.join(" · ");
+}
 function renderCards(data) {
   state.cards = data.cards;
   $("cards").innerHTML = data.cards.map((p, i) => {
     const c = p.card;
-    const label = c.kind === "complaint" ? "재발 방지 공지·답글 만들기" : "홍보글 만들기";
-    return `<div class="card" id="card-${esc(c.card_id)}">
+    const made = !!state.results[c.card_id];
+    const label = made ? "만든 글 보기" : c.kind === "complaint" ? "재발 방지 공지·답글 만들기" : "홍보글 만들기";
+    return `<article class="card" id="card-${esc(c.card_id)}">
       <div class="kind">${i === 0 ? "ⓐ" : "ⓑ"} ${esc(KIND_NAMES[c.kind] || c.kind)}${KIND_AGENT[c.kind] ? ` <span class="agent">${esc(KIND_AGENT[c.kind])}</span>` : ""}</div>
-      <strong>${esc(p.title)}</strong>
-      <div class="reason">${esc(c.reason_text)}</div>
-      <div class="ev">${p.evidence.map((e) => `<span title="${esc(e.note || "")}">${e.type === "review" ? "리뷰 " + esc(e.id) + ": “" + esc(e.text) + "”" : esc(e.text) + " · " + esc(shortBasis(e.basis))}</span>`).join("")}</div>
-      <div class="small muted">이유 문장: ${esc(p.reason_source)}${(p.problems || []).length ? " · 검사기 지적 " + p.problems.length + "건" : ""}</div>
+      <h2>${esc(p.title)}</h2>
+      <p class="reason">${esc(c.reason_text)}</p>
+      <p class="small muted">근거: ${esc(sourceLine(p))}</p>
       ${measureBox(p)}
+      <details class="more"><summary class="small">근거 보기</summary>
+        <div class="ev">${p.evidence.map((e) => `<span title="${esc(e.note || "")}">${e.type === "review" ? "리뷰 " + esc(e.id) + ": “" + esc(e.text) + "”" : esc(e.text) + " · " + esc(shortBasis(e.basis))}${e.type !== "review" && sourceUrl(e.basis) ? ` · <a href="${esc(sourceUrl(e.basis))}" target="_blank" rel="noopener">원본</a>` : ""}</span>`).join("")}</div>
+        <p class="small muted">이유 문장: ${esc(p.reason_source)}${(p.problems || []).length ? " · 검사기 지적 " + p.problems.length + "건" : ""}</p>
+      </details>
       <button type="button" class="primary" data-run="${esc(c.card_id)}">${label}</button>
-    </div>`;
+    </article>`;
   }).join("") || '<p class="muted">오늘은 추천할 카드가 없어요.</p>';
   $("no-card-b").textContent = data.no_card_b || "";
   const used = new Set(data.cards.flatMap((p) => p.card.snapshot_ids || []));
   document.querySelectorAll("[data-snap]").forEach((el) => { el.querySelector("[data-used]").hidden = !used.has(el.dataset.snap); });
-  document.querySelectorAll("[data-run]").forEach((b) => b.addEventListener("click", () => runCard(b.dataset.run, b)));
+  document.querySelectorAll("#cards [data-run]").forEach((b) => b.addEventListener("click", () => choose(b.dataset.run, b)));
+  renderDash();
+}
+
+// ── 홈 대시보드: 오늘 할 일 + 왼쪽 메뉴의 승인 대기 수·AI 직원 상태 (11/11 시안 v2) ─────────
+// 할 일은 지금 카드에서 만든다: 카드 ⓐ(불만) → 재발 방지 공지, 답글 n개 / 카드 ⓑ(홍보) → 쿠폰 홍보글.
+// 누르면 아직 안 만든 글은 만들고(타이머 시작), 만든 글은 3 초안 화면에서 그 글을 연다.
+const TODO_ICON = { done: "✓", wait: "", none: "" };
+function todosOf() {
+  const care = state.cards.find((p) => p.card.kind === "complaint");
+  const mkt = state.cards.find((p) => p.card.kind === "promo");
+  const items = [];
+  const of = (p, gen) => draftsOf(p.card.card_id).filter((d) => d.generator === gen);
+  const status = (p, ds, made) => !made ? ["none", "만들기"] : ds.length && ds.every((d) => state.approved.has(d.draft_id)) ? ["done", "완료"]
+    : ["wait", `승인 ${ds.filter((d) => state.approved.has(d.draft_id)).length} / ${ds.length}`];
+  if (care) {
+    const made = !!state.results[care.card.card_id];
+    const n = care.evidence.filter((e) => e.type === "review").length;
+    items.push({ key: "notice", card: care, cid: care.card.card_id, gen: "prevention_notice", urgent: true, title: "재발 방지 공지 승인", sub: $("hero-problem").textContent, agent: "고객 응대 비서", st: status(care, of(care, "prevention_notice"), made) });
+    items.push({ key: "reply", card: care, cid: care.card.card_id, gen: "reply_draft", title: `답글 ${made ? of(care, "reply_draft").length : n}개 승인`, sub: "같은 불만을 남긴 손님에게", agent: "고객 응대 비서", st: status(care, of(care, "reply_draft"), made) });
+  }
+  if (mkt) {
+    const made = !!state.results[mkt.card.card_id];
+    items.push({ key: "promo", card: mkt, cid: mkt.card.card_id, gen: "coupon_promo", title: "쿠폰 홍보글", sub: `저녁 매출 ${$("stat-market").textContent} · 저녁 손님 다시 부르기`, agent: "마케팅 에이전트", st: status(mkt, of(mkt, "coupon_promo"), made) });
+  }
+  return items;
+}
+function renderDash() {
+  if (!state.cards.length) return;
+  const items = todosOf();
+  const left = items.filter((t) => t.st[0] !== "done").length;
+  $("todo").innerHTML = items.map((t) => `
+    <li><button type="button" class="todo-item ${t.urgent && t.st[0] !== "done" ? "urgent" : ""} ${t.st[0]}" data-todo="${esc(t.key)}">
+      <span class="todo-check" aria-hidden="true">${TODO_ICON[t.st[0]]}</span>
+      <span class="todo-text"><strong>${t.urgent && t.st[0] !== "done" ? '<span class="todo-urgent">급함</span>' : ""}${esc(t.title)}</strong><span class="small">${esc(t.sub)}</span><span class="small muted">${esc(t.agent)}</span></span>
+      <span class="todo-st">${esc(t.st[1])}</span>
+    </button></li>`).join("") || '<li class="small muted">오늘은 할 일이 없어요.</li>';
+  $("todo-count").textContent = `${items.length - left} / ${items.length} 끝`;
+  $("dash-title").textContent = left ? `사장님, 오늘 처리할 일 ${left}가지` : "사장님, 오늘 할 일을 모두 끝냈어요";
+  document.querySelectorAll("[data-todo]").forEach((b) => b.addEventListener("click", () => runTodo(items.find((t) => t.key === b.dataset.todo), b)));
+  // 왼쪽 메뉴: 승인 대기 수, AI 직원 상태 (점 색과 같은 뜻을 글자로)
+  const all = Object.values(state.results).flatMap((r) => r.drafts || []);
+  const waiting = all.filter((d) => !state.approved.has(d.draft_id)).length;
+  $("nav-draft-count").hidden = !waiting;
+  $("nav-draft-count").textContent = waiting;
+  const staff = (prefix, list) => {
+    const made = list.some((t) => t.st[0] !== "none");
+    const done = list.length && list.every((t) => t.st[0] === "done");
+    const wait = list.flatMap((t) => draftsOf(t.cid).filter((d) => d.generator === t.gen && !state.approved.has(d.draft_id))).length;
+    $("dot-" + prefix).className = "dot " + (done ? "ok" : "warn");
+    $("staff-" + prefix).textContent = !list.length ? "오늘 할 일 없음" : done ? "오늘 몫 끝" : made ? `승인 대기 ${wait}개` : "만들 차례";
+  };
+  staff("care", items.filter((t) => t.agent === "고객 응대 비서"));
+  staff("mkt", items.filter((t) => t.agent === "마케팅 에이전트"));
+  syncStaffStrip();
+}
+// 375px 홈의 직원 상태 줄: 왼쪽 메뉴 'AI 직원' 목록(#staff)을 그대로 옮겨 그린다 (내용은 한 곳에서만 정함)
+function syncStaffStrip() {
+  $("staff-strip").innerHTML = [...document.querySelectorAll("#staff li")].map((li) => {
+    const dot = li.querySelector(".dot");
+    return `<li><span class="${esc(dot ? dot.className : "dot")}" aria-hidden="true"></span><b>${esc(li.querySelector("b")?.textContent)}</b> <span class="muted">${esc(li.querySelector("b + span")?.textContent)}</span></li>`;
+  }).join("");
+}
+async function runTodo(t, button) {
+  if (!t) return;
+  const id = t.cid;   // t.card는 카드 묶음({card, title, …})이라 id는 t.card.card.card_id
+  if (!state.results[id]) {
+    if (!state.startedAt) startTimer();   // KPI 타이머: 홈에서 바로 만들어도 여기서 시작
+    // runCard에 버튼을 넘기지 않는다: runCard는 버튼 글자를 통째로 바꿔 할 일 칸(체크·글·상태)이 깨진다
+    if (button) { button.disabled = true; const st = button.querySelector(".todo-st"); if (st) st.textContent = "만드는 중…"; }
+    await runCard(id);
+    if (!state.results[id]) { renderDash(); return; }   // 실패하면 할 일 목록을 원래대로
+  }
+  const ds = draftsOf(id).filter((d) => d.generator === t.gen);
+  state.current = id;
+  state.draftId = (ds.find((d) => !state.approved.has(d.draft_id)) || ds[0] || {}).draft_id || null;
+  if (currentRoute() === "draft") renderDraft(); else go("draft");
 }
 
 // 불만 카드: 공지에 넣을 재발 방지 조치를 사장님이 고른다 (C6 목록, 고르지 않은 조치는 글에 못 들어감)
 function measureBox(p) {
   const m = p.measures || {};
   if (!(m.options || []).length) return "";
-  const replay = state.health && state.health.mode === "replay";
   const on = new Set(m.default || []);
-  return `<fieldset class="measures"${replay ? " disabled" : ""}><legend class="small">공지에 넣을 재발 방지 조치${replay ? " (발표 모드: 저장된 선택)" : ""}</legend>
+  return `<fieldset class="measures"${isReplay() ? " disabled" : ""}><legend class="small">공지에 넣을 재발 방지 조치${isReplay() ? " (발표 모드: 저장된 선택)" : ""}</legend>
     ${m.options.map((o) => `<label class="small"><input type="checkbox" data-measure="${esc(p.card.card_id)}" value="${esc(o.id)}"${on.has(o.id) ? " checked" : ""}> ${esc(o.text)}</label>`).join("")}
   </fieldset>`;
 }
 
-// ── ③④ 결과·승인 ─────────────────────────────────────────────────
+// 카드를 고르면: 이미 만든 글이 있으면 그 글로, 없으면 만들고 초안으로
+async function choose(cardId, button) {
+  if (state.results[cardId]) { state.current = cardId; state.draftId = null; go("draft"); return; }
+  await runCard(cardId, button);
+}
 async function runCard(cardId, button) {
-  button.disabled = true; const old = button.textContent; button.textContent = "만드는 중…";
+  const old = button ? button.textContent : "";
+  if (button) { button.disabled = true; button.textContent = "만드는 중…"; }
   try {
     const boxes = [...document.querySelectorAll(`[data-measure="${CSS.escape(cardId)}"]`)];
     const body = boxes.length ? JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) }) : undefined;
     const result = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body });
+    // 다시 만들면 그 카드의 예전 글 승인·고친 내용은 버린다
+    (state.results[cardId]?.drafts || []).forEach((d) => { state.approved.delete(d.draft_id); delete state.pending[d.draft_id]; });
     state.results[cardId] = result;
-    renderResults();
-    $("step3").hidden = false; $("step3").scrollIntoView({ behavior: "smooth", block: "start" });
+    state.current = cardId; state.draftId = null;
+    renderCards({ cards: state.cards, no_card_b: $("no-card-b").textContent });
+    go("draft");
   } catch (e) { showAlert(e.message); }
-  finally { button.disabled = false; button.textContent = old; }
+  finally { if (button && button.isConnected) { button.disabled = false; button.textContent = old; } }
 }
 
-function draftBlock(d) {
-  const review = d.target_review_id ? state.reviews[d.target_review_id] : null;
-  const issues = [...(d.failed_reasons || []), ...(d.needs_input || []), ...(d.c7_flags || [])];
-  const approved = state.approved.has(d.draft_id);
-  return `<div class="draft ${approved ? "approved" : ""}" id="draft-${esc(d.draft_id)}">
-    <div class="draft-head"><strong>${esc(GEN_NAMES[d.generator] || d.generator)}</strong>
-      ${review ? `<span class="small muted">→ “${esc(review.text)}”</span>` : ""}
-      ${issues.length ? `<span class="badge warn">확인 필요 ${issues.length}</span>` : '<span class="badge ok">점검 통과</span>'}
-      ${approved ? '<span class="badge ok">승인됨</span>' : ""}</div>
-    <textarea rows="4" data-text="${esc(d.draft_id)}">${esc(state.pending[d.draft_id] ?? d.edited_text ?? d.text)}</textarea>
-    ${issues.length ? `<ul class="issues">${issues.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
-    <div class="row">
-      <button type="button" class="primary" data-approve="${esc(d.draft_id)}">${approved ? "다시 승인" : "승인"}</button>
-      <button type="button" data-copy="${esc(d.draft_id)}">복사</button>
-      <span class="small muted">${esc(d.model || "")}${d.elapsed_ms ? " · " + (d.elapsed_ms / 1000).toFixed(1) + "초" : ""}</span>
-    </div></div>`;
+// ── 3 초안 ───────────────────────────────────────────────────────
+// 글 상태 (05 결정 4): 점검 실패와 확인 필요를 나눈다.
+//  점검 실패 = C6 자동 점검에 걸림(failed_reasons) → 글을 고쳐야 함
+//  확인 필요 = 빠진 정보(needs_input)·하지 않은 조치/정하지 않은 보상(c7_flags) → 사장님이 사실을 확인
+const failedOf = (d) => d.failed_reasons || [];
+const checksOf = (d) => [...(d.needs_input || []), ...(d.c7_flags || [])];
+const statusOf = (d) => state.approved.has(d.draft_id) ? ["ok", "승인 완료"]
+  : failedOf(d).length ? ["bad", "점검 실패"] : checksOf(d).length ? ["warn", "확인 필요"] : ["ok", "점검 통과"];
+const draftsOf = (cardId) => [...((state.results[cardId] || {}).drafts || [])].sort(byGen);
+
+// 초안 카드 윗부분 (R2): 이 글이 답하는 원 리뷰. 답글 = 그 리뷰 1건, 공지 = 카드 근거 리뷰, 홍보글 = 카드 근거 지표
+const ICON_AI = '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>';
+const stars = (n) => (n >= 1 && n <= 5 ? `<span class="stars" role="img" aria-label="별점 ${n}점">${"★".repeat(n)}${"☆".repeat(5 - n)}</span>` : "");
+function reviewItem(r) {
+  const when = String(r.created_at || "").slice(5, 16).replace("T", " ");
+  return `<li><div class="rv-meta">${stars(r.rating)}${r.channel ? `<span>${esc(r.channel)}</span>` : ""}${when ? `<span>${esc(when)}</span>` : ""}${r.input_method === "paste" ? "<span>붙여넣음</span>" : ""}</div>
+    <p class="rv-text">${esc(r.text)}</p></li>`;
+}
+function sourceBlock(p, d) {
+  const target = d.target_review_id ? state.reviews[d.target_review_id] : null;
+  if (target) return `<div class="rv"><p class="rv-title">손님 리뷰</p><ul class="rv-list">${reviewItem(target)}</ul></div>`;
+  const reviews = p.evidence.filter((e) => e.type === "review").map((e) => state.reviews[e.id] || { text: e.text });
+  if (reviews.length) return `<div class="rv"><p class="rv-title">근거 리뷰 ${reviews.length}건</p><ul class="rv-list">${reviews.map(reviewItem).join("")}</ul></div>`;
+  const snaps = p.evidence.filter((e) => e.type !== "review");
+  if (snaps.length) return `<div class="rv"><p class="rv-title">근거 지표</p>${snaps.map((e) => `<p class="rv-text">${esc(e.text)}</p><div class="rv-meta"><span>${esc(shortBasis(e.basis))}</span></div>`).join("")}</div>`;
+  return "";
 }
 
-function renderResults() {
+function saveEdits() {
   // 다시 그리기 전에, 아직 승인하지 않은 글에서 고친 내용을 보존한다
   document.querySelectorAll("textarea[data-text]").forEach((box) => (state.pending[box.dataset.text] = box.value));
-  const blocks = state.cards.filter((p) => state.results[p.card.card_id]).map((p) => {
-    const r = state.results[p.card.card_id];
-    const src = { live: "실시간 HCX-005", seed: "저장본", replay: "발표 모드 저장본", "live+replay": "일부 실시간" }[r.source] || r.source || "";
-    const agent = KIND_AGENT[p.card.kind];
-    return `<div class="result"><div class="group-head">${agent ? `<span class="agent">${esc(agent)}</span>` : ""}<strong>${esc(p.title)}</strong><span class="badge">${esc(src)}</span>
-      ${r.flagged_count ? `<span class="badge warn">확인 필요 글 ${r.flagged_count}개</span>` : ""}</div>
-      ${r.source_note ? `<p class="small muted">${esc(r.source_note)}</p>` : ""}
-      ${(r.chosen_measures || []).length ? `<p class="small">사장님이 고른 재발 방지 조치: ${r.chosen_measures.map((m) => esc(m.text)).join(", ")}</p>` : ""}
-      ${[...(r.drafts || [])].sort(byGen).map(draftBlock).join("")}</div>`;
-  });
-  $("results").innerHTML = blocks.join("");
-  document.querySelectorAll("[data-approve]").forEach((b) => b.addEventListener("click", () => approve(b.dataset.approve)));
-  document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => copyDraft(b.dataset.copy, b)));
+}
+
+function renderDraft() {
+  saveEdits();
+  const el = $("draft");
+  const made = state.cards.filter((p) => state.results[p.card.card_id]);
+  if (!made.length) {
+    el.innerHTML = `<div class="page-head"><h1 tabindex="-1">초안</h1></div>
+      <div class="panel"><p class="muted" style="margin-top:0">아직 만든 글이 없어요. 제안에서 카드를 하나 골라 주세요.</p>
+      <a class="button primary" href="#/cards">제안 보기</a></div>`;
+    return;
+  }
+  if (!state.results[state.current]) state.current = made[0].card.card_id;
+  const p = state.cards.find((x) => x.card.card_id === state.current);
+  const r = state.results[state.current];
+  const drafts = draftsOf(state.current);
+  if (!drafts.some((d) => d.draft_id === state.draftId)) state.draftId = (drafts.find((d) => !state.approved.has(d.draft_id)) || drafts[0] || {}).draft_id;
+  const d = drafts.find((x) => x.draft_id === state.draftId);
+  const agent = KIND_AGENT[p.card.kind];
+  const failed = d ? failedOf(d) : [], checks = d ? checksOf(d) : [];
+  const done = drafts.filter((x) => state.approved.has(x.draft_id)).length;
+  const approved = d && state.approved.has(d.draft_id);
+  const [, statusText] = d ? statusOf(d) : [];
+  // 발표 모드는 저장본을 그대로 돌려주므로 r.source 가 기록 당시 값(live)이다 → '발표 모드 저장본 · 기록 당시 …'로 밝힌다
+  const srcName = SOURCE_NAMES[r.source] || r.source || "";
+  const srcLabel = isReplay() ? `발표 모드 저장본 · 기록 당시 ${srcName}` : srcName;
+
+  const name = GEN_NAMES[d?.generator] || d?.generator || "";
+  el.innerHTML = `
+    <div class="page-head">
+      <p class="eyebrow">${agent ? `<span class="agent">${esc(agent)}</span>` : ""}<span class="badge">${esc(srcLabel)}</span></p>
+      <h1 tabindex="-1">${esc(p.title)}</h1>
+    </div>
+    ${made.length > 1 ? `<div class="seg" role="group" aria-label="카드">${made.map((q) => `<button type="button" data-card="${esc(q.card.card_id)}"${q.card.card_id === state.current ? ' aria-current="true"' : ""}>${state.cards.indexOf(q) === 0 ? "ⓐ" : "ⓑ"} ${esc(KIND_NAMES[q.card.kind] || q.card.kind)}</button>`).join("")}</div>` : ""}
+    ${r.source_note ? `<p class="small muted">${esc(r.source_note)}</p>` : ""}
+    ${(r.chosen_measures || []).length ? `<p class="small">사장님이 고른 재발 방지 조치: ${r.chosen_measures.map((m) => esc(m.text)).join(", ")}</p>` : ""}
+    <div class="progress"><span>승인 ${done} / ${drafts.length}</span><span class="track" aria-hidden="true"><i style="width:${drafts.length ? Math.round((done / drafts.length) * 100) : 0}%"></i></span></div>
+    <ol class="draft-list" aria-label="글 ${drafts.length}개">${drafts.map((x, i) => {
+      const [tone, text] = statusOf(x);
+      return `<li><button type="button" data-pick="${esc(x.draft_id)}"${x.draft_id === state.draftId ? ' aria-current="true"' : ""}>${i + 1}. ${esc(GEN_NAMES[x.generator] || x.generator)} <span class="st ${tone}">${text}</span></button></li>`;
+    }).join("")}</ol>
+    ${d ? `<article class="draft ${approved ? "approved" : ""}" id="draft-${esc(d.draft_id)}">
+      <div class="draft-head"><h2>${esc(name)}</h2>
+        ${approved ? '<span class="badge ok">승인 완료</span>' : ""}
+        ${failed.length ? `<span class="badge bad">점검 실패 ${failed.length}</span>` : ""}
+        ${checks.length ? `<span class="badge warn">확인 필요 ${checks.length}</span>` : ""}
+        ${failed.length || checks.length || approved ? "" : '<span class="badge ok">점검 통과</span>'}</div>
+      ${sourceBlock(p, d)}
+      <div class="reply">
+        <label class="reply-label" for="text-${esc(d.draft_id)}">${ICON_AI}AI ${esc(name)} 초안<span class="sr"> (${esc(statusText)})</span></label>
+        <textarea id="text-${esc(d.draft_id)}" rows="7" data-text="${esc(d.draft_id)}">${esc(state.pending[d.draft_id] ?? d.edited_text ?? d.text)}</textarea>
+        ${failed.length ? `<ul class="issues bad">${failed.map((x) => `<li><b>점검 실패</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
+        ${checks.length ? `<ul class="issues">${checks.map((x) => `<li><b>확인 필요</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
+      </div>
+      <div class="row">
+        <button type="button" class="primary" data-approve="${esc(d.draft_id)}">${approved ? "다시 승인" : "승인"}</button>
+        <button type="button" data-copy="${esc(d.draft_id)}">복사</button>
+        ${isReplay() ? "" : `<button type="button" class="ghost" data-rerun="${esc(state.current)}">다시 만들기</button>`}
+      </div>
+      <p class="small muted model">${esc(d.model || "")}${d.elapsed_ms ? " · " + (d.elapsed_ms / 1000).toFixed(1) + "초" : ""}</p>
+    </article>` : '<div class="panel"><p class="muted">이 카드에서 만든 글이 없어요.</p></div>'}`;
+
+  el.querySelectorAll("[data-card]").forEach((b) => b.addEventListener("click", () => { saveEdits(); state.current = b.dataset.card; state.draftId = null; renderDraft(); }));
+  el.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => { saveEdits(); state.draftId = b.dataset.pick; renderDraft(); }));
+  el.querySelectorAll("[data-approve]").forEach((b) => b.addEventListener("click", () => approve(b.dataset.approve)));
+  el.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => copyDraft(b.dataset.copy, b)));
+  el.querySelectorAll("[data-rerun]").forEach((b) => b.addEventListener("click", () => runCard(b.dataset.rerun, b)));
 }
 
 function findDraft(id) {
@@ -166,13 +436,23 @@ function findDraft(id) {
   return null;
 }
 
+// 승인하면 이 카드의 다음 미승인 글로, 다 끝나면 완료 화면으로
 async function approve(id) {
   const d = findDraft(id); const box = document.querySelector(`[data-text="${CSS.escape(id)}"]`);
   try {
     const entry = await api(`/api/drafts/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ text: box.value, original: d.text }) });
     d.edited_text = entry.edited ? box.value : null;
+    delete state.pending[id];
     state.approved.add(id);
-    renderResults(); await loadApprovals(); checkDone();
+    renderDash();
+    const card = state.cards.find((p) => (state.results[p.card.card_id]?.drafts || []).includes(d));
+    state.approvedLog = state.approvedLog.filter((x) => x.id !== id);
+    state.approvedLog.push({ id, at: entry.approved_at || new Date().toISOString(), edited: !!entry.edited,
+      name: GEN_NAMES[d.generator] || d.generator, card: card ? card.title : "" });
+    checkDone();
+    const next = draftsOf(state.current).find((x) => !state.approved.has(x.draft_id));
+    if (next) { state.draftId = next.draft_id; renderDraft(); window.scrollTo(0, 0); }
+    else go("done");
   } catch (e) { showAlert(e.message); }
 }
 
@@ -183,14 +463,56 @@ async function copyDraft(id, button) {
   setTimeout(() => (button.textContent = "복사"), 1500);
 }
 
+// ── 4 완료 ───────────────────────────────────────────────────────
+function kpiLines() {
+  const lines = [];
+  if (state.kpiAt) lines.push(`반복 원인 확인부터 재발 방지 공지 승인까지 ${words(state.kpiAt - state.startedAt)}`);
+  if (state.allAt) lines.push(`글 ${Object.values(state.results).flatMap((r) => r.drafts || []).length}개 모두 승인까지 ${words(state.allAt - state.startedAt)}`);
+  return lines;
+}
+function renderDone() {
+  const el = $("done");
+  const log = state.approvedLog;
+  if (!log.length) {
+    el.innerHTML = `<div class="page-head"><h1 tabindex="-1">완료</h1></div>
+      <div class="panel"><p class="muted" style="margin-top:0">아직 승인한 글이 없어요.</p>
+      <a class="button primary" href="#/draft">초안으로</a></div>`;
+    return;
+  }
+  const lines = kpiLines();
+  const total = Object.values(state.results).flatMap((r) => r.drafts || []).length;
+  el.innerHTML = `
+    <div class="page-head"><h1 tabindex="-1">처리 완료</h1>
+      <p class="muted">승인한 글 ${log.length}개 / 만든 글 ${total}개 · 게시는 복사해서 직접 올려요</p></div>
+    <div class="panel">
+      ${lines.length ? `<p class="kpi">${lines.map(esc).join("<br>")}</p>` : `<p class="small muted" style="margin-top:0">타이머는 1 오늘의 '무엇을 할까요?'부터 잽니다.</p>`}
+      <div class="progress"><span>승인 ${log.length} / ${total}</span><span class="track" aria-hidden="true"><i style="width:${total ? Math.round((log.length / total) * 100) : 0}%"></i></span></div>
+      <ul class="plain log">${log.map((a) => `<li><span class="badge ok">승인 완료</span> ${esc(a.name)} <span class="small muted">· ${esc(a.card)} · ${esc(String(a.at).slice(11, 19))}${a.edited ? " · 사장님이 고침" : ""}</span></li>`).join("")}</ul>
+    </div>
+    <button type="button" class="primary big" id="restart">처음으로</button>
+    <details class="more"><summary class="small">서버 처리 기록</summary><ul id="approvals" class="plain small"></ul></details>`;
+  $("restart").addEventListener("click", restart);
+  loadApprovals().catch(() => {});
+}
+
 async function loadApprovals() {
   const data = await api("/api/approvals");
-  $("log").hidden = !data.items.length;
-  $("approvals").innerHTML = data.items.map((a) => `<li>${esc(a.approved_at.slice(11, 19))} · ${esc(a.draft_id)} 승인${a.edited ? " (사장님이 고침)" : ""}</li>`).join("");
+  const ul = $("approvals");
+  if (ul) ul.innerHTML = data.items.map((a) => `<li>${esc(a.approved_at.slice(11, 19))} · ${esc(a.draft_id)} 승인${a.edited ? " (사장님이 고침)" : ""}</li>`).join("") || "<li>기록 없음</li>";
+}
+
+// 처음으로: 이 브라우저의 진행만 비운다 (서버 기록·저장본은 그대로)
+function restart() {
+  state.results = {}; state.approved.clear(); state.approvedLog = []; state.pending = {};
+  state.current = null; state.draftId = null;
+  clearInterval(state.timer); state.startedAt = null; state.kpiAt = null; state.allAt = null;
+  $("timer").textContent = "00:00";
+  renderCards({ cards: state.cards, no_card_b: $("no-card-b").textContent });
+  go("today");
 }
 
 // ── 타이머 (C8 KPI: 반복 원인을 알아채고 재발 방지 조치를 내놓기까지) ──
-// 시작 버튼 → 재발 방지 공지 승인에서 멈춘다. 모든 글 승인까지 걸린 시간은 참고로 함께 적는다.
+// '무엇을 할까요?' → 재발 방지 공지 승인에서 멈춘다. 모든 글 승인까지 걸린 시간은 참고로 함께 적는다.
 function fmt(ms) { const s = Math.floor(ms / 1000); return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }
 const words = (ms) => `${Math.floor(ms / 60000)}분 ${Math.floor((ms % 60000) / 1000)}초`;
 function startTimer() {
@@ -207,16 +529,10 @@ function checkDone() {
     clearInterval(state.timer);
     $("timer").textContent = fmt(state.kpiAt - state.startedAt);
   }
-  const lines = [];
-  if (state.kpiAt) lines.push(`반복 원인 확인부터 재발 방지 공지 승인까지 ${words(state.kpiAt - state.startedAt)}`);
-  if (drafts.length && drafts.every((d) => state.approved.has(d.draft_id))) {
-    state.allAt = state.allAt || Date.now();
-    lines.push(`글 ${drafts.length}개 모두 승인까지 ${words(state.allAt - state.startedAt)}`);
-  }
-  if (lines.length) $("kpi").textContent = lines.join(" · ");
+  if (drafts.length && drafts.every((d) => state.approved.has(d.draft_id))) state.allAt = state.allAt || Date.now();
 }
 
-// ── S2 붙여넣기 ──────────────────────────────────────────────────
+// ── 분석: S2 붙여넣기 ─────────────────────────────────────────────
 async function paste() {
   const text = $("paste-text").value.trim();
   if (!text) return;
@@ -238,13 +554,30 @@ async function record() {
   catch (e) { showAlert(e.message); }
 }
 
+// ── 챗봇 서랍 자리 (S1 질문창, PR #13이 들어올 곳) ─────────────────────
+// 지금은 'AI에게 묻기' 버튼이 숨겨져 있어 열 수 없다. 여닫기·자리만 있고 질문·답 기능은 없다 (05 17번).
+// 상단 바 높이: 왼쪽 메뉴·서랍이 상단 바 아래에 붙게
+function setTopH() { document.documentElement.style.setProperty("--top-h", document.querySelector(".top").offsetHeight + "px"); }
+// 닫으면 서랍을 연 그 버튼(상단 'AI에게 묻기' 또는 홈 입력줄)으로 포커스를 돌려준다. 그 버튼이 화면에 없으면 상단 버튼으로.
+function toggleAssistant(open, opener) {
+  const box = $("assistant");
+  const on = open ?? box.hidden;
+  document.documentElement.style.setProperty("--top-h", document.querySelector(".top").offsetHeight + "px"); // 서랍이 상단 바 아래에 붙게
+  if (on && opener) state.askFrom = opener;
+  box.hidden = !on;
+  ["ask-ai", "ask-open"].forEach((id) => $(id).setAttribute("aria-expanded", String(on)));
+  if (on) { $("assistant-close").focus(); return; }
+  const back = state.askFrom && state.askFrom.offsetParent !== null ? state.askFrom : $("ask-ai");
+  if (!back.hidden) back.focus();
+}
+
 // ── 시작 ─────────────────────────────────────────────────────────
 async function refresh() {
   state.briefing = await api("/api/briefing"); renderBriefing(state.briefing);
   const cards = await api("/api/cards");
   const before = state.cards.map((p) => p.card.card_id + p.card.review_ids + p.card.snapshot_ids).join();
   const after = cards.cards.map((p) => p.card.card_id + p.card.review_ids + p.card.snapshot_ids).join();
-  if (before && before !== after) { state.results = {}; state.approved.clear(); state.pending = {}; $("results").innerHTML = ""; }
+  if (before && before !== after) { state.results = {}; state.approved.clear(); state.approvedLog = []; state.pending = {}; state.current = null; state.draftId = null; }
   renderCards(cards);
 }
 
@@ -253,16 +586,23 @@ async function boot() {
     state.health = await api("/api/health"); renderHealth(state.health);
     await refresh();
     $("start").disabled = false;
-    $("start").textContent = `밤 11시, 오늘 리뷰 ${state.briefing.counts.review_count}건 확인하기`;
+    $("start").textContent = "무엇을 할까요?";
   } catch (e) { showAlert(e.message); $("start").textContent = "불러오지 못했어요"; }
+  setTopH();
+  route();
 }
 
-$("start").addEventListener("click", () => {
-  startTimer();
-  ["step1", "step2"].forEach((id) => ($(id).hidden = false));
-  $("step1").scrollIntoView({ behavior: "smooth", block: "start" });
-});
+applyTheme({}); // ?theme=light 는 서버 응답을 기다리지 않고 바로 (발표 모드 판정은 /api/health 뒤)
+
+$("start").addEventListener("click", () => { startTimer(); go("cards"); });
 $("paste-send").addEventListener("click", paste);
 $("paste-reset").addEventListener("click", resetPaste);
 $("record").addEventListener("click", record);
+$("ask-ai").addEventListener("click", (e) => toggleAssistant(undefined, e.currentTarget));
+$("ask-open").addEventListener("click", (e) => toggleAssistant(true, e.currentTarget));
+window.addEventListener("resize", setTopH);
+$("assistant-close").addEventListener("click", () => toggleAssistant(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("assistant").hidden) toggleAssistant(false); });
+window.addEventListener("hashchange", route);
+route();
 boot();
