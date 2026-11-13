@@ -218,21 +218,39 @@ function renderResult(d) {
 }
 async function load() {
   const seq = ++LOAD_SEQ;
-  if (!STORE) {
-    const s = await api('/stores');
-    $('store').innerHTML = s.items.map(x => `<option value="${esc(x.store_id)}">${esc(x.name)}</option>`).join('');
-    STORE = s.default;
-    $('store').value = STORE;
-    $('store').onchange = () => { STORE = $('store').value; $('result').innerHTML = ''; load(); };
+  try {
+    if (!STORE) {
+      const s = await api('/stores');
+      $('store').innerHTML = s.items.map(x => `<option value="${esc(x.store_id)}">${esc(x.name)}</option>`).join('');
+      STORE = s.default;
+      $('store').value = STORE;
+      $('store').onchange = () => { STORE = $('store').value; $('result').innerHTML = ''; load(); };
+    }
+    // 가게를 바꾸면 예전 가게 결과를 바로 지우고 '분석 중'을 보여 줌 (live 는 처음 한 번 1~2분 걸림)
+    const name = $('store').selectedOptions[0]?.textContent || '';
+    const health = await (await fetch('/health')).json();
+    if (seq !== LOAD_SEQ) return;
+    $('mode').textContent = 'APP_MODE ' + health.mode;
+    $('storeLine').textContent = `${name} · 분석 중…`;
+    $('brief').textContent = '';
+    $('period').textContent = '';
+    const wait = health.mode === 'live'
+      ? 'HCX-005가 리뷰를 분류하는 중이에요. 이 가게를 처음 분석할 때만 1~2분 걸리고, 그다음부터는 저장본으로 바로 떠요.'
+      : '불러오는 중…';
+    $('issues').innerHTML = `<div class="sub" style="grid-column:1/-1">${wait}</div>`;
+    // 대시보드 구조: 예전 가게 결과는 요약 화면(숫자 카드·키워드)에도 있으므로 같이 지우고 같은 안내를 보임
+    ['sReviews', 'sComplaints', 'sRepeated'].forEach(id => { $(id).textContent = '–'; });
+    ['sReviewsSub', 'sComplaintsSub', 'sRepeatedSub'].forEach(id => { $(id).textContent = ''; });
+    $('kw').innerHTML = `<div class="sub">${wait}</div>`;
+    const [store, ins] = await Promise.all([api('/store?' + q()), api('/insight?' + q())]);
+    if (seq !== LOAD_SEQ) return;
+    $('storeLine').textContent = `${store.name} · ${store.business_type_name} · ${ins.period_start} ~ ${ins.period_end}`;
+    $('period').textContent = `${ins.period_start} ~ ${ins.period_end} · 같은 불만 2건 이상이면 묶음, 3건 이상이면 반복`;
+    renderSummary(ins);
+    renderIssues(ins);
+  } catch (e) {
+    if (seq === LOAD_SEQ) $('storeLine').innerHTML = `<span class="err">${esc(e.message)}</span>`;
   }
-  const [store, ins] = await Promise.all([api('/store?' + q()), api('/insight?' + q())]);
-  const health = await (await fetch('/health')).json();
-  if (seq !== LOAD_SEQ) return;
-  $('mode').textContent = 'APP_MODE ' + health.mode;
-  $('storeLine').textContent = `${store.name} · ${store.business_type_name} · ${ins.period_start} ~ ${ins.period_end}`;
-  $('period').textContent = `${ins.period_start} ~ ${ins.period_end} · 같은 불만 2건 이상이면 묶음, 3건 이상이면 반복`;
-  renderSummary(ins);
-  renderIssues(ins);
 }
 $('chips').innerHTML = '<span class="sub">예시:</span>' + SAMPLES.map((s, i) => `<button data-i="${i}">${esc(s.text.slice(0, 18))}…</button>`).join('');
 $('chips').onclick = e => { const s = SAMPLES[e.target.dataset.i]; if (s) { $('text').value = s.text; $('rating').value = s.rating; } };
@@ -252,11 +270,11 @@ $('reset').onclick = async () => { await api('/reviews/pasted?' + q(), { method:
 $('tokenSave').onclick = () => {
   TOKEN = $('token').value.trim();
   try { localStorage.setItem('reviewInsightToken', TOKEN); } catch (e) {}
-  $('tokenRow').hidden = true; STORE = ''; load().catch(e => { $('storeLine').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
+  $('tokenRow').hidden = true; STORE = ''; load();
 };
 window.addEventListener('hashchange', route);
 route();
-load().catch(e => { $('storeLine').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
+load();
 </script>
 </body>
 </html>
