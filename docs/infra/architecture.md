@@ -33,8 +33,8 @@ flowchart TB
     alb -->|"HTTP 8000"| app2
     jump -.->|"SSH 22"| asg
     jump -.->|"SSH 22"| app2
-    asg -->|"TCP 3306"| dbm
-    app2 -->|"TCP 3306"| dbm
+    asg -->|"TCP 5432"| dbm
+    app2 -->|"TCP 5432"| dbm
     dbm <-->|"복제"| dbs
     asg --> nat1
     app2 --> nat2
@@ -50,7 +50,7 @@ flowchart TB
 | 서버 이미지 | 기준 서버에서 만든 `ic26-app-img1` | 앱 서버를 같은 내용으로 찍어 냄 |
 | 서버 이중화 | 앱 서버를 KR-1과 KR-2에 두고 ALB로 묶음 | 한 Zone이 멈춰도 서비스 유지 |
 | Auto Scaling | KR-1 그룹 최소 1 · 최대 2 | CPU가 오르면 서버를 늘림 |
-| DB | Cloud DB for MySQL, 고가용성 + Multi Zone | 월별 리포트와 방문자별 상태를 서버 밖에 저장 |
+| DB | Cloud DB for PostgreSQL, 고가용성 + Multi Zone | 월별 리포트와 방문자별 상태를 서버 밖에 저장 |
 
 ## 2. 앱 서버 한 대 안에서 도는 것
 
@@ -97,10 +97,10 @@ flowchart TB
 | `ic26-app-acg` | TCP 8000 | 10.0.0.0/20 | ALB → 웹 서버 |
 | `ic26-app-acg` | TCP 22 | 10.0.2.0/24 | 베스천 → 앱 서버 |
 | `ic26-jump-acg` | TCP 22 | 관리자 IP | 베스천 SSH |
-| DB의 ACG | TCP 3306 | 10.0.0.0/23, 10.0.8.0/23 | 앱 서버 → DB **[수업]** |
+| DB의 ACG | TCP 5432 | 10.0.0.0/23, 10.0.8.0/23 | 앱 서버 → DB (구조는 **[수업]**, 포트는 PostgreSQL 기본값) |
 
 - 열지 않는 것: 8020(리뷰 분석), 서버의 80, 기본 ACG의 전체 공개 22·3389.
-- DB 서비스가 자동으로 만든 `cloud-mysql-...` 규칙은 지우지 않습니다 **[수업]**.
+- DB 서비스가 자동으로 만든 ACG 규칙은 지우지 않습니다 **[수업]**.
 - Outbound는 기본값을 둡니다. 막으면 HCX 호출이 끊깁니다.
 
 ## 4. 서버, 로드 밸런서, Auto Scaling
@@ -141,24 +141,26 @@ DB만으로는 방문자끼리 섞이는 문제가 풀리지 않습니다. 방�
 
 ### 5-2. 구성
 
+수업은 MySQL로 실습했습니다. 고가용성, Multi Zone, 서브넷 두 개, ACG를 앱 서버 대역에만 여는 구조는 그대로 따르고, PostgreSQL 생성 화면의 항목과 값은 화면에서 확인합니다 **[확인 필요]**.
+
 | 항목 | 값 | 근거 |
 |---|---|---|
-| 서비스 | Cloud DB for MySQL, MySQL 8.4 계열, G3 | **[수업]** |
+| 서비스 | Cloud DB for PostgreSQL. 버전은 화면에서 고를 수 있는 최신 안정 버전 | **[확인 필요]** |
 | 고가용성 | 체크 (Standby 포함 2대) | **[수업]** |
 | Multi Zone | 체크 | **[수업]** |
 | Master / Standby 서브넷 | `ic26-pri-db1` (KR-1) / `ic26-pri-db2` (KR-2) | **[수업]** |
 | 타입 | Standard 2vCPU · 8GB, 스토리지 10GB | **[수업]** |
 | 이름 | DB 서버 `ic26-db`, 서비스 `ic26-dbsvc`, 기본 DB `ic26app` | **[제안]** |
-| 포트 | 3306 | **[수업]** |
-| 사용자 HOST | 앱 서버 대역으로 좁힘 (`%`는 실습용) | **[수업]** |
-| 생성 시간 | 약 20분. 가장 먼저 시작해 둠 | **[수업]** |
+| 포트 | 5432 (PostgreSQL 기본값) | **[확인 필요]** |
+| 사용자 접근 제어 | 앱 서버가 있는 대역으로 좁힘 (`10.0.0.0/20`) | 입력 형식 **[확인 필요]** |
+| 생성 시간 | 수업의 MySQL은 약 20분. 가장 먼저 시작해 둠 | **[수업]** |
 
 - 앱 서버는 DB의 사설 도메인으로 접속합니다. Master가 바뀌어도 주소가 유지되는지는 장애 시험에서 확인합니다 **[확인 필요]**.
 - DB 접속 정보는 HCX 키와 같은 방식으로 다룹니다. `/etc/ic26/env`에 두고, 이미지를 만들 때는 비우고, Auto Scaling 서버에는 Init Script가 넣습니다.
 
   ```ini
   DB_HOST=<DB 사설 도메인>
-  DB_PORT=3306
+  DB_PORT=5432
   DB_NAME=ic26app
   DB_USER=<DB 사용자>
   DB_PASSWORD=<DB 비밀번호>
@@ -185,7 +187,7 @@ DB만으로는 방문자끼리 섞이는 문제가 풀리지 않습니다. 방�
 
 | 작업 | 위치 |
 |---|---|
-| MySQL 드라이버 추가 | `services/web/requirements.txt`, `services/review-insight/requirements.txt` |
+| PostgreSQL 드라이버(`psycopg`) 추가 | `services/web/requirements.txt`, `services/review-insight/requirements.txt` |
 | 승인 기록을 메모리에서 DB로 | `services/web/web/demo.py` |
 | 붙여넣은 리뷰와 그 분류 결과를 디스크에서 DB로 | `services/review-insight/app/service.py`, `classify.py` |
 | 월별 집계 저장과 조회 | 새로 만듦 |
@@ -208,7 +210,7 @@ DB만으로는 방문자끼리 섞이는 문제가 풀리지 않습니다. 방�
 3. NAT 2대 + 사설 경로 → ACG
 4. 베스천, 기준 서버 → 설치와 확인 → 서버 이미지
 5. 앱 서버 2대 → 타겟 그룹, ALB → 장애 시험
-6. DB의 ACG에 3306 추가 → 앱 서버에서 접속 확인 → DB 장애 시험
+6. DB의 ACG에 5432 추가 → 앱 서버에서 접속 확인 → DB 장애 시험
 7. Auto Scaling (KR-1의 수동 서버를 그룹으로 교체) → 증설 시험
 8. (선택) 도메인과 HTTPS
 
@@ -224,6 +226,7 @@ DB만으로는 방문자끼리 섞이는 문제가 풀리지 않습니다. 방�
 
 | 항목 | 상태 |
 |---|---|
+| PostgreSQL 생성 화면의 항목(고가용성과 Multi Zone 선택, 버전, 타입, 접근 제어) | **[확인 필요]** 수업은 MySQL만 다룸 |
 | 월별 리포트의 화면과 범위 | 미정. 5-3의 테이블은 이에 따라 바뀜 |
 | DB 서버 2대가 서버 쿼터 5대에 들어가는지 | **[확인 필요]** 들어가면 쿼터 상향 신청(약 3일) |
 | DB 백업 설정 | 수업에서 다루지 않음. 생성 화면의 기본값 확인 |
