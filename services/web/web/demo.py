@@ -3,13 +3,12 @@ from __future__ import annotations
 
 import json
 import threading
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from shared.answer_check import check_answer, feedback
 from shared.contracts import LABELS_KO, AnalysisSnapshot, StoreProfile, quarter_label
 
-from . import c9
 from .cards import (CardPlan, apply_writer, model_reason_failed, normalize_citations, plan_cards, reason_problems,
                     why_no_card_b)
 from .generate import (DEFAULT_MEASURES, GenerateError, adapt_seed, c6_available, ensure_marketing_on_path, load_seed,
@@ -18,7 +17,14 @@ from .generate import (DEFAULT_MEASURES, GenerateError, adapt_seed, c6_available
 from .settings import Settings
 from .sources import ReviewSource, SourceError, is_dev_fake, load_snapshots, to_review_records, to_store_profile
 
-MODE_LABELS = {"mock": "개발 (키 없이)", "live": "실시간 HCX-005", "replay": "발표 모드 (저장본 재생)"}
+MODE_LABELS = {"mock": "시험용 실행", "live": "실시간 HCX-005"}
+# mock 일 때만 화면 맨 위에 띄운다. 저장된 예시가 실제 AI 결과처럼 보이면 안 된다.
+MOCK_NOTICE = "시험용 실행 · 키 없이 저장된 예시 결과를 보여 줍니다 (실제 AI 결과 아님)"
+KST = timezone(timedelta(hours=9))
+
+
+def now_kst() -> str:
+    return datetime.now(KST).isoformat(timespec="seconds")
 
 
 class DemoError(RuntimeError):
@@ -35,24 +41,11 @@ class Demo:
         self.seed = load_seed(settings.marketing_dir)
         self._reason_model = reason_model          # 시험에서 가짜 모델을 넣는 자리
         self._reason_memo: dict[str, CardPlan] = {}
-        self._results: dict[str, dict] = {}
         self._lock = threading.Lock()
         self.approvals: list[dict] = []
-        try:
-            self.cache = c9.load_cache(settings.cache_path)
-            self.cache_error = None
-        except c9.CacheError as exc:
-            self.cache, self.cache_error = None, str(exc)
 
     # ── 상태 ────────────────────────────────────────────────────────
     def _state(self) -> dict[str, Any]:
-        if self.s.mode == "replay":
-            blockers = self._replay_blockers()
-            if blockers:
-                raise DemoError(" / ".join(blockers), status=409)
-            c = self.cache
-            snaps = [AnalysisSnapshot.from_dict(x) for x in c["snapshots"]]
-            return {"store": c["store"], "reviews": c["reviews"], "insight": c["insight"], "snapshots": snaps}
         try:
             store = self.source.store(self.s.store_id)
             reviews = self.source.reviews(self.s.store_id)
@@ -62,11 +55,6 @@ class Demo:
         return {"store": store, "reviews": reviews, "insight": insight,
                 "snapshots": load_snapshots(self.s.snapshot_path)}
 
-    def _replay_blockers(self) -> list[str]:
-        if self.cache_error:
-            return [self.cache_error]
-        return c9.replay_blockers(self.cache)
-
     def _area_name(self, snapshots: list[AnalysisSnapshot]) -> str | None:
         return snapshots[0].area_name if snapshots else None
 
@@ -75,43 +63,34 @@ class Demo:
         snaps: list[AnalysisSnapshot] = []
         snap_error = None
         try:
-            snaps = load_snapshots(self.s.snapshot_path) if self.s.mode != "replay" else \
-                [AnalysisSnapshot.from_dict(x) for x in (self.cache or {}).get("snapshots", [])]
+            snaps = load_snapshots(self.s.snapshot_path)
         except ValueError as exc:
             snap_error = str(exc)
         fakes = [s.snapshot_id for s in snaps if is_dev_fake(s)]
-        blocking = self._replay_blockers() if self.s.mode == "replay" else []
+        blocking: list[str] = []
         if self.s.mode == "live" and not self.s.key_present:
             blocking.append("APP_MODE=live 인데 HCX 키가 없어요. 키 파일(~/.config/teletubby-aiic/env)을 확인하세요.")
         if self.s.mode == "live" and not self.c6:
             blocking.append(f"C6 코드(c6/registry.py)를 찾지 못했어요: {self.s.marketing_dir}")
         if self.s.mode == "mock" and not self.seed:
             blocking.append(f"C6 저장본(c6/replay/c6_cache_best.json)을 찾지 못해 ③ 생성이 막혀요: {self.s.marketing_dir}")
-        if self.s.mode != "replay" and not snaps and not snap_error:
+        if not snaps and not snap_error:
             blocking.append(f"상권 지표 파일을 찾지 못해 카드 ⓑ 가 뜨지 않아요: {self.s.snapshot_path}")
-        review = {"url": self.s.review_url, "status": "not used (replay)"} if self.s.mode == "replay" else \
-            {"url": self.s.review_url, **self.source.health()}
+        review = {"url": self.s.review_url, **self.source.health()}
         return {
-            "mode": self.s.mode, "mode_label": MODE_LABELS[self.s.mode], "ladder": self.s.ladder,
+            "mode": self.s.mode, "mode_label": MODE_LABELS[self.s.mode],
+            "mode_notice": MOCK_NOTICE if self.s.mode == "mock" else None,
             "store_id": self.s.store_id, "key_present": self.s.key_present, "c6_available": self.c6,
             "seed_available": bool(self.seed), "review_service": review,
             "snapshot": {"file": self.s.snapshot_path.name, "count": len(snaps), "error": snap_error},
             "dev_fake_snapshots": fakes, "blocking": blocking,
-            "cache": {"exists": self.cache is not None, "recorded_at": (self.cache or {}).get("recorded_at"),
-                      "recorded_mode": (self.cache or {}).get("recorded_mode"), "error": self.cache_error},
             "parts": self._parts(),
         }
 
     def _parts(self) -> dict[str, str]:
         """화면 맨 위 '동작 / 모의' 띠 (결정안 4절)."""
-        if self.s.mode == "replay":
-            recorded = (self.cache or {}).get("recorded_mode", "?")
-            return {"briefing": f"저장본 재생 (기록 당시 {recorded})", "cards": "저장본 재생",
-                    "generate": "저장본 재생", "reviews": "합성 데이터"}
         review_mode = (self.source.health().get("models") or {}).get("review_classify", "?")
         gen = {"mock": "저장본(김수현 C6 결과)", "live": "실시간 HCX-005"}[self.s.mode]
-        if self.s.mode == "live" and self.s.ladder:
-            gen = f"사다리 {self.s.ladder}칸: 일부만 실시간"
         return {"briefing": f"리뷰 분류: {review_mode}", "cards": "규칙 + " + ("HCX-005 이유 문장" if self.s.mode == "live" else "고정 문장"),
                 "generate": gen, "reviews": "합성 데이터"}
 
@@ -146,9 +125,6 @@ class Demo:
         }
 
     def cards(self) -> dict:
-        if self.s.mode == "replay":
-            self._state()   # 막힘 검사
-            return {"cards": self.cache["cards"], "no_card_b": self.cache.get("no_card_b")}
         st = self._state()
         plans = self._plans(st)
         return {"cards": [p.to_dict() for p in plans],
@@ -225,18 +201,11 @@ class Demo:
     # ── ③ ───────────────────────────────────────────────────────────
     def run(self, card_id: str, measures: list[str] | None = None) -> dict:
         """measures: 사장님이 고른 재발 방지 조치 id. None 이면 카드의 기본값 (불만 카드만 씀)."""
-        if self.s.mode == "replay":
-            self._state()
-            found = self.cache.get("results", {}).get(card_id)
-            if not found:
-                raise DemoError(f"저장본에 이 카드({card_id})의 결과가 없어요.", status=404)
-            return summarize(found)
         st = self._state()
         plan = next((p for p in self._plans(st) if p.card.card_id == card_id), None)
         if plan is None:
             raise DemoError(f"카드 {card_id} 가 지금 화면의 카드가 아니에요. 새로 고침 하세요.", status=404)
         card = plan.card
-        cached = (self.cache or {}).get("results", {}).get(card_id)
         if self.s.mode == "mock":
             result = adapt_seed(self.seed[card.kind], card) if card.kind in self.seed else None
             if result is None:
@@ -248,27 +217,10 @@ class Demo:
             try:
                 chosen = pick_measures(ids) if card.kind == "complaint" else []
                 result = run_live(card, store=store, reviews=reviews, snapshots=st["snapshots"], key=self.s.clova_key,
-                                  model=self.s.model, ladder=self.s.ladder, cached=cached, chosen_measures=chosen)
+                                  model=self.s.model, chosen_measures=chosen)
             except GenerateError as exc:
                 raise DemoError(str(exc)) from None
-        with self._lock:
-            self._results[self._result_key(card)] = result
-        if self.s.mode == "live":
-            self.record()   # live 결과는 바로 발표 모드 저장본에 남긴다
         return summarize(result)
-
-    def _cached_result_for(self, card) -> dict | None:
-        """기존 저장본에서 같은 카드 ID·같은 근거(리뷰·지표 ID)의 결과."""
-        cache = self.cache or {}
-        old = next((c["card"] for c in cache.get("cards", []) if c["card"]["card_id"] == card.card_id), None)
-        if not old or old.get("review_ids", []) != list(card.review_ids) or old.get("snapshot_ids", []) != list(card.snapshot_ids):
-            return None
-        return cache.get("results", {}).get(card.card_id)
-
-    @staticmethod
-    def _result_key(card) -> str:
-        """붙여넣기로 묶음이 바뀌면 같은 카드 ID라도 다른 결과다. 근거 ID까지 키에 넣는다."""
-        return card.card_id + "|" + ",".join(card.evidence_ids)
 
     def _contract_inputs(self, st: dict) -> tuple[StoreProfile, list]:
         store = to_store_profile(st["store"], self._area_name(st["snapshots"]))
@@ -278,7 +230,7 @@ class Demo:
     def approve(self, draft_id: str, text: str | None, original: str | None) -> dict:
         edited = text is not None and original is not None and text.strip() != original.strip()
         entry = {"draft_id": draft_id, "status": "approved", "edited": edited,
-                 "text": text if text is not None else original, "approved_at": c9.now_kst(), "mode": self.s.mode}
+                 "text": text if text is not None else original, "approved_at": now_kst(), "mode": self.s.mode}
         with self._lock:
             self.approvals = [a for a in self.approvals if a["draft_id"] != draft_id] + [entry]
         try:
@@ -291,54 +243,13 @@ class Demo:
 
     # ── S2 붙여넣기 ─────────────────────────────────────────────────
     def paste(self, text: str, rating: int | None, channel: str | None) -> dict:
-        if self.s.mode == "replay":
-            raise DemoError("발표 모드에서는 저장본만 써서 붙여넣기를 받지 않아요. APP_MODE=mock 으로 띄우면 됩니다.", 409)
         try:
             return self.source.paste(self.s.store_id, text, rating, channel)
         except SourceError as exc:
             raise DemoError(str(exc), 503) from None
 
     def reset_pasted(self) -> dict:
-        if self.s.mode == "replay":
-            raise DemoError("발표 모드에서는 붙여넣은 리뷰가 없어요.", 409)
         try:
             return self.source.reset_pasted(self.s.store_id)
         except SourceError as exc:
             raise DemoError(str(exc), 503) from None
-
-    # ── C9 기록 ─────────────────────────────────────────────────────
-    def record(self) -> dict:
-        """지금 화면(①~③)을 발표 모드 저장본으로 고정한다.
-
-        아직 이 서버에서 실행하지 않은 카드는 ① 기존 저장본에 같은 카드(같은 근거)의 결과가 있으면 그것을,
-        ② 없으면 mock 저장본(C6 결과)을 쓴다. 서버를 다시 띄워도 live 로 만든 결과를 잃지 않게 하려는 것.
-        """
-        if self.s.mode == "replay":
-            raise DemoError("발표 모드에서는 저장본을 다시 쓰지 않아요.", 409)
-        st = self._state()
-        plans = self._plans(st)
-        results = {}
-        for plan in plans:
-            cid = plan.card.card_id
-            result = self._results.get(self._result_key(plan.card))
-            if result is None:
-                result = self._cached_result_for(plan.card)
-            if result is None and plan.card.kind in self.seed:
-                result = adapt_seed(self.seed[plan.card.kind], plan.card)
-            if result is not None:
-                results[cid] = result
-        payload = {
-            "recorded_at": c9.now_kst(), "recorded_mode": self.s.mode, "ladder": self.s.ladder,
-            "store_id": self.s.store_id, "store": st["store"], "reviews": st["reviews"], "insight": st["insight"],
-            "snapshots": [s.to_dict() for s in st["snapshots"]], "snapshot_file": self.s.snapshot_path.name,
-            "cards": [p.to_dict() for p in plans],
-            "no_card_b": why_no_card_b(st["snapshots"], self.s.card_b_snapshot_id, self.s.card_b_threshold),
-            "results": results,
-        }
-        try:
-            path = c9.write_cache(self.s.cache_path, payload)
-        except c9.CacheError as exc:
-            raise DemoError(str(exc), 409) from None
-        self.cache, self.cache_error = c9.load_cache(path), None
-        return {"path": str(Path(path).name), "recorded_at": payload["recorded_at"], "cards": len(plans),
-                "results": sorted(results)}

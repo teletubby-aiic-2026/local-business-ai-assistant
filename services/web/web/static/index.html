@@ -21,12 +21,12 @@
         <button id="ask-ai" class="ask" type="button" aria-controls="assistant" aria-expanded="false">
           <svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>AI에게 묻기
         </button>
-        <span id="mode-chip" class="chip"></span>
         <span id="timer" class="timer" title="무엇을 할까요? 버튼부터 재발 방지 공지 승인까지 (C8 KPI)">00:00</span>
       </div>
     </div>
   </header>
 
+  <div id="mode-notice" class="alert warn" role="note" hidden></div>
   <div id="alert" class="alert" role="alert" hidden></div>
 
   <!-- 단계 화면(main) + 오른쪽 서랍(aside). 서랍이 열리면 main이 남은 폭으로 줄고 카드는 좁으면 1열 -->
@@ -51,7 +51,7 @@
   </nav>
   <main>
     <!-- 홈 = 대시보드 (11/11 시안 v2): 숫자 타일 4 → 불만 시간대·주제 차트 + 오늘 할 일 → AI에게 묻기.
-         차트는 브리핑(불만 리뷰 시각·주제)에서 바로 센다. 외부 라이브러리 없음(발표 모드 오프라인). API·저장본 그대로 -->
+         차트는 브리핑(불만 리뷰 시각·주제)에서 바로 센다. 외부 라이브러리 없음. API 그대로 -->
     <section class="view dash" data-view="today">
       <div class="dash-head">
         <div>
@@ -177,12 +177,10 @@
   </div>
 
   <footer class="foot">
-    <span id="foot-msg" class="small muted"></span>
     <details class="honesty-box">
       <summary class="small">동작·모의 표시</summary>
       <div id="honesty" class="honesty" aria-label="동작과 모의 표시"></div>
     </details>
-    <button id="record" type="button" class="ghost" hidden>발표 모드로 저장</button>
   </footer>
 
   <script src="/static/app.js"></script>

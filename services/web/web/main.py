@@ -10,7 +10,6 @@
 | GET    | /api/approvals                | ④ 처리 완료 기록 |
 | POST   | /api/reviews                  | S2 직접 붙여넣기 (#14 로 전달) |
 | DELETE | /api/reviews/pasted           | 붙여넣은 리뷰 지우기 (데모 다시 하기) |
-| POST   | /api/c9/record                | 지금 화면을 발표 모드 저장본으로 |
 """
 from __future__ import annotations
 
@@ -82,10 +81,6 @@ def create_app(demo: Demo | None = None) -> FastAPI:
     @app.delete("/api/reviews/pasted")
     def reset_pasted():
         return demo.reset_pasted()
-
-    @app.post("/api/c9/record")
-    def record():
-        return demo.record()
 
     @app.get("/")
     def page():

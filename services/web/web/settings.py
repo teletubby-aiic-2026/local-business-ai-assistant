@@ -1,13 +1,10 @@
 """경로와 실행 모드. 모두 환경 변수로 바꿀 수 있고, 값이 없으면 병합 뒤 저장소 구조를 기본으로 씁니다.
 
 APP_MODE
-  mock    기본. 키 없이 돈다. ① #14(규칙 분류)를 그 자리에서 부르고, ② 이유는 고정 문장, ③ 은 저장본.
-  live    HCX-005 호출. ② 이유 문장과 ③ 생성 결과를 C9 저장본(web_cache.json)에 기록한다.
-  replay  발표 모드. 저장본만 쓴다. 네트워크·#14·키가 없어도 ①→④ 가 같은 결과로 돈다.
-DEMO_LADDER (live 에서만 뜻이 있음, 결정안 6절 사다리)
-  0  ③ 전부 실시간
-  1  ③ 답글만 실시간, 공지·홍보글은 저장본
-  2  ③ 답글 하나만 실시간, 나머지는 저장본
+  mock    기본. 키 없이 도는 시험용 실행. ① #14(규칙 분류)를 그 자리에서 부르고, ② 이유는 고정 문장,
+          ③ 은 C6 저장 예시(c6_cache_best.json). 실제 AI 결과가 아니다.
+  live    HCX-005 호출. ② 이유 문장과 ③ 생성 결과를 모두 실시간으로 만든다. 파일에 저장하지 않는다.
+발표 모드(replay)는 없어졌다. APP_MODE=replay 는 오류.
 """
 from __future__ import annotations
 
@@ -18,19 +15,17 @@ from pathlib import Path
 WEB_DIR = Path(__file__).resolve().parents[1]      # services/web
 REPO_ROOT = Path(__file__).resolve().parents[3]    # 저장소 루트
 
-MODES = ("mock", "live", "replay")
+MODES = ("mock", "live")
 
 
 @dataclass(frozen=True)
 class Settings:
     mode: str = "mock"
-    ladder: int = 0
     store_id: str = "store_ongi"
     review_url: str = "http://127.0.0.1:8020"
     review_token: str = ""
     snapshot_path: Path = REPO_ROOT / "data" / "scenario" / "snapshot_2026Q2.json"
     marketing_dir: Path = REPO_ROOT / "experiments" / "marketing"
-    cache_path: Path = WEB_DIR / "data" / "replay" / "web_cache.json"
     runtime_dir: Path = WEB_DIR / "data" / "runtime"
     card_b_snapshot_id: str = ""
     card_b_threshold: float = -5.0
@@ -38,10 +33,11 @@ class Settings:
     clova_key: str = ""
 
     def __post_init__(self) -> None:
+        if str(self.mode).lower() == "replay":
+            raise ValueError("발표 모드(APP_MODE=replay)는 없어졌습니다. live 또는 mock을 쓰세요 "
+                             "(live = HCX-005 실시간, mock = 키 없이 도는 시험용 실행)")
         if self.mode not in MODES:
             raise ValueError(f"APP_MODE는 {list(MODES)} 중 하나여야 합니다 (받은 값: {self.mode!r})")
-        if self.ladder not in (0, 1, 2):
-            raise ValueError(f"DEMO_LADDER는 0, 1, 2 중 하나여야 합니다 (받은 값: {self.ladder!r})")
 
     @property
     def key_present(self) -> bool:
@@ -52,13 +48,11 @@ class Settings:
         env = os.environ.get
         return cls(
             mode=env("APP_MODE", "mock").strip() or "mock",
-            ladder=int(env("DEMO_LADDER", "0") or 0),
             store_id=env("DEMO_STORE_ID", "store_ongi"),
             review_url=env("REVIEW_INSIGHT_URL", "http://127.0.0.1:8020").rstrip("/"),
             review_token=env("REVIEW_INSIGHT_TOKEN", "").strip(),
             snapshot_path=Path(env("SNAPSHOT_PATH", str(cls.snapshot_path))),
             marketing_dir=Path(env("MARKETING_DIR", str(cls.marketing_dir))),
-            cache_path=Path(env("WEB_CACHE_PATH", str(cls.cache_path))),
             runtime_dir=Path(env("WEB_RUNTIME_DIR", str(cls.runtime_dir))),
             card_b_snapshot_id=env("CARD_B_SNAPSHOT_ID", "").strip(),
             card_b_threshold=float(env("CARD_B_THRESHOLD", "-5") or -5),

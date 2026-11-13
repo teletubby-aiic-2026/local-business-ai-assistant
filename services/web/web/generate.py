@@ -2,9 +2,9 @@
 
 - live: c6.registry.run_card 를 그대로 부른다. 키는 직접 넘긴다. (config.get_api_key()는 키가 없으면 input()으로
   묻기 때문에 서버 안에서 부르면 요청이 멈춘다. 그래서 쓰지 않는다.)
-- 키가 없을 때(mock): 김수현의 발표용 저장본 c6/replay/c6_cache_best.json 을 우리 카드에 맞춰 보여 준다.
-  저장본의 이유 문장은 쓰지 않는다(홍보 카드는 '-X%' 자리표시자). 글(drafts)만 쓰고 출처를 표시한다.
-- 사다리(결정안 6절): ladder 1 = 답글만 실시간, ladder 2 = 답글 하나만 실시간. 나머지는 저장본.
+- 키가 없을 때(mock): 시험용 실행. 김수현의 C6 저장 예시 c6/replay/c6_cache_best.json 을 우리 카드에 맞춰 보여 준다.
+  저장 예시의 이유 문장은 쓰지 않는다(홍보 카드는 '-X%' 자리표시자). 글(drafts)만 쓰고 출처를 표시한다.
+  실제 AI 결과가 아니다.
 
 C6 코드는 고치지 않는다. CardResult·DraftOutput 은 c6.output 을 그대로 쓴다(최소 변경, shared 이동은 보류).
 """
@@ -14,7 +14,6 @@ import copy
 import json
 import re
 import sys
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -117,31 +116,17 @@ def _context(store: StoreProfile, reviews: list[ReviewRecord], card: Recommendat
 
 
 def run_live(card: RecommendationCard, *, store: StoreProfile, reviews: list[ReviewRecord],
-             snapshots: list[AnalysisSnapshot], key: str, model: str, ladder: int,
-             cached: dict | None, chosen_measures: list[dict] | None = None) -> dict:
-    """HCX-005 로 생성. ladder 가 1·2 이면 정해진 부분만 실시간이고 나머지는 cached(저장본)에서 가져온다."""
+             snapshots: list[AnalysisSnapshot], key: str, model: str,
+             chosen_measures: list[dict] | None = None) -> dict:
+    """HCX-005 로 생성. ③ 전부 실시간이고 파일에 저장하지 않는다."""
     if not key:
-        raise GenerateError("HCX 키가 없어 실시간 생성을 할 수 없어요. APP_MODE=mock 또는 replay 로 실행하세요.")
+        raise GenerateError("HCX 키가 없어 실시간 생성을 할 수 없어요. APP_MODE=mock 으로 실행하세요.")
     from c6.registry import run_card
 
     ctx = _context(store, reviews, card, snapshots)
-    if ladder == 0 or card.kind != "complaint":
-        if ladder != 0 and cached:   # 사다리에서 홍보글은 저장본
-            return {**cached, "source": "replay", "source_note": f"사다리 {ladder}칸: 홍보글은 저장본"}
-        result = run_card(ctx, card, key, model=model, chosen_measures=chosen_measures).to_dict()
-        result["source"] = "live"
-        result["needs_input"] = list(ctx.needs_input)
-        return result
-
-    from c6.reply import generate_reply_draft
-    live_card = card if ladder == 1 else replace(card, review_ids=card.review_ids[:1])
-    live = generate_reply_draft(ctx, live_card, key, model=model, chosen_measures=chosen_measures).to_dict()
-    live_ids = {d["target_review_id"] for d in live["drafts"]}
-    rest = [d for d in (cached or {}).get("drafts", []) if d.get("target_review_id") not in live_ids]
-    result = {**live, "card_id": card.card_id, "kind": card.kind, "reason_text": card.reason_text,
-              "drafts": live["drafts"] + rest, "source": "live+replay",
-              "source_note": f"사다리 {ladder}칸: 답글 {len(live['drafts'])}개만 실시간, 나머지는 저장본",
-              "needs_input": list(ctx.needs_input)}
+    result = run_card(ctx, card, key, model=model, chosen_measures=chosen_measures).to_dict()
+    result["source"] = "live"
+    result["needs_input"] = list(ctx.needs_input)
     return result
 
 

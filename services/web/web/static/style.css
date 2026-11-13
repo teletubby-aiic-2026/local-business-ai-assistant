@@ -9,7 +9,7 @@
   --radius: 12px; --gap: 12px; --meta: .8125rem; /* 13px: 배지·칩 최소 크기 */
   /* 대비(WCAG AA 4.5:1) 때문에 05 후보값에서 바꾼 것: 보조 텍스트 #657281→#5f6c7b(회색 바탕 4.86), 성공 배경 →#edf7f2(4.57), 오류 배경 →#fcefef(4.59) */
 }
-/* 다크 토큰은 운영체제가 다크이고 라이트로 고정하지 않았을 때만 (발표 고정: app.js applyTheme, 05 결정 5) */
+/* 다크 토큰은 운영체제가 다크이고 ?theme=light 로 라이트를 고정하지 않았을 때만 (app.js applyTheme) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #111315; --panel: #1d2024; --ink: #e8e6e3; --muted: #9aa0a6; --line: #30343a;
@@ -43,10 +43,7 @@ a { color: var(--accent); } /* 기본 파랑은 다크 테마에서 대비 1.74 
 .logo svg { width: 17px; height: 17px; }
 .store { color: var(--muted); font-size: .875rem; padding-left: 12px; border-left: 1px solid var(--line); }
 .top-right { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
-.timer { font-variant-numeric: tabular-nums; font-weight: 700; padding: 2px 10px; border-radius: 999px; background: var(--chip); }
-.chip { display: inline-block; font-size: var(--meta); padding: 2px 10px; border-radius: 999px; background: var(--chip); }
-.chip.replay { background: var(--ok-bg); color: var(--ok); } .chip.live { background: var(--warn-bg); color: var(--warn); }
-.chip, .timer { white-space: nowrap; }
+.timer { font-variant-numeric: tabular-nums; font-weight: 700; padding: 2px 10px; border-radius: 999px; background: var(--chip); white-space: nowrap; }
 .menu-wrap { border-top: 1px solid var(--line); }
 .menu { max-width: 920px; margin: 0 auto; padding: 0 8px; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
 .menu::-webkit-scrollbar { display: none; }
@@ -61,6 +58,7 @@ a { color: var(--accent); } /* 기본 파랑은 다크 테마에서 대비 1.74 
 
 .alert { max-width: 888px; margin: 12px auto 0; padding: 10px 14px; border-radius: var(--radius);
   background: var(--bad-bg); color: var(--bad); font-weight: 600; }
+.alert.warn { background: var(--warn-bg); color: var(--warn); }
 
 /* ── 버튼 ─────────────────────────────────────────────────────── */
 button, .button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink);

@@ -1,4 +1,4 @@
-"""C7·C9 시험. CLOVA·네트워크를 부르지 않는다 (리뷰 서비스는 가짜, 모델은 가짜 함수).
+"""C7 시험. CLOVA·네트워크를 부르지 않는다 (리뷰 서비스는 가짜, 모델은 가짜 함수).
 
 실행 (services/web 에서):
   PYTHONPATH=<저장소 루트> MARKETING_DIR=<experiments/marketing> python -m unittest tests.test_web -v
@@ -12,19 +12,20 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
 from shared.answer_check import check_answer
 from shared.contracts import AnalysisSnapshot, load_json
-from web import c9
 from web.cards import EVENING_ID, build_cards, pick_card_b_snapshot, plan_cards, why_no_card_b
 from web.demo import Demo
 from web.main import create_app
-from web.settings import Settings
+from web.settings import WEB_DIR, Settings
 from web.sources import SourceError, to_review_records, to_store_profile
 
 FIX = Path(__file__).resolve().parent / "fixtures"
+STATIC = WEB_DIR / "web" / "static"
 # main 에 #16 이 병합된 뒤로는 저장소 안의 experiments/marketing 을 기본으로 쓴다
 MARKETING = Path(os.environ.get("MARKETING_DIR") or Path(__file__).resolve().parents[3] / "experiments" / "marketing")
 HAS_C6 = bool(MARKETING and (MARKETING / "c6" / "replay" / "c6_cache_best.json").exists())
@@ -81,7 +82,7 @@ class FakeSource:
 
 def settings(tmp: Path, **kw) -> Settings:
     base = dict(mode="mock", snapshot_path=FIX / "snapshot_pr17.json", marketing_dir=MARKETING or tmp / "no-marketing",
-                cache_path=tmp / "web_cache.json", runtime_dir=tmp / "runtime")
+                runtime_dir=tmp / "runtime")
     base.update(kw)
     return Settings(**base)
 
@@ -268,21 +269,6 @@ class CardRules(unittest.TestCase):
             demo.cards()
             self.assertEqual(len(calls), n)   # 통과한 뒤에는 다시 부르지 않음
 
-    @unittest.skipUnless(HAS_C6, "C6 저장본 없음")
-    def test_record_keeps_previous_result_for_same_card(self):
-        """서버를 다시 띄운 뒤 저장해도, 같은 카드(같은 근거)의 기존 저장본 결과를 mock 저장본으로 덮지 않는다."""
-        with tempfile.TemporaryDirectory() as tmp:
-            demo = Demo(settings(Path(tmp)), source=FakeSource())
-            demo.record()
-            cache = json.loads((Path(tmp) / "web_cache.json").read_text())
-            cid = cache["cards"][0]["card"]["card_id"]
-            cache["results"][cid]["drafts"][0]["text"] = "live 로 만든 글 (표시)"
-            (Path(tmp) / "web_cache.json").write_text(json.dumps(cache, ensure_ascii=False))
-            again = Demo(settings(Path(tmp)), source=FakeSource())   # 서버를 다시 띄운 것과 같음
-            again.record()
-            kept = json.loads((Path(tmp) / "web_cache.json").read_text())
-            self.assertEqual(kept["results"][cid]["drafts"][0]["text"], "live 로 만든 글 (표시)")
-
     def test_model_failure_falls_back(self):
         def boom(*_):
             raise TimeoutError
@@ -364,42 +350,108 @@ class Flow(unittest.TestCase):
         self.assertEqual(self.client.delete("/api/reviews/pasted").json()["deleted"], 1)
 
 
-# ── C9 발표 모드 ────────────────────────────────────────────────────
-class Replay(unittest.TestCase):
+# ── live 와 mock 두 가지만 (발표 모드·사다리·저장본 자동 기록은 없음) ─────────
+class LiveAndMockOnly(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
 
-    @unittest.skipUnless(HAS_C6, "MARKETING_DIR(C6 저장본) 없음")
-    def test_record_then_replay_is_identical_and_offline(self):
-        mock = TestClient(create_app(Demo(settings(self.tmp), source=FakeSource())))
-        rec = mock.post("/api/c9/record").json()
-        self.assertEqual(len(rec["results"]), 2)
-        replay = TestClient(create_app(Demo(settings(self.tmp, mode="replay"), source=FakeSource(down=True))))
-        first = [replay.get(p).json() for p in ("/api/briefing", "/api/cards")]
-        second = [replay.get(p).json() for p in ("/api/briefing", "/api/cards")]
-        self.assertEqual(first, second)
-        self.assertEqual(first[0]["counts"]["review_count"], 40)
-        card_id = first[1]["cards"][0]["card"]["card_id"]
-        runs = [replay.post(f"/api/cards/{card_id}/run").json() for _ in range(2)]
-        self.assertEqual(runs[0], runs[1])
-        self.assertEqual(replay.get("/api/health").json()["blocking"], [])
-        self.assertEqual(replay.post("/api/reviews", json={"text": "x"}).status_code, 409)
+    def test_replay_mode_is_rejected_with_a_clear_message(self):
+        from web.settings import MODES
+        self.assertEqual(MODES, ("mock", "live"))
+        with self.assertRaises(ValueError) as ctx:
+            Settings(mode="replay")
+        self.assertIn("발표 모드", str(ctx.exception))
+        self.assertIn("없어졌", str(ctx.exception))
+        self.assertIn("live", str(ctx.exception))
+        self.assertIn("mock", str(ctx.exception))
+        with mock.patch.dict(os.environ, {"APP_MODE": "replay"}):   # 서버를 띄울 때(create_app)도 같은 오류로 멈춘다
+            with self.assertRaises(ValueError) as env_ctx:
+                Settings.from_env()
+            self.assertIn("없어졌", str(env_ctx.exception))
+            with self.assertRaises(ValueError):
+                create_app()
+        with self.assertRaises(ValueError):
+            Settings(mode="nonsense")
+        fields = Settings.__dataclass_fields__
+        self.assertNotIn("ladder", fields)       # 사다리 없음
+        self.assertNotIn("cache_path", fields)   # 저장본 경로 없음
 
-    def test_replay_without_cache_is_blocked(self):
-        client = TestClient(create_app(Demo(settings(self.tmp, mode="replay"), source=FakeSource(down=True))))
-        self.assertTrue(client.get("/api/health").json()["blocking"])
-        self.assertEqual(client.get("/api/briefing").status_code, 409)
+    def test_live_run_never_writes_a_saved_file(self):
+        """live 로 글을 만들어도 services/web/data 아래(와 시험용 임시 경로)에 저장본이 생기거나 바뀌지 않는다."""
+        data_dir = WEB_DIR / "data"
 
-    def test_dev_fake_snapshot_cannot_be_recorded_or_replayed(self):
+        def listing(root: Path):
+            if not root.exists():
+                return []
+            return sorted((str(p.relative_to(root)), p.stat().st_mtime_ns, p.stat().st_size)
+                          for p in root.rglob("*") if p.is_file())
+        before = listing(data_dir)
+        made = {"kind": "complaint", "source": "live", "drafts": [
+            {"draft_id": "d1", "generator": "reply_draft", "text": "불편을 드려 죄송합니다."}]}
+        demo = Demo(settings(self.tmp, mode="live", clova_key="test-key"), source=FakeSource(),
+                    reason_model=lambda system, user: "")   # 이유 문장은 고정 문장으로 돌아가게 (네트워크 없음)
+        client = TestClient(create_app(demo))
+        with mock.patch("web.demo.run_live", return_value=made) as live:   # HCX 호출은 가짜
+            cards = client.get("/api/cards").json()["cards"]
+            self.assertEqual(len(cards), 2)
+            for plan in cards:
+                res = client.post(f"/api/cards/{plan['card']['card_id']}/run")
+                self.assertEqual(res.status_code, 200, res.text)
+                self.assertEqual(res.json()["source"], "live")
+            self.assertEqual(live.call_count, 2)
+            self.assertNotIn("ladder", live.call_args.kwargs)    # ③ 은 전부 실시간
+            self.assertNotIn("cached", live.call_args.kwargs)
+        self.assertEqual([p for p in self.tmp.rglob("*") if p.is_file()], [])
+        self.assertEqual(listing(data_dir), before)
+        self.assertFalse(hasattr(demo, "record"))
+
+    def test_record_endpoint_is_gone(self):
+        client = TestClient(create_app(Demo(settings(self.tmp), source=FakeSource())))
+        self.assertIn(client.post("/api/c9/record").status_code, (404, 405))
+        self.assertIn(client.get("/api/c9/record").status_code, (404, 405))
+        h = client.get("/api/health").json()
+        self.assertNotIn("cache", h)
+        self.assertNotIn("ladder", h)
+
+    def test_mock_health_says_it_is_a_test_run(self):
+        mock_health = TestClient(create_app(Demo(settings(self.tmp), source=FakeSource()))).get("/api/health").json()
+        self.assertEqual(mock_health["mode"], "mock")
+        self.assertIn("시험용 실행", mock_health["mode_label"])
+        self.assertIn("시험용 실행", mock_health["mode_notice"])
+        self.assertIn("저장된 예시", mock_health["mode_notice"])
+        self.assertIn("실제 AI 결과 아님", mock_health["mode_notice"])
+        live_health = TestClient(create_app(Demo(settings(self.tmp, mode="live"), source=FakeSource()))).get("/api/health").json()
+        self.assertEqual(live_health["mode"], "live")
+        self.assertIsNone(live_health["mode_notice"])     # live 에서는 띄우지 않는다
+
+    def test_screen_shows_the_notice_only_through_health(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        js = (STATIC / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="mode-notice"', html)
+        self.assertIn("mode_notice", js)
+        self.assertIn("실제 AI 결과 아님", js)           # mock 글 출처 표시 (SOURCE_NAMES.seed)
+        for text in (html, js):                          # 발표 모드·저장 단추 자리가 남지 않았다
+            self.assertNotIn("replay", text.lower())
+            self.assertNotIn("c9", text)
+            self.assertNotIn('id="record"', text)
+
+    def test_paste_is_allowed_in_mock_and_live(self):
+        for mode in ("mock", "live"):
+            with self.subTest(mode=mode):
+                source = FakeSource()
+                client = TestClient(create_app(Demo(settings(self.tmp, mode=mode), source=source)))
+                res = client.post("/api/reviews", json={"text": "반찬이 하나 빠졌어요"})
+                self.assertEqual(res.status_code, 201, res.text)
+                self.assertEqual(len(source.pasted), 1)
+                self.assertEqual(client.delete("/api/reviews/pasted").json()["deleted"], 1)
+
+    def test_dev_fake_snapshot_is_still_reported(self):
+        """개발용 가짜 지표는 화면 맨 위 빨간 띠로 알린다 (예전에는 저장·재생도 막았으나 저장본이 없어졌다)."""
         fake = [snap(snapshot_id=EVENING_ID, note="개발용 가짜 값 (현석 값 오기 전)").to_dict()]
         path = self.tmp / "fake.json"
         path.write_text(json.dumps(fake, ensure_ascii=False), encoding="utf-8")
-        mock = TestClient(create_app(Demo(settings(self.tmp, snapshot_path=path), source=FakeSource())))
-        self.assertEqual(mock.get("/api/health").json()["dev_fake_snapshots"], [EVENING_ID])
-        self.assertEqual(mock.post("/api/c9/record").status_code, 409)
-        with self.assertRaises(c9.CacheError):
-            c9.write_cache(self.tmp / "x.json", {"snapshots": fake})
-        self.assertTrue(c9.replay_blockers({"version": 1, "snapshots": fake}))
+        client = TestClient(create_app(Demo(settings(self.tmp, snapshot_path=path), source=FakeSource())))
+        self.assertEqual(client.get("/api/health").json()["dev_fake_snapshots"], [EVENING_ID])
 
 
 if __name__ == "__main__":
