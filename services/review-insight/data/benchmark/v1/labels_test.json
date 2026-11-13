@@ -1,0 +1,3623 @@
+[
+ {
+  "review_id": "bm_test_gaon_001",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:6"
+ },
+ {
+  "review_id": "bm_test_gaon_002",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:7"
+ },
+ {
+  "review_id": "bm_test_gaon_003",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   },
+   {
+    "topic": "price",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:8"
+ },
+ {
+  "review_id": "bm_test_gaon_004",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   },
+   {
+    "topic": "texture",
+    "polarity": "negative"
+   },
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed",
+   "rating_mismatch"
+  ],
+  "source_line": "source/test.txt:9"
+ },
+ {
+  "review_id": "bm_test_gaon_005",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:10"
+ },
+ {
+  "review_id": "bm_test_gaon_006",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   },
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:11"
+ },
+ {
+  "review_id": "bm_test_gaon_007",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:12"
+ },
+ {
+  "review_id": "bm_test_gaon_008",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "slang"
+  ],
+  "source_line": "source/test.txt:13"
+ },
+ {
+  "review_id": "bm_test_gaon_009",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:14"
+ },
+ {
+  "review_id": "bm_test_gaon_010",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "compare"
+  ],
+  "source_line": "source/test.txt:15"
+ },
+ {
+  "review_id": "bm_test_gaon_011",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:16"
+ },
+ {
+  "review_id": "bm_test_gaon_012",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:17"
+ },
+ {
+  "review_id": "bm_test_gaon_013",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:18"
+ },
+ {
+  "review_id": "bm_test_gaon_014",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "typo"
+  ],
+  "source_line": "source/test.txt:19"
+ },
+ {
+  "review_id": "bm_test_gaon_015",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed",
+   "rating_mismatch"
+  ],
+  "source_line": "source/test.txt:20"
+ },
+ {
+  "review_id": "bm_test_gaon_016",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:21"
+ },
+ {
+  "review_id": "bm_test_gaon_017",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   },
+   {
+    "topic": "service",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:22"
+ },
+ {
+  "review_id": "bm_test_gaon_018",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "slang"
+  ],
+  "source_line": "source/test.txt:23"
+ },
+ {
+  "review_id": "bm_test_gaon_019",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:24"
+ },
+ {
+  "review_id": "bm_test_gaon_020",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "positive"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:25"
+ },
+ {
+  "review_id": "bm_test_gaon_021",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:26"
+ },
+ {
+  "review_id": "bm_test_gaon_022",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "price",
+    "polarity": "negative"
+   },
+   {
+    "topic": "portion",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "sarcasm"
+  ],
+  "source_line": "source/test.txt:27"
+ },
+ {
+  "review_id": "bm_test_gaon_023",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "positive"
+   },
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:28"
+ },
+ {
+  "review_id": "bm_test_gaon_024",
+  "expected_sentiment": "positive",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:29"
+ },
+ {
+  "review_id": "bm_test_gaon_025",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "short"
+  ],
+  "source_line": "source/test.txt:30"
+ },
+ {
+  "review_id": "bm_test_gaon_026",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "negation"
+  ],
+  "source_line": "source/test.txt:31"
+ },
+ {
+  "review_id": "bm_test_gaon_027",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   },
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed",
+   "long"
+  ],
+  "source_line": "source/test.txt:32"
+ },
+ {
+  "review_id": "bm_test_gaon_028",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:33"
+ },
+ {
+  "review_id": "bm_test_gaon_029",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "negation"
+  ],
+  "source_line": "source/test.txt:34"
+ },
+ {
+  "review_id": "bm_test_gaon_030",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:35"
+ },
+ {
+  "review_id": "bm_test_gaon_031",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   },
+   {
+    "topic": "service",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:36"
+ },
+ {
+  "review_id": "bm_test_gaon_032",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "price",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:37"
+ },
+ {
+  "review_id": "bm_test_gaon_033",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "typo"
+  ],
+  "source_line": "source/test.txt:38"
+ },
+ {
+  "review_id": "bm_test_gaon_034",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   },
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:39"
+ },
+ {
+  "review_id": "bm_test_gaon_035",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "emoji"
+  ],
+  "source_line": "source/test.txt:40"
+ },
+ {
+  "review_id": "bm_test_gaon_036",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:41"
+ },
+ {
+  "review_id": "bm_test_gaon_037",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:42"
+ },
+ {
+  "review_id": "bm_test_gaon_038",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "price",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:43"
+ },
+ {
+  "review_id": "bm_test_gaon_039",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "request"
+  ],
+  "source_line": "source/test.txt:44"
+ },
+ {
+  "review_id": "bm_test_gaon_040",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "pii"
+  ],
+  "source_line": "source/test.txt:45"
+ },
+ {
+  "review_id": "bm_test_noeul_001",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "negation"
+  ],
+  "source_line": "source/test.txt:48"
+ },
+ {
+  "review_id": "bm_test_noeul_002",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:49"
+ },
+ {
+  "review_id": "bm_test_noeul_003",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:50"
+ },
+ {
+  "review_id": "bm_test_noeul_004",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "slang"
+  ],
+  "source_line": "source/test.txt:51"
+ },
+ {
+  "review_id": "bm_test_noeul_005",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   },
+   {
+    "topic": "portion",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:52"
+ },
+ {
+  "review_id": "bm_test_noeul_006",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "sarcasm"
+  ],
+  "source_line": "source/test.txt:53"
+ },
+ {
+  "review_id": "bm_test_noeul_007",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:54"
+ },
+ {
+  "review_id": "bm_test_noeul_008",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "request"
+  ],
+  "source_line": "source/test.txt:55"
+ },
+ {
+  "review_id": "bm_test_noeul_009",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:56"
+ },
+ {
+  "review_id": "bm_test_noeul_010",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:57"
+ },
+ {
+  "review_id": "bm_test_noeul_011",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:58"
+ },
+ {
+  "review_id": "bm_test_noeul_012",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "compare"
+  ],
+  "source_line": "source/test.txt:59"
+ },
+ {
+  "review_id": "bm_test_noeul_013",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:60"
+ },
+ {
+  "review_id": "bm_test_noeul_014",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "texture",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:61"
+ },
+ {
+  "review_id": "bm_test_noeul_015",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "positive"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:62"
+ },
+ {
+  "review_id": "bm_test_noeul_016",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   },
+   {
+    "topic": "service",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:63"
+ },
+ {
+  "review_id": "bm_test_noeul_017",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:64"
+ },
+ {
+  "review_id": "bm_test_noeul_018",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "price",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:65"
+ },
+ {
+  "review_id": "bm_test_noeul_019",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "typo"
+  ],
+  "source_line": "source/test.txt:66"
+ },
+ {
+  "review_id": "bm_test_noeul_020",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "short"
+  ],
+  "source_line": "source/test.txt:67"
+ },
+ {
+  "review_id": "bm_test_noeul_021",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:68"
+ },
+ {
+  "review_id": "bm_test_noeul_022",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   },
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:69"
+ },
+ {
+  "review_id": "bm_test_noeul_023",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "portion",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed",
+   "rating_mismatch"
+  ],
+  "source_line": "source/test.txt:70"
+ },
+ {
+  "review_id": "bm_test_noeul_024",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:71"
+ },
+ {
+  "review_id": "bm_test_noeul_025",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi",
+   "emoji"
+  ],
+  "source_line": "source/test.txt:72"
+ },
+ {
+  "review_id": "bm_test_noeul_026",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:73"
+ },
+ {
+  "review_id": "bm_test_noeul_027",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   },
+   {
+    "topic": "service",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:74"
+ },
+ {
+  "review_id": "bm_test_noeul_028",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:75"
+ },
+ {
+  "review_id": "bm_test_noeul_029",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "negative"
+   },
+   {
+    "topic": "price",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "compare"
+  ],
+  "source_line": "source/test.txt:76"
+ },
+ {
+  "review_id": "bm_test_noeul_030",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:77"
+ },
+ {
+  "review_id": "bm_test_noeul_031",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   },
+   {
+    "topic": "texture",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "long"
+  ],
+  "source_line": "source/test.txt:78"
+ },
+ {
+  "review_id": "bm_test_noeul_032",
+  "expected_sentiment": "positive",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:79"
+ },
+ {
+  "review_id": "bm_test_noeul_033",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:80"
+ },
+ {
+  "review_id": "bm_test_noeul_034",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "price",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:81"
+ },
+ {
+  "review_id": "bm_test_noeul_035",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "negative"
+   },
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:82"
+ },
+ {
+  "review_id": "bm_test_noeul_036",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "typo"
+  ],
+  "source_line": "source/test.txt:83"
+ },
+ {
+  "review_id": "bm_test_noeul_037",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:84"
+ },
+ {
+  "review_id": "bm_test_noeul_038",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "hygiene",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:85"
+ },
+ {
+  "review_id": "bm_test_noeul_039",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "request"
+  ],
+  "source_line": "source/test.txt:86"
+ },
+ {
+  "review_id": "bm_test_noeul_040",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "pii"
+  ],
+  "source_line": "source/test.txt:87"
+ },
+ {
+  "review_id": "bm_test_morae_001",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "wait_time",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:90"
+ },
+ {
+  "review_id": "bm_test_morae_002",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "wait_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit",
+   "typo"
+  ],
+  "source_line": "source/test.txt:91"
+ },
+ {
+  "review_id": "bm_test_morae_003",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:92"
+ },
+ {
+  "review_id": "bm_test_morae_004",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:93"
+ },
+ {
+  "review_id": "bm_test_morae_005",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "negation"
+  ],
+  "source_line": "source/test.txt:94"
+ },
+ {
+  "review_id": "bm_test_morae_006",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "packaging",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:95"
+ },
+ {
+  "review_id": "bm_test_morae_007",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:96"
+ },
+ {
+  "review_id": "bm_test_morae_008",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:97"
+ },
+ {
+  "review_id": "bm_test_morae_009",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:98"
+ },
+ {
+  "review_id": "bm_test_morae_010",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:99"
+ },
+ {
+  "review_id": "bm_test_morae_011",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:100"
+ },
+ {
+  "review_id": "bm_test_morae_012",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:101"
+ },
+ {
+  "review_id": "bm_test_morae_013",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "positive"
+   },
+   {
+    "topic": "wait_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit",
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:102"
+ },
+ {
+  "review_id": "bm_test_morae_014",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:103"
+ },
+ {
+  "review_id": "bm_test_morae_015",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:104"
+ },
+ {
+  "review_id": "bm_test_morae_016",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:105"
+ },
+ {
+  "review_id": "bm_test_morae_017",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "price",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:106"
+ },
+ {
+  "review_id": "bm_test_morae_018",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "price",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "sarcasm"
+  ],
+  "source_line": "source/test.txt:107"
+ },
+ {
+  "review_id": "bm_test_morae_019",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "positive"
+   },
+   {
+    "topic": "hygiene",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit",
+   "multi"
+  ],
+  "source_line": "source/test.txt:108"
+ },
+ {
+  "review_id": "bm_test_morae_020",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:109"
+ },
+ {
+  "review_id": "bm_test_morae_021",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:110"
+ },
+ {
+  "review_id": "bm_test_morae_022",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "slang"
+  ],
+  "source_line": "source/test.txt:111"
+ },
+ {
+  "review_id": "bm_test_morae_023",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "atmosphere",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit",
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:112"
+ },
+ {
+  "review_id": "bm_test_morae_024",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "wait_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit",
+   "sarcasm"
+  ],
+  "source_line": "source/test.txt:113"
+ },
+ {
+  "review_id": "bm_test_morae_025",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:114"
+ },
+ {
+  "review_id": "bm_test_morae_026",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:115"
+ },
+ {
+  "review_id": "bm_test_morae_027",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit",
+   "rating_mismatch"
+  ],
+  "source_line": "source/test.txt:116"
+ },
+ {
+  "review_id": "bm_test_morae_028",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:117"
+ },
+ {
+  "review_id": "bm_test_morae_029",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "wait_time",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit",
+   "negation"
+  ],
+  "source_line": "source/test.txt:118"
+ },
+ {
+  "review_id": "bm_test_morae_030",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:119"
+ },
+ {
+  "review_id": "bm_test_morae_031",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit",
+   "emoji"
+  ],
+  "source_line": "source/test.txt:120"
+ },
+ {
+  "review_id": "bm_test_morae_032",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:121"
+ },
+ {
+  "review_id": "bm_test_morae_033",
+  "expected_sentiment": "positive",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:122"
+ },
+ {
+  "review_id": "bm_test_morae_034",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "positive"
+   },
+   {
+    "topic": "wait_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit",
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:123"
+ },
+ {
+  "review_id": "bm_test_morae_035",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:124"
+ },
+ {
+  "review_id": "bm_test_morae_036",
+  "expected_sentiment": "negative",
+  "expected_topics": [],
+  "tags": [
+   "visit",
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:125"
+ },
+ {
+  "review_id": "bm_test_morae_037",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "menu",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit",
+   "multi",
+   "mixed",
+   "long"
+  ],
+  "source_line": "source/test.txt:126"
+ },
+ {
+  "review_id": "bm_test_morae_038",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:127"
+ },
+ {
+  "review_id": "bm_test_morae_039",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "wait_time",
+    "polarity": "positive"
+   },
+   {
+    "topic": "service",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit",
+   "multi"
+  ],
+  "source_line": "source/test.txt:128"
+ },
+ {
+  "review_id": "bm_test_morae_040",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "visit",
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:129"
+ },
+ {
+  "review_id": "bm_test_ttobagi_001",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:132"
+ },
+ {
+  "review_id": "bm_test_ttobagi_002",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:133"
+ },
+ {
+  "review_id": "bm_test_ttobagi_003",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:134"
+ },
+ {
+  "review_id": "bm_test_ttobagi_004",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:135"
+ },
+ {
+  "review_id": "bm_test_ttobagi_005",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "price",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "slang"
+  ],
+  "source_line": "source/test.txt:136"
+ },
+ {
+  "review_id": "bm_test_ttobagi_006",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:137"
+ },
+ {
+  "review_id": "bm_test_ttobagi_007",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:138"
+ },
+ {
+  "review_id": "bm_test_ttobagi_008",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "positive"
+   },
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi",
+   "negation"
+  ],
+  "source_line": "source/test.txt:139"
+ },
+ {
+  "review_id": "bm_test_ttobagi_009",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:140"
+ },
+ {
+  "review_id": "bm_test_ttobagi_010",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:141"
+ },
+ {
+  "review_id": "bm_test_ttobagi_011",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:142"
+ },
+ {
+  "review_id": "bm_test_ttobagi_012",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:143"
+ },
+ {
+  "review_id": "bm_test_ttobagi_013",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "portion",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:144"
+ },
+ {
+  "review_id": "bm_test_ttobagi_014",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:145"
+ },
+ {
+  "review_id": "bm_test_ttobagi_015",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:146"
+ },
+ {
+  "review_id": "bm_test_ttobagi_016",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "typo"
+  ],
+  "source_line": "source/test.txt:147"
+ },
+ {
+  "review_id": "bm_test_ttobagi_017",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "negation"
+  ],
+  "source_line": "source/test.txt:148"
+ },
+ {
+  "review_id": "bm_test_ttobagi_018",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:149"
+ },
+ {
+  "review_id": "bm_test_ttobagi_019",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed",
+   "rating_mismatch"
+  ],
+  "source_line": "source/test.txt:150"
+ },
+ {
+  "review_id": "bm_test_ttobagi_020",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "price",
+    "polarity": "negative"
+   },
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:151"
+ },
+ {
+  "review_id": "bm_test_ttobagi_021",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   },
+   {
+    "topic": "service",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:152"
+ },
+ {
+  "review_id": "bm_test_ttobagi_022",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "emoji"
+  ],
+  "source_line": "source/test.txt:153"
+ },
+ {
+  "review_id": "bm_test_ttobagi_023",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "sarcasm"
+  ],
+  "source_line": "source/test.txt:154"
+ },
+ {
+  "review_id": "bm_test_ttobagi_024",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:155"
+ },
+ {
+  "review_id": "bm_test_ttobagi_025",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "negative"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:156"
+ },
+ {
+  "review_id": "bm_test_ttobagi_026",
+  "expected_sentiment": "positive",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:157"
+ },
+ {
+  "review_id": "bm_test_ttobagi_027",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "positive"
+   },
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:158"
+ },
+ {
+  "review_id": "bm_test_ttobagi_028",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "request"
+  ],
+  "source_line": "source/test.txt:159"
+ },
+ {
+  "review_id": "bm_test_ttobagi_029",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "compare"
+  ],
+  "source_line": "source/test.txt:160"
+ },
+ {
+  "review_id": "bm_test_ttobagi_030",
+  "expected_sentiment": "negative",
+  "expected_topics": [],
+  "tags": [
+   "no_topic",
+   "short"
+  ],
+  "source_line": "source/test.txt:161"
+ },
+ {
+  "review_id": "bm_test_ttobagi_031",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:162"
+ },
+ {
+  "review_id": "bm_test_ttobagi_032",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:163"
+ },
+ {
+  "review_id": "bm_test_ttobagi_033",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "wait_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:164"
+ },
+ {
+  "review_id": "bm_test_ttobagi_034",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "wait_time",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:165"
+ },
+ {
+  "review_id": "bm_test_ttobagi_035",
+  "expected_sentiment": "positive",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:166"
+ },
+ {
+  "review_id": "bm_test_ttobagi_036",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   },
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "slang"
+  ],
+  "source_line": "source/test.txt:167"
+ },
+ {
+  "review_id": "bm_test_ttobagi_037",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi",
+   "long"
+  ],
+  "source_line": "source/test.txt:168"
+ },
+ {
+  "review_id": "bm_test_ttobagi_038",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:169"
+ },
+ {
+  "review_id": "bm_test_ttobagi_039",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:170"
+ },
+ {
+  "review_id": "bm_test_ttobagi_040",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "pii"
+  ],
+  "source_line": "source/test.txt:171"
+ },
+ {
+  "review_id": "bm_test_hong_001",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:174"
+ },
+ {
+  "review_id": "bm_test_hong_002",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:175"
+ },
+ {
+  "review_id": "bm_test_hong_003",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "wait_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:176"
+ },
+ {
+  "review_id": "bm_test_hong_004",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "wait_time",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit",
+   "short"
+  ],
+  "source_line": "source/test.txt:177"
+ },
+ {
+  "review_id": "bm_test_hong_005",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:178"
+ },
+ {
+  "review_id": "bm_test_hong_006",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:179"
+ },
+ {
+  "review_id": "bm_test_hong_007",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "texture",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:180"
+ },
+ {
+  "review_id": "bm_test_hong_008",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:181"
+ },
+ {
+  "review_id": "bm_test_hong_009",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:182"
+ },
+ {
+  "review_id": "bm_test_hong_010",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:183"
+ },
+ {
+  "review_id": "bm_test_hong_011",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "negation"
+  ],
+  "source_line": "source/test.txt:184"
+ },
+ {
+  "review_id": "bm_test_hong_012",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:185"
+ },
+ {
+  "review_id": "bm_test_hong_013",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:186"
+ },
+ {
+  "review_id": "bm_test_hong_014",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   },
+   {
+    "topic": "price",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:187"
+ },
+ {
+  "review_id": "bm_test_hong_015",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:188"
+ },
+ {
+  "review_id": "bm_test_hong_016",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:189"
+ },
+ {
+  "review_id": "bm_test_hong_017",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:190"
+ },
+ {
+  "review_id": "bm_test_hong_018",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   },
+   {
+    "topic": "texture",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:191"
+ },
+ {
+  "review_id": "bm_test_hong_019",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "slang"
+  ],
+  "source_line": "source/test.txt:192"
+ },
+ {
+  "review_id": "bm_test_hong_020",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "visit",
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:193"
+ },
+ {
+  "review_id": "bm_test_hong_021",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "sarcasm"
+  ],
+  "source_line": "source/test.txt:194"
+ },
+ {
+  "review_id": "bm_test_hong_022",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "price",
+    "polarity": "positive"
+   },
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:195"
+ },
+ {
+  "review_id": "bm_test_hong_023",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit"
+  ],
+  "source_line": "source/test.txt:196"
+ },
+ {
+  "review_id": "bm_test_hong_024",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "menu",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "plain"
+  ],
+  "source_line": "source/test.txt:197"
+ },
+ {
+  "review_id": "bm_test_hong_025",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "typo"
+  ],
+  "source_line": "source/test.txt:198"
+ },
+ {
+  "review_id": "bm_test_hong_026",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "packaging",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed",
+   "rating_mismatch"
+  ],
+  "source_line": "source/test.txt:199"
+ },
+ {
+  "review_id": "bm_test_hong_027",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "delivery_time",
+    "polarity": "positive"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:200"
+ },
+ {
+  "review_id": "bm_test_hong_028",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "compare"
+  ],
+  "source_line": "source/test.txt:201"
+ },
+ {
+  "review_id": "bm_test_hong_029",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit",
+   "negation"
+  ],
+  "source_line": "source/test.txt:202"
+ },
+ {
+  "review_id": "bm_test_hong_030",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "wait_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit",
+   "multi",
+   "mixed",
+   "long"
+  ],
+  "source_line": "source/test.txt:203"
+ },
+ {
+  "review_id": "bm_test_hong_031",
+  "expected_sentiment": "negative",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:204"
+ },
+ {
+  "review_id": "bm_test_hong_032",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "emoji"
+  ],
+  "source_line": "source/test.txt:205"
+ },
+ {
+  "review_id": "bm_test_hong_033",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "request"
+  ],
+  "source_line": "source/test.txt:206"
+ },
+ {
+  "review_id": "bm_test_hong_034",
+  "expected_sentiment": "positive",
+  "expected_topics": [],
+  "tags": [
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:207"
+ },
+ {
+  "review_id": "bm_test_hong_035",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "positive"
+   },
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:208"
+ },
+ {
+  "review_id": "bm_test_hong_036",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "wait_time",
+    "polarity": "negative"
+   },
+   {
+    "topic": "service",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "visit",
+   "multi"
+  ],
+  "source_line": "source/test.txt:209"
+ },
+ {
+  "review_id": "bm_test_hong_037",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "multi"
+  ],
+  "source_line": "source/test.txt:210"
+ },
+ {
+  "review_id": "bm_test_hong_038",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "short"
+  ],
+  "source_line": "source/test.txt:211"
+ },
+ {
+  "review_id": "bm_test_hong_039",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "positive"
+   },
+   {
+    "topic": "atmosphere",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "visit",
+   "multi"
+  ],
+  "source_line": "source/test.txt:212"
+ },
+ {
+  "review_id": "bm_test_hong_040",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "pii"
+  ],
+  "source_line": "source/test.txt:213"
+ },
+ {
+  "review_id": "bm_test_hong_041",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "slang"
+  ],
+  "source_line": "source/test.txt:216"
+ },
+ {
+  "review_id": "bm_test_ttobagi_041",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "slang"
+  ],
+  "source_line": "source/test.txt:217"
+ },
+ {
+  "review_id": "bm_test_gaon_041",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "price",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:218"
+ },
+ {
+  "review_id": "bm_test_noeul_041",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "negative"
+   },
+   {
+    "topic": "delivery_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:219"
+ },
+ {
+  "review_id": "bm_test_morae_041",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept"
+  ],
+  "source_line": "source/test.txt:220"
+ },
+ {
+  "review_id": "bm_test_hong_042",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "template"
+  ],
+  "source_line": "source/test.txt:221"
+ },
+ {
+  "review_id": "bm_test_noeul_042",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "template"
+  ],
+  "source_line": "source/test.txt:222"
+ },
+ {
+  "review_id": "bm_test_gaon_042",
+  "expected_sentiment": "positive",
+  "expected_topics": [],
+  "tags": [
+   "concept",
+   "platform",
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:223"
+ },
+ {
+  "review_id": "bm_test_ttobagi_042",
+  "expected_sentiment": "negative",
+  "expected_topics": [],
+  "tags": [
+   "concept",
+   "platform",
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:224"
+ },
+ {
+  "review_id": "bm_test_noeul_043",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "slang",
+   "short"
+  ],
+  "source_line": "source/test.txt:225"
+ },
+ {
+  "review_id": "bm_test_morae_042",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "positive"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "multi"
+  ],
+  "source_line": "source/test.txt:226"
+ },
+ {
+  "review_id": "bm_test_gaon_043",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "temperature",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "long"
+  ],
+  "source_line": "source/test.txt:227"
+ },
+ {
+  "review_id": "bm_test_noeul_044",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept"
+  ],
+  "source_line": "source/test.txt:228"
+ },
+ {
+  "review_id": "bm_test_hong_043",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept"
+  ],
+  "source_line": "source/test.txt:229"
+ },
+ {
+  "review_id": "bm_test_ttobagi_043",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "portion",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:230"
+ },
+ {
+  "review_id": "bm_test_morae_043",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "atmosphere",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "visit"
+  ],
+  "source_line": "source/test.txt:231"
+ },
+ {
+  "review_id": "bm_test_noeul_045",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "slang"
+  ],
+  "source_line": "source/test.txt:232"
+ },
+ {
+  "review_id": "bm_test_ttobagi_044",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept"
+  ],
+  "source_line": "source/test.txt:233"
+ },
+ {
+  "review_id": "bm_test_hong_044",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "typo"
+  ],
+  "source_line": "source/test.txt:234"
+ },
+ {
+  "review_id": "bm_test_gaon_044",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "typo"
+  ],
+  "source_line": "source/test.txt:235"
+ },
+ {
+  "review_id": "bm_test_morae_044",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "slang"
+  ],
+  "source_line": "source/test.txt:236"
+ },
+ {
+  "review_id": "bm_test_ttobagi_045",
+  "expected_sentiment": "negative",
+  "expected_topics": [],
+  "tags": [
+   "concept",
+   "no_topic",
+   "short"
+  ],
+  "source_line": "source/test.txt:237"
+ },
+ {
+  "review_id": "bm_test_noeul_046",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "portion",
+    "polarity": "positive"
+   },
+   {
+    "topic": "packaging",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:238"
+ },
+ {
+  "review_id": "bm_test_hong_045",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept"
+  ],
+  "source_line": "source/test.txt:239"
+ },
+ {
+  "review_id": "bm_test_gaon_045",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "concept",
+   "no_topic",
+   "short"
+  ],
+  "source_line": "source/test.txt:240"
+ },
+ {
+  "review_id": "bm_test_ttobagi_046",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "compare"
+  ],
+  "source_line": "source/test.txt:241"
+ },
+ {
+  "review_id": "bm_test_noeul_047",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "sarcasm"
+  ],
+  "source_line": "source/test.txt:242"
+ },
+ {
+  "review_id": "bm_test_morae_045",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "missing_item",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept"
+  ],
+  "source_line": "source/test.txt:243"
+ },
+ {
+  "review_id": "bm_test_hong_046",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "packaging",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "slang"
+  ],
+  "source_line": "source/test.txt:244"
+ },
+ {
+  "review_id": "bm_test_ttobagi_047",
+  "expected_sentiment": "positive",
+  "expected_topics": [],
+  "tags": [
+   "concept",
+   "emoji",
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:245"
+ },
+ {
+  "review_id": "bm_test_gaon_046",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "long"
+  ],
+  "source_line": "source/test.txt:246"
+ },
+ {
+  "review_id": "bm_test_noeul_048",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "service",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "request"
+  ],
+  "source_line": "source/test.txt:247"
+ },
+ {
+  "review_id": "bm_test_hong_047",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "slang"
+  ],
+  "source_line": "source/test.txt:248"
+ },
+ {
+  "review_id": "bm_test_morae_046",
+  "expected_sentiment": "neutral",
+  "expected_topics": [],
+  "tags": [
+   "concept",
+   "visit",
+   "question",
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:249"
+ },
+ {
+  "review_id": "bm_test_ttobagi_048",
+  "expected_sentiment": "positive",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "price",
+    "polarity": "positive"
+   }
+  ],
+  "tags": [
+   "concept",
+   "multi"
+  ],
+  "source_line": "source/test.txt:250"
+ },
+ {
+  "review_id": "bm_test_gaon_047",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "portion",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "sarcasm"
+  ],
+  "source_line": "source/test.txt:251"
+ },
+ {
+  "review_id": "bm_test_noeul_049",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "texture",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "compare"
+  ],
+  "source_line": "source/test.txt:252"
+ },
+ {
+  "review_id": "bm_test_morae_047",
+  "expected_sentiment": "negative",
+  "expected_topics": [
+   {
+    "topic": "hygiene",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept"
+  ],
+  "source_line": "source/test.txt:253"
+ },
+ {
+  "review_id": "bm_test_hong_048",
+  "expected_sentiment": "mixed",
+  "expected_topics": [
+   {
+    "topic": "taste",
+    "polarity": "positive"
+   },
+   {
+    "topic": "wait_time",
+    "polarity": "negative"
+   }
+  ],
+  "tags": [
+   "concept",
+   "visit",
+   "multi",
+   "mixed"
+  ],
+  "source_line": "source/test.txt:254"
+ },
+ {
+  "review_id": "bm_test_ttobagi_049",
+  "expected_sentiment": "positive",
+  "expected_topics": [],
+  "tags": [
+   "concept",
+   "no_topic"
+  ],
+  "source_line": "source/test.txt:255"
+ }
+]

@@ -40,7 +40,7 @@ RUNTIME_CACHE = ROOT / "data" / "runtime" / "classify_paste.json"   # 붙여넣�
 USAGE_LOG = ROOT / "logs" / "llm_usage.jsonl"                        # 규격 5.6: 호출마다 한 줄, 글은 남기지 않음 (저장소에 안 올림)
 KST = timezone(timedelta(hours=9))
 ENDPOINT = "https://clovastudio.stream.ntruss.com/v3/chat-completions/{model}"
-PROMPT_VERSION = "c3-v5"   # 프롬프트를 바꾸면 올림 → 예전 재생본과 섞이지 않음
+PROMPT_VERSION = "c3-v7"   # 프롬프트를 바꾸면 올림 → 예전 재생본과 섞이지 않음
 BATCH = 6
 RETRY_BATCH = 2   # 한 번에 못 읽은 리뷰는 2건씩 한 번 더 물어봄
 
@@ -55,17 +55,30 @@ SYSTEM = """너는 음식점 리뷰를 주제별로 나누는 분류기다. 결�
    (예: '양도 넉넉하고 맛도 좋아요' → portion positive, taste positive)
    (예: '가격에 비해 양이 적어요' → portion negative, price negative)
    (예: '배달이 빨라서 음료가 시원했어요' → delivery_time positive, temperature positive)
+   (예: '이 가격에 이 양이면 가성비 최고' → price positive, portion positive)
+   주제 낱말이 없어도 뜻으로 판단한다: '닭이 작아요', '몇 개 안 들어 있어요' → portion negative,
+   '박스가 찌그러졌어요', '뚜껑이 열려 왔어요' → packaging negative, '늦게 온 데다 수저도 없었어요' → delivery_time negative, missing_item negative.
+   음식을 두고 '미쳤어요', '최고', '존맛', 'ㄹㅇ', '왈왈'처럼 감탄하면 taste positive다.
+   반어는 뜻대로 적는다 ('치킨이 걸어서 왔나 봐요', '정성이 대단하네요 40분' → 늦게 왔다는 불만).
 2. 같은 주제에 칭찬과 불만을 함께 적는 것은 그 리뷰가 같은 점을 칭찬도 하고 불만도 할 때뿐이다.
    서로 다른 점이면 각각 맞는 주제로 나눈다. ('맛은 있는데 겉이 눅눅해요' → taste positive, texture negative)
 3. 주제 사전에 맞는 주제가 없는 내용은 억지로 다른 주제에 넣지 말고 적지 않는다.
+   '번창하세요', '또 시킬게요' 같은 인사·재주문 의사, 배달 기사님·배달앱(쿠폰·결제) 이야기는 주제가 아니다.
+   service는 가게 직원·사장님의 응대, 요청사항 칸 부탁을 들어줬는지, 가게가 챙겨 준 덤·손편지에만 쓴다.
 4. evidence에는 그 판단의 근거가 되는 구절을 리뷰 글에서 글자 그대로 복사한다. 바꿔 쓰거나 요약하지 않는다.
 5. channel이 naver_place면 매장 방문 리뷰다. 매장에서 음식·음료가 늦게/빨리 나온 것과 웨이팅은 wait_time이고,
    delivery_time은 배달 주문이 늦게/빨리 온 것에만 쓴다.
    '포장해야겠다'처럼 포장 주문을 뜻하는 말은 packaging이 아니다. '국물 하나 안 샜어요'는 packaging 칭찬이다.
-   냄새·간·단맛·싱거움은 taste, 바삭함·눅눅함·질김은 texture다.
-6. sentiment는 positive, negative, mixed(칭찬과 불만이 함께), neutral(주제가 없거나 판단 어려움) 중 하나다.
+   냄새·간·단맛·싱거움은 taste, 바삭함·눅눅함·질김·면이 불음은 texture다.
+   '따끈하게 도착했어요'는 temperature다 (빨리 왔다는 말이 없으면 delivery_time이 아니다).
+   빠진 메뉴·덜 온 개수·다른 메뉴가 옴·추가 옵션 누락·수저 누락은 missing_item, 품절이라 다른 메뉴로 바꿔 보낸 것과 반찬·메뉴 구성은 menu다.
+   요청사항 칸에 적은 부탁(맵기·간 조절, 빼 달라는 재료)을 안 들어준 것은 service negative다.
+6. sentiment는 리뷰 전체의 느낌이며 positive, negative, mixed(칭찬과 불만이 함께), neutral 중 하나다. 별점보다 글을 따른다.
+   주제가 없어도 '굿', '최고', '번창하세요', '😋😋'는 positive, '별로', '다신 안 시켜요'는 negative다.
+   neutral은 '보통이에요', '그냥 그래요', '잘 받았습니다'처럼 칭찬도 불만도 아닐 때와 질문만 있을 때만 쓴다.
 7. summary는 리뷰 내용을 20자 안팎 한 줄로 쓴다. 원인을 단정하거나(때문, 탓) 누군가를 탓하지 않는다.
-8. 주어진 리뷰 순서대로 JSON 배열만 출력한다. 다른 글은 쓰지 않는다.{hint_rule}
+8. 주어진 리뷰 순서대로 JSON 배열만 출력한다. 다른 글은 쓰지 않는다.
+   출력하기 전에 리뷰마다 주제 사전 13개를 하나씩 대어 보며 빠진 주제가 없는지 확인한다 (특히 양·가격·온도·포장 누락).{hint_rule}
 형식: [{{"review_id": "...", "sentiment": "...", "topics": [{{"topic": "...", "polarity": "...", "evidence": "..."}}], "summary": "..."}}]"""
 
 
@@ -75,14 +88,54 @@ HINT_RULE = """
    후보에 있어도 리뷰에 근거 구절이 없으면 적지 않고, 후보에 없어도 리뷰에 있으면 적는다."""
 
 # 고정 예시 한 쌍: 모델이 JSON 배열 하나로만 답하게 (상권 비서 planner 의 _SHOT 과 같은 역할)
-_SHOT_USER = """[리뷰] 아래 JSON 배열의 리뷰를 모두 분류해서, 같은 순서의 JSON 배열 하나로만 답한다.
-[{"review_id": "ex_1", "channel": "baemin", "rating": 2, "text": "맛은 좋은데 포장 용기가 깨져서 국물이 다 흘렀어요"}]"""
-_SHOT_ANSWER = ('[{"review_id": "ex_1", "sentiment": "mixed", "topics": [{"topic": "taste", "polarity": "positive", "evidence": "맛은 좋은데"}, '
-                '{"topic": "packaging", "polarity": "negative", "evidence": "포장 용기가 깨져서 국물이 다 흘렀어요"}], "summary": "맛은 좋으나 국물 샘"}]')
+# 프롬프트용 주제 설명: 판단 단서까지 적는다 (규칙 분류기의 TOPICS 단어 목록과는 따로).
+# c3-v7: 연습용(dev)에서 자주 놓친 '낱말 없는 주제'를 단서로 보탬. 시험용(test) 리뷰는 보지 않고 썼음.
+PROMPT_TOPICS = {
+    "portion": "양 — 양·개수·크기·곱빼기 ('작아요', '몇 개 안 들어', '손톱만 해요'는 불만, '두 끼 먹음'은 칭찬)",
+    "taste": "맛 — 맛·간·냄새·신선함, 음식을 두고 한 감탄('미쳤어요', '존맛', 'ㄹㅇ', '인생 ○○')",
+    "price": "가격 — 가격·가성비·할인·배달비 ('이 가격에 이 양', '혜자', '남는 게 있나요'는 칭찬)",
+    "delivery_time": "배달 시간 — 배달 주문이 빨리/늦게 옴, 걸린 시간 ('○분 만에', '한참 기다렸다', 반어 '걸어서 왔나 봐요'). '도착했어요'만으로는 아님",
+    "texture": "식감 — 바삭·눅눅·질김·퍽퍽·딱딱·쫄깃·촉촉, 면이 불음",
+    "temperature": "음식 온도 — 식음·미지근·뜨끈·따끈·시원·얼음 녹음 ('식어서 딱딱'은 온도와 식감 둘 다)",
+    "packaging": "포장 상태 — 샘·쏟아짐·터짐·찌그러짐·눌림·뚜껑, 포장이 꼼꼼함",
+    "missing_item": "포장 누락 — 빠진 메뉴·덜 온 개수·다른 메뉴가 옴·추가 옵션이나 수저가 빠짐",
+    "service": "응대 — 가게 직원·사장님 응대(전화 포함), 요청사항을 들어줌/안 들어줌, 가게가 챙겨 준 덤·손편지. 인사('번창하세요')는 아님",
+    "hygiene": "위생 — 청결·이물질·머리카락·벌레, 기름·식기·매장이 깨끗함",
+    "menu": "메뉴 구성 — 메뉴 종류·반찬 가짓수·세트 구성, 품절·메뉴 변경",
+    "atmosphere": "매장 환경 — 자리·좌석·공간·인테리어·분위기·소음·주차·뷰 (방문)",
+    "wait_time": "매장 대기 — 매장이나 포장 수령에서 기다린 시간, 웨이팅, 음식이 나온 속도 (방문·포장)",
+}
+
+# 고정 예시: 모델이 JSON 배열 하나로만 답하게 하고, 연습용에서 자주 틀린 유형을 새로 쓴 리뷰로 보여 준다
+# (벤치마크 연습용·시험용 리뷰와 같은 글은 쓰지 않음 — 시험에서 확인)
+SHOT_REVIEWS = [
+    ("baemin", 2, "맛은 좋은데 포장 용기가 깨져서 국물이 다 흘렀어요", "mixed",
+     [("taste", "positive", "맛은 좋은데"), ("packaging", "negative", "포장 용기가 깨져서 국물이 다 흘렀어요")], "맛은 좋으나 국물 샘"),
+    ("coupangeats", 5, "이 값에 이만큼 주시면 남는 게 있나요 맛도 훌륭해요", "positive",
+     [("price", "positive", "이 값에"), ("portion", "positive", "이만큼 주시면"), ("taste", "positive", "맛도 훌륭해요")], "가성비와 맛 칭찬"),
+    ("baemin", 2, "만두가 손톱만 해요", "negative", [("portion", "negative", "만두가 손톱만 해요")], "만두 크기 불만"),
+    ("yogiyo", 1, "피자가 순간이동이라도 했나 봐요 두 시간 걸렸네요", "negative",
+     [("delivery_time", "negative", "두 시간 걸렸네요")], "배달 두 시간"),
+    ("baemin", 4, "뜨끈하고 촉촉하게 도착했어요", "positive",
+     [("temperature", "positive", "뜨끈하고"), ("texture", "positive", "촉촉하게")], "따뜻하고 촉촉함"),
+    ("baemin", 1, "한참 기다렸더니 콜라도 빠져 있네요", "negative",
+     [("delivery_time", "negative", "한참 기다렸더니"), ("missing_item", "negative", "콜라도 빠져 있네요")], "늦고 콜라 누락"),
+    ("yogiyo", 2, "식어서 눅눅해요", "negative",
+     [("temperature", "negative", "식어서"), ("texture", "negative", "눅눅해요")], "식고 눅눅함"),
+    ("coupangeats", 5, "대박", "positive", [], "칭찬"),
+    ("baemin", 5, "다음에도 여기서 시킬게요 사장님 대박 나세요", "positive", [], "재주문 의사"),
+    ("baemin", 3, "그럭저럭이에요", "neutral", [], "보통"),
+]
+_SHOT_USER = ("[리뷰] 아래 JSON 배열의 리뷰를 모두 분류해서, 같은 순서의 JSON 배열 하나로만 답한다.\n"
+              + json.dumps([{"review_id": f"ex_{i}", "channel": ch, "rating": rt, "text": tx}
+                            for i, (ch, rt, tx, *_rest) in enumerate(SHOT_REVIEWS, 1)], ensure_ascii=False))
+_SHOT_ANSWER = json.dumps([{"review_id": f"ex_{i}", "sentiment": se,
+                            "topics": [{"topic": t, "polarity": p, "evidence": e} for t, p, e in tops], "summary": sm}
+                           for i, (_ch, _rt, _tx, se, tops, sm) in enumerate(SHOT_REVIEWS, 1)], ensure_ascii=False)
 
 
 def system_prompt(hints: bool = False) -> str:
-    return SYSTEM.format(topics="\n".join(f"- {k}: {v[0]} ({v[1]})" for k, v in TOPICS.items()),
+    return SYSTEM.format(topics="\n".join(f"- {k}: {PROMPT_TOPICS.get(k) or v[0] + ' (' + v[1] + ')'}" for k, v in TOPICS.items()),
                          hint_rule=HINT_RULE if hints else "")
 
 
@@ -167,6 +220,8 @@ def validate(item: dict, review: Review, *, method: str, model: str | None) -> R
 
     result = ReviewClassification(review.review_id, sentiment, hits, summary, method, model, warnings)
     if not hits:
+        # 모델이 주제를 하나도 못 냈으면 규칙 결과로 대신한다. 벤치마크 v1 연습용(c3-v7)에서 '모델이 주제 없음이라 답하면 그대로 두기'를
+        # 시험해 보니 F1 91.5% → 91.2%, 감정 95.8% → 95.3% 로 오히려 떨어짐 ('겉바속촉', '바삭함 미쳤다'를 규칙이 잡아 줌)
         rule = rule_classify(review.review_id, review.text, review.rating, review.channel)
         if rule.topics:
             rule.method, rule.model = "rule_fallback", model
