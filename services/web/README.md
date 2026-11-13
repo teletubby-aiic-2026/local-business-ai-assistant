@@ -65,6 +65,16 @@ PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest tests.test_we
 
 CLOVA·네트워크를 부르지 않습니다 (리뷰 서비스는 가짜, 모델은 가짜 함수). C6 저장본(기본: 저장소의 `experiments/marketing`)이 없으면 그 저장본이 필요한 시험만 건너뜁니다.
 
+## 점검 통과 수 측정 (live 기준선)
+
+떠 있는 서버에 HTTP 로만 말해 글의 점검 상태(점검 통과 / 확인 필요 / 점검 실패, 화면 배지와 같은 규칙)와 걸린 시간을 센다. 키·환경 변수는 쓰지 않는다.
+
+```bash
+.venv/bin/python services/web/scripts/measure_live.py --base http://127.0.0.1:8540 --rounds 5 --label baseline --out baseline.json
+```
+
+서버 mode 가 live 가 아니면 크게 경고한다 (그래도 진행). `--out` JSON 에는 초안 본문 대신 길이만 남는다. 다른 브랜치를 넣은 서버에 같은 명령(`--label` 만 바꿔)을 돌려 비교한다.
+
 ## 아직 안 된 것 (정직 표기)
 
 - 카드 이유 문장 호출 수는 따로 기록하지 않습니다 (C6·#14 는 각자 비용·사용량을 기록).
