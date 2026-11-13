@@ -1,6 +1,6 @@
-// 텔레토비 AI 비서: 단계별 화면 (1 오늘 → 2 제안 → 3 초안 → 4 완료) + 분석. 외부 라이브러리 없이 동작 (발표장 오프라인 대비).
+// 텔레토비 AI 비서: 단계별 화면 (1 오늘 → 2 제안 → 3 초안 → 4 완료) + 분석. 외부 라이브러리 없이 동작.
 // 화면은 주소 해시로 바꾼다: #/today #/cards #/draft #/done #/analysis (재정비/05 UI 디자인 레퍼런스 15번, 박건영 결정 11/10)
-// 화면마다 할 일은 하나. API·저장본은 그대로 쓴다 (/api/health, briefing, cards, cards/{id}/run, drafts/{id}/approve, approvals, reviews, c9/record).
+// 화면마다 할 일은 하나. API는 그대로 쓴다 (/api/health, briefing, cards, cards/{id}/run, drafts/{id}/approve, approvals, reviews).
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -13,7 +13,7 @@ const KIND_AGENT = { complaint: "고객 응대 비서", promo: "마케팅 에이
 const GEN_ORDER = { prevention_notice: 0, coupon_promo: 1, reply_draft: 2 };
 const byGen = (a, b) => (GEN_ORDER[a.generator] ?? 9) - (GEN_ORDER[b.generator] ?? 9);
 const KPI_GEN = "prevention_notice";
-const SOURCE_NAMES = { live: "실시간 HCX-005", seed: "저장본", replay: "발표 모드 저장본", "live+replay": "일부 실시간" };
+const SOURCE_NAMES = { live: "실시간 HCX-005", seed: "시험용 저장 예시 (실제 AI 결과 아님)" };
 const ROUTES = ["today", "cards", "draft", "done", "analysis"];
 
 const state = {
@@ -25,7 +25,6 @@ const state = {
 // 출처 문자열에서 URL 을 떼어 화면에는 이름만 (URL 은 링크로)
 const sourceUrl = (s) => (String(s || "").match(/https?:\/\/\S+/) || [""])[0];
 const shortBasis = (t) => String(t || "").replace(/\s·\s*https?:\/\/\S+/g, "");
-const isReplay = () => state.health && state.health.mode === "replay";
 
 async function api(path, options = {}) {
   const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
@@ -56,23 +55,18 @@ function route() {
 }
 const go = (name) => { if (currentRoute() === name) route(); else location.hash = "#/" + name; };
 
-// ── 테마 (재정비/05 검토 9번 결정 5: 발표 때는 라이트로 고정) ──────────────
-// 발표 모드(replay)와 사다리(발표용 live 일부 실시간)는 운영체제가 다크여도 라이트로 보인다.
-// 그 밖(mock·live)은 운영체제 설정을 따른다. 주소 뒤 ?theme=light 는 언제나 라이트, ?theme=auto 는 언제나 운영체제 설정.
-function applyTheme(h) {
-  const want = new URLSearchParams(location.search).get("theme");
-  const presenting = h.mode === "replay" || Number(h.ladder) > 0;
-  const light = want === "light" || (want !== "auto" && presenting);
-  if (light) document.documentElement.dataset.theme = "light";
+// ── 테마 ─────────────────────────────────────────────────────────
+// 운영체제 설정(라이트·다크)을 따른다. 주소 뒤 ?theme=light 를 붙이면 라이트로 고정한다.
+function applyTheme() {
+  if (new URLSearchParams(location.search).get("theme") === "light") document.documentElement.dataset.theme = "light";
   else delete document.documentElement.dataset.theme;
 }
 
 // ── 맨 위 띠·바닥 ─────────────────────────────────────────────────
 function renderHealth(h) {
-  applyTheme(h);
-  const chip = $("mode-chip");
-  chip.textContent = h.mode_label + (h.ladder ? ` · 사다리 ${h.ladder}칸` : "");
-  chip.className = "chip " + h.mode;
+  // 시험용 실행(mock)일 때만 띄운다. live 에서는 보이지 않는다.
+  $("mode-notice").hidden = !h.mode_notice;
+  $("mode-notice").textContent = h.mode_notice || "";
   const p = h.parts || {};
   const items = [`리뷰: ${p.reviews || "합성 데이터"}`, p.briefing, `카드: ${p.cards}`, `글 생성: ${p.generate}`];
   $("honesty").innerHTML = items.filter(Boolean).map((t) => `<span>${esc(t)}</span>`).join("");
@@ -80,14 +74,11 @@ function renderHealth(h) {
   if ((h.dev_fake_snapshots || []).length) problems.unshift(`개발용 가짜 지표가 화면에 있어요 (${h.dev_fake_snapshots.join(", ")}). 실제 값이 아니니 발표에 쓰지 마세요.`);
   if (h.review_service && h.review_service.status === "down") problems.push(`리뷰 분석 서비스(${h.review_service.url})가 꺼져 있어요.`);
   showAlert(problems.join(" "));
-  $("record").hidden = h.mode === "replay";
-  const c = h.cache || {};
-  $("foot-msg").textContent = c.exists ? `발표 모드 저장본: ${c.recorded_at} (${c.recorded_mode})` : "발표 모드 저장본 없음";
-  // 분석 탭 → 리뷰 분석 화면(A)은 그 서비스가 떠 있을 때만 (발표 모드·라이브데모 링크에는 A가 없음)
+  // 분석 탭 → 리뷰 분석 화면(A)은 그 서비스가 떠 있을 때만 (라이브데모 링크에는 A가 없음)
   const rs = h.review_service || {};
   $("analysis-link").innerHTML = rs.status === "ok" && rs.url
     ? `<a href="${esc(rs.url)}/" target="_blank" rel="noopener">리뷰 분석 화면에서 리뷰 하나씩 보기 ↗</a>`
-    : `<span class="muted">${h.mode === "replay" ? "발표 모드에서는 리뷰 분석 화면을 따로 띄우지 않아요. 아래가 저장된 같은 결과예요." : "리뷰 분석 화면에 연결할 수 없어요."}</span>`;
+    : '<span class="muted">리뷰 분석 화면에 연결할 수 없어요.</span>';
 }
 
 // ── 1 오늘 + 분석 (브리핑) ───────────────────────────────────────────
@@ -304,7 +295,7 @@ function measureBox(p) {
   const m = p.measures || {};
   if (!(m.options || []).length) return "";
   const on = new Set(m.default || []);
-  return `<fieldset class="measures"${isReplay() ? " disabled" : ""}><legend class="small">공지에 넣을 재발 방지 조치${isReplay() ? " (발표 모드: 저장된 선택)" : ""}</legend>
+  return `<fieldset class="measures"><legend class="small">공지에 넣을 재발 방지 조치</legend>
     ${m.options.map((o) => `<label class="small"><input type="checkbox" data-measure="${esc(p.card.card_id)}" value="${esc(o.id)}"${on.has(o.id) ? " checked" : ""}> ${esc(o.text)}</label>`).join("")}
   </fieldset>`;
 }
@@ -385,9 +376,7 @@ function renderDraft() {
   const done = drafts.filter((x) => state.approved.has(x.draft_id)).length;
   const approved = d && state.approved.has(d.draft_id);
   const [, statusText] = d ? statusOf(d) : [];
-  // 발표 모드는 저장본을 그대로 돌려주므로 r.source 가 기록 당시 값(live)이다 → '발표 모드 저장본 · 기록 당시 …'로 밝힌다
-  const srcName = SOURCE_NAMES[r.source] || r.source || "";
-  const srcLabel = isReplay() ? `발표 모드 저장본 · 기록 당시 ${srcName}` : srcName;
+  const srcLabel = SOURCE_NAMES[r.source] || r.source || "";
 
   const name = GEN_NAMES[d?.generator] || d?.generator || "";
   el.innerHTML = `
@@ -419,7 +408,7 @@ function renderDraft() {
       <div class="row">
         <button type="button" class="primary" data-approve="${esc(d.draft_id)}">${approved ? "다시 승인" : "승인"}</button>
         <button type="button" data-copy="${esc(d.draft_id)}">복사</button>
-        ${isReplay() ? "" : `<button type="button" class="ghost" data-rerun="${esc(state.current)}">다시 만들기</button>`}
+        <button type="button" class="ghost" data-rerun="${esc(state.current)}">다시 만들기</button>
       </div>
       <p class="small muted model">${esc(d.model || "")}${d.elapsed_ms ? " · " + (d.elapsed_ms / 1000).toFixed(1) + "초" : ""}</p>
     </article>` : '<div class="panel"><p class="muted">이 카드에서 만든 글이 없어요.</p></div>'}`;
@@ -501,7 +490,7 @@ async function loadApprovals() {
   if (ul) ul.innerHTML = data.items.map((a) => `<li>${esc(a.approved_at.slice(11, 19))} · ${esc(a.draft_id)} 승인${a.edited ? " (사장님이 고침)" : ""}</li>`).join("") || "<li>기록 없음</li>";
 }
 
-// 처음으로: 이 브라우저의 진행만 비운다 (서버 기록·저장본은 그대로)
+// 처음으로: 이 브라우저의 진행만 비운다 (서버 기록은 그대로)
 function restart() {
   state.results = {}; state.approved.clear(); state.approvedLog = []; state.pending = {};
   state.current = null; state.draftId = null;
@@ -549,11 +538,6 @@ async function resetPaste() {
   catch (e) { $("paste-msg").textContent = e.message; }
 }
 
-async function record() {
-  try { const r = await api("/api/c9/record", { method: "POST" }); $("foot-msg").textContent = `발표 모드로 저장했어요: ${r.recorded_at} · 카드 ${r.cards}장 · 결과 ${r.results.length}개`; }
-  catch (e) { showAlert(e.message); }
-}
-
 // ── 챗봇 서랍 자리 (S1 질문창, PR #13이 들어올 곳) ─────────────────────
 // 지금은 'AI에게 묻기' 버튼이 숨겨져 있어 열 수 없다. 여닫기·자리만 있고 질문·답 기능은 없다 (05 17번).
 // 상단 바 높이: 왼쪽 메뉴·서랍이 상단 바 아래에 붙게
@@ -592,12 +576,11 @@ async function boot() {
   route();
 }
 
-applyTheme({}); // ?theme=light 는 서버 응답을 기다리지 않고 바로 (발표 모드 판정은 /api/health 뒤)
+applyTheme(); // ?theme=light 는 서버 응답을 기다리지 않고 바로
 
 $("start").addEventListener("click", () => { startTimer(); go("cards"); });
 $("paste-send").addEventListener("click", paste);
 $("paste-reset").addEventListener("click", resetPaste);
-$("record").addEventListener("click", record);
 $("ask-ai").addEventListener("click", (e) => toggleAssistant(undefined, e.currentTarget));
 $("ask-open").addEventListener("click", (e) => toggleAssistant(true, e.currentTarget));
 window.addEventListener("resize", setTopH);

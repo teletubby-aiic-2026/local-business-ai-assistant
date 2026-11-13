@@ -10,7 +10,7 @@ C5 담당(김진수)의 구현이 오면 build_cards 만 바꿔 끼운다. 인�
   고른 지표가 하락이 아니면 다른 지표를 찾아 내려가지 않는다 (숫자를 먼저 정하고 데이터를 맞추지 않음).
   우선순위: CARD_B_SNAPSHOT_ID → snap_evening_sales_yoy(저녁 17~21시) → 단위 % 인 첫 '추정매출' 지표.
 - 이유 문장: 사실 카드(F1·F2)를 근거로 쓰고 shared.answer_check 를 통과해야 쓴다. 화면에는 [F1] 표시를 지운다.
-  mock·replay 는 고정 문장, live 는 HCX-005 한 문장(1회 재시도) → 실패하면 고정 문장.
+  mock 은 고정 문장, live 는 HCX-005 한 문장(1회 재시도) → 실패하면 고정 문장.
 """
 from __future__ import annotations
 

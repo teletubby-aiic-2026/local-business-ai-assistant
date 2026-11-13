@@ -97,7 +97,7 @@ def load_snapshots(path: Path) -> list[AnalysisSnapshot]:
 
 
 def is_dev_fake(snapshot: AnalysisSnapshot) -> bool:
-    """실제 값이 오기 전의 화면용 가짜 지표. 이게 하나라도 있으면 경고 띠를 띄우고 발표 모드를 막는다."""
+    """실제 값이 오기 전의 화면용 가짜 지표. 이게 하나라도 있으면 화면 맨 위에 경고 띠를 띄운다."""
     return snapshot.note.strip().startswith(DEV_FAKE_PREFIX)
 
 
