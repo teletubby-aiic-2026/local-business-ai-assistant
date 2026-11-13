@@ -124,6 +124,18 @@ class Demo:
             "data_origin": insight.get("data_origin"),
         }
 
+    # 리뷰 분석 화면(#/analysis)의 요약·불만 묶음용. #14 insight 를 읽어서 화면에 쓰는 칸만 그대로 넘긴다 (읽기 전용).
+    # 리뷰별 분류(classifications)와 반복 묶음 사본(repeated_issues)은 화면에 안 써서 뺀다.
+    INSIGHT_KEYS = ("period_start", "period_end", "review_count", "complaint_count", "sentiment_counts", "topic_counts",
+                    "group_count", "single_complaint_count", "top_issue_id", "groups", "single_complaints", "data_origin")
+
+    def insight(self) -> dict:
+        try:
+            found = self.source.insight(self.s.store_id)
+        except SourceError as exc:
+            raise DemoError(str(exc), status=503) from None
+        return {k: found.get(k) for k in self.INSIGHT_KEYS}
+
     def cards(self) -> dict:
         st = self._state()
         plans = self._plans(st)

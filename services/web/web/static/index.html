@@ -121,37 +121,73 @@
       <div id="done"></div>
     </section>
 
-    <!-- 분석: 리뷰 묶음·상권 지표·붙여넣기 (예전 ① 브리핑 전체) -->
+    <!-- 리뷰 분석 (11/13 통합 1차): 따로 떠 있던 리뷰 분석 화면(services/review-insight 자체 페이지)의 세 화면을 탭 3개로.
+         데이터는 이 서버의 /api/insight(요약·불만 묶음)와 /api/reviews(붙여넣기)로만 받는다. 브라우저는 리뷰 분석 서버에 직접 묻지 않는다.
+         가게 선택은 없다 (이 화면은 가게 하나 고정). -->
     <section class="view" data-view="analysis" hidden>
       <div class="page-head">
-        <p class="eyebrow"><span class="agent">데이터 분석 비서</span></p>
-        <h1 tabindex="-1">분석</h1>
-        <p id="analysis-link" class="small"></p>
+        <p class="eyebrow"><span class="agent">데이터 분석 비서</span><span id="an-period"></span></p>
+        <h1 tabindex="-1">리뷰 분석</h1>
       </div>
-      <div class="panel"><div id="funnel" class="funnel"></div></div>
-      <div class="grid2">
+      <div class="seg an-tabs" role="tablist" aria-label="리뷰 분석 화면">
+        <button type="button" role="tab" id="an-tab-summary" data-tab="summary" aria-controls="an-summary" aria-selected="true">요약</button>
+        <button type="button" role="tab" id="an-tab-issues" data-tab="issues" aria-controls="an-issues" aria-selected="false" tabindex="-1">불만 묶음</button>
+        <button type="button" role="tab" id="an-tab-paste" data-tab="paste" aria-controls="an-paste" aria-selected="false" tabindex="-1">리뷰 붙여넣기</button>
+      </div>
+      <p id="an-status" class="small muted" role="status">불러오는 중…</p>
+
+      <!-- 요약: 숫자 타일 3개 → 칭찬·불만 키워드 -->
+      <div id="an-summary" class="an-panel" role="tabpanel" aria-labelledby="an-tab-summary" tabindex="0">
+        <dl class="stats">
+          <div class="stat-card">
+            <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5c0 4-3.6 7.2-8 7.2-.9 0-1.7-.1-2.5-.3L5 20l.9-3.6C4.7 15.1 4 13.4 4 11.5c0-4 3.6-7.2 8-7.2s8 3.2 8 7.2z"/></svg>리뷰</dt>
+            <dd><span id="an-reviews" class="stat-n">–</span><span class="stat-unit">건</span><span id="an-reviews-sub" class="stat-sub"></span></dd>
+          </div>
+          <div class="stat-card">
+            <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>불만</dt>
+            <dd><span id="an-complaints" class="stat-n">–</span><span class="stat-unit">건</span><span id="an-complaints-sub" class="stat-sub"></span></dd>
+          </div>
+          <div class="stat-card">
+            <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3l3 3-3 3"/><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/></svg>반복 불만</dt>
+            <dd><span id="an-repeated" class="stat-n bad-n">–</span><span class="stat-unit">건</span><span id="an-repeated-sub" class="stat-sub"></span></dd>
+          </div>
+        </dl>
         <div class="panel">
-          <h2>불만 묶음</h2>
-          <div id="groups"></div>
-          <details id="singles-box">
-            <summary id="singles-title">묶이지 않은 불만</summary>
-            <ul id="singles" class="plain"></ul>
-          </details>
+          <div class="panel-head"><h2>칭찬·불만 키워드</h2><button type="button" class="ghost small" data-goto-tab="issues">불만 묶음 보기</button></div>
+          <div id="an-kw" class="kw"></div>
+          <p class="small muted an-note">리뷰 하나에 주제가 여럿이면 모두 셉니다.</p>
         </div>
+      </div>
+
+      <!-- 불만 묶음: 리뷰 → 불만 → 묶음 흐름, 묶음 카드(시간대·근거), 묶이지 않은 불만 -->
+      <div id="an-issues" class="an-panel" role="tabpanel" aria-labelledby="an-tab-issues" tabindex="0" hidden>
         <div class="panel">
-          <h2>상권 지표</h2>
-          <div id="market"></div>
-          <details id="paste-box" class="paste">
-            <summary>리뷰 직접 붙여넣기</summary>
-            <p class="muted small">배달앱에서 복사한 리뷰를 붙여 넣으면 바로 분류해 묶음에 더해요. 이름·전화번호는 가려서 저장해요.</p>
-            <textarea id="paste-text" rows="3" placeholder="예) 반찬이 하나 빠져서 왔어요"></textarea>
-            <div class="row">
-              <button id="paste-send" type="button">붙여넣기</button>
-              <button id="paste-reset" type="button" class="ghost">붙여넣은 리뷰 지우기</button>
-            </div>
-            <p id="paste-msg" class="small muted"></p>
-          </details>
+          <div id="an-funnel" class="funnel"></div>
+          <p class="small muted an-note">같은 불만이 2건 이상이면 묶음, 3건 이상이면 반복으로 봐요.</p>
         </div>
+        <div id="an-groups" class="an-groups"></div>
+        <div class="panel">
+          <h2 id="an-singles-title">묶이지 않은 불만</h2>
+          <p class="small muted an-note">어느 묶음에도 들지 않은 불만이에요.</p>
+          <ul id="an-singles" class="plain"></ul>
+        </div>
+      </div>
+
+      <!-- 리뷰 붙여넣기: 글 1건 + 별점 → 바로 분류해 묶음에 더함 -->
+      <div id="an-paste" class="an-panel" role="tabpanel" aria-labelledby="an-tab-paste" tabindex="0" hidden>
+        <div class="panel paste">
+          <label for="paste-text" class="small"><b>리뷰 글</b> <span class="muted">· 전화번호·이메일·링크는 저장 전에 가려요.</span></label>
+          <textarea id="paste-text" rows="4" maxlength="1000" placeholder="배달앱에서 받은 리뷰 글을 붙여넣으세요."></textarea>
+          <div id="paste-samples" class="row an-samples"></div>
+          <div class="row">
+            <label for="paste-rating" class="sr">별점</label>
+            <select id="paste-rating"><option value="">별점 모름</option><option value="5">별점 5</option><option value="4">별점 4</option><option value="3">별점 3</option><option value="2">별점 2</option><option value="1">별점 1</option></select>
+            <button id="paste-send" type="button" class="primary">분류하기</button>
+            <button id="paste-reset" type="button" class="ghost">붙여넣은 리뷰 지우기</button>
+          </div>
+          <p id="paste-msg" class="small muted" role="status"></p>
+        </div>
+        <div id="paste-result"></div>
       </div>
     </section>
   </main>

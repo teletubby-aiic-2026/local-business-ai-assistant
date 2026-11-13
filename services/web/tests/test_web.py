@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -452,6 +453,115 @@ class LiveAndMockOnly(unittest.TestCase):
         path.write_text(json.dumps(fake, ensure_ascii=False), encoding="utf-8")
         client = TestClient(create_app(Demo(settings(self.tmp, snapshot_path=path), source=FakeSource())))
         self.assertEqual(client.get("/api/health").json()["dev_fake_snapshots"], [EVENING_ID])
+
+
+# ── 리뷰 분석 화면이 비서 화면 안으로 (11/13 통합 1차) ─────────────────────
+class GrowingSource(FakeSource):
+    """붙여넣으면 #14 처럼 insight 도 바뀌는 가짜: 붙여넣은 리뷰마다 포장 누락 묶음에 1건씩 더해진다."""
+
+    def insight(self, store_id):
+        ins = super().insight(store_id)
+        n = len(self.pasted)
+        if n:
+            ins["review_count"] += n
+            ins["complaint_count"] += n
+            group = next(g for g in ins["groups"] if g["issue_id"] == "iss_missing_item")
+            group["review_ids"] = group["review_ids"] + [r["review_id"] for r in self.pasted]
+            group["review_count"] += n
+        return ins
+
+    def paste(self, store_id, text, rating=None, channel=None):
+        out = super().paste(store_id, text, rating, channel)
+        return {**out, "joined_issues": ["iss_missing_item"]}
+
+
+class AnalysisScreen(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.source = GrowingSource()
+        self.client = TestClient(create_app(Demo(settings(self.tmp), source=self.source)))
+
+    def test_insight_gives_what_the_analysis_tabs_need(self):
+        res = self.client.get("/api/insight")
+        self.assertEqual(res.status_code, 200, res.text)
+        d = res.json()
+        self.assertEqual(set(d), set(Demo.INSIGHT_KEYS))
+        self.assertEqual((d["review_count"], d["complaint_count"]), (40, 12))
+        self.assertEqual(d["sentiment_counts"]["positive"], 26)
+        self.assertEqual(d["topic_counts"]["taste"], {"positive": 13, "negative": 2})        # 칭찬·불만 키워드
+        self.assertEqual(d["top_issue_id"], "iss_missing_item")
+        g = next(x for x in d["groups"] if x["issue_id"] == "iss_missing_item")
+        for key in ("topic_name", "review_count", "is_repeated", "main_time_band", "time_bands", "evidence"):
+            self.assertIn(key, g)                                                             # 불만 묶음 카드
+        self.assertEqual(g["evidence"][0]["review_id"], "rv_ongi_001")
+        self.assertEqual(len(d["single_complaints"]), 5)
+        self.assertNotIn("classifications", d)                                               # 리뷰별 분류는 넘기지 않음
+
+    def test_insight_is_read_only(self):
+        self.assertEqual(self.client.post("/api/insight").status_code, 405)
+        self.assertEqual(self.client.delete("/api/insight").status_code, 405)
+
+    def test_insight_reports_service_down(self):
+        self.source.down = True
+        res = self.client.get("/api/insight")
+        self.assertEqual(res.status_code, 503)
+        self.assertIn("연결하지 못했습니다", res.json()["error"]["message"])
+
+    def test_paste_reaches_home_numbers_cards_and_analysis(self):
+        """붙여넣은 뒤 화면이 다시 부르는 세 API(브리핑·카드·insight)가 모두 바뀐 값을 준다 (서버에 따로 저장해 둔 값 없음)."""
+        res = self.client.post("/api/reviews", json={"text": "반찬이 하나 빠져서 왔어요", "rating": 2})
+        self.assertEqual(res.status_code, 201, res.text)
+        self.assertEqual(res.json()["joined_issues"], ["iss_missing_item"])
+        pasted_id = res.json()["review"]["review_id"]
+        self.assertEqual(self.client.get("/api/briefing").json()["counts"]["review_count"], 41)
+        self.assertEqual(self.client.get("/api/insight").json()["review_count"], 41)
+        card_a = self.client.get("/api/cards").json()["cards"][0]["card"]
+        self.assertIn(pasted_id, card_a["review_ids"])
+        self.assertEqual(self.client.delete("/api/reviews/pasted").json()["deleted"], 1)
+        self.assertEqual(self.client.get("/api/briefing").json()["counts"]["review_count"], 40)
+        self.assertEqual(self.client.get("/api/insight").json()["review_count"], 40)
+        self.assertNotIn(pasted_id, self.client.get("/api/cards").json()["cards"][0]["card"]["review_ids"])
+
+    def test_no_link_or_call_to_the_old_review_page(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        js = (STATIC / "app.js").read_text(encoding="utf-8")
+        for text in (html, js):
+            self.assertNotIn("analysis-link", text)            # 예전 '리뷰 분석 화면에서 … ↗' 자리
+            self.assertNotIn("리뷰 분석 화면에서", text)
+            self.assertNotIn("/api/review-insight", text)      # 브라우저가 리뷰 분석 서버에 직접 묻지 않음
+            self.assertNotIn("review_service.url}/", text)
+        self.assertNotIn("rs.url", js)
+        calls = re.findall(r"""api\(\s*[`"']([^`"']+)""", js)
+        self.assertTrue(calls)
+        self.assertTrue(all(c.startswith("/api/") for c in calls), calls)
+        self.assertIn("/api/insight", calls)
+
+    def test_analysis_has_three_keyboard_tabs(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('role="tablist"', html)
+        for tab in ("summary", "issues", "paste"):
+            self.assertIn(f'id="an-tab-{tab}"', html)
+            self.assertIn(f'id="an-{tab}"', html)
+        js = (STATIC / "app.js").read_text(encoding="utf-8")
+        for key in ("ArrowRight", "ArrowLeft", "Home", "End"):
+            self.assertIn(key, js)
+
+    def test_later_menu_slots(self):
+        js = (STATIC / "app.js").read_text(encoding="utf-8")
+        self.assertIn("회의에서 정한 뒤 넣을 자리입니다", js)
+        for name in ('"종합 "', '"리포트"', '"상권"'):
+            self.assertIn(name, js)
+        self.assertIn("준비 중", js)
+
+    def test_every_id_the_script_uses_exists(self):
+        """app.js 의 $("…") 가 찾는 id 는 index.html 에 있거나 app.js 가 직접 그린다."""
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        js = (STATIC / "app.js").read_text(encoding="utf-8")
+        used = set(re.findall(r"""\$\(\s*["']([\w-]+)["']\s*\)""", js))
+        used |= {f"an-{t}" for t in ("summary", "issues", "paste")} | {f"an-tab-{t}" for t in ("summary", "issues", "paste")}
+        used |= {f"{p}-{x}" for p in ("dot", "staff") for x in ("care", "mkt")}   # $("dot-" + prefix) 처럼 이어 붙인 id
+        made = set(re.findall(r'id="([\w-]+)"', html)) | set(re.findall(r'id="([\w-]+)"', js))
+        self.assertEqual(sorted(used - made), [])
 
 
 if __name__ == "__main__":
