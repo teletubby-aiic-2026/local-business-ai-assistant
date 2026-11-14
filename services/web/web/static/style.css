@@ -72,7 +72,7 @@ a:hover { text-decoration-color: currentColor; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ico { width: 18px; height: 18px; flex-shrink: 0; color: currentColor; } /* 장식 아이콘: 옆에 같은 뜻의 글자가 있음 */
 
-/* ── 상단 바: 본문 칸 맨 위 (가게 이름 · AI에게 묻기 · 타이머) ───────────── */
+/* ── 상단 바: 본문 칸 맨 위 (가게 이름 · AI에게 묻기) ───────────── */
 .top { position: sticky; top: 0; z-index: 5; background: var(--bg); }
 .bar { min-height: 56px; padding: 8px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-size: .9375rem; }
@@ -82,8 +82,6 @@ a:hover { text-decoration-color: currentColor; }
 .top-brand { display: none; }   /* 760px 이하에서만 (넓은 화면은 왼쪽 메뉴의 로고) */
 .store { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: .875rem; font-weight: 500; }
 .top-right { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
-.timer { min-width: 64px; padding: 5px 12px; border-radius: 999px; background: var(--chip); color: var(--ink-2); text-align: center;
-  font-size: .875rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* 알림 띠 두 개 (본문 맨 위): 시험용 실행 안내는 회색 면 + 주황 세모, 오류는 연한 빨강 면 + 빨간 네모 */
 .alert { position: relative; max-width: var(--col); margin: 0 auto 12px; padding: 10px 16px 10px 36px; border-radius: 12px;
@@ -297,7 +295,6 @@ details[open] > summary { margin-bottom: 8px; }
 .model { margin: 12px 0 0; }
 
 /* ── 4 완료 ───────────────────────────────────────────────────── */
-.kpi { margin: 0 0 12px; font-size: 1.125rem; font-weight: 600; line-height: 1.55; }
 .log { margin: 12px 0 0; }
 .log li { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .log li:last-child { border-bottom: 0; padding-bottom: 0; }

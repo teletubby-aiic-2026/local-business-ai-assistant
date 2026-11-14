@@ -46,7 +46,7 @@ curl -s http://localhost:8000/api/health
 > **화면을 바꾸기 전에 지킬 규칙 (LLM에게 먼저 읽히세요)**
 >
 > 1. 화면 파일은 `services/web/web/static/`의 세 개뿐입니다. 서버가 `/`로 `index.html`을, `/static/…`으로 나머지를 줍니다. 파일을 더하면 이 폴더 안에 두고 `/static/…` 주소로 부릅니다.
-> 2. `app.js`가 `$("…")`로 찾는 `id` 65개를 지우거나 이름을 바꾸지 않습니다 (2.2). 지우면 화면이 멈춥니다.
+> 2. `app.js`가 `$("…")`로 찾는 `id` 64개를 지우거나 이름을 바꾸지 않습니다 (2.2). 지우면 화면이 멈춥니다.
 > 3. `app.js` 안의 문장 일곱 군데는 글자 그대로 둡니다 (2.4 표의 시험 6). 코드 정리 도구가 따옴표·괄호를 바꾸면 시험이 깨집니다.
 > 4. `index.html`과 `app.js`(주석 포함)에 `replay`, `c9`, `/api/review-insight` 같은 글자가 들어가면 시험이 깨집니다 (2.4). 인라인 SVG 경로 데이터에 `c9`가 우연히 들어가는 경우를 조심하세요.
 > 5. API 경로와 요청·응답의 칸 이름은 바꾸지 않습니다. 필요하면 서버 담당(박건영)에게 요청하세요.
@@ -1340,9 +1340,9 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 
 ### 2.2 `id` 목록
 
-`app.js`가 `$("…")`(= `document.getElementById`)로 찾는 id는 **65개**입니다. 글자로 적힌 55개와, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`)를 합한 수입니다. 그중 `approvals`와 `restart`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 63개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 64개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
+`app.js`가 `$("…")`(= `document.getElementById`)로 찾는 id는 **64개**입니다. 글자로 적힌 54개와, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`)를 합한 수입니다. 그중 `approvals`와 `restart`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 62개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 63개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
 
-`index.html`에는 id가 70개 있습니다. 64개를 뺀 나머지 6개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`, `for`)이나 빈 자리로만 씁니다 (표의 마지막 묶음).
+`index.html`에는 id가 69개 있습니다. 63개를 뺀 나머지 6개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`, `for`)이나 빈 자리로만 씁니다 (표의 마지막 묶음).
 
 **상단 바와 알림**
 
@@ -1350,7 +1350,6 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 |---|---|
 | `store-name` | 상단 바의 가게 이름 줄. "가게 이름 · 업종 · 상권 이름 상권"으로 채움 |
 | `ask-ai` | 상단 'AI에게 묻기' 버튼. 서랍(`#assistant`)을 열고 닫음. JS가 `aria-expanded`를 바꿈 |
-| `timer` | 걸린 시간 `00:00`. '무엇을 할까요?'를 누르면 시작, 재발 방지 공지를 승인하면 멈춤 |
 | `mode-notice` | 시험용 실행 안내 띠. `/api/health`의 `mode_notice`가 있으면 보임. **시험이 이 id를 확인함** |
 | `alert` | 오류·경고 띠. API 오류 문장과 막힘 안내를 여기에 보여 줌 |
 
@@ -1387,7 +1386,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `keywords` | 주제별 불만 막대 (이름은 keywords지만 주제별 막대가 들어감) |
 | `todo` | '오늘 할 일' 목록(`ol`) |
 | `todo-count` | "n / m 끝" |
-| `start` | '무엇을 할까요?' 버튼. 처음엔 `disabled`, "불러오는 중…". 누르면 타이머 시작 + 카드 화면으로 |
+| `start` | '무엇을 할까요?' 버튼. 처음엔 `disabled`, "불러오는 중…". 누르면 카드 화면으로 |
 | `ask-open` | 홈 아래쪽 'AI에게 묻기' 입력줄 모양 버튼 (서랍 열기) |
 
 **추천 카드 `#/cards`**
@@ -1526,7 +1525,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | AI 직원 한 줄 | `dot`(+`ok`·`warn`), `muted` |
 | 추천 카드 | `card`, `kind`, `agent`, `reason`, `measures`, `more`, `ev`, `primary` |
 | 초안 | `page-head`, `eyebrow`, `badge`(+`ok`·`warn`·`bad`), `seg`, `progress`, `track`, `draft-list`, `st`(+`ok`·`warn`·`bad`), `draft`(+`approved`), `draft-head`, `rv`, `rv-title`, `rv-list`, `rv-meta`, `rv-text`, `stars`, `reply`, `reply-label`, `ico`, `issues`(+`bad`), `row`, `ghost`, `model` |
-| 완료 | `kpi`, `log`, `plain`, `big`, `panel`, `more` |
+| 완료 | `log`, `plain`, `big`, `panel`, `more` |
 | 리뷰 분석 | `kw-row`, `kw-title`, `kw-chip`(+`pos`·`neg`), `box`, `n`, `arrow`, `group`(+`repeated`·`new`), `group-head`, `badge`(+`rep`·`ok`), `an-note`, `an-bands`, `topic-bars`, `quote`, `an-joined`, `panel`, `panel-head` |
 | 준비 중 자리 | `later`, `later-title`, `later-badge`, `view`, `narrow`, `page-head`, `eyebrow`, `badge` |
 | 어디서나 | `small`, `muted`, `sr`(화면에는 안 보이고 읽기 프로그램에만 읽힘), `long`(375px 메뉴에서 숨김) |
@@ -1576,7 +1575,7 @@ const on = new Set(m.default || []);
 | `#/today` | `today` | 홈 | 대시보드. 숫자 타일, 차트, 오늘 할 일 | `index.html` |
 | `#/cards` | `cards` | 추천 카드 | "무엇을 할까요?" 카드 2장 | `index.html` |
 | `#/draft` | `draft` | 승인할 글 | 초안 보기·고치기·승인 | `index.html`의 껍데기 + JS가 채움 |
-| `#/done` | `done` | 처리 완료 | 승인 결과, KPI 시간, 처음으로 | `index.html`의 껍데기 + JS가 채움 |
+| `#/done` | `done` | 처리 완료 | 승인 결과, 처음으로 | `index.html`의 껍데기 + JS가 채움 |
 | `#/analysis` | `analysis` | 리뷰 분석 | 탭 3개 (요약·불만 묶음·리뷰 붙여넣기) | `index.html` |
 | `#/report` | `report` | 종합 리포트 (준비 중) | 빈 자리 | `app.js`의 `LATER`가 만듦 |
 | `#/market` | `market` | 상권 (준비 중) | 빈 자리 | `app.js`의 `LATER`가 만듦 |
@@ -1594,19 +1593,19 @@ const on = new Set(m.default || []);
 |---|---|---|
 | 페이지를 열 때 (순서대로 하나씩) | `health` → `briefing` → `cards` → `insight` | `health`: 맨 위 띠·경고 띠·바닥. `briefing`: 홈·가게 이름·초안의 리뷰 원문. `cards`: 카드 화면·홈 할 일. `insight`: 리뷰 분석 두 탭 |
 | 위 호출이 실패하면 | (`health`·`briefing`·`cards` 중 하나) | `#alert`에 문장, `#start` 버튼이 "불러오지 못했어요"로 바뀜. `insight`만 실패하면 `#an-status`에만 알림 |
-| '무엇을 할까요?' 누름 | 없음 | 타이머 시작, `#/cards`로 이동 |
+| '무엇을 할까요?' 누름 | 없음 | `#/cards`로 이동 |
 | 카드 버튼 / '오늘 할 일' 항목 (아직 안 만든 글) | `POST /api/cards/{id}/run` | `#/draft`로 이동. 카드 ⓐ의 체크박스가 있으면 `{"measures": […]}`를 보냄 |
 | 이미 만든 글을 다시 보기 | 없음 | 브라우저에 있는 결과로 `#/draft` |
 | 초안의 '승인' | `POST /api/drafts/{id}/approve` (`{text, original}`) | 다음 미승인 글, 다 끝나면 `#/done` |
 | 초안의 '복사' | 없음 | 클립보드 |
 | 초안의 '다시 만들기' | `POST /api/cards/{id}/run` | 그 카드의 예전 글·승인·고친 내용 버림 |
 | `#/done` 열기 | `GET /api/approvals` | '서버 처리 기록' (접은 목록) |
-| '처음으로' | 없음 | 브라우저의 만든 글·승인 표시·타이머만 비움. 서버 기록은 그대로 |
+| '처음으로' | 없음 | 브라우저의 만든 글·승인 표시만 비움. 서버 기록은 그대로 |
 | 붙여넣기 '분류하기' | `POST /api/reviews` → 성공하면 `briefing`, `cards`, `insight` 다시 | 분류 결과 패널, 홈·카드·분석 갱신 |
 | '붙여넣은 리뷰 지우기' | `DELETE /api/reviews/pasted` → `briefing`, `cards`, `insight` 다시 | 위와 같음 |
 
 - 다시 불러온 카드의 id·근거가 이전과 다르면(`refresh()`), 화면에 있던 만든 글·승인 표시·고친 내용을 모두 버립니다.
-- 모든 진행 상태(만든 글, 승인 표시, 고친 글, 타이머)는 **브라우저 메모리**(`state` 객체)에만 있습니다. 새로고침하면 사라집니다 (3.1).
+- 모든 진행 상태(만든 글, 승인 표시, 고친 글)는 **브라우저 메모리**(`state` 객체)에만 있습니다. 새로고침하면 사라집니다 (3.1).
 
 ### 2.7 자유롭게 바꿔도 되는 것
 
@@ -1680,7 +1679,7 @@ PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest discover -s t
 | **만든 글(live)** | 저장하지 않음. 브라우저 화면에만 있음 | 새로고침하면 사라짐 | — |
 | **카드 이유 문장** | 비서 화면 서버의 메모리(`_reason_memo`). 같은 입력이면 live에서 HCX를 다시 부르지 않으려는 것 | 서버를 끄면 사라짐 | `GET /api/cards`가 씀 |
 | **리뷰 분류 결과** | mock(규칙 분류)은 **요청마다 새로 계산**하고 저장하지 않음. 리뷰 분석 서버가 live일 때만 결과를 파일(`services/review-insight/data/replay/classify.json`, `services/review-insight/data/runtime/classify_paste.json`)에 남김 | — | 리뷰 분석 서버 |
-| **화면 진행 상태** (만든 글, 승인 표시, 고친 글, 타이머) | **브라우저 메모리**(`app.js`의 `state`) | 새로고침하면 사라짐. `localStorage`·쿠키를 쓰지 않음 (확인함) | `app.js` |
+| **화면 진행 상태** (만든 글, 승인 표시, 고친 글) | **브라우저 메모리**(`app.js`의 `state`) | 새로고침하면 사라짐. `localStorage`·쿠키를 쓰지 않음 (확인함) | `app.js` |
 | **방문자 구분** | **없음** | — | 로그인·쿠키·사용자 id가 코드에 없음. 모든 방문자가 같은 가게·같은 승인 목록·같은 붙여넣은 리뷰를 봄 |
 
 승인 기록 파일 한 줄은 이런 모양입니다 (`1.6` 응답과 같은 칸): `draft_id`, `status`, `edited`, `text`, `approved_at`, `mode`.
