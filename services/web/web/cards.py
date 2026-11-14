@@ -26,6 +26,7 @@ _CITE = re.compile(r"\s*\[F\d+\]")
 _QUARTER = re.compile(r"^(\d{4})Q([1-4])$")
 
 ReasonWriter = Callable[[str, list[dict], str], str]   # (카드 종류, 사실 카드, 고정 문장) -> 모델 문장(인용 포함)
+REASON_OK = "HCX-005 (검사기 통과)"   # 모델 문장이 규칙 검사를 통과했을 때의 reason_source
 
 
 @dataclass
@@ -232,7 +233,7 @@ def apply_writer(plan: CardPlan, writer: ReasonWriter) -> CardPlan:
         return plan
     plan.checked_text = text
     plan.card.reason_text = strip_citations(text)
-    plan.reason_source = "HCX-005 (검사기 통과)"
+    plan.reason_source = REASON_OK
     plan.problems = []
     return plan
 

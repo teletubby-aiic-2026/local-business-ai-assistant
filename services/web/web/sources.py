@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,17 @@ class ReviewSource:
         headers = {"X-Access-Token": token} if token else {}
         self._client = client or httpx.Client(base_url=base_url, headers=headers, timeout=timeout)
         self.base_url = base_url
+        self.visitor_id: str | None = None
+
+    def for_visitor(self, visitor_id: str | None) -> "ReviewSource":
+        """같은 연결을 쓰되, 리뷰·분석·붙여넣기·지우기 요청마다 이 방문자 id 를 붙이는 사본.
+        리뷰 분석 서버가 방문자별로 붙여넣은 리뷰를 따로 둔다. 합성 리뷰는 모두에게 같다."""
+        view = copy.copy(self)
+        view.visitor_id = visitor_id or None
+        return view
+
+    def _visitor(self) -> dict[str, str]:
+        return {"visitor_id": self.visitor_id} if self.visitor_id else {}
 
     def _get(self, path: str, **params: Any) -> Any:
         try:
@@ -61,14 +73,14 @@ class ReviewSource:
         return self._get("/store", store_id=store_id)
 
     def reviews(self, store_id: str) -> list[dict]:
-        data = self._get("/reviews", store_id=store_id)
+        data = self._get("/reviews", store_id=store_id, **self._visitor())
         return data["items"] if isinstance(data, dict) else data
 
     def insight(self, store_id: str) -> dict:
-        return self._get("/insight", store_id=store_id)
+        return self._get("/insight", store_id=store_id, **self._visitor())
 
     def paste(self, store_id: str, text: str, rating: int | None = None, channel: str | None = None) -> dict:
-        body = {"store_id": store_id, "text": text}
+        body = {"store_id": store_id, "text": text, **self._visitor()}
         if rating is not None:
             body["rating"] = rating
         if channel:
@@ -81,7 +93,7 @@ class ReviewSource:
 
     def reset_pasted(self, store_id: str) -> dict:
         try:
-            res = self._client.delete("/api/review-insight/reviews/pasted", params={"store_id": store_id})
+            res = self._client.delete("/api/review-insight/reviews/pasted", params={"store_id": store_id, **self._visitor()})
         except httpx.HTTPError as exc:
             raise SourceError(f"리뷰 분석 서비스({self.base_url})에 연결하지 못했습니다: {exc.__class__.__name__}") from None
         return self._json(res)

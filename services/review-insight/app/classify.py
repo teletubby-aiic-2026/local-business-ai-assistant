@@ -27,6 +27,7 @@ from pathlib import Path
 
 import httpx
 
+from app import storage
 from app.models import POLARITIES, SENTIMENTS, Review, ReviewClassification, TopicHit
 from app.examples import similar
 from app.morph import content_morphemes
@@ -36,7 +37,7 @@ log = logging.getLogger("review_insight.classify")
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLAY_FILE = ROOT / "data" / "replay" / "classify.json"           # 합성 리뷰 결과 (저장소에 올려도 됨)
-RUNTIME_CACHE = ROOT / "data" / "runtime" / "classify_paste.json"   # 붙여넣은 리뷰 결과 (저장소에 안 올림)
+RUNTIME_CACHE = ROOT / "data" / "runtime" / "classify_paste.json"   # 붙여넣은 리뷰 결과 (저장소에 안 올림). DB 설정이 있으면 review_labels 표
 USAGE_LOG = ROOT / "logs" / "llm_usage.jsonl"                        # 규격 5.6: 호출마다 한 줄, 글은 남기지 않음 (저장소에 안 올림)
 KST = timezone(timedelta(hours=9))
 ENDPOINT = "https://clovastudio.stream.ntruss.com/v3/chat-completions/{model}"
@@ -315,6 +316,29 @@ class Classifier:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
+    # 붙여넣은 리뷰의 결과 저장소: 기본은 위의 파일, DB_HOST 가 있으면 DB (같은 글이면 방문자와 상관없이 같은 결과)
+    def _runtime_get(self, keys: set[str]) -> dict:
+        db = storage.database()
+        if db is None:
+            return self._load(RUNTIME_CACHE)
+        try:
+            with storage.guarded():
+                return db.labels.get_many(keys)
+        except storage.StorageUnavailable as exc:      # 저장된 결과는 없는 셈 치고 새로 분류한다 (화면은 계속 뜸)
+            log.warning("분류 결과 저장소를 읽지 못함: %s", exc)
+            return {}
+
+    def _runtime_put(self, new: dict) -> None:
+        db = storage.database()
+        if db is None:
+            self._save(RUNTIME_CACHE, new)
+            return
+        try:
+            with storage.guarded():
+                db.labels.put_many(new, prompt_version=PROMPT_VERSION, model=self.model)
+        except storage.StorageUnavailable as exc:      # 못 남겨도 이번 결과는 그대로 쓴다
+            log.warning("분류 결과를 저장하지 못함: %s", exc)
+
     # ── 모델 호출 ──
     def _call(self, batch: list[Review]) -> list:
         body = {"messages": [{"role": "system", "content": system_prompt(self.hints)},
@@ -380,7 +404,8 @@ class Classifier:
         if self.mode == "mock":
             return [rule_classify(r.review_id, r.text, r.rating, r.channel) for r in reviews]
 
-        replay, runtime = self._load(REPLAY_FILE), self._load(RUNTIME_CACHE)
+        replay = self._load(REPLAY_FILE)
+        runtime = self._runtime_get({cache_key(r, self.model, self.hints) for r in reviews if r.input_method != "sample"})
         out: dict[str, ReviewClassification] = {}
         todo: list[Review] = []
         for r in reviews:
@@ -418,5 +443,5 @@ class Classifier:
             if new_replay:
                 self._save(REPLAY_FILE, new_replay)
             if new_runtime:
-                self._save(RUNTIME_CACHE, new_runtime)
+                self._runtime_put(new_runtime)
         return [out[r.review_id] for r in reviews]
