@@ -148,9 +148,11 @@ def has_claimed_action(text: str) -> bool:
 
 
 def has_apology(text: str) -> bool:
-    """글의 첫 문장에 사과("죄송")가 있으면 True."""
-    first = _SENT_SPLIT.split(text.strip())[0] if text and text.strip() else ""
-    return bool(_APOLOGY.search(first))
+    """글의 처음 두 문장 안에 사과("죄송")가 있으면 True."""
+    if not text or not text.strip():
+        return False
+    sentences = _SENT_SPLIT.split(text.strip())
+    return bool(_APOLOGY.search(" ".join(sentences[:2])))
 
 
 def ai_part_only_empathy(text: str) -> bool:
@@ -195,6 +197,12 @@ def notice_formal(text: str) -> bool:
     formal = sum(1 for ln in lines if _FORMAL_END.search(ln))
     informal = sum(1 for ln in lines if _INFORMAL_END.search(ln) and not _FORMAL_END.search(ln))
     return formal > 0 and formal >= informal
+
+
+def notice_informal_lines(text: str) -> list[str]:
+    """notice_formal 이 걸릴 때, 해요체(-요)로 끝난 줄을 그대로 찾아 다시 쓰기 지시에 보여 준다."""
+    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    return [ln for ln in lines if _INFORMAL_END.search(ln) and not _FORMAL_END.search(ln)]
 
 
 def notice_vs_reply(text: str, reply_texts: list[str] | None) -> bool:
@@ -280,7 +288,9 @@ def quotes_review(text: str, reviews) -> bool:
     return False
 
 
-def fix_hints(failed: list[str]) -> list[str]:
+def fix_hints(failed: list[str], formal: bool = False) -> list[str]:
+    """failed 점검 이름 -> 고치는 법 한 줄. formal=True(공지)면 no_stiff_words 힌트에 '구어체'를
+    쓰지 않는다 — 공지는 합니다체가 기본이라 '구어체로 바꿔 주세요'가 합니다체 요구와 반대로 들린다."""
     mapping = {
         "has_number_not_in": "메뉴판에 있는 가격만 써 주세요.",
         "no_bad_number": "메뉴판에 있는 가격만 써 주세요.",
@@ -304,7 +314,7 @@ def fix_hints(failed: list[str]) -> list[str]:
                            "'~할게요'처럼 앞으로 할 일로 다시 써 주세요.",
         "no_claimed_action": "'보내드렸어요'·'챙겨 드렸'·'환불해 드렸'·'다시 보내'·'재발송'처럼 아직 하지 않은 "
                               "보상·조치를 이미 처리한 것처럼 쓰지 말고, '챙겨 드릴게요'처럼 앞으로 할 일로 써 주세요.",
-        "has_apology": "첫 문장에 불편을 드려 죄송하다는 사과를 넣어 주세요.",
+        "has_apology": "처음 두 문장 안에 불편을 드려 죄송하다는 사과를 넣어 주세요.",
         "notice_has_start": "시작 시점 표현(예: '오늘부터')을 그대로 넣어 주세요.",
         "notice_not_personal": "'고객님'·'주문하신'처럼 한 사람을 가리키는 말 대신, 모든 손님에게 알리는 투로 써 주세요.",
         "notice_formal": "해요체 대신 합니다체로 써 주세요.",
@@ -315,4 +325,6 @@ def fix_hints(failed: list[str]) -> list[str]:
         "no_unknown_menu": "메뉴에 있는 음식 이름만 써 주세요.",
         "no_markdown": "마크다운 기호(**, #, ` 등) 없이 일반 문장으로 써 주세요.",
     }
+    if formal:
+        mapping["no_stiff_words"] = "사전에 있는 딱딱한 표현을 더 자연스러운 표현으로 바꿔 주세요(합니다체는 유지)."
     return [mapping.get(f, f"{f}을(를) 수정해 주세요.") for f in failed]

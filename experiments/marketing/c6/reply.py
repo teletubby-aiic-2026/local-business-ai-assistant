@@ -33,7 +33,7 @@ from c6.measures import (
 )
 from c6.style import assemble, detect_register
 from c6.output import DraftOutput, CardResult
-from common.korean import display_name, josa, and_join
+from common.korean import display_name, josa, join_item_groups
 
 _MAX_REWRITES = 2  # 공감 부분을 이만큼 다시 써도 점검을 못 넘으면 코드 템플릿으로 바꿔 넣는다
 
@@ -193,7 +193,7 @@ def _missing_items(review_text, menu_names):
 
 def _fact_line(review, menu_names):
     missing = _missing_items(review.text, menu_names)
-    parts = [f"F_{review.review_id}.missing={','.join(missing) if missing else '없음'}"]
+    parts = [f"F_{review.review_id}.missing={join_item_groups([missing]) if missing else '없음'}"]
     parts.append(f"taste={'Y' if _TASTE.search(review.text) else 'N'}")
     parts.append(f"amount={'Y' if _AMOUNT.search(review.text) else 'N'}")
     return " / ".join(parts)
@@ -232,14 +232,16 @@ def _run_checks(text, review, menu_names, allowed_numbers, policies,
     return result
 
 
-def _fallback_sentence(review, menu_names, register):
+def _fallback_sentence(review, menu_names, register, idx):
     """공감 부분을 2번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿. 품목은 리뷰에서 빠진 품목
-    전부를 common.korean.and_join 으로 연결(예: "수저와 젓가락"), 없으면 '주문하신 품목'.
-    조사(이/가)는 common.korean.josa 로 고른다."""
+    전부를 common.korean.join_item_groups 로 연결(예: "수저와 젓가락"), 없으면 '주문하신 품목'.
+    조사(이/가)는 common.korean.josa 로 고른다. 말투별 템플릿이 3개씩 있어 리뷰 순서(idx)로
+    돌려 써서, 답글 여러 개가 한꺼번에 대체 문장을 써도 서로 겹치지 않게 한다."""
     missing = _missing_items(review.text, menu_names)
-    item = and_join(missing) if missing else "주문하신 품목"
+    item = join_item_groups([missing]) if missing else "주문하신 품목"
     particle = josa(item, "이", "가")
-    return REPLY_FALLBACK_TMPL[register].format(item=item, particle=particle)
+    variants = REPLY_FALLBACK_TMPL[register]
+    return variants[idx % len(variants)].format(item=item, particle=particle)
 
 
 def _process_review(review, *, idx, card_id, store, store_display, menu_names, allowed_numbers,
@@ -311,7 +313,7 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
     # needs_input 에는 남기지 않는다 — 대체 문장은 늘 점검을 통과하므로 사람이 볼 필요가 없다.
     used_fallback = bool(failed)
     if used_fallback:
-        ai_body = _fallback_sentence(review, menu_names, ai_register)
+        ai_body = _fallback_sentence(review, menu_names, ai_register, idx)
         text, evidence, chk, failed = _check(ai_body)
     chk["used_fallback"] = used_fallback
 
@@ -330,7 +332,9 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
         data_origin=store.data_origin,
         style=style,
     )
-    return draft, won, ai_body
+    # not_too_similar(답글끼리 너무 겹치는지)는 다른 답글들이 다 끝나야 알 수 있어 여기선 못 본다.
+    # generate_reply_draft 가 전부 끝난 뒤 한 번 더 써 볼 수 있도록 system·user_line·_check 를 같이 돌려준다.
+    return draft, won, ai_body, system, user_line, _check
 
 
 def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None, reply_style="auto"):
@@ -374,21 +378,72 @@ def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None, 
             for i, rv in enumerate(target_reviews)
         }
         ai_parts = [None] * len(target_reviews)
+        systems = [None] * len(target_reviews)
+        user_lines = [None] * len(target_reviews)
+        check_fns = [None] * len(target_reviews)
         for fut in futures:
             i = futures[fut]
-            draft, won, ai_part = fut.result()
+            draft, won, ai_part, system, user_line, check_fn = fut.result()
             drafts[i] = draft
             ai_parts[i] = ai_part
+            systems[i] = system
+            user_lines[i] = user_line
+            check_fns[i] = check_fn
             total_won += won
 
-    # 같은 리뷰 묶음이니 서로 너무 비슷하지 않은지는 전부 끝난 뒤에 본다 (추가 호출 없음).
+    # 같은 리뷰 묶음이니 서로 너무 비슷하지 않은지는 전부 끝난 뒤에 본다.
     # 코드가 붙이는 M1·P1·인사·마무리는 다 같이 겹치므로, AI 가 쓴 공감·사과 부분만 비교한다.
+    # used_fallback=True 인 답글(코드 템플릿)은 비교에서 뺀다 — AI 가 쓴 게 아니라서 서로 비슷해도
+    # 문제가 아니고, 템플릿도 말투별 3개를 돌려 쓰므로 실제로 겹칠 일이 드물다.
+    # 비교 전에 리뷰 사실(F)에서 뽑은 품목 이름을 지운다 — "공깃밥이 빠져서 죄송해요"처럼 품목만
+    # 다르고 틀이 같은 두 문장이 글자 수 차이만으로 서로 달라 보여 점검을 통과하는 걸 막기 위해서다.
+    item_sets = [_missing_items(rv.text, menu_names) for rv in target_reviews]
+
+    def _strip_items(text, items):
+        for it in items:
+            text = text.replace(it, "")
+        return text
+
+    def _similar_to_others(i, text):
+        if not text:
+            return False
+        stripped_i = _strip_items(text, item_sets[i])
+        for j, other in enumerate(ai_parts):
+            if j == i or not other or drafts[j].checks.get("used_fallback"):
+                continue
+            if checks.too_similar(stripped_i, _strip_items(other, item_sets[j])):
+                return True
+        return False
+
     for i, d in enumerate(drafts):
-        others = [t for j, t in enumerate(ai_parts) if j != i and t]
-        similar = bool(ai_parts[i]) and any(checks.too_similar(ai_parts[i], o) for o in others)
-        d.checks["not_too_similar"] = not similar
+        if d.checks.get("used_fallback"):
+            d.checks["not_too_similar"] = True
+            continue
+        similar = _similar_to_others(i, ai_parts[i])
         if similar:
-            d.failed_reasons = list(d.failed_reasons) + checks.fix_hints(["not_too_similar"])
+            # 걸리면 1번만 다르게 다시 써 본다 (다른 답글과 겹친다고 알려 준다)
+            retry_content = (
+                user_lines[i] + "\n\n수정 지시:\n- 다른 답글과 표현이 겹쳐요. "
+                "같은 뜻이라도 다른 표현으로 다시 써 주세요."
+            )
+            resp = clova.call(key, systems[i], [{"role": "user", "content": retry_content}],
+                               model=model, max_tokens=200, temperature=0.5)
+            total_won += resp.get("won", 0)
+            raw = resp.get("content", "")
+            _log_raw(raw, target_reviews[i].review_id)
+            new_body = parsing.extract_body(raw)
+            if new_body:
+                new_text, new_evidence, new_chk, new_failed = check_fns[i](new_body)
+                # 다른 점검까지 다 통과해야 바꿔 넣는다 (안 그러면 글이 더 나빠질 수 있다)
+                if not new_failed:
+                    ai_parts[i] = new_body
+                    new_chk["used_fallback"] = False
+                    d.text, d.evidence_ids, d.checks = new_text, new_evidence, new_chk
+                    d.rewrites += 1
+                    similar = _similar_to_others(i, ai_parts[i])
+        # 그래도 비슷하면 실패가 아니라 참고로만 남긴다 — length_ok 처럼 failed_reasons·needs_input 에
+        # 넣지 않는다(measure_live.py 의 RETRY_EXEMPT 도 같이 뺐다).
+        d.checks["not_too_similar"] = not similar
 
     elapsed_ms = round((time.perf_counter() - start) * 1000)
     for d in drafts:

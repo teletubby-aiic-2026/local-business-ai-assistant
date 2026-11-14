@@ -14,7 +14,10 @@ from c6 import checks
 from c6 import parsing
 from c6.measures import MEASURE_FALLBACK_SENTENCES
 from c6.output import DraftOutput, CardResult
-from common.korean import display_name, eul
+from c6.reply import _missing_items
+from common.korean import display_name, eul, join_item_groups, josa
+
+_MAX_REWRITES = 2  # 답글(c6.reply) 과 같은 한도 — 이만큼 다시 써도 점검을 못 넘으면 코드 템플릿으로 바꿔 넣는다
 
 NOTICE_FEWSHOT = (
     "최근 공깃밥, 수저, 계란말이가 빠진 상태로 배달된 일이 있었습니다.\n"
@@ -26,23 +29,47 @@ NOTICE_FEWSHOT = (
 _TOPIC_LABELS = {"missing_item": "포장 누락"}
 _DEFAULT_TOPIC = "운영 개선"
 
+# 두 번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿 (c6.reply 의 used_fallback 과 같은 방식).
+# {item}{particle} 은 리뷰 사실(F)에서 뽑은 빠진 품목 + 조사, {measure_sentence} 는 고른 조치의
+# 합니다체 문장(c6.measures.MEASURE_FALLBACK_SENTENCES).
+NOTICE_FALLBACK_TMPL = (
+    "최근 {item}{particle} 빠진 상태로 배달된 일이 있었습니다.\n"
+    "불편을 드려 죄송합니다.\n"
+    "{start_label} {measure_sentence}\n"
+    "이외에도 필요한 게 있으면 요청사항에 적어 주세요."
+)
+_NOTICE_FALLBACK_GENERIC_MEASURE = "비슷한 일이 반복되지 않도록 더 신경 쓰겠습니다."
+
+# MEASURE_FALLBACK_SENTENCES 는 "앞으로 ~하겠습니다" 꼴이라, start_label("오늘부터")과 바로 이어 붙이면
+# "오늘부터 앞으로 포장 마감 전에…"처럼 시점 표현이 겹친다. 조치 문장 앞의 이런 표현은 지우고 붙인다.
+_LEADING_TIME_PHRASES = ("앞으로는", "앞으로", "다음부터는", "다음부터", "이제부터는", "이제부터")
+
+
+def _drop_leading_time_phrase(sentence: str) -> str:
+    s = sentence.strip()
+    for phrase in _LEADING_TIME_PHRASES:
+        if s.startswith(phrase):
+            return s[len(phrase):].lstrip()
+    return s
+
 SYSTEM_TMPL = """\
 당신은 {store_name} 사장님입니다. 반복되는 손님 불만에 대해 "모든 손님에게 알리는 공지" 본문 4문장만 쓰세요.
 제목·시작 인사·마무리 인사는 쓰지 마세요. 코드가 따로 붙입니다. JSON이 아니라 문장 그대로 답해도 됩니다.
 
-## 말투
-합니다체로 쓸 것(해요체·반말 금지). "고객님"·"주문하신"처럼 손님 한 명을 가리키는 말은 쓰지 말 것 —
+## 말투 (반드시 지킬 것)
+모든 문장을 합니다체로 쓸 것(해요체·반말 금지) — 문장 끝이 전부 "-습니다"·"-니다"·"-세요" 중 하나로 끝나야 합니다.
+"고객님"·"주문하신"처럼 손님 한 명을 가리키는 말은 쓰지 말 것 —
 이 공지는 한 손님에게 보내는 답글이 아니라 모든 손님에게 알리는 글입니다.
-문장마다 줄을 바꿀 것(한 줄 = 한 문장, 총 4줄).
+문장마다 줄을 바꿀 것(한 줄 = 한 문장, 총 4줄, 더 쪼개거나 합치지 말 것).
 
-## 좋은 예시 (이런 느낌으로, 그대로 베끼지 말 것)
+## 좋은 예시 (문장 수·줄바꿈·어미를 그대로 따라 쓰고, 내용만 새로 쓸 것)
 {fewshot}
 
-## 본문 순서 (4문장, 줄바꿈으로 구분)
-1. 최근 있었던 일을 한 문장으로: 아래 리뷰들에서 빠졌던 품목을 묶어서, 특정 손님을 가리키지 않고 서술
-2. 짧은 사과 한 문장
-3. "{start_label}"로 시작해서 개선 조치를 알릴 것: {measure_rule}
-4. 손님이 도와줄 수 있는 것: 다음 주문 때 요청사항에 적어 주시면 챙기겠다는 안내
+## 본문 순서 (4문장, 줄바꿈으로 구분) — 위 예시와 같은 구조
+1. 최근 있었던 일을 한 문장으로: 아래 리뷰들에서 빠졌던 품목을 묶어서, 특정 손님을 가리키지 않고 서술. "-습니다"로 끝날 것
+2. 짧은 사과 한 문장. "-습니다"로 끝날 것
+3. 반드시 "{start_label}"로 시작하는 문장 1개. 개선 조치를 알릴 것: {measure_rule}. "-겠습니다"로 끝날 것
+4. 손님이 도와줄 수 있는 것: 다음 주문 때 요청사항에 적어 주시면 챙기겠다는 안내. "-세요"로 끝날 것
 
 ## 길이·금지
 한 문장(줄)마다 60자 안팎, 총 4줄. 아래 리뷰 원문을 그대로 베끼지 말고 새로 쓸 것. 금전 보상 약속·고객 개인정보 금지.
@@ -85,10 +112,35 @@ def _insert_measure_line(body: str, line: str) -> str:
     return "\n".join(lines[:-1] + [line] + lines[-1:])
 
 
+def _notice_fallback_item_groups(target_reviews, menu_names):
+    """공지 대상 리뷰별로 빠진 품목을 묶음으로 뽑는다(리뷰 1건 = 묶음 1개, c6.reply._missing_items 재사용).
+    common.korean.join_item_groups 가 묶음 안은 '와/과', 묶음끼리는 쉼표로 잇는다."""
+    return [_missing_items(rv.text, menu_names) for rv in target_reviews]
+
+
+def _notice_fallback_text(target_reviews, menu_names, chosen_measures, start_label):
+    """두 번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿 본문 (c6.reply._fallback_sentence 와 같은 방식).
+    "주문하신" 처럼 손님 한 명을 가리키는 말은 notice_not_personal 에 걸리니 기본값으로 쓰지 않는다."""
+    groups = [g for g in _notice_fallback_item_groups(target_reviews, menu_names) if g]
+    item = join_item_groups(groups) if groups else "포장 품목"
+    particle = josa(item, "이", "가")
+    if chosen_measures:
+        measure_sentence = MEASURE_FALLBACK_SENTENCES.get(
+            chosen_measures[0]["id"], chosen_measures[0]["text"],
+        )
+    else:
+        measure_sentence = _NOTICE_FALLBACK_GENERIC_MEASURE
+    measure_sentence = _drop_leading_time_phrase(measure_sentence)
+    return NOTICE_FALLBACK_TMPL.format(
+        item=item, particle=particle, start_label=start_label, measure_sentence=measure_sentence,
+    )
+
+
 def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=None,
                                 reply_texts=None, start_label="오늘부터"):
     store = ctx.store
     tone = ctx.tone
+    menu_names = list(store.menu)
     review_map = {r.review_id: r for r in ctx.reviews}
     target_reviews = [review_map[rid] for rid in card.review_ids if rid in review_map]
     forbidden_phrases = list(tone.forbidden_phrases) if tone.forbidden_phrases else []
@@ -140,7 +192,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
             "no_stiff_words": not checks.has_stiff_words(body),
             "no_overpromise": not checks.has_overpromise(text),
             "no_claimed_action": not checks.has_claimed_action(text),
-            "has_apology": "죄송" in body,
+            "has_apology": checks.has_apology(body),
             "notice_has_start": checks.notice_has_start(body, start_label),
             "notice_not_personal": checks.notice_not_personal(text),
             "notice_formal": checks.notice_formal(body),
@@ -165,39 +217,56 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
     total_won = 0.0
     rewrites = 0
 
-    resp = clova.call(key, system, messages, model=model, max_tokens=512, temperature=0.5)
+    resp = clova.call(key, system, messages, model=model, max_tokens=512, temperature=0.3)
     total_won += resp.get("won", 0)
     raw = resp.get("content", "")
     body = parsing.extract_body(raw)  # JSON이든 평문이든 본문을 절대 버리지 않는다
 
     text, check_results, failed = _check(body)
 
-    if failed and body:
-        hints = checks.fix_hints(failed)
+    while failed and body and rewrites < _MAX_REWRITES:
+        hints = checks.fix_hints(failed, formal=True)
+        # notice_formal 이 걸렸으면, 해요체로 끝난 줄을 그대로 보여 주고 고치게 한다
+        if "notice_formal" in failed:
+            bad_lines = checks.notice_informal_lines(body)
+            if bad_lines:
+                hints = hints + [
+                    "해요체(-요)로 끝난 문장: " + " / ".join(bad_lines) + " → 합니다체로 고쳐 주세요.",
+                ]
         retry_msg = [
             {"role": "user", "content": f"카드 이유: {card.reason_text}"},
             {"role": "assistant", "content": raw},
             {"role": "user", "content": "수정 지시:\n" + "\n".join(f"- {h}" for h in hints)},
         ]
-        resp2 = clova.call(key, system, retry_msg, model=model, max_tokens=512, temperature=0.5)
+        resp2 = clova.call(key, system, retry_msg, model=model, max_tokens=512, temperature=0.3)
         total_won += resp2.get("won", 0)
-        body2 = parsing.extract_body(resp2.get("content", ""))
+        raw = resp2.get("content", "")
+        body2 = parsing.extract_body(raw)
+        rewrites += 1
         if body2:
             body = body2
-            rewrites += 1
         text, check_results, failed = _check(body)
 
     # 딱딱한 표현이 남으면 본문에만 사전대로 단어를 바꾼다 (추가 호출 없음)
     if not check_results.get("no_stiff_words", True):
         body = checks.fix_stiff_words(body)
+        text, check_results, failed = _check(body)
 
     # 조치 키워드가 본문에 이미 없을 때만 표준 문장을 마지막 줄(요청사항 안내) 바로 앞에 끼워 넣는다
     if chosen_measures and not checks.chosen_measure_included(body, chosen_measures):
         fallback = MEASURE_FALLBACK_SENTENCES.get(chosen_measures[0]["id"], chosen_measures[0]["text"])
+        fallback = _drop_leading_time_phrase(fallback)
         body = _insert_measure_line(body, f"{start_label} {fallback}")
+        text, check_results, failed = _check(body)
 
-    # 최종 조립 = 제목 줄 + 시작 줄 + AI 본문(그대로, 필요하면 끼워 넣은 줄 포함) + 마무리 줄
-    text, check_results, failed = _check(body)
+    # 그래도(총 1 + _MAX_REWRITES 번 시도) 점검을 못 넘으면 코드 템플릿으로 바꿔 넣고 통과 처리한다
+    # (c6.reply 의 used_fallback 과 같은 방식). needs_input 에는 남기지 않는다 — 대체 문장은 늘
+    # 점검을 통과하므로 사람이 볼 필요가 없다.
+    used_fallback = bool(failed)
+    if used_fallback:
+        body = _notice_fallback_text(target_reviews, menu_names, chosen_measures, start_label)
+        text, check_results, failed = _check(body)
+    check_results["used_fallback"] = used_fallback
 
     elapsed_ms = round((time.perf_counter() - start) * 1000)
 
@@ -209,7 +278,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         text=text,
         evidence_ids=evidence_ids,
         checks=check_results,
-        failed_reasons=checks.fix_hints(failed) if failed else [],
+        failed_reasons=checks.fix_hints(failed, formal=True) if failed else [],
         rewrites=rewrites,
         model=model,
         elapsed_ms=elapsed_ms,

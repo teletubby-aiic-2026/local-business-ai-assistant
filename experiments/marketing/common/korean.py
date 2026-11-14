@@ -48,6 +48,16 @@ def and_join(items):
     return f"{head[0]}{connector} {last}"
 
 
+def join_item_groups(groups):
+    """묶음(묶음 하나 = 리뷰 한 건에서 뽑은 품목들) 여러 개를 자연스럽게 연결한다.
+    묶음 안은 and_join(와/과), 묶음과 묶음 사이는 쉼표로 잇는다.
+    예: [["공깃밥"], ["수저", "젓가락"], ["계란말이"]] -> "공깃밥, 수저와 젓가락, 계란말이".
+    리뷰가 하나뿐이면(묶음 1개) and_join 과 같다: [["수저", "젓가락"]] -> "수저와 젓가락".
+    답글·공지 템플릿, AI 프롬프트에 넘기는 품목 문자열 모두 이 함수로 만든다."""
+    parts = [and_join(g) for g in groups if g]
+    return ", ".join(parts)
+
+
 def nospace(s):
     return re.sub(r"\s+", "", s or "")
 

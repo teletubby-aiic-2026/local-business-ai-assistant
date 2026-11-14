@@ -120,6 +120,14 @@ def _clean_run(results):
     return True
 
 
+# 다시 쓰기 사유(실패)로 치지 않는 참고용 점검 — False 라도 d.failed_reasons 에는 안 들어간다
+# (c6/reply.py _RETRY_EXEMPT, notice.py retry_exempt, services/web/scripts/measure_live.py
+# RETRY_EXEMPT 와 같은 목록). used_fallback 은 반대로 True 일 때가 알릴 일이라 따로 표시한다.
+_REFERENCE_ONLY_CHECKS = ("length_ok", "uses_opening", "uses_closing", "not_too_similar")
+_REFERENCE_LABELS = {"length_ok": "길이", "uses_opening": "시작 인사", "uses_closing": "마무리 인사",
+                     "not_too_similar": "비슷함"}
+
+
 def write_report(results, path, mode):
     lines = ["# C6 전체 카드 실행 결과", "", f"모드: {mode}", "",
              "## 카드별 걸린 시간 · 요금", "",
@@ -148,15 +156,17 @@ def write_report(results, path, mode):
             else:
                 ev = "없음"
             lines.append(f"- 근거: {ev}")
-            # 실패 항목이 있으면 어느 답글/공지(title)의 어느 점검(key)인지 같이 보인다.
-            # length_ok(참고용)·used_fallback(정보용, False=기본값이라 "실패"가 아님)은 제외한다.
-            failed_keys = [k for k, v in d.checks.items() if not v and k not in ("length_ok", "used_fallback")]
-            if failed_keys:
-                hints = checks.fix_hints(failed_keys)
-                detail = "; ".join(f"[{title}] {k}: {h}" for k, h in zip(failed_keys, hints))
+            # 실패 항목은 d.failed_reasons 만 쓴다(= 다시 쓰기 사유였던 것). checks 에서 False 를
+            # 직접 긁으면 length_ok·not_too_similar 처럼 참고용인데 "실패"로 잘못 보일 수 있다.
+            if d.failed_reasons:
+                detail = "; ".join(f"[{title}] {h}" for h in d.failed_reasons)
                 lines.append(f"- 실패 항목: {detail}")
             else:
                 lines.append("- 실패 항목: 없음")
+            ref_keys = [k for k in _REFERENCE_ONLY_CHECKS if d.checks.get(k) is False]
+            if ref_keys:
+                labels = ", ".join(_REFERENCE_LABELS[k] for k in ref_keys)
+                lines.append(f"- 참고: {labels}")
             if d.checks.get("used_fallback"):
                 lines.append("- 대체 문장 사용: 예 (공감 부분을 코드 템플릿으로 교체)")
             lines.append(f"- 다시 쓴 횟수: {d.rewrites}")
@@ -174,6 +184,214 @@ def write_cache(results, path):
     path.write_text(
         json.dumps([r.to_dict() for r in results], ensure_ascii=False, indent=2), encoding="utf-8",
     )
+
+
+def save_best(results, path):
+    """저장본에 이번에 실행한 카드 종류만 교체하고, 실행하지 않은 다른 카드 종류는 그대로 둔다.
+
+    --cards complaint 처럼 일부 카드만 돌렸을 때(예: promo)가 저장본에서 통째로 사라지는 걸 막는다.
+    같은 card_id 는 이번 결과로 덮어쓰고, 저장본에만 있던 card_id 는 그대로 남긴다.
+    """
+    existing = []
+    if path.exists():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+
+    new_ids = {r.card_id for r in results}
+    kept = [d for d in existing if d.get("card_id") not in new_ids]
+    merged = kept + [r.to_dict() for r in results]
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+class TestSaveBestMerge(unittest.TestCase):
+    """save_best: --cards 로 일부 카드 종류만 돌려도, 저장본에만 있던 다른 카드 종류는 지워지지 않아야 한다."""
+
+    def test_saving_complaint_only_keeps_existing_promo(self):
+        import tempfile
+        from pathlib import Path
+
+        existing = [
+            {"card_id": "card_sample_a", "kind": "complaint", "reason_text": "옛 이유", "drafts": []},
+            {"card_id": "card_sample_b", "kind": "promo", "reason_text": "홍보 이유", "drafts": []},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cache.json"
+            path.write_text(json.dumps(existing, ensure_ascii=False), encoding="utf-8")
+
+            new_complaint = CardResult(
+                card_id="card_sample_a", kind="complaint", reason_text="새 이유",
+                drafts=[], elapsed_ms=0, won=0.0,
+            )
+            save_best([new_complaint], path)
+
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            kinds = {d["card_id"]: d["kind"] for d in saved}
+            # promo(card_sample_b)는 이번에 안 돌렸어도 저장본에 그대로 남아야 한다
+            self.assertEqual(kinds, {"card_sample_a": "complaint", "card_sample_b": "promo"})
+            updated = next(d for d in saved if d["card_id"] == "card_sample_a")
+            self.assertEqual(updated["reason_text"], "새 이유")
+
+
+class TestNoticeChecksConsistency(unittest.TestCase):
+    """공지 점검끼리 서로 반대 요구를 하지 않는지: 합니다체 정상 공지 예시 1개가 모든 점검을 통과해야 한다."""
+
+    def test_well_formed_hamnida_notice_passes_all_checks(self):
+        body = (
+            "최근 몇몇 주문에서 포장할 때 품목이 하나씩 빠지는 일이 있었습니다.\n"
+            "불편을 드려 죄송합니다.\n"
+            "오늘부터 포장 마감 전에 주문서와 한 번 더 대조하겠습니다.\n"
+            "필요한 점이 있으면 요청사항에 적어 주시기 바랍니다."
+        )
+        chosen_measures = [MEASURES[0]]  # M1: 포장 마감 전 주문서 대조
+
+        self.assertTrue(checks.has_apology(body), body)
+        self.assertTrue(checks.notice_has_start(body, "오늘부터"), body)
+        self.assertTrue(checks.notice_not_personal(body), body)
+        self.assertTrue(checks.notice_formal(body), body)
+        self.assertFalse(checks.has_stiff_words(body), body)
+        self.assertFalse(checks.has_overpromise(body), body)
+        self.assertFalse(checks.has_claimed_action(body), body)
+        self.assertTrue(checks.chosen_measure_included(body, chosen_measures), body)
+        self.assertFalse(checks.has_invented_measure(body, chosen_measures), body)
+        self.assertTrue(checks.notice_vs_reply(body, None), body)
+
+
+class TestNoticeFormalFixHintsMock(unittest.TestCase):
+    """공지는 합니다체가 기본이라, no_stiff_words 힌트에 '구어체'로 바꾸라는 말이 나오면 안 된다."""
+
+    def test_formal_hint_never_says_colloquial(self):
+        hints = checks.fix_hints(["no_stiff_words"], formal=True)
+        self.assertTrue(hints)
+        for h in hints:
+            self.assertNotIn("구어체", h, h)
+
+    def test_non_formal_hint_still_mentions_colloquial(self):
+        # 답글(reply)은 formal=False(기본값)로 부르니, 기존 문구가 그대로 남아야 한다
+        hints = checks.fix_hints(["no_stiff_words"])
+        self.assertIn("구어체", hints[0])
+
+
+class TestNoticeFallbackTemplateMock(unittest.TestCase):
+    """공지도 답글의 used_fallback 과 같은 방식: 두 번 다시 써도 점검을 못 넘으면 코드 템플릿으로
+    바꿔 넣고 통과 처리한다."""
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_always_bad_notice_response_falls_back_and_still_passes(self):
+        card = next(c for c in CTX.cards if c.kind == "complaint")
+
+        def _always_bad(key, system, messages, model="HCX-005", **kw):
+            # 반말·개인정보 섞인, 절대 점검을 못 넘는 공지 본문
+            return _ok("야 다들 들어봐 공깃밥 빠진 거 완전 웃기지 않냐 ㅋㅋ")
+
+        with patch("clova.call", side_effect=_always_bad):
+            result = run_card(CTX, card, "fake-key", chosen_measures=[MEASURES[0]])
+
+        notice_draft = next(d for d in result.drafts if d.generator == "prevention_notice")
+        self.assertTrue(notice_draft.checks["used_fallback"], notice_draft.checks)
+        self.assertEqual(notice_draft.rewrites, 2)
+        self.assertFalse(notice_draft.failed_reasons, notice_draft.failed_reasons)
+        self.assertTrue(notice_draft.checks["notice_formal"], notice_draft.checks)
+        self.assertTrue(notice_draft.checks["has_apology"], notice_draft.checks)
+        self.assertTrue(notice_draft.checks["notice_has_start"], notice_draft.checks)
+        self.assertTrue(notice_draft.checks["chosen_measure_included"], notice_draft.checks)
+        # 템플릿은 "주문하신"처럼 손님 한 명을 가리키는 말을 쓰지 않는다
+        self.assertNotIn("주문하신", notice_draft.text)
+        # "오늘부터" 뒤에 "앞으로"/"다음부터"/"이제부터" 같은 시점 표현이 겹치지 않는다
+        for dup in ("오늘부터 앞으로", "오늘부터 다음부터", "오늘부터 이제부터"):
+            self.assertNotIn(dup, notice_draft.text, notice_draft.text)
+        # 리뷰 3개(공깃밥 / 수저·젓가락 / 계란말이)가 리뷰별 묶음으로, 묶음 안은 '와/과', 묶음끼리는
+        # 쉼표로 이어진다 — 하나로 뭉쳐 중복 제거한 평평한 목록이 아니다.
+        self.assertIn("공깃밥, 수저와 젓가락, 계란말이", notice_draft.text)
+
+
+class TestJoinItemGroupsMock(unittest.TestCase):
+    """common.korean.join_item_groups: 묶음 안은 와/과, 묶음끼리는 쉼표. 답글·공지 템플릿·
+    AI 프롬프트에 넘기는 품목 문자열이 모두 이 함수 하나로 만들어진다."""
+
+    def test_single_group_matches_and_join(self):
+        from common.korean import and_join, join_item_groups
+
+        self.assertEqual(join_item_groups([["수저", "젓가락"]]), and_join(["수저", "젓가락"]))
+        self.assertEqual(join_item_groups([["공깃밥"]]), "공깃밥")
+
+    def test_multiple_groups_are_joined_by_review_with_commas(self):
+        from common.korean import join_item_groups
+
+        self.assertEqual(
+            join_item_groups([["공깃밥"], ["수저", "젓가락"], ["계란말이"]]),
+            "공깃밥, 수저와 젓가락, 계란말이",
+        )
+        # 빈 묶음은 건너뛴다
+        self.assertEqual(join_item_groups([["공깃밥"], [], ["계란말이"]]), "공깃밥, 계란말이")
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_reply_fact_line_uses_join_item_groups(self):
+        from c6.reply import _fact_line
+        from common.korean import join_item_groups
+
+        rv = REVIEW_MAP["rv_ongi_002"]  # "수저랑 젓가락이 빠져 있었어요"
+        line = _fact_line(rv, list(SAMPLE_STORE.menu))
+        self.assertIn(f"missing={join_item_groups([['수저', '젓가락']])}", line)
+        self.assertNotIn("missing=수저,젓가락", line)  # 예전 쉼표-only 형식이 아님
+
+
+# rv_ongi_001·rv_ongi_003 은 품목(공깃밥/계란말이)만 다르고 틀이 같은 공감 문장 — 품목 이름을 지우면
+# 글자 그대로 똑같다("이 빠져서 정말 죄송해요."). 재시도해도 모의 응답이 똑같아 그대로 비슷하게 남는다.
+_SIMILAR_BODIES = {
+    "rv_ongi_001": "공깃밥이 빠져서 정말 죄송해요.",
+    "rv_ongi_002": "수저랑 젓가락이 빠져 있었다니 속상하셨겠어요.",
+    "rv_ongi_003": "계란말이가 빠져서 정말 죄송해요.",
+}
+
+
+def _mock_clova_similar(key, system, messages, model="HCX-005", **kw):
+    content = messages[0]["content"] if messages else ""
+    if "## 사실" in system:
+        for rid, body in _SIMILAR_BODIES.items():
+            if rid in content:
+                return _ok(body)
+    return {"content": "{}", "won": 0.0, "tokens": 0, "seconds": 0}
+
+
+class TestNotTooSimilarItemOnlyMock(unittest.TestCase):
+    """품목 이름만 다르고 틀이 같은 두 공감 문장은(지우고 비교해도 비슷함) 실패로 세지 않는다."""
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_item_only_difference_is_not_counted_as_failure(self):
+        from c6.reply import generate_reply_draft
+
+        card = next(c for c in CTX.cards if c.kind == "complaint")
+        with patch("clova.call", side_effect=_mock_clova_similar):
+            result = generate_reply_draft(CTX, card, "fake-key", reply_style="haeyo")
+
+        by_review = {d.target_review_id: d for d in result.drafts}
+        rv1, rv3 = by_review["rv_ongi_001"], by_review["rv_ongi_003"]
+
+        # 품목을 지우면 틀이 똑같으니 not_too_similar 는 False(비슷함)로 남지만,
+        self.assertFalse(rv1.checks["not_too_similar"], rv1.checks)
+        self.assertFalse(rv3.checks["not_too_similar"], rv3.checks)
+        # 실패·확인 필요로는 치지 않는다
+        for d in (rv1, rv3):
+            self.assertFalse(d.failed_reasons, d.failed_reasons)
+            self.assertFalse(d.needs_input, d.needs_input)
+        # 한 번 다시 써 보려고 시도는 한다 (모의 응답은 똑같아서 그대로 비슷하게 남음)
+        self.assertGreaterEqual(rv1.rewrites + rv3.rewrites, 1)
+
+        # 결과 md 에는 "실패 항목: 없음"과 "참고: 비슷함"으로 나와야 한다(실패로 보이면 안 된다)
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "report.md"
+            write_report([result], path, mode="mock")
+            text = path.read_text(encoding="utf-8")
+        for rid in ("rv_ongi_001", "rv_ongi_003"):
+            start = text.index(f"### {rid} (reply_draft)")
+            end = text.find("\n\n", start)
+            section = text[start:] if end < 0 else text[start:end]
+            self.assertIn("- 실패 항목: 없음", section, section)
+            ref_line = next(ln for ln in section.splitlines() if ln.startswith("- 참고:"))
+            self.assertIn("비슷함", ref_line, section)
 
 
 # ── --mock: 가짜 CLOVA 응답. reply.py 는 이제 AI 가 공감·사과만 주고, 조치(M1)·요청사항(P1)·
@@ -491,7 +709,7 @@ class TestAllCardsLive(unittest.TestCase):
 
         if SAVE_BEST:
             if _clean_run(results):
-                write_cache(results, REPLAY_PATH)
+                save_best(results, REPLAY_PATH)
                 print(f"저장본 갱신: {REPLAY_PATH}")
             else:
                 reasons = sorted({
