@@ -131,6 +131,15 @@ def has_overpromise(text: str) -> bool:
     return bool(_OVERPROMISE.search(text))
 
 
+# 사과하는 말이 글 어디에든 있는가 (첫 문장 강제가 아님). 가게 과실 불만의 답글에 쓴다.
+_APOLOGY_ANYWHERE = re.compile(r"죄송|죄스|사과|미안|불찰|송구|면목|불편(?:을|도|이)?\s*(?:드려|드렸|끼쳐|끼쳤)|불편하게\s*해")
+
+
+def has_apology_anywhere(text: str) -> bool:
+    """글 전체에 사과 표현("죄송", "사과", "미안", "불찰", "송구", "불편을 드려" 등)이 하나라도 있으면 True."""
+    return bool(_APOLOGY_ANYWHERE.search(text or ""))
+
+
 def has_apology(text: str) -> bool:
     """글의 첫 문장에 사과("죄송")가 있으면 True."""
     first = _SENT_SPLIT.split(text.strip())[0] if text and text.strip() else ""
@@ -236,8 +245,91 @@ def fix_hints(failed: list[str]) -> list[str]:
         "no_overpromise": "'없을 거예요'·'절대'·'완벽' 같은 장담이나 '도입했으니'처럼 이미 끝난 일처럼 쓰지 말고, "
                            "'~할게요'처럼 앞으로 할 일로 다시 써 주세요.",
         "has_apology": "첫 문장에 불편을 드려 죄송하다는 사과를 넣어 주세요.",
+        "apology_expressed": "가게 잘못일 수 있는 불만이에요. 글 안에 불편을 드려 죄송하다는 사과를 한 번 넣어 주세요.",
         "no_fewshot_copy": "예시 문구의 단어를 그대로 베끼지 말고, 같은 단어를 가까이서 반복하지 말아 주세요.",
         "no_unknown_menu": "메뉴에 있는 음식 이름만 써 주세요.",
         "no_markdown": "마크다운 기호(**, #, ` 등) 없이 일반 문장으로 써 주세요.",
+        # 사과 없이 사실을 설명하는 답글(c6.stance EXPLAIN)의 점검
+        "no_compensation_offer": "요청을 들어드리겠다거나 더 챙겨 드리겠다는 약속, 환불·무료·서비스·할인 같은 말은 빼 주세요.",
+        "no_fault_admission": "가게 잘못이 아닌 리뷰예요. '죄송'·'사과'·'잘못'·'실수'·'불편을 드려' 같은 말 없이 "
+                              "'원하시던 대로 해 드리지 못해 아쉬우셨을 것 같아요'처럼 써 주세요.",
+        "no_customer_blame": "손님을 탓하거나 가르치거나 비꼬는 말('~하셔야'·'원래'·'당연히'·'무리한' 등)은 빼고 담담하게 써 주세요.",
+        "has_regret": "첫 문장에 '원하시던 대로 해 드리지 못해 아쉬우셨을 것 같아요'처럼 정중하게 유감을 표해 주세요.",
+        "explains_principle": "가게가 정한 원칙이나 사실(예: 메뉴판에 있는 구성대로만 준비하고 있어요)을 한 문장으로 설명해 주세요.",
+        "request_mentioned": "리뷰에 나온 메뉴 이름을 그대로 넣어, 어떤 요청이었는지 짚어 주세요.",
+        "haeyo_only": "'~습니다'·'~니다' 같은 합니다체 대신 '~요'로 끝나는 해요체로만 써 주세요.",
     }
     return [mapping.get(f, f"{f}을(를) 수정해 주세요.") for f in failed]
+
+
+# ── 사과 없이 사실을 설명하는 답글(c6.stance EXPLAIN) 전용 점검 ─────────────
+# 가게 과실이 아닌 리뷰에서 쓴다. 사과 답글의 점검(c6.reply._run_checks)은 그대로이고, 이 점검들은 그 답글에 쓰지 않는다.
+
+_COMPENSATION = re.compile(
+    r"환불|쿠폰|무료|공짜|서비스로|보상|증정|할인|적립|덤으로"
+    r"|(?:하나\s*더|더|추가로|다시|새로)\s*(?:챙겨|넣어|보내|만들어)\s*드릴|바꿔\s*드릴|변경해\s*드릴"
+    r"|(?:그렇게|원하시는\s*대로|요청하신\s*대로|말씀하신\s*대로)\s*해\s*드릴"
+)
+_FAULT_ADMISSION = re.compile(
+    r"죄송|사과(?:드|의|를|합)|잘못|실수|불찰|탓|책임|불편을\s*드|불편하게\s*해\s*드|면목|송구|저희가\s*부족"
+)
+_CUSTOMER_BLAME = re.compile(
+    r"진상|블랙\s*컨슈머|악성|억지|무리한|말도\s*안|거짓|갑질|별점\s*테러|보복|상식|당연히|당연한|원래\s*그렇|원래\s*안"
+    r"|명심|알아\s*두|아셔야|하셔야|주셔야|셨어야|했어야|읽어\s*보|확인하고\s*주문|다른\s*(?:가게|곳|집)|굳이|ㅋ|ㅎㅎ|\^\^;|;;"
+    r"|규정|위반|정책\s*상|참고\s*(?:하시|부탁|바랍)|양지"
+)
+_HAEYO_END = re.compile(r"요[.!?~…]*\s*(?::\)|\^\^)?$")
+_REGRET = re.compile(r"아쉬|속상|서운|실망|언짢|기대에\s*못\s*미|기대하신\s*만큼|마음이\s*(?:쓰|무거)")
+_PRINCIPLE = re.compile(
+    r"메뉴판|메뉴\s*구성|구성대로|정해진|원칙|기준|모든\s*(?:손님|분|고객)|똑같이|같은\s*(?:맛|양|구성|기준)|레시피"
+    r"|준비하고\s*있|조리하고\s*있|운영하고\s*있|안내해\s*드리고\s*있|고객센터|가능\s*(?:지역|범위|시간)|영업\s*시간"
+    r"|들어온\s*(?:주문|메뉴)|주문서대로|조리(?:가|를)?\s*(?:시작|들어가)|이미\s*조리|가격대로|가격\s*차이"
+)
+
+
+def offers_compensation(text: str) -> bool:
+    """환불·무료·서비스·할인 같은 보상 낱말이나 '더 챙겨 드릴게요'·'바꿔 드릴게요'처럼 요청을 들어주거나
+    덤을 주겠다는 약속이 있으면 True. promises_not_in_policy(정책 기준)와 따로, 정책과 상관없이 막는다."""
+    return bool(_COMPENSATION.search(text or ""))
+
+
+def admits_fault(text: str) -> bool:
+    """'죄송'·'사과드려요'·'잘못'·'실수'·'불편을 드려'·'책임' 같은 사과·과실 인정 표현이 있으면 True.
+    has_apology(첫 문장 '죄송')와 뜻이 다르다: 글 전체에서 과실을 인정하는 말을 찾는다."""
+    return bool(_FAULT_ADMISSION.search(text or ""))
+
+
+def blames_customer(text: str) -> bool:
+    """손님을 탓하거나('무리한'·'억지'·'진상'), 가르치거나('~하셔야'·'당연히'·'원래 그렇'), 비꼬는('다른 가게'·'굳이'·'ㅋ')
+    표현이 있으면 True."""
+    return bool(_CUSTOMER_BLAME.search(text or ""))
+
+
+def haeyo_only(text: str) -> bool:
+    """문장마다 해요체(~요)로 끝나면 True. 빈 글은 False. (코드가 붙이는 문장이 해요체라 AI 부분도 맞춘다)"""
+    sentences = [s.strip() for s in _SENT_SPLIT.split((text or "").strip()) if s.strip()]
+    return bool(sentences) and all(_HAEYO_END.search(s) for s in sentences)
+
+
+def has_regret(text: str) -> bool:
+    """'아쉬우셨을'·'속상하셨을'·'기대에 못 미쳐' 같은 정중한 유감 표현이 있으면 True."""
+    return bool(_REGRET.search(text or ""))
+
+
+def explains_principle(text: str) -> bool:
+    """가게가 정한 원칙·사실을 설명하는 표현('메뉴판에 있는 구성대로'·'정해진 배달 가능 지역'·'고객센터를 통해 안내해 드리고
+    있어요' 등)이 있으면 True."""
+    return bool(_PRINCIPLE.search(text or ""))
+
+
+def review_menu_items(review_text: str, menu_names: list[str]) -> list[str]:
+    """리뷰에 나온 메뉴 이름 (메뉴 이름 전체, 또는 띄어쓰기로 나눈 3글자 이상 조각. 예: '불고기 덮밥' → '불고기')."""
+    names = {n for name in menu_names for n in (" ".join(name.split()), *(t for t in name.split() if len(t) >= 3))}
+    return sorted((n for n in names if n and n in (review_text or "")), key=len, reverse=True)
+
+
+def mentions_review_items(text: str, review_text: str, menu_names: list[str]) -> bool:
+    """리뷰에 메뉴 이름이 나오면 답글도 그중 하나를 짚어야 True (어느 리뷰에나 붙는 일반 문장을 막는다).
+    리뷰에 메뉴 이름이 없으면(예: 배달 지역) True."""
+    items = review_menu_items(review_text, menu_names)
+    return not items or any(item in (text or "") for item in items)

@@ -19,7 +19,9 @@ from c6 import checks
 from c6 import parsing
 from c6.measures import MEASURE_FALLBACK_SENTENCES
 from c6.style import assemble, few_shot_examples, insert_before_last_sentence, owner_style
-from c6.output import DraftOutput, CardResult
+from c6.output import CALL_FAILED_NOTE, DraftOutput, CardResult
+from c6.reply_explain import process_explain_review
+from c6.stance import APOLOGY, EXPLAIN, judge_review
 
 # --mock 으로 돌릴 때는 live 결과 파일(c6_reply_raw.txt)을 더럽히지 않도록 따로 쓴다
 _RAW_LOG = config.RESULTS_DIR / ("c6_reply_raw_mock.txt" if "--mock" in sys.argv else "c6_reply_raw.txt")
@@ -156,6 +158,13 @@ SYSTEM_TMPL = """\
 """
 
 
+def fallback_apology(review, menu_names):
+    """AI 호출이 끝내 실패했을 때 쓰는 기본 사과 본문 (코드가 쓴다. 빠진 메뉴가 있으면 이름을 넣는다)."""
+    items = _missing_items(review.text, menu_names)
+    head = f"{', '.join(items)} 건으로 불편을 드려 정말 죄송해요." if items else "불편을 드려 정말 죄송해요."
+    return head + " 말씀해 주신 점은 확인해서 더 신경 쓸게요."
+
+
 def _missing_items(review_text, menu_names):
     found = []
     for m in menu_names:
@@ -213,6 +222,7 @@ def _run_checks(text, review, menu_names, allowed_numbers, policies,
         "no_invented_measure": not checks.has_invented_measure(text, chosen_measures),
         "chosen_measure_included": checks.chosen_measure_included(text, chosen_measures),
         "missing_mentioned": any(m in text for m in missing) if missing else True,
+        "apology_expressed": checks.has_apology_anywhere(text),
         "no_bad_promise": not checks.promises_not_in_policy(text, policies),
         "no_bad_number": not checks.has_number_not_in(text, allowed_numbers),
         "no_personal_info": not checks.personal_info(text),
@@ -230,6 +240,15 @@ def _run_checks(text, review, menu_names, allowed_numbers, policies,
 def _process_review(review, *, card_id, store, menu_names, allowed_numbers, policies,
                      chosen_measures, forbidden_phrases, examples_section,
                      opening, closing, valid_ids, key, model):
+    # 답글 태도 (c6.stance): 가게 과실이 아닌 '요청 거절' 리뷰로 확실할 때만 사과 없이 설명하는 답글(reply_explain)로 간다.
+    # 그 밖에는 아래의 원래 사과 답글 그대로 (프롬프트·점검 묶음 APOLOGY_CHECKS 변경 없음)
+    decision = judge_review(review)
+    if decision.stance == EXPLAIN:
+        return process_explain_review(
+            review, decision, card_id=card_id, store=store, menu_names=menu_names, allowed_numbers=allowed_numbers,
+            policies=policies, forbidden_phrases=forbidden_phrases, opening=opening, closing=closing,
+            valid_ids=valid_ids, key=key, model=model, log_raw=_log_raw)
+
     measure_rule, measures_section = _measure_prompt_bits(chosen_measures)
     system = SYSTEM_TMPL.format(
         store_name=store.name,
@@ -243,12 +262,14 @@ def _process_review(review, *, card_id, store, menu_names, allowed_numbers, poli
 
     won = 0.0
     rewrites = 0
+    call_errors = 0
 
     def _call(content):
-        nonlocal won
+        nonlocal won, call_errors
         resp = clova.call(key, system, [{"role": "user", "content": content}],
                            model=model, max_tokens=400, temperature=0.5)
         won += resp.get("won", 0)
+        call_errors += bool(resp.get("error"))
         raw = resp.get("content", "")
         _log_raw(raw, review.review_id)
         return parsing.extract_body(raw)  # JSON이든 평문이든 본문을 절대 버리지 않는다
@@ -262,9 +283,13 @@ def _process_review(review, *, card_id, store, menu_names, allowed_numbers, poli
         return text_, evidence_, chk_, failed_
 
     body = _call(user_line)
+    needs = []
+    if call_errors and not body:   # 호출이 끝내 실패해 AI 본문이 없다 → 코드가 쓴 기본 사과 문장으로 채우고 사장님께 알린다
+        body = fallback_apology(review, menu_names)
+        needs.append(CALL_FAILED_NOTE)
     text, evidence, chk, failed = _check(body)
 
-    if failed and body:
+    if failed and body and not needs:
         hints = checks.fix_hints(failed)
         body2 = _call(user_line + "\n\n수정 지시:\n" + "\n".join(f"- {h}" for h in hints))
         if body2:
@@ -295,8 +320,11 @@ def _process_review(review, *, card_id, store, menu_names, allowed_numbers, poli
         checks=chk,
         failed_reasons=checks.fix_hints(failed) if failed else [],
         rewrites=rewrites,
+        needs_input=needs,
         model=model,
         data_origin=store.data_origin,
+        stance=APOLOGY,
+        stance_reasons=list(decision.reasons),
     )
     return draft, won
 
@@ -344,7 +372,8 @@ def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None):
     texts = [d.text for d in drafts]
     for i, d in enumerate(drafts):
         others = [t for j, t in enumerate(texts) if j != i]
-        similar = any(checks.too_similar(d.text, o) for o in others)
+        # 호출 실패로 채운 기본 문장끼리는 비슷해도 된다 (사장님이 어차피 고친다)
+        similar = CALL_FAILED_NOTE not in d.needs_input and any(checks.too_similar(d.text, o) for o in others)
         d.checks["not_too_similar"] = not similar
         if similar:
             d.failed_reasons = list(d.failed_reasons) + checks.fix_hints(["not_too_similar"])

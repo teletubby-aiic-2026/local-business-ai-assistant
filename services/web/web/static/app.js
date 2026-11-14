@@ -480,6 +480,7 @@ const PASTE_SAMPLES = [
   { text: "저녁 8시에 시켰는데 한 시간 넘게 걸렸고 국물도 다 식었어요", rating: 1 },
   { text: "맛은 정말 좋은데 포장이 허술해서 국물이 조금 샜어요", rating: 3 },
   { text: "점심에 먹었는데 반찬도 깔끔하고 사장님도 친절하세요!", rating: 5 },
+  { text: "제육볶음 정식 고기를 불고기로 그냥 바꿔 달라고 했더니 안 된대요. 그것도 못 해 주나요? 별 하나 드립니다", rating: 1 },
 ];
 const AN_TABS = ["summary", "issues", "paste"];
 
