@@ -4,6 +4,7 @@
 |--------|-------------------------------|-----------|
 | GET    | /api/health                   | 맨 위 '동작/모의' 띠, 막힘 안내 |
 | GET    | /api/briefing                 | ① 오늘의 브리핑 |
+| GET    | /api/insight                  | 리뷰 분석 화면(요약·불만 묶음), 읽기 전용 |
 | GET    | /api/cards                    | ② 추천 카드 2장 |
 | POST   | /api/cards/{card_id}/run      | ③ 결과물 생성 |
 | POST   | /api/drafts/{draft_id}/approve| ④ 승인 (수정 글 포함) |
@@ -36,7 +37,7 @@ class RunIn(BaseModel):
 
 
 class PasteIn(BaseModel):
-    text: str = Field(min_length=1, max_length=4000)
+    text: str = Field(min_length=1, max_length=1000)   # 리뷰 분석 서버(review-insight MAX_TEXT)·입력칸(maxlength)과 같은 1000자
     rating: int | None = Field(default=None, ge=1, le=5)
     channel: str | None = None
 
@@ -57,6 +58,10 @@ def create_app(demo: Demo | None = None) -> FastAPI:
     @app.get("/api/briefing")
     def briefing():
         return demo.briefing()
+
+    @app.get("/api/insight")
+    def insight():
+        return demo.insight()
 
     @app.get("/api/cards")
     def cards():

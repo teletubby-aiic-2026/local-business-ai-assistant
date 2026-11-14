@@ -1,6 +1,7 @@
-// 텔레토비 AI 비서: 단계별 화면 (1 오늘 → 2 제안 → 3 초안 → 4 완료) + 분석. 외부 라이브러리 없이 동작.
+// 텔레토비 AI 비서: 단계별 화면 (1 오늘 → 2 제안 → 3 초안 → 4 완료) + 리뷰 분석. 외부 라이브러리 없이 동작.
 // 화면은 주소 해시로 바꾼다: #/today #/cards #/draft #/done #/analysis (재정비/05 UI 디자인 레퍼런스 15번, 박건영 결정 11/10)
-// 화면마다 할 일은 하나. API는 그대로 쓴다 (/api/health, briefing, cards, cards/{id}/run, drafts/{id}/approve, approvals, reviews).
+// 화면마다 할 일은 하나. API: /api/health, briefing, insight, cards, cards/{id}/run, drafts/{id}/approve, approvals, reviews.
+// 리뷰 분석(#/analysis)은 따로 떠 있던 리뷰 분석 화면의 세 화면(요약·불만 묶음·붙여넣기)을 옮겨 왔다 (11/13 통합 1차).
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -14,13 +15,24 @@ const GEN_ORDER = { prevention_notice: 0, coupon_promo: 1, reply_draft: 2 };
 const byGen = (a, b) => (GEN_ORDER[a.generator] ?? 9) - (GEN_ORDER[b.generator] ?? 9);
 const KPI_GEN = "prevention_notice";
 const SOURCE_NAMES = { live: "실시간 HCX-005", seed: "시험용 저장 예시 (실제 AI 결과 아님)" };
-const ROUTES = ["today", "cards", "draft", "done", "analysis"];
+
+// ── 준비 중 자리 (4차 회의에서 정한 뒤 채움) ──────────────────────────
+// 메뉴 링크와 빈 화면을 둘 다 이 목록에서 만든다 (mountLater). 지우려면 여기서 빼면 끝.
+// 채울 때는 index.html 에 진짜 화면(section data-view)을 만들고 여기서 빼서 ROUTES 에 이름을 넣는다. 모양은 style.css '준비 중 자리' 한 덩어리.
+// long: 375px 메뉴에서 숨기는 앞부분 (다른 메뉴의 '추천 '·'처리 '와 같은 방식)
+const LATER = [
+  { route: "report", long: "종합 ", short: "리포트", desc: "여러 분석 결과를 한 장으로 모아 볼 화면이에요. 무엇을 담을지는 회의에서 정해요." },
+  { route: "market", long: "", short: "상권", desc: "가게 주변 상권 지표를 볼 화면이에요. 지금은 홈의 '상권 저녁 매출' 칸과 추천 카드 ⓑ의 근거에서 볼 수 있어요." },
+];
+const ROUTES = ["today", "cards", "draft", "done", "analysis", ...LATER.map((x) => x.route)];
 
 const state = {
   health: null, briefing: null, cards: [], results: {}, approved: new Set(), approvedLog: [],
   startedAt: null, timer: null, kpiAt: null, allAt: null, reviews: {}, pending: {},
   current: null,   // 초안 화면에 보이는 카드
   draftId: null,   // 초안 화면에 크게 보이는 글
+  insight: null,   // 리뷰 분석 화면 (/api/insight)
+  joined: [],      // 방금 붙여넣은 리뷰가 들어간 묶음 id (불만 묶음 탭에서 표시)
 };
 // 출처 문자열에서 URL 을 떼어 화면에는 이름만 (URL 은 링크로)
 const sourceUrl = (s) => (String(s || "").match(/https?:\/\/\S+/) || [""])[0];
@@ -74,14 +86,9 @@ function renderHealth(h) {
   if ((h.dev_fake_snapshots || []).length) problems.unshift(`개발용 가짜 지표가 화면에 있어요 (${h.dev_fake_snapshots.join(", ")}). 실제 값이 아니니 발표에 쓰지 마세요.`);
   if (h.review_service && h.review_service.status === "down") problems.push(`리뷰 분석 서비스(${h.review_service.url})가 꺼져 있어요.`);
   showAlert(problems.join(" "));
-  // 분석 탭 → 리뷰 분석 화면(A)은 그 서비스가 떠 있을 때만 (라이브데모 링크에는 A가 없음)
-  const rs = h.review_service || {};
-  $("analysis-link").innerHTML = rs.status === "ok" && rs.url
-    ? `<a href="${esc(rs.url)}/" target="_blank" rel="noopener">리뷰 분석 화면에서 리뷰 하나씩 보기 ↗</a>`
-    : '<span class="muted">리뷰 분석 화면에 연결할 수 없어요.</span>';
 }
 
-// ── 1 오늘 + 분석 (브리핑) ───────────────────────────────────────────
+// ── 1 오늘 (브리핑) ──────────────────────────────────────────────────
 function renderBriefing(b) {
   $("store-name").textContent = `${b.store.name || ""} · ${b.store.business_type_name || ""}${b.store.area_name ? " · " + b.store.area_name + " 상권" : ""}`;
   const c = b.counts;
@@ -107,34 +114,10 @@ function renderBriefing(b) {
     ? `${top.topic_name} ${top.review_count}건${top.is_repeated ? " 반복" : ""}${top.main_time_band ? ` · ${top.main_time_band}에 몰림` : ""}`
     : "오늘은 반복되는 불만이 없어요";
   $("today-source").textContent = `${b.period.start} ~ ${b.period.end} · 리뷰는 합성 데이터`;
-
-  $("funnel").innerHTML = `
-    <div class="box"><div class="n">${esc(c.review_count)}</div><div class="small muted">리뷰</div></div><span class="arrow">→</span>
-    <div class="box"><div class="n">${esc(c.complaint_count)}</div><div class="small muted">불만</div></div><span class="arrow">→</span>
-    <div class="box"><div class="n">${esc(c.group_count)}</div><div class="small muted">묶음 (반복 ${esc(b.repeated_count)})</div></div>
-    <span class="arrow">+</span>
-    <div class="box"><div class="n">${esc(c.single_complaint_count)}</div><div class="small muted">묶이지 않은 불만</div></div>
-    <span class="small muted">${esc(b.period.start)} ~ ${esc(b.period.end)} · 리뷰는 합성 데이터</span>`;
+  // 초안 화면의 '손님 리뷰' 칸이 쓰는 리뷰 원문 (리뷰 분석 화면의 묶음·근거는 /api/insight 에서 따로 그린다)
   state.reviews = {};
   b.groups.forEach((g) => g.reviews.forEach((r) => (state.reviews[r.review_id] = r)));
   b.pasted.forEach((r) => (state.reviews[r.review_id] = r));
-  $("groups").innerHTML = b.groups.map((g) => `
-    <div class="group ${g.is_repeated ? "repeated" : ""}">
-      <div class="group-head"><strong>${esc(g.topic_name)} ${esc(g.review_count)}건</strong>
-        ${g.is_repeated ? '<span class="badge rep">반복</span>' : ""}
-        ${g.main_time_band ? `<span class="badge">${esc(g.main_time_band)}에 몰림</span>` : ""}</div>
-      ${g.reviews.map((r) => `<p class="quote">“${esc(r.text)}” <span class="small muted">${esc(r.channel || "")} · ${esc((r.created_at || "").slice(5, 16).replace("T", " "))}${r.input_method === "paste" ? " · 붙여넣음" : ""}</span></p>`).join("")}
-    </div>`).join("") || '<p class="muted">묶음이 없어요.</p>';
-  $("singles-title").textContent = `묶이지 않은 불만 ${b.single_complaints.length}건`;
-  $("singles").innerHTML = b.single_complaints.map((s) => `<li class="quote">${esc((s.topic_names || []).join("·"))}: “${esc(s.quote)}”</li>`).join("");
-  $("market").innerHTML = b.snapshots.map((s) => `
-    <div class="metric ${s.dev_fake ? "fake" : ""}" data-snap="${esc(s.snapshot_id)}">
-      <div class="small muted">${esc(s.area_name)} · ${esc(s.metric_name)} <span class="badge rep" data-used hidden>카드 ⓑ 근거</span></div>
-      <div class="v">${s.value === null ? "자료 없음" : esc((s.value > 0 ? "+" : "") + Number(s.value).toFixed(2) + s.unit)}</div>
-      <div class="small">${esc(shortBasis(s.basis_label))}${s.compared_with_quarter ? ` · 비교: ${esc(s.compared_with_quarter)}` : ""}
-        ${sourceUrl(s.source) ? ` · <a href="${esc(sourceUrl(s.source))}" target="_blank" rel="noopener">원본</a>` : ""}</div>
-      ${s.dev_fake ? '<div class="badge bad">개발용 가짜 값</div>' : ""}
-    </div>`).join("") || '<p class="muted">상권 지표 파일이 아직 없어요 (C4).</p>';
 }
 
 // 홈 차트 (11/11 대시보드 시안 v2). 브리핑의 불만 리뷰(묶음 + 묶이지 않은 불만)만 센다. 리뷰 하나에 주제 하나 기준.
@@ -209,8 +192,6 @@ function renderCards(data) {
     </article>`;
   }).join("") || '<p class="muted">오늘은 추천할 카드가 없어요.</p>';
   $("no-card-b").textContent = data.no_card_b || "";
-  const used = new Set(data.cards.flatMap((p) => p.card.snapshot_ids || []));
-  document.querySelectorAll("[data-snap]").forEach((el) => { el.querySelector("[data-used]").hidden = !used.has(el.dataset.snap); });
   document.querySelectorAll("#cards [data-run]").forEach((b) => b.addEventListener("click", () => choose(b.dataset.run, b)));
   renderDash();
 }
@@ -521,21 +502,169 @@ function checkDone() {
   if (drafts.length && drafts.every((d) => state.approved.has(d.draft_id))) state.allAt = state.allAt || Date.now();
 }
 
-// ── 분석: S2 붙여넣기 ─────────────────────────────────────────────
+// ── 리뷰 분석: 요약 · 불만 묶음 · 리뷰 붙여넣기 (탭 3개) ─────────────────
+// 예전에 따로 떠 있던 리뷰 분석 화면(services/review-insight 자체 페이지)의 내용을 이 화면 모양으로 옮겼다.
+// 데이터: GET /api/insight (요약·불만 묶음), POST /api/reviews · DELETE /api/reviews/pasted (붙여넣기). 모두 이 서버를 거친다.
+// 주제 id → 이름 (리뷰 분석 서비스의 주제 사전 app/topics.py 와 같은 이름. 모르는 id 는 그대로 보인다)
+const TOPIC_NAMES = { texture: "식감", taste: "맛", portion: "양", price: "가격", delivery_time: "배달 시간", temperature: "음식 온도",
+  packaging: "포장 상태", missing_item: "포장 누락", service: "응대", hygiene: "위생", menu: "메뉴 구성", atmosphere: "매장 환경", wait_time: "매장 대기" };
+const SENTIMENT_NAMES = { positive: "긍정", negative: "부정", neutral: "중립", mixed: "긍정·부정 섞임" };
+const topicName = (t) => TOPIC_NAMES[t] || t;
+const PASTE_SAMPLES = [
+  { text: "저녁 8시에 시켰는데 한 시간 넘게 걸렸고 국물도 다 식었어요", rating: 1 },
+  { text: "맛은 정말 좋은데 포장이 허술해서 국물이 조금 샜어요", rating: 3 },
+  { text: "점심에 먹었는데 반찬도 깔끔하고 사장님도 친절하세요!", rating: 5 },
+];
+const AN_TABS = ["summary", "issues", "paste"];
+
+// 탭: 누르거나 ←/→/Home/End 로 옮긴다 (고른 탭만 Tab 키 순서에 들어감)
+function showTab(name, focus = false) {
+  AN_TABS.forEach((t) => {
+    const tab = $("an-tab-" + t), on = t === name;
+    tab.setAttribute("aria-selected", String(on));
+    tab.tabIndex = on ? 0 : -1;
+    $("an-" + t).hidden = !on;
+    if (on && focus) tab.focus();
+  });
+}
+function onTabKey(e) {
+  const i = AN_TABS.indexOf(e.currentTarget.dataset.tab);
+  const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: AN_TABS.length - 1 }[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  showTab(AN_TABS[(next + AN_TABS.length) % AN_TABS.length], true);
+}
+
+function anStatus(msg, bad = false) {
+  const el = $("an-status");
+  el.hidden = !msg;
+  el.textContent = msg || "";
+  el.classList.toggle("st", bad); el.classList.toggle("bad", bad);
+}
+async function loadInsight() {
+  try {
+    state.insight = await api("/api/insight");
+    anStatus("");
+    renderAnalysis(state.insight);
+  } catch (e) { anStatus(`리뷰 분석을 불러오지 못했어요: ${e.message}`, true); }
+}
+function renderAnalysis(d) {
+  $("an-period").textContent = `${d.period_start} ~ ${d.period_end}${d.data_origin === "synthetic" ? " · 리뷰는 합성 데이터" : ""}`;
+  renderAnSummary(d);
+  renderAnIssues(d);
+}
+
+// 요약: 리뷰 · 불만 · 반복 불만 + 칭찬·불만 키워드 (주제별 긍정·부정 수 topic_counts)
+function renderAnSummary(d) {
+  const days = Math.round((new Date(d.period_end) - new Date(d.period_start)) / 86400000) + 1;
+  const s = d.sentiment_counts || {};
+  const rep = (d.groups || []).filter((g) => g.is_repeated);
+  $("an-reviews").textContent = d.review_count ?? "–";
+  $("an-reviews-sub").textContent = `${Number.isFinite(days) ? days + "일 · " : ""}긍정 ${s.positive ?? 0} · 중립 ${s.neutral ?? 0}`;
+  $("an-complaints").textContent = d.complaint_count ?? "–";
+  $("an-complaints-sub").textContent = d.review_count ? `리뷰의 ${Math.round((d.complaint_count / d.review_count) * 100)}%` : "";
+  $("an-repeated").textContent = rep.reduce((n, g) => n + g.review_count, 0);
+  $("an-repeated-sub").textContent = rep.map((g) => g.topic_name).join(", ") || "없음";
+  const top = (pol) => Object.entries(d.topic_counts || {}).map(([t, v]) => [topicName(t), (v || {})[pol] || 0])
+    .filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const chips = (list, tone) => list.length
+    ? list.map(([t, n]) => `<span class="kw-chip ${tone}">${esc(t)}<b>${esc(n)}</b></span>`).join("") : '<span class="small muted">없음</span>';
+  $("an-kw").innerHTML = `<p class="kw-row"><span class="kw-title">칭찬 키워드</span>${chips(top("positive"), "pos")}</p>
+    <p class="kw-row"><span class="kw-title">불만 키워드</span>${chips(top("negative"), "neg")}</p>`;
+}
+
+// 불만 묶음: 흐름 한 줄 → 묶음 카드(반복·몰린 시간대·시간대 분포·근거 인용과 리뷰 ID) → 묶이지 않은 불만
+function renderAnIssues(d) {
+  const groups = d.groups || [], singles = d.single_complaints || [];
+  const joined = new Set(state.joined || []);
+  $("an-funnel").innerHTML = `
+    <div class="box"><div class="n">${esc(d.review_count)}</div><div class="small muted">리뷰</div></div><span class="arrow">→</span>
+    <div class="box"><div class="n">${esc(d.complaint_count)}</div><div class="small muted">불만</div></div><span class="arrow">→</span>
+    <div class="box"><div class="n">${esc(groups.length)}</div><div class="small muted">묶음 (반복 ${esc(groups.filter((g) => g.is_repeated).length)})</div></div>
+    <span class="arrow">+</span>
+    <div class="box"><div class="n">${esc(singles.length)}</div><div class="small muted">묶이지 않은 불만</div></div>`;
+  $("an-groups").innerHTML = groups.map((g) => {
+    const bands = Object.entries(g.time_bands || {});
+    const max = Math.max(1, ...bands.map(([, n]) => n));
+    const trend = Number.isFinite(g.previous_count) && Number.isFinite(g.recent_count) ? ` · 앞 2주 ${g.previous_count}건 → 최근 2주 ${g.recent_count}건` : "";
+    return `<article class="group ${g.is_repeated ? "repeated" : ""} ${joined.has(g.issue_id) ? "new" : ""}">
+      <div class="group-head"><h3>${esc(g.topic_name)} ${esc(g.review_count)}건</h3>
+        ${g.is_repeated ? '<span class="badge rep">반복</span>' : ""}
+        ${g.issue_id === d.top_issue_id ? '<span class="badge">추천 카드 ⓐ 근거</span>' : ""}
+        ${joined.has(g.issue_id) ? '<span class="badge ok">방금 붙여넣은 리뷰가 들어감</span>' : ""}</div>
+      <p class="small muted an-note">${g.main_time_band ? `주로 ${esc(g.main_time_band)}` : "여러 시간대"}${esc(trend)}</p>
+      <div class="topic-bars an-bands" aria-label="시간대별 건수">${bands.map(([b, n]) => `
+        <div class="tb-row"><span class="tb-name">${esc(b)}</span>
+          <span class="tb-track" aria-hidden="true"><i class="${b === g.main_time_band ? "hot" : ""}" style="width:${Math.round((n / max) * 100)}%"></i></span>
+          <span class="tb-n">${esc(n)}건</span></div>`).join("")}</div>
+      <ul class="plain">${(g.evidence || []).slice(0, 3).map((e) => `<li class="quote">“${esc(e.quote)}” <span class="small muted">${esc(e.review_id)}</span></li>`).join("")}</ul>
+    </article>`;
+  }).join("") || '<div class="panel"><p class="muted" style="margin:0">묶인 불만이 없어요.</p></div>';
+  $("an-singles-title").textContent = `묶이지 않은 불만 ${singles.length}건`;
+  $("an-singles").innerHTML = singles.map((s) => `<li class="quote">${esc((s.topic_names || []).join("·"))}: “${esc(s.quote)}” <span class="small muted">${esc(s.review_id)}</span></li>`).join("")
+    || '<li class="small muted">없어요.</li>';
+}
+
+// 리뷰 붙여넣기: 결과(감정·주제·들어간 묶음)를 보이고, 홈 숫자·추천 카드·요약·묶음을 모두 다시 불러온다 (refresh)
+function renderPasteResult(r) {
+  const c = r.classification || {};
+  const topics = c.topics || [];
+  const groups = r.groups || state.insight?.groups || [];
+  const joined = (r.joined_issues || []).map((id) => groups.find((g) => g.issue_id === id)?.topic_name || id);
+  const negative = topics.some((t) => t.polarity === "negative") || (c.negative_topics || []).length;
+  $("paste-result").innerHTML = `<div class="panel">
+    <div class="panel-head"><h2>분류 결과</h2><span class="small muted">${esc(r.review?.review_id || "")}${c.method ? ` · 분류 방식 ${esc(c.method)}` : ""}${r.review?.pii_masked ? " · 개인정보 가림" : ""}</span></div>
+    <p class="rv-text">${esc(r.review?.text || "")}</p>
+    <p class="small">감정 <b>${esc(SENTIMENT_NAMES[c.sentiment] || c.sentiment || "?")}</b></p>
+    <div class="kw-row">${topics.length
+      ? topics.map((t) => `<span class="kw-chip ${t.polarity === "negative" ? "neg" : "pos"}">${t.polarity === "negative" ? "불만" : "칭찬"} · ${esc(topicName(t.topic))}${t.evidence ? ` “${esc(t.evidence)}”` : ""}</span>`).join("")
+      : '<span class="small muted">찾은 주제가 없어요.</span>'}</div>
+    <p class="small an-joined">${joined.length
+      ? `→ 불만 묶음에 들어갔어요: <b>${joined.map(esc).join(", ")}</b> <button type="button" class="ghost small" data-goto-tab="issues">불만 묶음 보기</button>`
+      : negative ? "→ 아직 어느 묶음에도 들지 않았어요 (같은 불만이 2건 이상이면 묶여요)." : "→ 불만 주제가 없어 묶음에는 들지 않아요."}</p>
+    ${(c.warnings || []).length ? `<ul class="issues">${c.warnings.map((w) => `<li>검증: ${esc(w)}</li>`).join("")}</ul>` : ""}
+  </div>`;
+}
 async function paste() {
   const text = $("paste-text").value.trim();
-  if (!text) return;
+  if (!text) { $("paste-msg").textContent = "리뷰 글을 넣어 주세요."; $("paste-text").focus(); return; }
+  const rating = $("paste-rating").value ? Number($("paste-rating").value) : null;
+  $("paste-send").disabled = true;
+  $("paste-msg").textContent = "분류하는 중…";
   try {
-    const r = await api("/api/reviews", { method: "POST", body: JSON.stringify({ text }) });
-    const topics = (r.classification?.negative_topics || []).join(", ");
-    $("paste-msg").textContent = `붙여 넣었어요. 분류: ${r.classification?.sentiment || "?"}${topics ? " · 불만 주제 " + topics : ""}`;
-    $("paste-text").value = "";
-    await refresh();
+    const r = await api("/api/reviews", { method: "POST", body: JSON.stringify({ text, rating }) });
+    state.joined = r.joined_issues || [];
+    renderPasteResult(r);
+    $("paste-text").value = ""; $("paste-rating").value = "";
+    $("paste-msg").textContent = "붙여 넣었어요. 홈 숫자와 추천 카드도 다시 불러와요…";
+    await refresh();   // 홈 숫자 · 추천 카드 · 리뷰 분석(요약·묶음)을 모두 새로
+    $("paste-msg").textContent = "붙여 넣었어요. 홈 숫자, 추천 카드, 요약, 불만 묶음에 반영했어요.";
   } catch (e) { $("paste-msg").textContent = e.message; }
+  finally { $("paste-send").disabled = false; }
 }
 async function resetPaste() {
-  try { await api("/api/reviews/pasted", { method: "DELETE" }); $("paste-msg").textContent = "붙여넣은 리뷰를 지웠어요."; await refresh(); }
-  catch (e) { $("paste-msg").textContent = e.message; }
+  $("paste-reset").disabled = true;
+  try {
+    const r = await api("/api/reviews/pasted", { method: "DELETE" });
+    state.joined = [];
+    $("paste-result").innerHTML = "";
+    await refresh();
+    $("paste-msg").textContent = `붙여넣은 리뷰${Number.isFinite(r.deleted) ? ` ${r.deleted}건` : ""}을 지웠어요. 홈 숫자와 추천 카드도 다시 불러왔어요.`;
+  } catch (e) { $("paste-msg").textContent = e.message; }
+  finally { $("paste-reset").disabled = false; }
+}
+
+// ── 준비 중 자리: LATER 목록으로 왼쪽 메뉴 링크와 빈 화면을 만든다 ─────────────
+function mountLater() {
+  const menu = document.querySelector(".side .menu");
+  const main = document.querySelector(".shell > main");
+  menu.insertAdjacentHTML("beforeend", '<p class="later-title" aria-hidden="true">준비 중</p>' + LATER.map((x) => `
+    <a href="#/${esc(x.route)}" data-route="${esc(x.route)}" class="later"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/></svg><span>${x.long ? `<span class="long">${esc(x.long)}</span>` : ""}${esc(x.short)}</span><span class="badge later-badge">준비 중</span></a>`).join(""));
+  main.insertAdjacentHTML("beforeend", LATER.map((x) => `
+    <section class="view narrow" data-view="${esc(x.route)}" hidden>
+      <div class="page-head"><p class="eyebrow"><span class="badge">준비 중</span></p><h1 tabindex="-1">${esc(x.long + x.short)}</h1></div>
+      <div class="panel"><p style="margin-top:0"><strong>회의에서 정한 뒤 넣을 자리입니다.</strong></p><p class="small muted" style="margin-bottom:0">${esc(x.desc)}</p></div>
+    </section>`).join(""));
 }
 
 // ── 챗봇 서랍 자리 (S1 질문창, PR #13이 들어올 곳) ─────────────────────
@@ -563,6 +692,7 @@ async function refresh() {
   const after = cards.cards.map((p) => p.card.card_id + p.card.review_ids + p.card.snapshot_ids).join();
   if (before && before !== after) { state.results = {}; state.approved.clear(); state.approvedLog = []; state.pending = {}; state.current = null; state.draftId = null; }
   renderCards(cards);
+  await loadInsight();   // 리뷰 분석(요약·불만 묶음). 실패해도 홈·카드는 그대로 두고 분석 화면에만 알린다
 }
 
 async function boot() {
@@ -571,16 +701,31 @@ async function boot() {
     await refresh();
     $("start").disabled = false;
     $("start").textContent = "무엇을 할까요?";
-  } catch (e) { showAlert(e.message); $("start").textContent = "불러오지 못했어요"; }
+  } catch (e) { showAlert(e.message); $("start").textContent = "불러오지 못했어요"; anStatus(`리뷰 분석을 불러오지 못했어요: ${e.message}`, true); }
   setTopH();
   route();
 }
 
 applyTheme(); // ?theme=light 는 서버 응답을 기다리지 않고 바로
+mountLater(); // 준비 중 메뉴·화면을 첫 route() 전에
 
 $("start").addEventListener("click", () => { startTimer(); go("cards"); });
 $("paste-send").addEventListener("click", paste);
 $("paste-reset").addEventListener("click", resetPaste);
+$("paste-samples").innerHTML = '<span class="small muted">예시:</span>' + PASTE_SAMPLES.map((s, i) =>
+  `<button type="button" class="ghost" data-sample="${i}" title="${esc(s.text)}">${esc(s.text.slice(0, 16))}…</button>`).join("");
+$("paste-samples").addEventListener("click", (e) => {
+  const s = PASTE_SAMPLES[e.target.closest("[data-sample]")?.dataset.sample];
+  if (s) { $("paste-text").value = s.text; $("paste-rating").value = String(s.rating); $("paste-text").focus(); }
+});
+document.querySelectorAll('[role="tab"][data-tab]').forEach((t) => {
+  t.addEventListener("click", () => showTab(t.dataset.tab));
+  t.addEventListener("keydown", onTabKey);
+});
+document.querySelector('[data-view="analysis"]').addEventListener("click", (e) => {
+  const b = e.target.closest("[data-goto-tab]");
+  if (b) showTab(b.dataset.gotoTab, true);
+});
 $("ask-ai").addEventListener("click", (e) => toggleAssistant(undefined, e.currentTarget));
 $("ask-open").addEventListener("click", (e) => toggleAssistant(true, e.currentTarget));
 window.addEventListener("resize", setTopH);
