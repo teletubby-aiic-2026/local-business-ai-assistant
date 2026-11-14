@@ -11,6 +11,7 @@
 | GET    | /api/approvals                | ④ 처리 완료 기록 |
 | POST   | /api/reviews                  | S2 직접 붙여넣기 (#14 로 전달) |
 | DELETE | /api/reviews/pasted           | 붙여넣은 리뷰 지우기 (데모 다시 하기) |
+| *      | /api/assistant/*              | 서랍의 상권 채팅. 상권 서비스(ic26-market)를 대신 불러 줌 (assistant_proxy.py) |
 
 방문자 구분: 쿠키 `visitor_id`(없으면 서버가 새로 만들어 응답에 실음. HttpOnly, SameSite=Lax). 이 값으로 승인 기록과
 붙여넣은 리뷰를 방문자별로 나눈다. 합성 리뷰와 카드 추천 이유 문장은 모두에게 같다. 화면(JS)은 쿠키를 다룰 필요가 없다.
@@ -22,12 +23,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from shared.storage import new_visitor_id, open_store, visitor_from_cookie
 
+from .assistant_proxy import AssistantProxy, create_assistant_router, validation_error_response
 from .demo import Demo, DemoError
 from .settings import Settings
 
@@ -53,17 +57,20 @@ class PasteIn(BaseModel):
     channel: str | None = None
 
 
-def create_app(demo: Demo | None = None) -> FastAPI:
+def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None) -> FastAPI:
     # 저장 위치는 여기서만 환경 변수로 정한다 (DB_HOST 가 있으면 PostgreSQL, 없으면 메모리·파일)
     demo = demo or Demo(Settings.from_env(), storage=open_store(app_name="ic26-web"))
+    assistant = assistant or AssistantProxy.from_settings(demo.s)   # 시험에서는 가짜 상권 서비스를 넣은 것을 줄 수 있다
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         yield
         getattr(demo.storage, "close", lambda: None)()      # 서버를 끌 때 DB 연결 풀을 닫는다 (메모리 저장소는 할 일 없음)
+        assistant.close()
 
     app = FastAPI(title="텔레토비 AI 비서 — 한 화면", docs_url="/docs", redoc_url=None, lifespan=lifespan)
     app.state.demo = demo
+    app.state.assistant = assistant
 
     @app.middleware("http")
     async def _visitor(request: Request, call_next):
@@ -80,6 +87,12 @@ def create_app(demo: Demo | None = None) -> FastAPI:
     @app.exception_handler(DemoError)
     async def _demo_error(_: Request, exc: DemoError):
         return JSONResponse(status_code=exc.status, content={"error": {"message": str(exc)}})
+
+    @app.exception_handler(RequestValidationError)
+    async def _invalid(request: Request, exc: RequestValidationError):
+        if request.url.path.startswith("/api/assistant/"):     # 서랍이 읽는 오류 모양. 다른 경로의 422 는 예전 그대로
+            return validation_error_response(exc)
+        return await request_validation_exception_handler(request, exc)
 
     @app.get("/api/health")
     def health():
@@ -117,6 +130,8 @@ def create_app(demo: Demo | None = None) -> FastAPI:
     @app.delete("/api/reviews/pasted")
     def reset_pasted(request: Request):
         return demo.reset_pasted(request.state.visitor_id)
+
+    app.include_router(create_assistant_router(assistant))
 
     @app.get("/")
     def page():

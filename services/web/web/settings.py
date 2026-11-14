@@ -18,6 +18,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]    # 저장소 루트
 MODES = ("mock", "live")
 
 
+def _seconds(raw: str, default: float) -> float:
+    """숫자가 아니거나 0 이하면 기본값. 오타 때문에 서버가 켜지지 않는 일은 없게 한다."""
+    try:
+        value = float((raw or "").strip()) if (raw or "").strip() else default
+    except ValueError:
+        return default
+    return value if 0 < value <= 300 else default
+
+
 @dataclass(frozen=True)
 class Settings:
     mode: str = "mock"
@@ -31,6 +40,10 @@ class Settings:
     card_b_threshold: float = -5.0
     model: str = "HCX-005"
     clova_key: str = ""
+    # 상권 비서 프록시 (assistant_proxy.py). market_url 을 off 로 쓰면 이 서버에서는 상권 비서를 끈다
+    market_url: str = "http://127.0.0.1:8766"
+    market_host: str = "127.0.0.1:8766"
+    market_timeout: float = 75.0
 
     def __post_init__(self) -> None:
         if str(self.mode).lower() == "replay":
@@ -59,4 +72,7 @@ class Settings:
             model=env("LLM_MODEL_WEB", "HCX-005"),
             # 같은 HCX 키를 파트마다 다른 이름으로 읽는다: #16 은 CLOVA_API_KEY, #14 는 CLOVASTUDIO_API_KEY
             clova_key=(env("CLOVA_API_KEY") or env("CLOVASTUDIO_API_KEY") or "").strip(),
+            market_url=env("MARKET_URL", "http://127.0.0.1:8766").strip(),
+            market_host=env("MARKET_HOST", "127.0.0.1:8766").strip() or "127.0.0.1:8766",
+            market_timeout=_seconds(env("MARKET_TIMEOUT_SEC", ""), 75.0),
         )

@@ -46,7 +46,7 @@ curl -s http://localhost:8000/api/health
 > **화면을 바꾸기 전에 지킬 규칙 (LLM에게 먼저 읽히세요)**
 >
 > 1. 화면 파일은 `services/web/web/static/`의 세 개뿐입니다. 서버가 `/`로 `index.html`을, `/static/…`으로 나머지를 줍니다. 파일을 더하면 이 폴더 안에 두고 `/static/…` 주소로 부릅니다.
-> 2. `app.js`가 `$("…")`로 찾는 `id` 64개를 지우거나 이름을 바꾸지 않습니다 (2.2). 지우면 화면이 멈춥니다.
+> 2. `app.js`가 `$("…")`로 찾는 `id` 82개를 지우거나 이름을 바꾸지 않습니다 (2.2). 지우면 화면이 멈춥니다.
 > 3. `app.js` 안의 문장 일곱 군데는 글자 그대로 둡니다 (2.4 표의 시험 6). 코드 정리 도구가 따옴표·괄호를 바꾸면 시험이 깨집니다.
 > 4. `index.html`과 `app.js`(주석 포함)에 `replay`, `c9`, `/api/review-insight` 같은 글자가 들어가면 시험이 깨집니다 (2.4). 인라인 SVG 경로 데이터에 `c9`가 우연히 들어가는 경우를 조심하세요.
 > 5. API 경로와 요청·응답의 칸 이름은 바꾸지 않습니다. 필요하면 서버 담당(박건영)에게 요청하세요.
@@ -63,6 +63,7 @@ curl -s http://localhost:8000/api/health
   - 1.1 `GET /api/health` · 1.2 `GET /api/briefing` · 1.3 `GET /api/insight` · 1.4 `GET /api/cards`
   - 1.5 `POST /api/cards/{card_id}/run` · 1.6 `POST /api/drafts/{draft_id}/approve` · 1.7 `GET /api/approvals`
   - 1.8 `POST /api/reviews` · 1.9 `DELETE /api/reviews/pasted`
+  - 1.10 `/api/assistant/*` (상권 채팅 서랍. 상권 서비스 프록시)
 - 2부. 화면을 다듬을 때 유지해야 하는 것
   - 2.1 파일 세 개와 정적 파일 경로 · 2.2 `id` 목록 · 2.3 id 말고도 app.js가 기대하는 것
   - 2.4 시험이 직접 확인하는 것 · 2.5 화면 주소 · 2.6 화면 흐름과 부르는 API
@@ -1328,6 +1329,98 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 
 ---
 
+### 1.10 `/api/assistant/*` — 상권 채팅 서랍 (상권 서비스 프록시)
+
+**쓰는 화면**: 오른쪽 "AI에게 묻기" 서랍. 비서 화면 서버가 상권 서비스(`ic26-market`, `127.0.0.1:8766`)를 **대신 불러 주는** API입니다. 브라우저는 상권 서비스에 직접 가지 않습니다. 이 절의 숫자는 상권 서비스 시험용 **합성 자료**에서 뽑은 예시입니다(실제 상권 숫자가 아님).
+
+| 메서드 · 경로 | 하는 일 | 실패하면 |
+|---|---|---|
+| `GET /api/assistant/status` | 상권 비서를 쓸 수 있는지 | 항상 `200` (`state`로 알림) |
+| `POST /api/assistant/setup` | 우리 가게(온기한식) 분석 조건을 자동으로 맞춤. `?force=1`이면 다른 곳을 보고 있어도 우리 가게 조건으로 되돌림 | 항상 `200` |
+| `POST /api/assistant/messages` | 질문 1개 → 답, 근거 카드, 선택지 | `503`·`422` |
+| `POST /api/assistant/actions` | 선택지 버튼을 눌렀을 때 (직전 답의 `reply.actions[i].payload`를 그대로) | `503`·`422` |
+| `GET /api/assistant/conversation` | 이 세션의 대화와 분석 조건 | `503` |
+| `DELETE /api/assistant/conversation` | 대화 지우기 (분석 조건은 남음) | `503` |
+
+개발용 내보내기(`conversation.md`)와 상권 온보딩 API(`/api/onboarding/*`)는 열지 않습니다.
+
+**`status` 응답 `200`**
+
+```json
+{"state": "ready", "message": null, "model_connected": true, "planner_connected": false,
+ "setup": {"label": "온기한식 · 장승배기역 · 한식음식점"}}
+```
+
+| `state` | 뜻 | 화면에 보일 안내 (`message`) |
+|---|---|---|
+| `ready` | 쓸 수 있음 | 없음 (`null`) |
+| `off` | 이 서버에서 상권 비서를 안 켜 둠 (`MARKET_URL=off`) | 이 서버에서는 상권 비서를 켜 두지 않았어요. |
+| `down` | 상권 서비스에 연결하지 못함 (꺼져 있음) | 상권 서비스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요. |
+| `disabled` | 상권 서비스는 떴는데 챗봇이 꺼져 있음 (`ASSISTANT_ENABLED` 없음) | 상권 서비스는 켜져 있지만 상권 비서(챗봇)가 꺼져 있어요. |
+| `no_data` | 공식 상권 자료가 아직 없음 | 공식 상권 자료가 아직 준비되지 않았어요. 자료가 들어오면 바로 쓸 수 있어요. |
+| `error` | 그 밖의 문제 (제한 시간 초과, 접속 주소 설정 오류, 몰림 등) | 문장은 원인마다 다름 |
+
+`no_data`는 `status`가 아니라 `setup`이 알립니다(자료가 있는지는 분석 조건을 맞춰 봐야 압니다). `model_connected`·`planner_connected`는 상권 서비스가 실시간 HCX를 쓰는지(`APP_MODE=live`)이고, `ready`일 때만 있습니다. `setup.label`은 기본 조건이 있는 가게에서만 글자이고 없으면 `null`입니다.
+
+**`setup` 응답 `200`**
+
+```json
+{"status": "ok", "state": "ready", "message": null,
+ "conditions": {"area_code": "3110826", "area_name": "장승배기역 4번", "industry_code": "CS100001",
+                "industry_name": "한식음식점", "period": "20262", "period_label": "2026년 2분기", "location_label": "장승배기역"}}
+```
+
+| `status` | 뜻 |
+|---|---|
+| `ok` | 조건을 새로 맞춤 (`conditions`에 결과) |
+| `already` | 이미 조건이 있거나, 사용자가 다른 위치·업종을 고르는 중이라 건드리지 않음 (`force` 없을 때). 기본 조건이 없는 가게도 `already`이고 `conditions`는 `null` |
+| `unavailable` | 맞추지 못함. `state`와 `message`로 이유(`down`, `disabled`, `no_data`, `error` 등) |
+
+우리 가게 기본 조건은 `온기한식` = 장승배기역(7호선) · 한식음식점(`CS100001`) · 장승배기역 4번 상권(`3110826`) · 가장 최근 분기(2026년 2분기가 있으면 그것). 위치는 역 코드로 저장하므로 서울시 지도(Naver) 검색을 부르지 않습니다. 서랍을 처음 열 때 화면이 한 번 부르면, 사용자가 "어디를 볼까요?"를 다시 묻지 않고 바로 질문할 수 있습니다.
+
+**`messages` 요청** `{"text": "1~1000자", "client_message_id": "web-…"}` (두 번째 칸은 선택. 같은 번호로 다시 보내면 지난 답을 돌려줌)
+
+**`messages`·`actions` 응답 `200`** (줄임)
+
+```json
+{"reply": {"kind": "data_answer",
+           "text": "장승배기역 4번 상권의 한식음식점 업종을 2026년 2분기 자료로 볼게요. [F1]\n분기 추정매출은 1,000원이에요. [F2]",
+           "actions": [], "notes": ["상권·업종의 분기 추정매출이며 개별 가게의 실제 매출이나 특정 월 매출이 아닙니다."],
+           "suggestions": ["주말 매출은?", "점심·저녁 중 언제 잘 팔려?", "어느 연령대가 많이 사?"]},
+ "cards": [{"id": "F2", "topic": "sales_total", "status": "available", "text": "분기 추정매출은 1,000원입니다.",
+            "values": [{"label": "분기 추정매출", "value": 1000, "unit": "원"}], "warnings": [],
+            "source_ref": {"source_title": "합성 추정매출", "source_url": "https://example.test/s", "data_version": "b2_synthetic"}}],
+ "conditions": {"area_name": "장승배기역 4번", "industry_name": "한식음식점", "period_label": "2026년 2분기"}}
+```
+
+| 칸 | 뜻 |
+|---|---|
+| `reply.kind` | 답의 종류 (`data_answer`, `choose_location`, `need_location`, `period_unavailable`, `data_unavailable` 등). 화면은 모양 구분에 쓰지 않아도 됨 |
+| `reply.text` | 여러 줄. `- `로 시작하는 줄은 목록, `참고:`·`해석:`·`다음으로 `로 시작하는 줄은 특별 줄. `[F1]`은 근거 카드 번호 |
+| `reply.actions[]` | 선택지 `{label, payload}`. 누르면 `payload`를 `POST /api/assistant/actions`에 그대로 보냄. 없을 수 있음 |
+| `reply.notes[]` · `reply.suggestions[]` | 자료 기준 안내 · 이어서 물어볼 질문(최대 3개). 없을 수 있음 |
+| `cards[]` | 근거 카드. `values[]` 중 숫자인 것만 표로 보임. 출처는 `source_ref` |
+| `conditions` | 지금 분석 조건. 없을 수 있음 |
+
+**오류 모양** (이 절의 모든 API 공통)
+
+```json
+{"error": {"message": "상권 서비스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요.", "state": "down"}}
+```
+
+| 상태 코드 | `state` | 언제 |
+|---|---|---|
+| `503` | `down` · `disabled` · `no_data` · `error` | 상권 서비스 문제. 비서 화면의 다른 API는 아무 영향이 없음 |
+| `422` | `invalid` | 입력 문제 (빈 질문, 1000자 초과, 모르는 선택지 종류) |
+
+이 절의 API는 **어떤 경우에도 `500`을 주지 않습니다.** 서랍 안에서만 안내를 보이고 비서 화면의 알림 띠(`#alert`)는 쓰지 않습니다.
+
+**세션 쿠키**: 상권 서비스는 대화와 분석 조건을 세션(`market_onboarding_session`, 30일)에 붙입니다. 서버가 그 값을 쿠키(`HttpOnly`, 경로 `/api/assistant`)로 심고 다음 요청에 상권 서비스로 넘깁니다. 화면(JS)이 다룰 것은 없습니다(`credentials: "same-origin"`만). 상권 서비스는 Host가 `127.0.0.1`·`localhost`가 아니거나 `Origin`이 있으면 막기 때문에, 서버가 `Host: 127.0.0.1:8766`을 직접 싣고 `Origin`은 넘기지 않습니다. 서버가 두 대이면 상권 서비스의 세션 저장소(SQLite)도 서버마다 따로라서, 로드 밸런서가 방문자를 다른 서버로 보내면 대화가 이어지지 않습니다(분석 조건은 서랍이 다시 열릴 때 `setup`으로 다시 맞춤).
+
+**답이 느릴 수 있습니다**: 실시간 모드에서 보통 2~8초, 가끔 더 걸립니다. 서버는 75초(`MARKET_TIMEOUT_SEC`)까지 기다립니다. 질문이 몰리면(동시 8개 초과) `503` "질문이 몰려 있어요"가 옵니다.
+
+---
+
 ## 2부. 화면을 다듬을 때 유지해야 하는 것
 
 ### 2.1 파일 세 개와 정적 파일 경로
@@ -1346,9 +1439,9 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 
 ### 2.2 `id` 목록
 
-`app.js`가 `$("…")`(= `document.getElementById`)로 찾는 id는 **64개**입니다. 글자로 적힌 54개와, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`)를 합한 수입니다. 그중 `approvals`와 `restart`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 62개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 63개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
+`app.js`가 `$("…")`(= `document.getElementById`)로 찾는 id는 **82개**입니다. 글자로 적힌 72개와, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`)를 합한 수입니다. 그중 `approvals`와 `restart`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 80개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 81개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
 
-`index.html`에는 id가 69개 있습니다. 63개를 뺀 나머지 6개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`, `for`)이나 빈 자리로만 씁니다 (표의 마지막 묶음).
+`index.html`에는 id가 84개 있습니다. 81개를 뺀 나머지 3개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`)로만 씁니다 (표의 마지막 묶음).
 
 **상단 바와 알림**
 
@@ -1448,18 +1541,30 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 |---|---|
 | `assistant` | 오른쪽 서랍(`aside`). `hidden` 속성으로 열고 닫음. `Esc` 키로도 닫힘 |
 | `assistant-close` | 서랍의 '닫기' 버튼 |
+| `assistant-clear` | 서랍 머리의 "대화 지우기" (4초 안에 두 번 눌러 확인). 대화가 있을 때만 보임 |
+| `assistant-cond` | 분석 조건 줄 (조건이 없으면 `hidden`) |
+| `assistant-cond-text` | 조건 줄의 글 ("장승배기역 4번 상권 · 한식음식점 · 2026년 2분기") |
+| `assistant-home` | 조건 줄의 "우리 가게 조건으로" 버튼 (`POST /api/assistant/setup?force=1`) |
+| `assistant-scroll` | 서랍 본문. 이 안에서만 스크롤됨 |
+| `assistant-state` | 상태 안내 카드 (`off`·`down`·`disabled`·`no_data`·`error`일 때만 보임. 이때 입력칸은 막힘) |
+| `assistant-state-title` · `assistant-state-msg` | 상태 카드의 제목 · 서버가 준 안내 문장(그대로 보임) |
+| `assistant-retry` | 상태 카드의 "다시 확인" 버튼 |
+| `assistant-welcome` | 대화가 비었을 때의 첫 안내 |
+| `assistant-log` | 대화 기록 (`role="log"`). 사용자 말풍선, 비서 답, 선택지, 근거 카드 |
+| `assistant-status` | 진행 안내 (`role="status"`: "자료를 확인하고 있어요" 등) |
+| `assistant-chips` | 추천 질문 칩. 처음에는 고정 4개, 그 뒤에는 서버가 준 `suggestions` |
+| `assistant-error` | 서랍 안 오류 (`role="alert"`). 서버 문장을 그대로 보임. 비서 화면의 `#alert`는 쓰지 않음 |
+| `assistant-form` · `assistant-q` · `assistant-send` | 질문 입력 `form` · 입력칸(`textarea`, `maxlength="1000"`, `<label for>`가 가리킴) · 보내기 버튼 |
+| `assistant-count` | 900자를 넘으면 "n / 1000자" |
 | `honesty` | 바닥 '동작·모의 표시'가 들어가는 칸 (`/api/health`의 `parts`) |
 
-**JS가 찾지 않는 id 6개** (접근성 연결이나 빈 자리. 이름을 바꾸면 연결된 `aria-labelledby`·`for`도 같이 바꿉니다)
+**JS가 찾지 않는 id 3개** (접근성 연결. 이름을 바꾸면 연결된 `aria-labelledby`·`for`도 같이 바꿉니다)
 
 | id | 한 줄 설명 |
 |---|---|
 | `chart-title` | 차트 패널 제목. 패널의 `aria-labelledby`가 가리킴 |
 | `todo-title` | '오늘 할 일' 패널 제목. 패널의 `aria-labelledby`가 가리킴 |
 | `assistant-title` | 서랍 제목. 서랍의 `aria-labelledby`가 가리킴 |
-| `assistant-chips` | 서랍의 추천 질문 칩 자리 (지금은 비어 있음) |
-| `assistant-log` | 서랍의 대화 기록 자리 (지금은 안내 한 줄) |
-| `assistant-q` | 서랍의 질문 입력칸 (지금은 `disabled`). `<label for>`가 가리킴 |
 
 **`app.js`가 만들어 넣는 id (찾지는 않음)**: `card-(카드 id)`, `draft-(글 id)`, `text-(글 id)`. 편집 칸(`textarea`)의 `id`가 `text-(글 id)`이고 `<label for>`가 이를 가리킵니다. 이 규칙을 바꾸면 라벨과 편집 칸의 연결이 끊어집니다.
 
@@ -1699,7 +1804,7 @@ PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest discover -s t
 | **DB(PostgreSQL)에 저장**: 승인 기록, 붙여넣은 리뷰, 가게별 주간·월간 보고서, 카드 추천 이유 | 위 3.1 표대로 메모리·파일 | 서버 안의 일이라 화면은 그대로여야 합니다. 예를 들어 서버를 다시 켜도 승인 목록(`GET /api/approvals`)이 남게 될 수 있습니다 (정해지지 않음) |
 | **방문자를 구분하는 값** | 없음 | 방식(로그인·쿠키·토큰)은 정해지지 않았습니다. 정해지면 요청에 값을 싣는 방법이 바뀔 수 있습니다 |
 | **보고서 API** (가게 주간·월간 보고서) | 없음 | 종합 리포트 자리(`#/report`)에 들어갈 수 있습니다 (확정 아님). 경로·모양 미정 |
-| **상권 채팅** (`AI에게 묻기` 서랍) | 서랍의 열고 닫기만 있고 질문·답은 없음 | 서랍 안(`#assistant-*`)에 들어갈 자리입니다. `app.js` 주석은 'S1 질문창(PR #13)'이 들어온다고 적었지만, 기준 커밋의 `services/`에는 채팅 서버 코드가 없습니다 (확인함) |
+| **상권 채팅** (`AI에게 묻기` 서랍) | **연결됨 (`feat/assistant-proxy`)**: 비서 화면 서버가 상권 서비스를 대신 불러 줌(1.10절). 서랍이 질문·선택지·근거 카드·대화 지우기를 함. 공식 상권 자료가 아직 없어 실제 숫자는 자료가 들어온 뒤에 나옴 | 서랍 안(`#assistant-*`)만 바뀜 |
 | **캡처(OCR) 입력** | 없음 | 리뷰를 글로 붙여넣는 대신 화면 캡처로 넣는 입력입니다. 화면의 어디에 들어갈지는 확인하지 못했습니다 |
 
 ### 3.3 지금 화면에 있는 빈 자리
@@ -1724,7 +1829,7 @@ const LATER = [
 **(2) 'AI에게 묻기' 서랍 자리**
 
 - 열고 닫는 버튼이 둘 있습니다. 상단 바의 `#ask-ai`와 홈 아래쪽 입력줄 모양의 `#ask-open`(배지 "준비 중"). 둘 다 `#assistant` 서랍을 엽니다. 닫을 때 연 버튼으로 포커스가 돌아갑니다. `Esc`로도 닫힙니다.
-- 서랍 안: 제목(`#assistant-title`), 닫기(`#assistant-close`), 추천 질문 칩 자리(`#assistant-chips`, 비어 있음), 대화 기록 자리(`#assistant-log`, "아직 동작하지 않아요" 안내), 질문 입력칸(`#assistant-q`, `disabled`)과 '보내기' 버튼(`disabled`).
+- 서랍 안: 제목, 닫기, 조건 줄, 대화 기록, 추천 질문 칩, 질문 입력칸 (상권 채팅이 연결됨. 2.2의 서랍 id 표와 1.10절)과 '보내기' 버튼(`disabled`).
 - 질문을 보내거나 답을 받는 코드는 없습니다. 채팅 API가 정해지면 이 자리에 붙입니다 (3.2).
 - 데스크톱에서는 오른쪽 380px 서랍, 375px 폭에서는 아래에서 올라오는 시트입니다.
 - 참고: `index.html`과 `app.js`의 주석에는 이 버튼이 "숨겨져 있다"고 적혀 있지만, 지금 `index.html`에서 버튼은 숨겨져 있지 않습니다 (부록의 '알려진 특이점').
