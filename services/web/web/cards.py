@@ -10,7 +10,7 @@ C5 담당(김진수)의 구현이 오면 build_cards 만 바꿔 끼운다. 인�
   고른 지표가 하락이 아니면 다른 지표를 찾아 내려가지 않는다 (숫자를 먼저 정하고 데이터를 맞추지 않음).
   우선순위: CARD_B_SNAPSHOT_ID → snap_evening_sales_yoy(저녁 17~21시) → 단위 % 인 첫 '추정매출' 지표.
 - 이유 문장: 사실 카드(F1·F2)를 근거로 쓰고 shared.answer_check 를 통과해야 쓴다. 화면에는 [F1] 표시를 지운다.
-  mock·replay 는 고정 문장, live 는 HCX-005 한 문장(1회 재시도) → 실패하면 고정 문장.
+  mock 은 고정 문장, live 는 HCX-005 한 문장(1회 재시도) → 실패하면 고정 문장.
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ _CITE = re.compile(r"\s*\[F\d+\]")
 _QUARTER = re.compile(r"^(\d{4})Q([1-4])$")
 
 ReasonWriter = Callable[[str, list[dict], str], str]   # (카드 종류, 사실 카드, 고정 문장) -> 모델 문장(인용 포함)
+REASON_OK = "HCX-005 (검사기 통과)"   # 모델 문장이 규칙 검사를 통과했을 때의 reason_source
 
 
 @dataclass
@@ -232,7 +233,7 @@ def apply_writer(plan: CardPlan, writer: ReasonWriter) -> CardPlan:
         return plan
     plan.checked_text = text
     plan.card.reason_text = strip_citations(text)
-    plan.reason_source = "HCX-005 (검사기 통과)"
+    plan.reason_source = REASON_OK
     plan.problems = []
     return plan
 

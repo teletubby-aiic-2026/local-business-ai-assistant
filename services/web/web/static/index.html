@@ -7,79 +7,216 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <!-- 단계별 화면: 오늘 → 제안 → 초안 → 완료, 그리고 분석 (재정비/05 UI 디자인 레퍼런스 15·16번)
+       모양: 흰 상단 바 + 흰 탭 메뉴(현재 탭 녹색 밑줄) + 회색 바탕 위 흰 카드 (11/10 스마트플레이스풍) -->
   <header class="top">
-    <div class="brand">
-      <strong>텔레토비 AI 비서</strong>
-      <span id="store-name" class="muted"></span>
-    </div>
-    <div class="top-right">
-      <span id="mode-chip" class="chip"></span>
-      <span id="timer" class="timer" title="시작 버튼부터 재발 방지 공지 승인까지 (C8 KPI)">00:00</span>
+    <div class="bar">
+      <a class="brand" href="#/today">
+        <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 3C6.9 3 3 6.4 3 10.6c0 2.4 1.3 4.6 3.4 6L5.8 20.5l4-2.3c.7.1 1.4.2 2.2.2 5.1 0 9-3.4 9-7.8S17.1 3 12 3z"/></svg></span>
+        <strong>텔레토비 AI 비서</strong>
+      </a>
+      <span id="store-name" class="store"></span>
+      <div class="top-right">
+        <!-- 챗봇(S1 질문창, PR #13) 자리: 아직 숨김. 탭이 아니라 보조 서랍으로 연다 (05 17번) -->
+        <button id="ask-ai" class="ask" type="button" aria-controls="assistant" aria-expanded="false">
+          <svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>AI에게 묻기
+        </button>
+        <span id="timer" class="timer" title="무엇을 할까요? 버튼부터 재발 방지 공지 승인까지 (C8 KPI)">00:00</span>
+      </div>
     </div>
   </header>
 
-  <div id="honesty" class="honesty" aria-label="동작과 모의 표시"></div>
-  <div id="alert" class="alert" hidden></div>
+  <div id="mode-notice" class="alert warn" role="note" hidden></div>
+  <div id="alert" class="alert" role="alert" hidden></div>
 
+  <!-- 단계 화면(main) + 오른쪽 서랍(aside). 서랍이 열리면 main이 남은 폭으로 줄고 카드는 좁으면 1열 -->
+  <div class="shell">
+  <!-- 왼쪽 메뉴 (11/11 대시보드 시안): 홈이 출발점, 단계 화면은 안쪽 화면. 375px에서는 위쪽 가로 메뉴 -->
+  <nav class="side" aria-label="메뉴">
+    <div class="menu">
+      <a href="#/today" data-route="today"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/></svg>홈</a>
+      <a href="#/cards" data-route="cards"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="8" height="14" rx="2"/><rect x="13" y="5" width="8" height="14" rx="2"/></svg><span><span class="long">추천 </span>카드</span></a>
+      <a href="#/draft" data-route="draft"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg><span>승인<span class="long">할 글</span></span><span id="nav-draft-count" class="nav-count" hidden></span></a>
+      <a href="#/done" data-route="done"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><span class="long">처리 </span>완료</span></a>
+      <a href="#/analysis" data-route="analysis"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg><span><span class="long">리뷰 </span>분석</span></a>
+    </div>
+    <div class="staff">
+      <p class="staff-title">AI 직원</p>
+      <ul class="plain" id="staff">
+        <li><span class="dot ok" aria-hidden="true"></span><span><b>데이터 분석 비서</b><span id="staff-data" class="small muted">리뷰 정리 중</span></span></li>
+        <li><span id="dot-care" class="dot" aria-hidden="true"></span><span><b>고객 응대 비서</b><span id="staff-care" class="small muted">–</span></span></li>
+        <li><span id="dot-mkt" class="dot" aria-hidden="true"></span><span><b>마케팅 에이전트</b><span id="staff-mkt" class="small muted">–</span></span></li>
+      </ul>
+    </div>
+  </nav>
   <main>
-    <section id="hero" class="hero">
-      <p class="hero-time">밤 11시</p>
-      <h1 id="hero-title">오늘 들어온 리뷰를 정리해 둘게요</h1>
-      <p class="muted">같은 불만이 다시 안 생기게 할 공지부터 준비하고, 빠진 손님을 다시 부를 홍보도 챙겨요. 사장님은 확인하고 승인만 하시면 돼요.</p>
-      <p class="agents"><span class="agent">데이터 분석 비서</span><span class="agent">고객 응대 비서</span><span class="agent">마케팅 에이전트</span></p>
-      <button id="start" class="primary big" type="button" disabled>불러오는 중…</button>
+    <!-- 홈 = 대시보드 (11/11 시안 v2): 숫자 타일 4 → 불만 시간대·주제 차트 + 오늘 할 일 → AI에게 묻기.
+         차트는 브리핑(불만 리뷰 시각·주제)에서 바로 센다. 외부 라이브러리 없음. API 그대로 -->
+    <section class="view dash" data-view="today">
+      <div class="dash-head">
+        <div>
+          <p class="eyebrow"><span>밤 11시 브리핑</span><span id="today-source">불러오는 중…</span></p>
+          <h1 id="dash-title" tabindex="-1">사장님, 오늘 가게 현황이에요</h1>
+        </div>
+        <p class="problem compact"><span class="label">오늘의 핵심 문제</span><strong id="hero-problem">오늘 들어온 리뷰를 정리하고 있어요</strong></p>
+      </div>
+      <!-- 375px: 왼쪽 메뉴가 위쪽 가로 메뉴가 되면 그 아래 'AI 직원' 상태가 숨는다 → 홈에 한 줄로 (데스크톱에서는 숨김) -->
+      <ul id="staff-strip" class="staff-strip plain" aria-label="AI 직원 상태"></ul>
+      <dl class="stats tiles">
+        <div class="stat-card">
+          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5c0 4-3.6 7.2-8 7.2-.9 0-1.7-.1-2.5-.3L5 20l.9-3.6C4.7 15.1 4 13.4 4 11.5c0-4 3.6-7.2 8-7.2s8 3.2 8 7.2z"/></svg>리뷰</dt>
+          <dd><span id="stat-reviews" class="stat-n">–</span><span class="stat-unit">건</span><span id="stat-reviews-sub" class="stat-sub"></span></dd>
+        </div>
+        <div class="stat-card">
+          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>불만</dt>
+          <dd><span id="stat-complaints" class="stat-n">–</span><span class="stat-unit">건</span><span id="stat-complaints-sub" class="stat-sub"></span></dd>
+        </div>
+        <div class="stat-card">
+          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3l3 3-3 3"/><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/></svg>반복 불만</dt>
+          <dd><span id="stat-repeated" class="stat-n bad-n">–</span><span class="stat-unit">건</span><span id="stat-repeated-sub" class="stat-sub"></span></dd>
+        </div>
+        <div class="stat-card">
+          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7l6 6 4-4 6 6"/><path d="M20 11v4h-4"/></svg>상권 저녁 매출</dt>
+          <dd><span id="stat-market" class="stat-n bad-n">–</span><span id="stat-market-sub" class="stat-sub"></span></dd>
+        </div>
+      </dl>
+      <div class="dash-grid">
+        <section class="panel chart-panel" aria-labelledby="chart-title">
+          <div class="panel-head"><h2 id="chart-title">불만 리뷰가 몰린 시간</h2><span id="chart-note" class="small muted"></span></div>
+          <div id="hour-chart" class="hour-chart" role="img" aria-label="시간대별 불만 리뷰"></div>
+          <div class="panel-head"><h2>주제별 불만</h2><a href="#/analysis" class="small">리뷰 분석 보기</a></div>
+          <div id="keywords" class="topic-bars"></div>
+        </section>
+        <section class="panel todo-panel" aria-labelledby="todo-title">
+          <div class="panel-head"><h2 id="todo-title">오늘 할 일</h2><span id="todo-count" class="small muted"></span></div>
+          <ol id="todo" class="todo plain"><li class="small muted">불러오는 중…</li></ol>
+          <div class="todo-foot">
+            <button id="start" class="ghost" type="button" disabled>불러오는 중…</button>
+            <span class="small muted">추천 카드 2장을 나란히 보고 고르기</span>
+          </div>
+        </section>
+      </div>
+      <button id="ask-open" class="ask-bar" type="button" aria-controls="assistant" aria-expanded="false">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2z"/></svg><span class="ask-ph">AI에게 묻기 · 예) 포장 누락은 언제 많아요?</span><span class="badge">준비 중</span>
+      </button>
     </section>
 
-    <section id="step1" class="step" hidden>
-      <h2><span class="num">①</span> 오늘의 브리핑 <span class="agent">데이터 분석 비서</span></h2>
-      <div id="funnel" class="funnel"></div>
-      <div class="grid2">
-        <div>
-          <h3>불만 묶음</h3>
-          <div id="groups"></div>
-          <details id="singles-box">
-            <summary id="singles-title">묶이지 않은 불만</summary>
-            <ul id="singles" class="plain"></ul>
-          </details>
-        </div>
-        <div>
-          <h3>상권 지표</h3>
-          <div id="market"></div>
-          <details id="paste-box" class="paste">
-            <summary>리뷰 직접 붙여넣기</summary>
-            <p class="muted small">배달앱에서 복사한 리뷰를 붙여 넣으면 바로 분류해 묶음에 더해요. 이름·전화번호는 가려서 저장해요.</p>
-            <textarea id="paste-text" rows="3" placeholder="예) 반찬이 하나 빠져서 왔어요"></textarea>
-            <div class="row">
-              <button id="paste-send" type="button">붙여넣기</button>
-              <button id="paste-reset" type="button" class="ghost">붙여넣은 리뷰 지우기</button>
-            </div>
-            <p id="paste-msg" class="small muted"></p>
-          </details>
+    <!-- 2 제안: 카드 2장 중 하나 -->
+    <section class="view" data-view="cards" hidden>
+      <div class="page-head">
+        <h1 tabindex="-1">무엇을 할까요?</h1>
+        <p class="small muted">어떤 카드를 띄울지는 규칙이 정해요. 하나를 골라 주세요.</p>
+      </div>
+      <div id="cards" class="cards"></div>
+      <p id="no-card-b" class="small muted"></p>
+    </section>
+
+    <!-- 3 초안: 원 리뷰와 AI 초안을 한 카드에 위아래로, 고치고 승인 -->
+    <section class="view narrow" data-view="draft" hidden>
+      <div id="draft"></div>
+    </section>
+
+    <!-- 4 완료: 승인 결과 + KPI → 처음으로 -->
+    <section class="view narrow" data-view="done" hidden>
+      <div id="done"></div>
+    </section>
+
+    <!-- 리뷰 분석 (11/13 통합 1차): 따로 떠 있던 리뷰 분석 화면(services/review-insight 자체 페이지)의 세 화면을 탭 3개로.
+         데이터는 이 서버의 /api/insight(요약·불만 묶음)와 /api/reviews(붙여넣기)로만 받는다. 브라우저는 리뷰 분석 서버에 직접 묻지 않는다.
+         가게 선택은 없다 (이 화면은 가게 하나 고정). -->
+    <section class="view" data-view="analysis" hidden>
+      <div class="page-head">
+        <p class="eyebrow"><span class="agent">데이터 분석 비서</span><span id="an-period"></span></p>
+        <h1 tabindex="-1">리뷰 분석</h1>
+      </div>
+      <div class="seg an-tabs" role="tablist" aria-label="리뷰 분석 화면">
+        <button type="button" role="tab" id="an-tab-summary" data-tab="summary" aria-controls="an-summary" aria-selected="true">요약</button>
+        <button type="button" role="tab" id="an-tab-issues" data-tab="issues" aria-controls="an-issues" aria-selected="false" tabindex="-1">불만 묶음</button>
+        <button type="button" role="tab" id="an-tab-paste" data-tab="paste" aria-controls="an-paste" aria-selected="false" tabindex="-1">리뷰 붙여넣기</button>
+      </div>
+      <p id="an-status" class="small muted" role="status">불러오는 중…</p>
+
+      <!-- 요약: 숫자 타일 3개 → 칭찬·불만 키워드 -->
+      <div id="an-summary" class="an-panel" role="tabpanel" aria-labelledby="an-tab-summary" tabindex="0">
+        <dl class="stats">
+          <div class="stat-card">
+            <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5c0 4-3.6 7.2-8 7.2-.9 0-1.7-.1-2.5-.3L5 20l.9-3.6C4.7 15.1 4 13.4 4 11.5c0-4 3.6-7.2 8-7.2s8 3.2 8 7.2z"/></svg>리뷰</dt>
+            <dd><span id="an-reviews" class="stat-n">–</span><span class="stat-unit">건</span><span id="an-reviews-sub" class="stat-sub"></span></dd>
+          </div>
+          <div class="stat-card">
+            <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>불만</dt>
+            <dd><span id="an-complaints" class="stat-n">–</span><span class="stat-unit">건</span><span id="an-complaints-sub" class="stat-sub"></span></dd>
+          </div>
+          <div class="stat-card">
+            <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3l3 3-3 3"/><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/></svg>반복 불만</dt>
+            <dd><span id="an-repeated" class="stat-n bad-n">–</span><span class="stat-unit">건</span><span id="an-repeated-sub" class="stat-sub"></span></dd>
+          </div>
+        </dl>
+        <div class="panel">
+          <div class="panel-head"><h2>칭찬·불만 키워드</h2><button type="button" class="ghost small" data-goto-tab="issues">불만 묶음 보기</button></div>
+          <div id="an-kw" class="kw"></div>
+          <p class="small muted an-note">리뷰 하나에 주제가 여럿이면 모두 셉니다.</p>
         </div>
       </div>
-    </section>
 
-    <section id="step2" class="step" hidden>
-      <h2><span class="num">②</span> 오늘 할 일 추천 <span class="small muted">어떤 카드를 띄울지는 규칙이 정해요</span></h2>
-      <div id="cards" class="cards"></div>
-      <p id="no-card-b" class="muted small"></p>
-    </section>
+      <!-- 불만 묶음: 리뷰 → 불만 → 묶음 흐름, 묶음 카드(시간대·근거), 묶이지 않은 불만 -->
+      <div id="an-issues" class="an-panel" role="tabpanel" aria-labelledby="an-tab-issues" tabindex="0" hidden>
+        <div class="panel">
+          <div id="an-funnel" class="funnel"></div>
+          <p class="small muted an-note">같은 불만이 2건 이상이면 묶음, 3건 이상이면 반복으로 봐요.</p>
+        </div>
+        <div id="an-groups" class="an-groups"></div>
+        <div class="panel">
+          <h2 id="an-singles-title">묶이지 않은 불만</h2>
+          <p class="small muted an-note">어느 묶음에도 들지 않은 불만이에요.</p>
+          <ul id="an-singles" class="plain"></ul>
+        </div>
+      </div>
 
-    <section id="step3" class="step" hidden>
-      <h2><span class="num">③</span> 준비된 글 <span class="num">④</span> 확인하고 승인</h2>
-      <div id="results"></div>
-    </section>
-
-    <section id="log" class="step" hidden>
-      <h2>처리 완료 기록</h2>
-      <ul id="approvals" class="plain"></ul>
-      <p id="kpi" class="kpi"></p>
+      <!-- 리뷰 붙여넣기: 글 1건 + 별점 → 바로 분류해 묶음에 더함 -->
+      <div id="an-paste" class="an-panel" role="tabpanel" aria-labelledby="an-tab-paste" tabindex="0" hidden>
+        <div class="panel paste">
+          <label for="paste-text" class="small"><b>리뷰 글</b> <span class="muted">· 전화번호·이메일·링크는 저장 전에 가려요.</span></label>
+          <textarea id="paste-text" rows="4" maxlength="1000" placeholder="배달앱에서 받은 리뷰 글을 붙여넣으세요."></textarea>
+          <div id="paste-samples" class="row an-samples"></div>
+          <div class="row">
+            <label for="paste-rating" class="sr">별점</label>
+            <select id="paste-rating"><option value="">별점 모름</option><option value="5">별점 5</option><option value="4">별점 4</option><option value="3">별점 3</option><option value="2">별점 2</option><option value="1">별점 1</option></select>
+            <button id="paste-send" type="button" class="primary">분류하기</button>
+            <button id="paste-reset" type="button" class="ghost">붙여넣은 리뷰 지우기</button>
+          </div>
+          <p id="paste-msg" class="small muted" role="status"></p>
+        </div>
+        <div id="paste-result"></div>
+      </div>
     </section>
   </main>
 
+  <!-- 챗봇 서랍 자리 (기능은 아직 없음). 데스크톱 = 오른쪽 380px, 375px = 아래에서 올라오는 시트 -->
+  <aside id="assistant" class="drawer" aria-labelledby="assistant-title" hidden>
+    <div class="drawer-head">
+      <h2 id="assistant-title">AI에게 묻기</h2>
+      <button id="assistant-close" type="button" class="ghost" aria-label="AI에게 묻기 닫기">닫기</button>
+    </div>
+    <div class="drawer-body">
+      <div id="assistant-chips" class="drawer-chips" aria-label="추천 질문"></div>
+      <div id="assistant-log" class="drawer-log">
+        <p class="small muted">S1 질문창(PR #13)이 들어올 자리예요. 아직 동작하지 않아요.</p>
+      </div>
+    </div>
+    <div class="drawer-input">
+      <label for="assistant-q" class="sr">질문</label>
+      <input id="assistant-q" type="text" placeholder="예) 포장 누락은 언제 많아요?" disabled>
+      <button type="button" class="primary" disabled>보내기</button>
+    </div>
+  </aside>
+  </div>
+
   <footer class="foot">
-    <button id="record" type="button" class="ghost" hidden>발표 모드로 저장</button>
-    <span id="foot-msg" class="small muted"></span>
+    <details class="honesty-box">
+      <summary class="small">동작·모의 표시</summary>
+      <div id="honesty" class="honesty" aria-label="동작과 모의 표시"></div>
+    </details>
   </footer>
 
   <script src="/static/app.js"></script>

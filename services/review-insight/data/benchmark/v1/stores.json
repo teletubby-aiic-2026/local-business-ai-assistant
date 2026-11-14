@@ -1,0 +1,109 @@
+[
+ {
+  "store_id": "bench_gaon",
+  "name": "가온밥상 (가상)",
+  "business_type": "korean",
+  "business_type_name": "한식음식점",
+  "menu": [
+   "제육볶음",
+   "된장찌개",
+   "김치찌개",
+   "불고기덮밥",
+   "계란말이",
+   "돈까스"
+  ],
+  "channels": [
+   "baemin",
+   "coupangeats",
+   "yogiyo",
+   "naver_place"
+  ],
+  "data_origin": "synthetic"
+ },
+ {
+  "store_id": "bench_noeul",
+  "name": "노을치킨 (가상)",
+  "business_type": "chicken",
+  "business_type_name": "치킨전문점",
+  "menu": [
+   "후라이드",
+   "양념치킨",
+   "반반",
+   "순살치킨",
+   "치즈볼",
+   "감자튀김"
+  ],
+  "channels": [
+   "baemin",
+   "coupangeats",
+   "yogiyo",
+   "naver_place"
+  ],
+  "data_origin": "synthetic"
+ },
+ {
+  "store_id": "bench_morae",
+  "name": "모래커피 (가상)",
+  "business_type": "cafe",
+  "business_type_name": "커피-음료",
+  "menu": [
+   "아메리카노",
+   "라떼",
+   "바닐라라떼",
+   "아인슈페너",
+   "크로플",
+   "마카롱",
+   "케이크"
+  ],
+  "channels": [
+   "baemin",
+   "coupangeats",
+   "yogiyo",
+   "naver_place"
+  ],
+  "data_origin": "synthetic"
+ },
+ {
+  "store_id": "bench_ttobagi",
+  "name": "또바기분식 (가상)",
+  "business_type": "snack",
+  "business_type_name": "분식전문점",
+  "menu": [
+   "떡볶이",
+   "로제떡볶이",
+   "김밥",
+   "순대",
+   "튀김",
+   "라면",
+   "어묵탕"
+  ],
+  "channels": [
+   "baemin",
+   "coupangeats",
+   "yogiyo",
+   "naver_place"
+  ],
+  "data_origin": "synthetic"
+ },
+ {
+  "store_id": "bench_hong",
+  "name": "홍반점 (가상)",
+  "business_type": "chinese",
+  "business_type_name": "중식음식점",
+  "menu": [
+   "짜장면",
+   "짬뽕",
+   "탕수육",
+   "군만두",
+   "볶음밥",
+   "깐풍기"
+  ],
+  "channels": [
+   "baemin",
+   "coupangeats",
+   "yogiyo",
+   "naver_place"
+  ],
+  "data_origin": "synthetic"
+ }
+]

@@ -66,8 +66,14 @@ def promises_not_in_policy(text: str, policies: list[dict]) -> bool:
 
 
 def mentions_unknown_menu(text: str, menu_names: list[str]) -> bool:
-    all_food = set(FOOD_WORDS) - set(menu_names)
-    return any(w in text for w in all_food if len(w) >= 2)
+    """메뉴에 없는 음식(FOOD_WORDS)이 글에 있으면 True.
+    글에서 메뉴 이름을 먼저 지운다(긴 것부터). 메뉴 이름을 띄어쓰기로 나눈 2글자 이상 조각도 같이 지운다
+    ("불고기 덮밥"을 "불고기"만 써도 메뉴로 본다). 남은 글에서만 일반 음식 낱말을 찾는다."""
+    names = {n for name in menu_names for n in (" ".join(name.split()), *name.split()) if len(n) >= 2}
+    rest = text
+    for name in sorted(names, key=len, reverse=True):
+        rest = rest.replace(name, " ")
+    return any(w in rest for w in FOOD_WORDS if len(w) >= 2)
 
 
 def personal_info(text: str) -> bool:

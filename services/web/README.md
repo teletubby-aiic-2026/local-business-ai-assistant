@@ -1,4 +1,4 @@
-# C7 한 화면 + C9 발표 모드
+# C7 한 화면
 
 ① 오늘의 브리핑 → ② 추천 카드 2장 → ③ 결과물 생성 → ④ 사장님 승인 을 한 화면으로 잇습니다.
 다른 파트의 코드는 고치지 않고 가져다 씁니다.
@@ -11,11 +11,19 @@
 | ③ 답글·공지·홍보글 | C6 (PR #16 `experiments/marketing/c6`) | import (`run_card`) |
 | 계약 | C1 (PR #15 `shared/contracts.py`) | import |
 
+## 리뷰 분석 화면 (11/13)
+
+- 따로 떠 있던 리뷰 분석 화면이 이 비서 화면 안으로 들어왔습니다. 왼쪽 메뉴 **리뷰 분석**(`#/analysis`)에서 탭 3개(요약 · 불만 묶음 · 리뷰 붙여넣기)로 봅니다.
+- 화면은 이 서버의 API(`GET /api/insight`, `POST /api/reviews`, `DELETE /api/reviews/pasted`)로만 데이터를 받습니다. 브라우저가 리뷰 분석 서버에 직접 묻지 않으니, 서버에 올릴 때 리뷰 분석 서버는 안쪽에만 두면 됩니다.
+- 리뷰를 붙여넣거나 지우면 홈 숫자와 추천 카드도 다시 불러옵니다.
+- 왼쪽 메뉴의 **종합 리포트**·**상권**은 회의에서 정한 뒤 채울 빈 자리입니다 (`web/static/app.js` 의 `LATER` 한 곳).
+
 ## 실행 (저장소 루트에서. #14·#16·#17 은 11/10 main 에 병합됨)
 
 ```bash
 python3.11 -m venv .venv && .venv/bin/pip install -r services/web/requirements.txt -r services/review-insight/requirements.txt
-services/web/run.sh                     # 기본 mock: 키 없이 돈다
+services/web/run.sh                     # 키 파일이 있으면 live, 없으면 mock
+APP_MODE=mock services/web/run.sh       # 키가 있어도 키 없이 시험용으로
 open http://localhost:8000
 ```
 
@@ -23,23 +31,46 @@ open http://localhost:8000
 
 ## 모드
 
+모드는 두 가지입니다. `run.sh` 는 키 파일이 있으면 live, 없으면 mock 으로 띄웁니다.
+
 | `APP_MODE` | ① 브리핑 | ② 이유 문장 | ③ 글 | 키 | 네트워크 |
 |---|---|---|---|---|---|
-| `mock` (기본) | #14 를 이 컴퓨터에서 띄워 규칙 분류 | 고정 문장 | 김수현 저장본 (`c6/replay/c6_cache_best.json`) | 필요 없음 | 필요 없음 |
-| `live` | 같음 (`REVIEW_APP_MODE=live` 면 #14 도 HCX) | HCX-005, 규칙 검사 불통과면 고정 문장 | HCX-005 `run_card` (사장님이 고른 재발 방지 조치 포함) | 필요 | 필요 |
-| `replay` (발표) | 저장본 | 저장본 | 저장본 | 필요 없음 | 필요 없음 |
+| `live` | #14 도 live (`REVIEW_APP_MODE` 로 바꿀 수 있음) | HCX-005, 규칙 검사 불통과면 고정 문장 | HCX-005 `run_card` 전부 실시간 (사장님이 고른 재발 방지 조치 포함) | 필요 | 필요 |
+| `mock` | #14 를 이 컴퓨터에서 띄워 규칙 분류 | 고정 문장 | 김수현 저장 예시 (`c6/replay/c6_cache_best.json`) | 필요 없음 | 필요 없음 |
 
-- **발표 모드 저장본 만들기**: `mock` 이나 `live` 로 띄워 ①→③ 을 한 번 돌리고 화면 아래 **"발표 모드로 저장"** → `services/web/data/replay/web_cache.json`. 그다음 `APP_MODE=replay services/web/run.sh`.
-- `live` 에서 생성한 결과는 누를 때마다 저장본에 바로 기록됩니다. 아직 이 서버에서 돌리지 않은 카드는 기존 저장본의 같은 카드 결과를 이어 씁니다 (없으면 mock 저장본).
+- **mock 은 시험용 실행입니다.** 글은 저장된 예시이고 실제 AI 결과가 아닙니다. 그래서 화면 맨 위에 "시험용 실행 · 키 없이 저장된 예시 결과를 보여 줍니다 (실제 AI 결과 아님)" 띠가 뜹니다. live 에서는 뜨지 않습니다.
+- **발표 모드(`replay`)와 사다리(`DEMO_LADDER`)는 없어졌습니다.** `APP_MODE=replay` 는 오류로 멈춥니다. 화면의 저장 단추와 `/api/c9/record` 도 없습니다.
+- **이 화면은 live 결과를 파일에 저장하지 않습니다.** 글을 만들 때마다 실시간으로 부르고, 결과는 화면에만 있습니다 (승인 기록 `data/runtime/approvals.jsonl` 만 따로 남음). 참고: #14 는 live 일 때 샘플 리뷰 분류 결과를 자기 저장 파일(`services/review-insight/data/replay/classify.json`)에 남깁니다. 이 화면과는 별개입니다.
+- **붙여넣기**(`POST /api/reviews`)는 mock·live 모두 됩니다.
 - **이유 문장 규칙 (live)**: 검사기(`shared/answer_check`) 통과에 더해, 근거 숫자(3건·19.31%)를 실제로 쓰고, 상권 이름·시간대 표기를 바꾸지 않고, %를 %p로 쓰지 않고, 두세 문장·180자 안, 앞날 예측 없음. 걸리면 고칠 점을 붙여 5번까지 다시 쓰고, 그래도 안 되면 고정 문장. 다음 요청 때 3라운드까지 다시 시도합니다.
 - **재발 방지 조치**: 불만 카드에서 사장님이 C6 조치 목록(`c6/measures.py`) 중 고른 것만 공지·답글에 들어갑니다. 기본은 포장 누락 → M1 "포장 마감 전 주문서 대조".
 - **하지 않은 조치 점검**: "보내드렸어요"·"환불 처리 완료"·정하지 않은 보상 약속은 '확인 필요'로 표시합니다 (`generate.action_flags`).
-- **사다리 (결정안 6절)**: `APP_MODE=live DEMO_LADDER=1` 은 답글만 실시간, `DEMO_LADDER=2` 는 답글 하나만 실시간. 나머지는 저장본.
-- **개발용 가짜 지표**: `note` 가 "개발용 가짜 값"으로 시작하는 지표가 있으면 화면 맨 위에 빨간 띠가 뜨고, 발표 모드로 저장·재생하지 않습니다.
+- **개발용 가짜 지표**: `note` 가 "개발용 가짜 값"으로 시작하는 지표가 있으면 화면 맨 위에 빨간 띠가 뜹니다.
+
+## 저장 계층과 방문자 구분
+
+실행 중에 생기는 데이터(승인 기록, 붙여넣은 리뷰와 분류 결과, 카드 추천 이유 문장, 주간·월간 보고서)를 **DB(PostgreSQL)에도 둘 수 있습니다.** 코드는 저장소 루트의 `shared/storage/`, 표 정의는 `db/schema.sql` 한 파일입니다.
+
+- **DB 설정이 없으면 지금과 똑같이** 서버 메모리와 `data/runtime/approvals.jsonl` 파일로 돕니다. psycopg 가 안 깔려 있어도 됩니다.
+- **환경 변수 `DB_HOST` 가 있으면 PostgreSQL**: `DB_HOST`, `DB_PORT`(5432), `DB_NAME`, `DB_USER`, `DB_PASSWORD` (서버에서는 `/etc/ic26/env`). 서버가 여러 대여도 모두 같은 내용을 봅니다.
+  `DB_HOST` 만 있고 `DB_NAME`·`DB_USER` 가 없거나 psycopg 가 없으면 켜질 때 오류로 멈춥니다 (조용히 메모리로 돌지 않음). 켜질 때 DB 가 꺼져 있는 것은 괜찮습니다.
+- **DB 에 닿지 못하는 동안** (장애 전환 중 등):
+  - 승인은 200 으로 받고 응답에 `warning` 이 붙습니다. 이 서버가 메모리에 들고 있다가, DB 가 돌아온 뒤 이 서버에 승인이나 승인 목록 요청이 오면 승인한 순서대로 DB 에 씁니다. 그 전에 이 서버가 꺼지면 그 승인은 사라집니다.
+  - 브리핑·카드·리뷰 분석·붙여넣기는 503 입니다. 붙여넣은 리뷰가 DB 에만 있어서 리뷰 분석 서버가 503 `STORAGE_UNAVAILABLE` 로 답하기 때문입니다 (합성 리뷰만으로 계속 보여 주는 동작은 없음).
+  - DB 가 돌아오면 서비스를 다시 켜지 않아도 다음 요청부터 됩니다.
+- **표 만들기** (저장소 루트에서, 여러 번 돌려도 안전. 앱이 켜질 때 자동으로 만들지는 않음):
+
+  ```bash
+  DB_HOST=... DB_NAME=... DB_USER=... DB_PASSWORD=... python -m shared.storage.init_db
+  ```
+- **방문자 구분**: 이 서버가 방문자마다 임의의 id 를 쿠키 `visitor_id` 로 줍니다 (없으면 새로 만들어 응답에 실음. `HttpOnly`, `SameSite=Lax`, https 뒤에서는 `Secure`, 30일). 화면(JS)은 쿠키를 다룰 필요가 없습니다.
+  이 id 로 **승인 기록과 붙여넣은 리뷰를 나눕니다** (리뷰 분석 서버에는 `visitor_id` 로 넘김). 합성 리뷰와 카드 추천 이유 문장은 모두에게 같습니다.
+- **카드 추천 이유 저장 (live)**: 한 번 쓴 이유 문장(규칙 검사 통과분)을 저장하고, 가게·카드·근거 카드(숫자)·참조 문장·프롬프트·모델이 같으면 HCX 를 다시 부르지 않습니다. 서버를 켠 뒤 첫 화면이 느린 것을 줄입니다. 저장이 실패해도 화면은 뜹니다.
+- 승인 요청 본문에 `card_id`·`kind`(초안 종류)를 선택으로 보낼 수 있습니다. 안 보내면 이 서버가 ③ 에서 만든 초안만 알고 있어서, 다른 서버에서 만든 초안이면 DB 의 카드·종류 칸이 빕니다.
 
 ## 키·토큰
 
-- 키는 저장소 밖 `~/.config/teletubby-aiic/env` (폴더 700, 파일 600) 에만 둡니다. `run.sh` 가 읽고 값은 출력하지 않습니다. 없으면 mock 으로 돕니다.
+- 키는 저장소 밖 `~/.config/teletubby-aiic/env` (폴더 700, 파일 600) 에만 둡니다. `run.sh` 가 읽고 값은 출력하지 않습니다. 없으면 mock 으로 돕니다. 키가 있어도 `APP_MODE=mock` 을 주면 mock 입니다.
 - 같은 HCX 키를 `CLOVASTUDIO_API_KEY`(#14)와 `CLOVA_API_KEY`(#16) 두 이름으로 내보냅니다.
 - 원격 리뷰 서버를 쓸 때만 `WEB_REVIEW_SOURCE=remote` + `REVIEW_INSIGHT_URL`·`REVIEW_INSIGHT_TOKEN`(헤더 `X-Access-Token`). 기본은 이 컴퓨터에서 띄웁니다.
 
@@ -62,13 +93,18 @@ PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest tests.test_we
 
 CLOVA·네트워크를 부르지 않습니다 (리뷰 서비스는 가짜, 모델은 가짜 함수). C6 저장본(기본: 저장소의 `experiments/marketing`)이 없으면 그 저장본이 필요한 시험만 건너뜁니다.
 
+## 점검 통과 수 측정 (live 기준선)
+
+떠 있는 서버에 HTTP 로만 말해 글의 점검 상태(점검 통과 / 확인 필요 / 점검 실패, 화면 배지와 같은 규칙)와 걸린 시간을 센다. 키·환경 변수는 쓰지 않는다.
+
+```bash
+.venv/bin/python services/web/scripts/measure_live.py --base http://127.0.0.1:8540 --rounds 5 --label baseline --out baseline.json
+```
+
+서버 mode 가 live 가 아니면 크게 경고한다 (그래도 진행). `--out` JSON 에는 초안 본문 대신 길이만 남는다. 다른 브랜치를 넣은 서버에 같은 명령(`--label` 만 바꿔)을 돌려 비교한다.
+
 ## 아직 안 된 것 (정직 표기)
 
-- 발표 모드 저장본(`data/replay/web_cache.json`)은 **11/10 02:38 live 기록**입니다:
-  - 리뷰 분류 HCX-005 (#14 live, 02:23 호출 14회, `services/review-insight/data/replay/classify.json`)
-  - 카드 ⓑ 이유 문장 HCX-005 (규칙 통과)
-  - 카드 ⓐ 이유 문장은 HCX가 시간대 표기(17~21시)를 지키지 못해 **고정 문장**
-  - ③ 답글 3 + 공지 1 + 홍보글 1 HCX-005 (확인 필요 0)
 - 카드 이유 문장 호출 수는 따로 기록하지 않습니다 (C6·#14 는 각자 비용·사용량을 기록).
 - C5 는 참조 구현입니다. 진수의 `build_cards` 가 오면 바꿔 끼웁니다.
-- 승인 기록은 화면과 `data/runtime/approvals.jsonl` 에만 남고, 배달앱에 게시하지 않습니다 (미구현: 복사까지만).
+- 승인 기록은 화면과 `data/runtime/approvals.jsonl`(DB 설정이 있으면 DB)에만 남고, 배달앱에 게시하지 않습니다 (미구현: 복사까지만).

@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+*.pem
+*.key
 
 # 실행 중에 생기는 것
 **/data/runtime/
@@ -13,6 +15,24 @@
 
 # 파이썬
 .venv/
+venv/
 __pycache__/
 *.pyc
+*.py[cod]
 .pytest_cache/
+
+# Node
+node_modules/
+
+# 로컬 DB 파일
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+
+# 상권 분석 (services/market-analysis)
+services/market-analysis/data/
+services/market-analysis/logs/
+services/market-analysis/.coverage
+services/market-analysis/htmlcov/

@@ -152,7 +152,9 @@ services/review-insight/
 │   └─ runtime/                       [S2] 붙여넣은 리뷰 (저장소에 안 올림)
 ├─ scripts/
 │   ├─ make_synthetic.py   [C2] 가짜 리뷰·정답표 만들기
-│   └─ eval_classify.py    AI 결과를 정답표와 비교해 점수 내기
+│   ├─ eval_classify.py    AI 결과를 정답표와 비교해 점수 내기
+│   ├─ make_benchmark.py   벤치마크 원본(한 줄 형식) → 리뷰·정답 JSON
+│   └─ eval_benchmark.py   벤치마크 채점 (주제별·유형별 점수)
 └─ tests/   자동 시험 (키 없이 돎)
 ```
 
@@ -265,6 +267,16 @@ kiwi가 설치되어 있지 않거나 `REVIEW_MORPH=off`면 글자 단서로 돌
 - 대회 동안에는 붙여넣기에도 합성 리뷰만 씁니다 (규격 9.2).
 - 붙여넣은 리뷰의 작성 시각은 붙여넣은 시각입니다 (원래 작성 시각을 모름).
 
+### 방문자별 구분과 DB 저장 (선택)
+
+- **방문자 id (선택 인자)**: `GET /reviews`, `GET /reviews/{id}`, `GET /insight`, `DELETE /reviews/pasted` 는 쿼리 `visitor_id`, `POST /reviews` 는 본문의 `visitor_id` 로 받습니다. 주면 합성 리뷰(모두에게 같음)에 **그 방문자가 붙여넣은 리뷰만** 더해 보여 주고·분석하고·지웁니다. 안 주면 지금까지처럼 모두가 쓰는 공용 값이고, 이 폴더의 자체 화면과 기존 시험이 그렇게 돕니다.
+  영문·숫자·`-`·`_` 1~64자만 받고 (파일 이름에 들어가므로 `/`·`.`·줄바꿈은 400 `VALIDATION_ERROR`), 비서 화면 서버가 쿠키로 만든 값을 넘깁니다.
+  파일 방식에서는 `data/runtime/visitors/<방문자>/pasted_<가게>.json` 에 따로 둡니다 (공용은 `pasted_<가게>.json` 그대로).
+- **DB 저장**: 환경 변수 `DB_HOST` (+ `DB_PORT`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`)가 있으면 붙여넣은 리뷰(`reviews` 표)와 그 분류 결과(`review_labels` 표)를 PostgreSQL 에 둡니다. 없으면 위의 파일 그대로입니다.
+  표 정의는 저장소 루트의 `db/schema.sql`, 만들기는 저장소 루트에서 `python -m shared.storage.init_db`. 코드는 저장소 루트의 `shared/storage` 라서 **서버에서는 `PYTHONPATH` 에 저장소 루트를 줍니다**
+  (이 폴더에서 직접 실행하면 루트를 찾아 붙입니다). Dockerfile 이미지는 이 폴더만 담아서 DB 방식을 쓰지 못하고 파일 방식으로만 돕니다.
+- DB 에 닿지 못하면 (장애 전환 중 등) 500 이 아니라 **503 `STORAGE_UNAVAILABLE`** (`retryable: true`) 로 답하고, DB 가 돌아오면 서비스를 다시 켜지 않아도 다음 요청부터 됩니다.
+
 ---
 
 ## 7. 실행과 설정
@@ -295,6 +307,16 @@ pytest -q                         # 시험 (키 필요 없음, CLOVA 응답은 �
 
 - AI 호출은 일시 오류(429·5xx·시간 초과)면 1번 다시 시도하고, 키 오류(400·401·403)는 바로 실패합니다.
 - 호출마다 `logs/llm_usage.jsonl`에 토큰·시간만 한 줄씩 남깁니다 (리뷰 글은 남기지 않음, 저장소에 안 올림).
+
+### 벤치마크 (처음 보는 리뷰로 재기)
+
+`data/benchmark/v1/`: 가게 5곳의 합성 리뷰 600건과 정답 (연습용 360 · 시험용 240, HCX 없이 사람이 씀). 정답 기준 `GUIDE.md`, 점수표 `RESULTS.md`.
+```bash
+python -m scripts.make_benchmark                          # source/*.txt → JSON (정답 형식 검사)
+python -m scripts.eval_benchmark --split dev              # 연습용: 틀린 리뷰를 보고 고쳐도 됨
+APP_MODE=live python -m scripts.eval_benchmark --split test   # 시험용: 점수만 (보면서 고치지 않기)
+```
+live 결과는 `data/benchmark/v1/runs/`에 저장해 같은 프롬프트로 다시 채점할 때 HCX를 다시 부르지 않습니다 (저장소에는 안 올림).
 
 ### 평가와 발표용 저장본 만들기
 
@@ -363,6 +385,7 @@ httpx.get("http://<서버>:8020/api/review-insight/insight", headers={"X-Access-
 
   틀린 것은 대부분 한 리뷰의 **두 번째 주제를 빠뜨린 것**이었습니다 (예: '양도 넉넉하고 맛도 좋아요'의 맛).
   그 뒤 프롬프트를 고쳤습니다: 여러 주제 예시·채널 정보(c3-v2), JSON 배열 하나로 묻고 못 읽은 리뷰는 다시 묻기(c3-v3), kiwi 참고 자료(c3-v5).
+  벤치마크 v1 연습용으로 c3-v6(감정·응대·메뉴 규칙), c3-v7(주제별 판단 단서 + 고정 예시 10개)을 만들었습니다 → 시험용 주제 F1 84.7% (`data/benchmark/v1/RESULTS.md`).
   c3-v2에서 '매장 환경' 주제를 더하면서 '주제 없음'이던 정답 4건을 `atmosphere`로 바꿨습니다.
 - 와우 숫자(불만 12 · 3묶음 · 단발 5)는 AI 분류 결과에 따라 달라질 수 있습니다. 발표에서는 HCX-005 결과를 재생본(C9)으로 고정합니다.
 
@@ -371,4 +394,4 @@ httpx.get("http://<서버>:8020/api/review-insight/insight", headers={"X-Access-
 - [ ] 서버에서 `APP_MODE=live`(c3-v5)로 kiwi 참고 자료 켠 것·끈 것 평가, 온기한식 와우 숫자 확인, `data/replay/classify.json` 올리기
 - [ ] C1 데이터 계약이 나오면 `app/models.py`를 그 형식으로 맞추기
 - [ ] C4 상권이 정해지면 발표용 가게 업종·이름 맞추기 (`scripts/make_synthetic.py`)
-- [ ] 처음 보는 리뷰로 규칙·AI 점수 다시 재기
+- [x] 처음 보는 리뷰로 규칙·AI 점수 다시 재기 → 벤치마크 v1 (`data/benchmark/v1/RESULTS.md`)
