@@ -13,7 +13,7 @@ import clova
 from c6 import checks
 from c6 import parsing
 from c6.style import tone_style_section
-from c6.output import DraftOutput, CardResult
+from c6.output import CALL_FAILED_NOTE_NO_TEXT, DraftOutput, CardResult
 
 # 쿠폰 생성기 전용 few-shot 예시 (reply 스타일 예시는 어투가 달라 안 맞는다)
 # 메뉴·리뷰와 무관한 문장으로 둔다 — AI 가 이 예시의 말투만 배우고, 메뉴·수식어는 그대로 베끼지 않도록.
@@ -138,7 +138,7 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
         resp = clova.call(key, system, messages, model=model, max_tokens=512, temperature=temperature)
         raw_ = resp.get("content", "")
         text_ = parsing.extract_body(raw_)  # JSON이든 평문이든 본문을 절대 버리지 않는다
-        return text_, raw_, resp.get("won", 0)
+        return text_, raw_, resp.get("won", 0), bool(resp.get("error"))
 
     start = time.perf_counter()
     total_won = 0.0
@@ -150,7 +150,7 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
     total_won += sum(c[2] for c in candidates)
 
     scored = []
-    for text_, raw_, _ in candidates:
+    for text_, raw_, _, _error in candidates:
         chk_, failed_ = _check(text_)
         scored.append((text_, raw_, chk_, failed_))
     scored.sort(key=_score, reverse=True)
@@ -182,6 +182,8 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
 
     if failed:
         needs_input.append("사장님 확인 필요")
+    if not text and any(c[3] for c in candidates):   # 호출이 끝내 실패해 AI 글이 없다 (쿠폰 줄만 남음) → 사장님께 알린다
+        needs_input.append(CALL_FAILED_NOTE_NO_TEXT)
 
     elapsed_ms = round((time.perf_counter() - start) * 1000)
 

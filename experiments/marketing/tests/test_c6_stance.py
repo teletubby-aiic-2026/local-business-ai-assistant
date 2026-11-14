@@ -281,10 +281,9 @@ class TestGenerateByStance(unittest.TestCase):
 
     def test_explain_call_failure_is_reported(self):
         ctx, card = _ctx([_review(UNFAIR["outside_area_hours"])])
-        with patch("c6.reply_explain.RETRY_WAIT_S", 0), \
-                patch("clova.call", side_effect=lambda *a, **k: {"error": "HTTP 429: 한도"}) as call:
+        with patch("clova.call", side_effect=lambda *a, **k: {"error": "HTTP 429: 한도"}) as call:
             d = generate_reply_draft(ctx, card, "k").drafts[0]
-        self.assertEqual(call.call_count, 2)   # 오류면 한 번만 다시 부른다
+        self.assertEqual(call.call_count, 1)   # 다시 부르기는 clova.call 안에서 한 번만 한다 (여기서 또 부르면 최대 4번)
         self.assertIn(rx.CALL_FAILED_NOTE, d.needs_input)
         self.assertEqual(d.failed_reasons, [])
 

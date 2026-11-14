@@ -13,7 +13,6 @@ c6.reply._process_review 가 리뷰마다 c6.stance.judge_review 로 태도를 �
 """
 from __future__ import annotations
 
-import time
 import uuid
 
 import clova
@@ -24,7 +23,6 @@ from c6.stance import EXPLAIN, EXPLAIN_NEEDS_INPUT, StanceDecision
 from c6.style import assemble
 
 MAX_REWRITES = 2   # 점검에 걸리면 고칠 점을 붙여 다시 쓰게 하는 횟수 (처음 1번 + 최대 2번)
-RETRY_WAIT_S = 1.5   # 호출이 오류를 돌려주면 이만큼 기다렸다가 한 번 더 부른다
 _RETRY_EXEMPT = ("length_ok", "uses_opening", "uses_closing")   # c6.reply 와 같음: 참고만, 다시 쓰기 사유에서 제외
 CLOSING_LINE = "앞으로도 메뉴판 안에서 늘 정성껏 준비할게요. 남겨 주신 말씀 고마워요."
 DEFAULT_PRINCIPLE = "저희는 메뉴판에 있는 구성대로만 준비하고 있어요."
@@ -149,9 +147,6 @@ def process_explain_review(review, decision: StanceDecision, *, card_id, store, 
     def _call(messages):
         nonlocal won, call_errors
         resp = clova.call(key, system, messages, model=model, max_tokens=200, temperature=0.3)
-        if resp.get("error"):   # 잠깐의 호출 한도 초과 등: 한 번만 잠시 뒤 다시 부른다
-            time.sleep(RETRY_WAIT_S)
-            resp = clova.call(key, system, messages, model=model, max_tokens=200, temperature=0.3)
         won += resp.get("won", 0)
         call_errors += bool(resp.get("error"))
         raw = resp.get("content", "")

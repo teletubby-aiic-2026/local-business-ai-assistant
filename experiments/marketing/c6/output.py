@@ -8,6 +8,10 @@ _VALID_GENERATORS = ("reply_draft", "prevention_notice", "coupon_promo")
 _VALID_STATUSES = ("draft", "edited", "approved")
 _VALID_STANCES = ("apology", "explain")   # c6.stance.STANCES 와 같아야 한다 (시험이 확인)
 
+# AI(HCX) 호출이 제한 시간 초과·한도 초과 등으로 끝내 실패했을 때 사장님께 알리는 문구. 화면에는 '확인 필요'로 보인다.
+CALL_FAILED_NOTE = "AI 호출이 실패해 기본 문장으로 채웠어요. 사장님이 내용에 맞게 고쳐 주세요."
+CALL_FAILED_NOTE_NO_TEXT = "AI 호출이 실패해 AI가 쓰는 글을 만들지 못했어요. 잠시 뒤 다시 만들거나 직접 써 주세요."
+
 
 @dataclass
 class DraftOutput:

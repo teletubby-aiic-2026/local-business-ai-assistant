@@ -13,7 +13,10 @@ from c6 import checks
 from c6 import parsing
 from c6.measures import MEASURE_FALLBACK_SENTENCES
 from c6.style import assemble, few_shot_examples, insert_before_last_sentence, owner_style, tone_style_section
-from c6.output import DraftOutput, CardResult
+from c6.output import CALL_FAILED_NOTE, DraftOutput, CardResult
+
+# AI 호출이 끝내 실패했을 때 쓰는 기본 본문 (코드가 쓴다. 첫 문장이 사과라서 공지 점검(has_apology)을 넘는다)
+FALLBACK_BODY = "불편을 드려 정말 죄송해요. 같은 일이 없도록 더 신경 쓸게요."
 
 SYSTEM_TMPL = """\
 당신은 {store_name} 사장님입니다. 반복되는 고객 불만에 대한 재발 방지 공지의 "본문만" 쓰세요.
@@ -115,12 +118,18 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
 
     resp = clova.call(key, system, messages, model=model, max_tokens=512, temperature=0.5)
     total_won += resp.get("won", 0)
+    call_errors = 1 if resp.get("error") else 0
     raw = resp.get("content", "")
     body = parsing.extract_body(raw)  # JSON이든 평문이든 본문을 절대 버리지 않는다
 
+    needs = []
+    if call_errors and not body:   # 호출이 끝내 실패 → 코드가 쓴 기본 문장으로 채우고 사장님께 알린다
+        body = FALLBACK_BODY
+        needs.append(CALL_FAILED_NOTE)
+
     text, check_results, failed = _check(body)
 
-    if failed and body:
+    if failed and body and not needs:
         hints = checks.fix_hints(failed)
         retry_msg = [
             {"role": "user", "content": f"카드 이유: {card.reason_text}"},
@@ -159,6 +168,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         checks=check_results,
         failed_reasons=checks.fix_hints(failed) if failed else [],
         rewrites=rewrites,
+        needs_input=needs,
         model=model,
         elapsed_ms=elapsed_ms,
         data_origin=store.data_origin,

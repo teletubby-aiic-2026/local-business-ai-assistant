@@ -315,6 +315,11 @@ class Demo:
                         self._add_live_pasted(result, extra, pasted)
             except GenerateError as exc:
                 raise DemoError(str(exc)) from None
+            except DemoError:
+                raise
+            except Exception as exc:   # HCX 호출 쪽의 예상 못한 오류. 500 대신 화면 알림 띠로 보이게 한다
+                log.exception("글 생성 중 예상 못한 오류 (%s)", exc.__class__.__name__)
+                raise DemoError("글을 만들다가 문제가 생겼어요. 잠시 뒤 다시 눌러 주세요.", status=502) from None
         made = summarize(result)
         self._remember_drafts(card_id, made)
         return made

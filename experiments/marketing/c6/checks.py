@@ -131,6 +131,15 @@ def has_overpromise(text: str) -> bool:
     return bool(_OVERPROMISE.search(text))
 
 
+# 사과하는 말이 글 어디에든 있는가 (첫 문장 강제가 아님). 가게 과실 불만의 답글에 쓴다.
+_APOLOGY_ANYWHERE = re.compile(r"죄송|죄스|사과|미안|불찰|송구|면목|불편(?:을|도|이)?\s*(?:드려|드렸|끼쳐|끼쳤)|불편하게\s*해")
+
+
+def has_apology_anywhere(text: str) -> bool:
+    """글 전체에 사과 표현("죄송", "사과", "미안", "불찰", "송구", "불편을 드려" 등)이 하나라도 있으면 True."""
+    return bool(_APOLOGY_ANYWHERE.search(text or ""))
+
+
 def has_apology(text: str) -> bool:
     """글의 첫 문장에 사과("죄송")가 있으면 True."""
     first = _SENT_SPLIT.split(text.strip())[0] if text and text.strip() else ""
@@ -236,6 +245,7 @@ def fix_hints(failed: list[str]) -> list[str]:
         "no_overpromise": "'없을 거예요'·'절대'·'완벽' 같은 장담이나 '도입했으니'처럼 이미 끝난 일처럼 쓰지 말고, "
                            "'~할게요'처럼 앞으로 할 일로 다시 써 주세요.",
         "has_apology": "첫 문장에 불편을 드려 죄송하다는 사과를 넣어 주세요.",
+        "apology_expressed": "가게 잘못일 수 있는 불만이에요. 글 안에 불편을 드려 죄송하다는 사과를 한 번 넣어 주세요.",
         "no_fewshot_copy": "예시 문구의 단어를 그대로 베끼지 말고, 같은 단어를 가까이서 반복하지 말아 주세요.",
         "no_unknown_menu": "메뉴에 있는 음식 이름만 써 주세요.",
         "no_markdown": "마크다운 기호(**, #, ` 등) 없이 일반 문장으로 써 주세요.",

@@ -20,7 +20,8 @@
 응답에 싣고, 사장님이 사실을 확인하라는 안내(needs_input)를 붙인다. 답글은 늘 사장님이 고치고 승인한 뒤 올린다.
 
 점검 묶음 (태도마다 다른 묶음을 쓴다. 점검을 느슨하게 한 것이 아니라 상황에 맞는 점검으로 바꾼 것)
-- APOLOGY_CHECKS: c6.reply._run_checks 그대로 (main 과 같음).
+- APOLOGY_CHECKS: c6.reply._run_checks. main 의 점검에 apology_expressed(글 어디든 사과 표현이 있는가)를 더했다.
+  첫 문장 강제(has_apology)가 아니다. 가게 과실일 수 있는 불만에 사과 없는 답글이 '점검 통과'로 나가지 않게 한다.
 - EXPLAIN_CHECKS: c6.reply_explain.run_explain_checks. 사과 대신 '과실 인정 없음'·'유감 표현'·'원칙 설명'·'보상 약속 없음'·
   '손님 탓·훈계·비꼼 없음'을 보고, 정책·숫자·개인정보·길이·딱딱한 말·장담·금지 표현은 apology 와 같은 점검을 쓴다.
 - checks.has_apology(첫 문장 '죄송')는 뜻을 바꾸지 않았고 지금처럼 재발 방지 공지(c6.notice)에만 쓴다.
@@ -39,7 +40,7 @@ STANCE_LABELS = {APOLOGY: "사과하는 답글", EXPLAIN: "사과 없이 사실�
 # 태도마다 적용하는 답글 점검 묶음. 생성기가 이 이름들을 checks 에 그대로 남긴다(시험이 일치하는지 확인).
 # no_forbidden_phrase 는 말투(ToneProfile)에 금지 표현이 있을 때만, not_too_similar 는 카드 단위로 나중에 붙는다.
 APOLOGY_CHECKS = (
-    "evidence_valid", "no_invented_measure", "chosen_measure_included", "missing_mentioned", "no_bad_promise",
+    "evidence_valid", "no_invented_measure", "chosen_measure_included", "missing_mentioned", "apology_expressed", "no_bad_promise",
     "no_bad_number", "no_personal_info", "length_ok", "no_stiff_words", "no_overpromise", "uses_opening", "uses_closing",
 )
 EXPLAIN_CHECKS = (
