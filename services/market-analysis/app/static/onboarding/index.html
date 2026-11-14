@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>가게 정보 설정 · 서울 상권비서</title>
+  <link rel="stylesheet" href="/onboarding-assets/onboarding.css">
+  <script src="/onboarding-assets/onboarding.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="서울 상권비서 처음으로"><span class="brand-mark" aria-hidden="true">서</span><span>서울 상권비서</span></a>
+    <span class="header-note"><span class="status-dot" aria-hidden="true"></span>서울특별시</span>
+  </header>
+
+  <main class="page-shell">
+    <div id="page-intro" class="intro">
+      <p class="eyebrow">사장님을 위한 상권분석</p>
+      <h1 id="page-heading">먼저, 가게를 알려주세요.</h1>
+      <p class="intro-copy" id="page-description">위치와 업종, 운영 상태를 저장하고<br class="mobile-break"> 분석할 상권과 자료 기간을 선택해 주세요.</p>
+    </div>
+
+    <ol class="steps" aria-label="가게 정보 설정 단계">
+      <li id="step-input" class="current" aria-current="step"><span class="step-number">1</span><span>가게 정보 입력</span></li>
+      <li class="step-connector" aria-hidden="true"></li>
+      <li id="step-review"><span class="step-number">2</span><span>설정 확인</span></li>
+      <li class="step-connector" aria-hidden="true"></li>
+      <li id="step-analysis"><span class="step-number">3</span><span>분석 상권 설정</span></li>
+      <li class="step-connector" aria-hidden="true"></li>
+      <li id="step-sales"><span class="step-number">4</span><span>분석 결과</span></li>
+    </ol>
+
+    <div id="app-message" class="app-message" role="alert" hidden></div>
+    <button id="retry-load" type="button" class="button button-secondary retry-button" hidden>다시 불러오기</button>
+    <div id="loading" class="loading-state" role="status">가게 정보를 준비하고 있어요<span class="loading-dots" aria-hidden="true">···</span></div>
+
+    <div id="workspace" class="workspace" hidden>
+      <div id="profile-content" class="content-column">
+        <form id="profile-form" novalidate>
+          <section class="form-section" aria-labelledby="location-heading">
+            <div class="section-heading"><span class="section-number">01</span><div><h2 id="location-heading">어디에서 시작하시나요?</h2><p>영업 중인 가게 또는 창업을 생각 중인 곳을 알려주세요.</p></div></div>
+            <fieldset class="location-kind-fieldset">
+              <legend class="sr-only">위치 입력 방법</legend>
+              <div class="segmented-control" id="location-kinds">
+                <label><input type="radio" name="location-kind" value="address" checked><span>가게 주소</span></label>
+                <label><input type="radio" name="location-kind" value="station"><span>역 근처</span></label>
+                <label><input type="radio" name="location-kind" value="area"><span>동네·지역</span></label>
+              </div>
+            </fieldset>
+
+            <div id="address-panel" class="location-panel">
+              <label class="field-label" for="address-query">도로명주소 또는 지번주소</label>
+              <div class="address-search-row"><input id="address-query" type="search" maxlength="200" autocomplete="off" placeholder="도로명·동 이름·건물명으로 찾아보세요" aria-controls="address-results" aria-expanded="false" aria-describedby="address-help address-search-message"><button id="search-address" type="button" class="button button-secondary" aria-haspopup="dialog" aria-controls="address-dialog">주소 찾기</button></div>
+              <p id="address-help" class="field-help">‘주소 찾기’에서 관련 주소 목록을 확인하고 선택해 주세요. 서울특별시 주소만 등록할 수 있어요.</p>
+              <div id="saved-address-note" class="saved-address-note" hidden></div>
+              <p id="address-search-message" class="search-message" role="status" aria-live="polite"></p>
+              <button id="verify-address" type="button" class="button button-text address-fallback" hidden>입력한 정확한 주소 직접 확인</button>
+              <fieldset id="address-results-wrap" class="address-results-wrap" hidden><legend class="field-label">관련 주소 선택 <span class="candidate-key-hint">↓ 후보 이동 · Enter 선택</span></legend><div id="address-results" class="address-results"></div></fieldset>
+            </div>
+
+            <div id="station-panel" class="location-panel" hidden>
+              <div class="field-grid">
+                <div><label class="field-label" for="station-line-select">지하철 노선</label><select id="station-line-select" aria-controls="station-select" aria-describedby="station-help"><option value="">노선을 선택해 주세요</option></select></div>
+                <div><label class="field-label" for="station-select">가까운 역</label><select id="station-select" aria-describedby="station-help station-selection-note" disabled><option value="">노선을 먼저 선택해 주세요</option></select></div>
+              </div>
+              <p id="station-help" class="field-help" role="status" aria-live="polite">노선을 고르면 서울특별시 안의 역 목록이 나와요.</p>
+              <div id="station-selection-note" class="saved-address-note" hidden></div>
+            </div>
+
+            <div id="area-panel" class="location-panel" hidden>
+              <div class="field-grid">
+                <div><label class="field-label" for="district-select">서울 자치구</label><select id="district-select" aria-controls="place-text" aria-describedby="place-help"><option value="">자치구를 선택해 주세요</option></select></div>
+                <div><label id="place-label" class="field-label" for="place-text">동네 선택 (행정동)</label><div class="area-search-row"><select id="place-text" aria-describedby="place-help saved-area-note area-search-message" disabled><option value="">자치구를 먼저 선택해 주세요</option></select><button id="preview-area" type="button" class="button button-secondary" disabled>지도에서 확인</button></div></div>
+              </div>
+              <p id="place-help" class="field-help">자치구를 선택하면 해당 구의 행정동 목록이 나와요. 정확한 가게 위치는 주소로 찾을 수 있어요.</p>
+              <div id="saved-area-note" class="saved-address-note" hidden></div>
+              <p id="area-search-message" class="search-message" role="status" aria-live="polite"></p>
+              <fieldset id="area-results-wrap" class="address-results-wrap" hidden><legend class="field-label">동네 참고 위치 선택</legend><div id="area-results" class="address-results"></div></fieldset>
+            </div>
+            <p id="location-error" class="field-error" role="alert" hidden></p>
+          </section>
+
+          <section class="form-section" aria-labelledby="industry-heading">
+            <div class="section-heading"><span class="section-number">02</span><div><h2 id="industry-heading">어떤 업종인가요?</h2><p id="industry-help">서울시 상권 데이터에 포함된 업종만 제공해요. 주력 업종 하나를 선택해 주세요.</p></div></div>
+            <div class="industry-fields">
+              <label class="field-label" for="industry-select">주력 업종</label>
+              <select id="industry-select" aria-describedby="industry-help industry-count industry-error"><option value="">업종을 선택해 주세요</option></select>
+              <p id="industry-count" class="field-help" role="status" aria-live="polite"></p>
+            </div>
+            <p id="industry-error" class="field-error" role="alert" hidden></p>
+          </section>
+
+          <section class="form-section last-section" aria-labelledby="status-heading">
+            <div class="section-heading"><span class="section-number">03</span><div><h2 id="status-heading">지금 어떤 단계에 계신가요?</h2><p>운영 중인지, 창업을 준비 중인지 알려 주세요.</p></div></div>
+            <fieldset class="status-fieldset"><legend class="sr-only">사업 운영 상태</legend><div id="business-statuses" class="status-cards"></div></fieldset>
+            <p id="status-error" class="field-error" role="alert" hidden></p>
+          </section>
+
+          <div class="form-footer"><p>입력한 정보는 저장 후에도 수정할 수 있어요.</p><div class="form-actions"><button id="cancel-edit" type="button" class="button button-text" hidden>수정 취소</button><button id="save-profile" type="submit" class="button button-primary">가게 정보 저장하기 <span aria-hidden="true">→</span></button></div></div>
+        </form>
+
+        <section id="saved-overview" class="saved-overview" aria-labelledby="saved-heading" hidden>
+          <span class="completion-mark" aria-hidden="true">✓</span><p class="eyebrow">기본 설정 완료</p><h2 id="saved-heading">가게 정보가 준비됐어요.</h2><p class="saved-copy">이제 분석할 공식 상권과 제공되는 자료를 확인해 주세요.</p>
+          <dl class="saved-details"><div><dt>가게 위치</dt><dd id="saved-location"></dd><dd id="saved-verification" class="saved-verification"></dd></div><div><dt>업종</dt><dd id="saved-industry"></dd></div><div><dt>현재 상황</dt><dd id="saved-status"></dd></div></dl>
+          <div class="next-step-note"><span class="note-number" aria-hidden="true">다음</span><p id="saved-analysis-note">공식 상권 경계와 자료 제공 범위를 확인한 뒤 분석 상권을 저장할 수 있어요.</p></div>
+          <div class="saved-actions"><button id="view-sales-overview" type="button" class="button button-primary" hidden>분석 결과 보기</button><button id="open-analysis" type="button" class="button button-secondary">분석 상권 설정</button><button id="edit-profile" type="button" class="button button-secondary">가게 정보 수정</button><button id="show-clear" type="button" class="button button-text">정보 삭제</button></div>
+          <div id="clear-confirmation" class="clear-confirmation" hidden><p>저장한 가게 정보를 삭제할까요?</p><span>삭제하면 위치와 업종을 다시 입력해야 해요.</span><div><button id="confirm-clear" type="button" class="button button-danger">삭제할게요</button><button id="cancel-clear" type="button" class="button button-secondary">취소</button></div></div>
+        </section>
+
+        <section id="analysis-panel" class="analysis-panel" aria-labelledby="analysis-heading" hidden>
+          <div class="analysis-header"><div><p class="eyebrow">분석 범위 확인</p><h2 id="analysis-heading">분석할 상권을 선택해 주세요.</h2></div><button id="analysis-back" type="button" class="button button-text">가게 정보로</button></div>
+          <p id="analysis-profile-summary" class="analysis-profile-summary"></p>
+          <div class="analysis-section">
+            <div class="analysis-section-title"><h3>공식 상권 후보</h3><span id="analysis-candidate-count" class="analysis-small-note"></span></div>
+            <p class="field-help">이름과 지도 경계를 확인하고 하나를 선택해 주세요. 가까운 상권이 가게를 포함한다는 뜻은 아니에요.</p>
+            <p id="analysis-load-message" class="analysis-message" role="status" aria-live="polite"></p>
+            <button id="analysis-retry" type="button" class="button button-secondary" hidden>다시 확인하기</button>
+            <fieldset id="analysis-candidates-wrap" hidden><legend class="sr-only">분석할 공식 상권</legend><div id="analysis-candidates" class="analysis-candidates"></div></fieldset>
+          </div>
+          <div id="analysis-data-section" class="analysis-section" hidden>
+            <div class="analysis-section-title"><div><h3 id="analysis-selected-name">자료 제공 범위</h3><p id="analysis-selected-meta" class="analysis-small-note"></p></div><div class="analysis-quarter-field"><label class="field-label" for="analysis-quarter">기준 분기</label><select id="analysis-quarter" disabled><option value="">분기를 확인하고 있어요</option></select></div></div>
+            <p id="analysis-data-message" class="analysis-message" role="status" aria-live="polite"></p>
+            <div id="analysis-coverage" class="analysis-coverage"></div>
+            <p id="analysis-comparison-note" class="field-help">제공 여부는 선택한 상권·업종·분기를 기준으로 확인해요. 유동인구는 상권 전체 자료예요.</p>
+            <div id="analysis-sources" class="analysis-sources"></div>
+          </div>
+          <div class="analysis-footer"><p id="analysis-save-message" role="status" aria-live="polite">상권과 자료 제공 범위를 확인한 뒤 저장해 주세요.</p><div class="analysis-footer-actions"><button id="save-analysis" type="button" class="button button-primary" disabled>이 상권으로 저장하기</button><button id="view-sales-analysis" type="button" class="button button-primary" hidden>분석 결과 보기</button></div></div>
+        </section>
+      </div>
+
+      <nav id="analysis-report-menu" class="analysis-report-menu" aria-label="상권 분석 메뉴" hidden><span>저장한 조건으로 분석</span><div><button id="report-menu-sales" type="button" aria-controls="sales-panel">매출 분석</button><button id="report-menu-stores" type="button" aria-controls="stores-panel">점포 분석</button><button id="report-menu-population" type="button" aria-controls="population-panel">유동인구</button><button id="report-menu-comparison" type="button" aria-controls="comparison-panel">상권 비교</button><button id="report-menu-changes" type="button" aria-controls="changes-panel">기간 변화</button></div></nav>
+
+      <section id="sales-panel" class="sales-panel" aria-labelledby="sales-heading" hidden>
+        <div class="sales-heading-row"><div><p class="eyebrow">선택 상권의 추정 매출</p><h2 id="sales-heading">매출이 언제, 누구에게서 발생했을까요?</h2><p id="sales-condition" class="sales-condition"></p></div><div class="sales-view-actions"><button id="sales-back" type="button" class="button button-secondary">이전 화면으로</button><button id="sales-reconfigure" type="button" class="button button-text">분석 조건 확인</button></div></div>
+        <div id="sales-load-state" class="sales-load-state" role="status" aria-live="polite"><p id="sales-load-message">저장한 조건의 매출 자료를 확인하고 있어요.</p><button id="sales-retry" type="button" class="button button-secondary" hidden>다시 불러오기</button></div>
+        <div id="sales-result" hidden>
+          <div class="sales-overview-grid">
+            <div class="sales-total-card"><div class="sales-card-topline"><span>선택 분기 추정 매출</span><span id="sales-result-status" class="sales-result-status"></span></div><p id="sales-total" class="sales-total"></p><p id="sales-total-note" class="sales-total-note"></p></div>
+            <div class="sales-summary-card"><h3>자료에서 확인한 특징</h3><ul id="sales-summary"></ul><p id="sales-summary-note" class="field-help">요일·시간·연령 분포를 확인한 결과예요. 매장 한 곳의 매출을 뜻하지 않아요.</p></div>
+          </div>
+          <div id="sales-distributions" class="sales-distributions"></div>
+          <div class="sales-context-grid"><section class="sales-scope-card"><h3>자료 범위와 출처</h3><div id="sales-scope"></div><div id="sales-sources" class="sales-sources"></div></section><section id="sales-warnings-card" class="sales-warnings-card"><h3>해석할 때 확인해 주세요</h3><ul id="sales-warnings"></ul></section></div>
+        </div>
+      </section>
+
+      <section id="stores-panel" class="sales-panel stores-panel" aria-labelledby="stores-heading" hidden>
+        <div class="sales-heading-row"><div><p class="eyebrow">선택 상권의 점포 현황</p><h2 id="stores-heading">선택 분기의 점포 구성을 확인하세요.</h2><p id="stores-condition" class="sales-condition"></p></div><div class="sales-view-actions"><button id="stores-back" type="button" class="button button-secondary">이전 화면으로</button><button id="stores-reconfigure" type="button" class="button button-text">분석 조건 확인</button></div></div>
+        <div id="stores-load-state" class="sales-load-state" role="status" aria-live="polite"><p id="stores-load-message">저장한 조건의 점포 자료를 확인하고 있어요.</p><button id="stores-retry" type="button" class="button button-secondary" hidden>다시 불러오기</button></div>
+        <div id="stores-result" hidden>
+          <div class="stores-overview-grid">
+            <div class="sales-total-card"><div class="sales-card-topline"><span>전체 점포 수</span><span id="stores-result-status" class="sales-result-status"></span></div><p id="stores-total" class="sales-total"></p><p id="stores-total-note" class="sales-total-note"></p></div>
+            <section class="stores-composition-card" aria-labelledby="stores-composition-heading"><div class="stores-card-title"><h3 id="stores-composition-heading">일반·프랜차이즈 점포 구성</h3><span id="stores-composition-status" class="sales-distribution-status"></span></div><dl class="stores-composition-counts"><div><dt>일반 점포</dt><dd id="stores-general"></dd></div><div><dt>프랜차이즈 점포</dt><dd id="stores-franchise"></dd></div></dl><div class="stores-share-heading"><span>프랜차이즈 비중</span><strong id="stores-franchise-share"></strong></div><div id="stores-share-track" class="stores-share-track" aria-hidden="true" hidden><div id="stores-share-bar"></div></div><p id="stores-denominator" class="field-help"></p><p id="stores-composition-message" class="stores-composition-message"></p></section>
+          </div>
+          <div class="stores-movement-grid">
+            <section class="stores-movement-card"><p class="eyebrow">선택 분기의 개업</p><h3>개업 점포 수</h3><p id="stores-opened" class="stores-count"></p><p>선택한 분기에 집계된 개업 건수예요.</p></section>
+            <section class="stores-movement-card"><p class="eyebrow">선택 분기의 폐업</p><h3>폐업 점포 수</h3><p id="stores-closed" class="stores-count"></p><p>현재 전체 점포 수의 구성 비율이나 폐업 위험률을 뜻하지 않아요.</p></section>
+            <section class="sales-summary-card"><h3>자료에서 확인한 특징</h3><ul id="stores-summary"></ul></section>
+          </div>
+          <div class="sales-context-grid"><section class="sales-scope-card"><h3>자료 범위와 출처</h3><div id="stores-scope"></div><div id="stores-sources" class="sales-sources"></div></section><section id="stores-warnings-card" class="sales-warnings-card"><h3>해석할 때 확인해 주세요</h3><ul id="stores-warnings"></ul></section></div>
+        </div>
+      </section>
+
+      <section id="population-panel" class="sales-panel population-panel" aria-labelledby="population-heading" hidden>
+        <div class="sales-heading-row"><div><p class="eyebrow">선택 상권 전체의 유동인구</p><h2 id="population-heading">시간대·연령별 유동인구를 확인하세요.</h2><p id="population-condition" class="sales-condition"></p></div><div class="sales-view-actions"><button id="population-back" type="button" class="button button-secondary">이전 화면으로</button><button id="population-reconfigure" type="button" class="button button-text">분석 조건 확인</button></div></div>
+        <p class="population-area-notice">선택한 업종의 고객 수가 아닌 상권 전체의 유동인구 자료예요. 실제 가게 방문자나 중복을 제거한 고유 방문자 수로 해석하지 마세요.</p>
+        <div id="population-load-state" class="sales-load-state" role="status" aria-live="polite"><p id="population-load-message">저장한 상권의 유동인구 자료를 확인하고 있어요.</p><button id="population-retry" type="button" class="button button-secondary" hidden>다시 불러오기</button></div>
+        <div id="population-result" hidden>
+          <div class="sales-overview-grid">
+            <div class="sales-total-card"><div class="sales-card-topline"><span id="population-total-label">선택 분기 지역 유동인구 원천값</span><span id="population-result-status" class="sales-result-status"></span></div><p id="population-total" class="sales-total"></p><p id="population-total-note" class="sales-total-note"></p></div>
+            <div class="sales-summary-card"><h3>자료에서 확인한 특징</h3><ul id="population-summary"></ul><p class="field-help">시간대·연령 분포의 합계 일치 여부도 함께 확인해 주세요.</p></div>
+          </div>
+          <div id="population-distributions" class="sales-distributions population-distributions"></div>
+          <div class="sales-context-grid"><section class="sales-scope-card"><h3>자료 범위와 출처</h3><div id="population-scope"></div><div id="population-sources" class="sales-sources"></div></section><section id="population-warnings-card" class="sales-warnings-card"><h3>해석할 때 확인해 주세요</h3><ul id="population-warnings"></ul></section></div>
+        </div>
+      </section>
+
+      <section id="comparison-panel" class="sales-panel comparison-panel" aria-labelledby="comparison-heading" hidden>
+        <div class="sales-heading-row"><div><p class="eyebrow">같은 업종·분기의 다른 상권</p><h2 id="comparison-heading">두 상권의 자료를 나란히 비교하세요.</h2><p id="comparison-condition" class="sales-condition"></p></div><div class="sales-view-actions"><button id="comparison-back" type="button" class="button button-secondary">이전 화면으로</button><button id="comparison-reconfigure" type="button" class="button button-text">분석 조건 확인</button></div></div>
+        <section class="comparison-controls" aria-labelledby="comparison-controls-heading"><div class="comparison-controls-title"><h3 id="comparison-controls-heading">비교할 상권 선택</h3><p>기준 상권의 업종과 분기를 그대로 적용해요.</p></div><div class="comparison-fields"><div><label class="field-label" for="comparison-district">자치구</label><select id="comparison-district" aria-describedby="comparison-options-message" disabled><option value="">목록을 불러오는 중이에요</option></select></div><div><label class="field-label" for="comparison-area">비교 상권</label><select id="comparison-area" aria-describedby="comparison-options-message" disabled><option value="">자치구를 먼저 선택해 주세요</option></select></div><button id="comparison-run" type="button" class="button button-primary" disabled>비교하기</button></div><p id="comparison-options-message" class="field-help" role="status" aria-live="polite"></p><button id="comparison-options-retry" type="button" class="button button-text" hidden>상권 목록 다시 불러오기</button></section>
+        <p class="population-area-notice">상권의 유형·면적·집계 범위가 다를 수 있어요. 단순한 수치 차이로 더 좋은 상권을 판단하지 않으며, 유동인구는 업종별 고객 수가 아니에요.</p>
+        <div id="comparison-load-state" class="sales-load-state" role="status" aria-live="polite" hidden><p id="comparison-load-message"></p><button id="comparison-retry" type="button" class="button button-secondary" hidden>다시 비교하기</button></div>
+        <div id="comparison-result" hidden>
+          <div class="comparison-area-headings"><div><span>기준 상권</span><h3 id="comparison-base-name"></h3><p id="comparison-base-meta"></p></div><div><span>비교 상권</span><h3 id="comparison-target-name"></h3><p id="comparison-target-meta"></p></div></div>
+          <div class="comparison-table-wrap"><table class="comparison-table"><caption id="comparison-table-caption">차이는 비교 상권 − 기준 상권이며, 차이 비율의 분모는 기준 상권 값입니다.</caption><thead><tr><th scope="col">지표</th><th scope="col">기준 상권</th><th scope="col">비교 상권</th><th scope="col">차이 (비교 − 기준)</th><th scope="col">차이 비율</th></tr></thead><tbody id="comparison-rows"></tbody></table></div>
+          <div class="sales-context-grid"><section class="sales-scope-card"><h3>자료 범위와 출처</h3><div id="comparison-scope"></div><div id="comparison-sources" class="sales-sources"></div></section><section id="comparison-warnings-card" class="sales-warnings-card"><h3>해석할 때 확인해 주세요</h3><ul id="comparison-warnings"></ul></section></div>
+        </div>
+      </section>
+
+      <section id="changes-panel" class="sales-panel comparison-panel changes-panel" aria-labelledby="changes-heading" hidden>
+        <div class="sales-heading-row"><div><p class="eyebrow">같은 상권·업종의 분기 변화</p><h2 id="changes-heading">이전 분기와 무엇이 달라졌을까요?</h2><p id="changes-condition" class="sales-condition"></p></div><div class="sales-view-actions"><button id="changes-back" type="button" class="button button-secondary">이전 화면으로</button><button id="changes-reconfigure" type="button" class="button button-text">분석 조건 확인</button></div></div>
+        <section class="comparison-controls" aria-labelledby="changes-controls-heading"><div class="comparison-controls-title"><h3 id="changes-controls-heading">비교할 기간 선택</h3><p>현재 분기는 저장한 분석 조건으로 고정해요.</p></div><div class="changes-fields"><div><label class="field-label" for="changes-mode">비교 기준</label><select id="changes-mode" aria-describedby="changes-mode-help"><option value="qoq">전분기와 비교</option><option value="yoy">전년 동분기와 비교</option></select></div><p id="changes-mode-help" class="field-help">선택한 비교 기간의 자료가 없으면 다른 분기로 대체하지 않아요.</p><button id="changes-run" type="button" class="button button-primary">변화 조회하기</button></div></section>
+        <p class="population-area-notice">같은 상권 코드의 원천 지표를 비교해요. 두 분기의 실제 상권 경계가 동일한지는 확인되지 않았으며, 개별 가게의 성장이나 변화 원인을 뜻하지 않아요.</p>
+        <div id="changes-load-state" class="sales-load-state" role="status" aria-live="polite" hidden><p id="changes-load-message"></p><button id="changes-retry" type="button" class="button button-secondary" hidden>다시 조회하기</button></div>
+        <div id="changes-result" hidden>
+          <div class="comparison-area-headings"><div><span>현재 분기</span><h3 id="changes-current-period"></h3><p id="changes-current-meta"></p></div><div><span>비교 분기</span><h3 id="changes-previous-period"></h3><p id="changes-previous-meta"></p></div></div>
+          <div class="comparison-table-wrap"><p id="changes-result-note" class="field-help changes-result-note"></p><table class="comparison-table"><caption>차이는 현재 분기 − 비교 분기이며, 증감률의 분모는 비교 분기 값입니다.</caption><thead><tr><th scope="col">지표</th><th scope="col">현재 분기</th><th scope="col">비교 분기</th><th scope="col">차이 (현재 − 비교)</th><th scope="col">증감률</th></tr></thead><tbody id="changes-rows"></tbody></table></div>
+          <div class="sales-context-grid"><section class="sales-scope-card"><h3>자료 범위와 출처</h3><div id="changes-scope"></div><div id="changes-sources" class="sales-sources"></div></section><section id="changes-warnings-card" class="sales-warnings-card"><h3>해석할 때 확인해 주세요</h3><ul id="changes-warnings"></ul></section></div>
+        </div>
+      </section>
+
+      <aside id="profile-location-column" class="location-column" aria-label="선택 위치와 가게 정보">
+        <section class="map-panel" aria-labelledby="map-heading">
+          <div class="map-heading-row"><div><p class="eyebrow">LOCATION</p><h2 id="map-heading">지도에서 위치를 확인하세요.</h2></div><span id="map-kind-tag" class="map-kind-tag">선택 전</span></div>
+          <div class="map-stage">
+            <div id="location-map" aria-label="선택한 위치의 네이버 지도"></div>
+            <div id="map-overlay" class="map-overlay"><span class="map-placeholder-mark" aria-hidden="true">+</span><p id="map-overlay-title">주소나 역을 선택해 주세요.</p><span id="map-overlay-description">선택한 지점을 지도에서 확인할 수 있어요.</span><button id="map-retry" type="button" class="button button-secondary" hidden>지도 다시 불러오기</button></div>
+          </div>
+          <div class="map-footer"><div><p id="map-location-title">선택한 위치가 여기에 표시됩니다.</p><p id="map-location-note">실제 분석 범위는 다음 단계에서 정해요.</p></div><button id="map-recenter" type="button" class="button button-secondary" disabled>선택 지점으로</button></div>
+          <p id="map-status" class="map-status" role="status" aria-live="polite"></p>
+        </section>
+        <section class="summary-panel" aria-labelledby="summary-heading">
+          <div class="summary-header"><h2 id="summary-heading">입력한 가게 정보</h2><span id="summary-badge" class="summary-badge">입력 중</span></div>
+          <dl class="summary-details"><div><dt>위치</dt><dd id="summary-location" class="empty">주소나 지역을 알려주세요</dd></div><div><dt>업종</dt><dd id="summary-industry" class="empty">업종을 선택해 주세요</dd></div><div><dt>현재 상황</dt><dd id="summary-status" class="empty">운영 단계를 선택해 주세요</dd></div></dl>
+        </section>
+      </aside>
+    </div>
+    <footer class="page-footer"><p>가게 정보는 이 브라우저의 프로필로 저장됩니다.</p><span>SEOUL BUSINESS ASSISTANT</span></footer>
+  </main>
+  <dialog id="address-dialog" class="address-dialog" aria-labelledby="address-dialog-heading" aria-describedby="postcode-message">
+    <div class="postcode-heading"><div><h2 id="address-dialog-heading">주소 찾기</h2><p>도로명·지번·건물명으로 검색해 주세요.</p></div><button id="close-address-dialog" type="button" class="button button-secondary">닫기</button></div>
+    <p id="postcode-message" class="postcode-message" role="status" aria-live="polite">서울특별시 안의 주소를 선택해 주세요.</p>
+    <div id="postcode-container" class="postcode-container"></div>
+  </dialog>
+</body>
+</html>
