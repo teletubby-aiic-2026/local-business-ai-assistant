@@ -6,6 +6,7 @@ from typing import Any
 
 _VALID_GENERATORS = ("reply_draft", "prevention_notice", "coupon_promo")
 _VALID_STATUSES = ("draft", "edited", "approved")
+_VALID_STANCES = ("apology", "explain")   # c6.stance.STANCES 와 같아야 한다 (시험이 확인)
 
 
 @dataclass
@@ -26,6 +27,9 @@ class DraftOutput:
     model: str | None = None
     elapsed_ms: int = 0
     data_origin: str = "synthetic"
+    # 답글 태도 (reply_draft 전용, 그 외는 None): "apology" 사과 답글 | "explain" 사과 없이 사실·원칙을 설명 (c6.stance)
+    stance: str | None = None
+    stance_reasons: list[str] = field(default_factory=list)   # 태도를 그렇게 정한 근거 (사장님 확인용)
 
     def __post_init__(self) -> None:
         if not self.draft_id:
@@ -43,6 +47,11 @@ class DraftOutput:
             raise ValueError(
                 f"DraftOutput.status는 {_VALID_STATUSES} 중 하나여야 합니다"
                 f" (받은 값: {self.status!r})"
+            )
+        if self.stance is not None and self.stance not in _VALID_STANCES:
+            raise ValueError(
+                f"DraftOutput.stance는 {_VALID_STANCES} 중 하나거나 None이어야 합니다"
+                f" (받은 값: {self.stance!r})"
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,6 +72,8 @@ class DraftOutput:
             "model": self.model,
             "elapsed_ms": self.elapsed_ms,
             "data_origin": self.data_origin,
+            "stance": self.stance,
+            "stance_reasons": list(self.stance_reasons),
         }
 
     @classmethod

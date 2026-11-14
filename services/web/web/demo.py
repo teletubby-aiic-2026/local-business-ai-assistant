@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -15,9 +16,9 @@ from shared.storage import MemoryStore, StorageError, clean_visitor_id
 
 from .cards import (REASON_OK, CardPlan, apply_writer, model_reason_failed, normalize_citations, plan_cards,
                     reason_problems, strip_citations, why_no_card_b)
-from .generate import (DEFAULT_MEASURES, GenerateError, adapt_seed, c6_available, ensure_marketing_on_path, load_seed,
-                       measure_catalog, pick_measures,
-                       run_live, summarize)
+from .generate import (DEFAULT_MEASURES, GenerateError, adapt_seed, add_pasted_replies, c6_available,
+                       ensure_marketing_on_path, load_pasted_examples, load_seed, measure_catalog, pasted_reply_targets,
+                       pick_measures, run_live, run_live_pasted_replies, seed_pasted_replies, summarize)
 from .settings import Settings
 from .sources import ReviewSource, SourceError, is_dev_fake, load_snapshots, to_review_records, to_store_profile
 
@@ -51,6 +52,7 @@ class Demo:
         self.source = source if source is not None else ReviewSource(settings.review_url, settings.review_token)
         self.c6 = c6_available(settings.marketing_dir)
         self.seed = load_seed(settings.marketing_dir)
+        self.pasted_examples = load_pasted_examples(settings.marketing_dir)   # mock: 붙여넣은 리뷰 답글 저장 예시
         self._reason_model = reason_model          # 시험에서 가짜 모델을 넣는 자리
         self._reason_memo: OrderedDict[str, list[CardPlan]] = OrderedDict()
         self._lock = threading.Lock()
@@ -292,18 +294,52 @@ class Demo:
             if result is None:
                 raise DemoError("이 카드에 맞는 저장본이 없어요 (붙여넣기로 묶음이 바뀌었을 수 있어요). "
                                 "키가 있으면 APP_MODE=live 로 생성하세요.", status=404)
+            pasted = self._pasted_targets(st, card)
+            if pasted:
+                drafts, skipped = seed_pasted_replies(self.pasted_examples, card, pasted)
+                add_pasted_replies(result, drafts, skipped,
+                                   note="붙여넣은 리뷰 답글은 같은 글로 미리 만든 저장 예시" if drafts else None)
         else:
             store, reviews = self._contract_inputs(st)
+            # 카드 ⓐ 묶음에 들지 않은 붙여넣은 불만 리뷰 (예: 무리한 요청을 거절해 남은 억울한 별점). 그 답글도 함께 만든다
+            pasted = pasted_reply_targets(card, reviews) if card.kind == "complaint" and self.s.clova_key else []
             ids = plan.measures.get("default", []) if measures is None else measures
             try:
                 chosen = pick_measures(ids) if card.kind == "complaint" else []
-                result = run_live(card, store=store, reviews=reviews, snapshots=st["snapshots"], key=self.s.clova_key,
-                                  model=self.s.model, chosen_measures=chosen)
+                with ThreadPoolExecutor(max_workers=2) as pool:   # 붙여넣은 리뷰 답글은 카드 생성과 동시에 만든다
+                    extra = pool.submit(run_live_pasted_replies, card, pasted, store=store, reviews=reviews,
+                                        snapshots=st["snapshots"], key=self.s.clova_key, model=self.s.model) if pasted else None
+                    result = run_live(card, store=store, reviews=reviews, snapshots=st["snapshots"], key=self.s.clova_key,
+                                      model=self.s.model, chosen_measures=chosen)
+                    if extra is not None:
+                        self._add_live_pasted(result, extra, pasted)
             except GenerateError as exc:
                 raise DemoError(str(exc)) from None
         made = summarize(result)
         self._remember_drafts(card_id, made)
         return made
+
+    def _pasted_targets(self, st: dict, card) -> list:
+        """mock: 카드 ⓐ 묶음 밖의 붙여넣은 불만 리뷰. 변환이 안 되는 리뷰가 있어도 mock 화면은 예전처럼 뜨게 한다."""
+        if card.kind != "complaint" or not any(r.get("input_method") == "paste" for r in st["reviews"]):
+            return []
+        try:
+            return pasted_reply_targets(card, self._contract_inputs(st)[1])
+        except ValueError as exc:
+            log.warning("붙여넣은 리뷰를 읽지 못해 답글을 만들지 않아요 (%s)", exc)
+            return []
+
+    @staticmethod
+    def _add_live_pasted(result: dict, extra, pasted: list) -> None:
+        """붙여넣은 리뷰 답글이 실패해도 카드 ⓐ 의 글은 그대로 보여 준다 (못 만든 리뷰는 pasted_reply_skipped 에 적음)."""
+        try:
+            sub = extra.result()
+        except Exception as exc:   # 네트워크·키 문제 등
+            log.warning("붙여넣은 리뷰 답글을 만들지 못했어요 (%s)", exc.__class__.__name__)
+            add_pasted_replies(result, [], [{"review_id": r.review_id, "reason": f"만들지 못함 ({exc.__class__.__name__})"}
+                                            for r in pasted])
+            return
+        add_pasted_replies(result, sub.get("drafts", []), [], won=float(sub.get("won") or 0))
 
     def _remember_drafts(self, card_id: str, made: dict) -> None:
         """어느 카드의 어떤 초안인지 기억해 둔다. 승인 요청에는 초안 id 만 오기 때문 (승인 기록의 카드·종류 칸을 채움)."""

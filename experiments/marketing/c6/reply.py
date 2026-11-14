@@ -20,6 +20,8 @@ from c6 import parsing
 from c6.measures import MEASURE_FALLBACK_SENTENCES
 from c6.style import assemble, few_shot_examples, insert_before_last_sentence, owner_style
 from c6.output import DraftOutput, CardResult
+from c6.reply_explain import process_explain_review
+from c6.stance import APOLOGY, EXPLAIN, judge_review
 
 # --mock 으로 돌릴 때는 live 결과 파일(c6_reply_raw.txt)을 더럽히지 않도록 따로 쓴다
 _RAW_LOG = config.RESULTS_DIR / ("c6_reply_raw_mock.txt" if "--mock" in sys.argv else "c6_reply_raw.txt")
@@ -230,6 +232,15 @@ def _run_checks(text, review, menu_names, allowed_numbers, policies,
 def _process_review(review, *, card_id, store, menu_names, allowed_numbers, policies,
                      chosen_measures, forbidden_phrases, examples_section,
                      opening, closing, valid_ids, key, model):
+    # 답글 태도 (c6.stance): 가게 과실이 아닌 '요청 거절' 리뷰로 확실할 때만 사과 없이 설명하는 답글(reply_explain)로 간다.
+    # 그 밖에는 아래의 원래 사과 답글 그대로 (프롬프트·점검 묶음 APOLOGY_CHECKS 변경 없음)
+    decision = judge_review(review)
+    if decision.stance == EXPLAIN:
+        return process_explain_review(
+            review, decision, card_id=card_id, store=store, menu_names=menu_names, allowed_numbers=allowed_numbers,
+            policies=policies, forbidden_phrases=forbidden_phrases, opening=opening, closing=closing,
+            valid_ids=valid_ids, key=key, model=model, log_raw=_log_raw)
+
     measure_rule, measures_section = _measure_prompt_bits(chosen_measures)
     system = SYSTEM_TMPL.format(
         store_name=store.name,
@@ -297,6 +308,8 @@ def _process_review(review, *, card_id, store, menu_names, allowed_numbers, poli
         rewrites=rewrites,
         model=model,
         data_origin=store.data_origin,
+        stance=APOLOGY,
+        stance_reasons=list(decision.reasons),
     )
     return draft, won
 
