@@ -114,7 +114,8 @@ sudo vi -n -i NONE /etc/ic26/env        # -n -i NONE: 임시 파일(.swp)과 vim
   - `CLOVASTUDIO_API_KEY`: 리뷰 분석 (`services/review-insight`)
   - `CLOVA_STUDIO_API_KEY`: 상권 챗봇 (가운데 밑줄이 하나 더 있음. 월요일부터 쓰임)
 - 키 값만 넣습니다. 앞에 `Bearer `를 붙이지 않고, 따옴표와 앞뒤 공백도 넣지 않습니다. 값 뒤에 주석을 붙이지 않습니다(systemd가 주석까지 값으로 읽습니다).
-- DB 값(`DB_HOST`, `DB_USER`, `DB_PASSWORD`)은 DB가 만들어진 뒤에 넣습니다. 지금 코드는 DB를 읽지 않습니다(12절).
+- DB 값(`DB_HOST`, `DB_USER`, `DB_PASSWORD`)은 DB가 만들어진 뒤에 넣습니다(6-1절). `DB_HOST`를 비워 두면 DB 없이 돕니다.
+- 리뷰 분류 모델을 바꾸는 `LLM_MODEL_REVIEW`는 선택입니다. 틀에 주석으로 들어 있고, 그대로 두면 `HCX-005`입니다.
 - 그대로 두는 것: `APP_MODE=live`, `ASSISTANT_ENABLED=1`, `ASSISTANT_MODEL_DAILY_LIMIT=2000`, `DB_PORT=5432`, `DB_NAME=ic26app`.
 
 값이 들어갔는지 **이름만** 확인합니다(값은 출력되지 않음).
@@ -158,6 +159,40 @@ bash ~/ic26-<커밋>/deploy/smoke_test.sh --generate
 | 글 생성이 끝까지 됨 (HCX 호출, NAT 경로) | PC에서 `ssh -L 8000:127.0.0.1:8000 ic26-was1` 을 열고 브라우저로 `http://localhost:8000` |
 | 서버의 커밋 | `cat /opt/ic26/REVISION` (두 서버가 같아야 함) |
 
+## 6-1. DB를 연결할 때: 표 만들기
+
+묶음에는 DB를 쓰는 코드(`shared/storage`)가 들어 있습니다. `DB_HOST`가 비어 있으면 DB 없이 돌고(서버 메모리와 파일), 넣으면 붙여넣은 리뷰, 승인 기록, 카드 추천 이유를 PostgreSQL에 둡니다.
+DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여러 대여도 표 만들기는 **한 대에서 한 번**이면 됩니다(같은 DB를 보기 때문).
+
+1. `/etc/ic26/env`에 `DB_HOST`(DB의 사설 도메인), `DB_USER`, `DB_PASSWORD`를 5절과 같은 방법으로 넣습니다. `DB_HOST`만 넣고 `DB_USER`를 비우면 두 서비스가 켜지지 않습니다.
+2. 표를 만듭니다. 환경 파일은 systemd가 읽으므로 비밀번호가 명령줄과 셸 히스토리에 남지 않습니다.
+
+   ```bash
+   sudo systemd-run --quiet --wait --pipe -p User=ic26 -p WorkingDirectory=/opt/ic26 \
+     -p EnvironmentFile=/etc/ic26/env /opt/ic26/.venv/bin/python -m shared.storage.init_db
+   ```
+
+   `<DB 주소>:5432/ic26app 표 6개 확인: approvals, card_reasons, reports, review_labels, reviews, stores`가 나오면 된 것입니다. 여러 번 돌려도 안전합니다(이미 있는 표는 그대로 둡니다).
+3. 서비스를 다시 시작하고 확인합니다.
+
+   ```bash
+   sudo systemctl restart ic26-review ic26-was
+   bash ~/ic26-<커밋>/deploy/smoke_test.sh --expect-reviews 40
+   ```
+
+4. DB에 실제로 쌓이는지 봅니다. 화면에서 리뷰를 하나 붙여넣은 뒤 건수를 셉니다(비밀번호는 묻는 칸에 입력).
+
+   ```bash
+   psql -h <DB 사설 도메인> -U <DB 사용자> -d ic26app -c 'select count(*) from reviews'
+   ```
+
+- `표를 만들지 못했습니다: …`가 나오면 그 뒤의 내용을 봅니다. 접속 실패면 ACG와 `DB_HOST`를, 권한 오류면 `DB_USER`가 `ic26app`에 표를 만들 수 있는 계정인지 봅니다.
+- DB에 닿지 못하는 동안에는 승인은 되고(경고가 붙고, 서버가 들고 있다가 DB가 돌아오면 저장), 브리핑, 카드, 리뷰 분석, 붙여넣기는 503입니다. DB가 돌아오면 서비스를 다시 켜지 않아도 이어집니다.
+- DB 없이 되돌리려면 `DB_HOST`를 비우고 서비스를 다시 시작합니다.
+- 표 정의는 `db/schema.sql`이고 임시입니다. ERD가 정해져 이미 있는 표의 칸이 바뀌면 이 명령으로는 고쳐지지 않으니 따로 옮깁니다.
+- 선택 변수: `DB_SSLMODE`, `DB_CONNECT_TIMEOUT`(3초), `DB_QUERY_TIMEOUT`(5초), `DB_POOL_MAX`(5). 설명은 `shared/storage/config.py`에 있습니다.
+- **2번의 `systemd-run` 명령과 실제 Cloud DB 연결은 서버에서 아직 돌려 보지 못했습니다(11/14).** 표 만들기와 저장은 로컬 PostgreSQL 16으로 확인했습니다.
+
 ## 7. 서버 이미지 만들기 전에 (`ic26-was-img1`)
 
 이미지에는 `/etc/ic26/env`와 서버 안의 파일이 그대로 담깁니다. **키를 비우지 않고 이미지를 만들면 키가 이미지에 남습니다.**
@@ -191,7 +226,8 @@ bash ic26-<새 커밋>/deploy/smoke_test.sh
 
 - 바뀌는 것: `/opt/ic26`의 코드, `REVISION`, 서비스 파일, requirements(바뀐 것만 설치). 서비스는 다시 시작됩니다(몇 초간 응답 없음).
 - 바뀌지 않는 것: `/etc/ic26/env`, `/opt/ic26/.venv`, 쓰기 폴더 안의 내용(붙여넣은 리뷰, 로그, 승인 기록, 상권 DB). 단 `services/review-insight/data/replay/classify.json`처럼 저장소에 있는 파일은 저장소 내용으로 덮입니다.
-- 코드만 바뀌었으면 `--skip-pip`으로 빠르게 할 수 있습니다.
+- 코드만 바뀌었으면 `--skip-pip`으로 빠르게 할 수 있습니다. requirements가 바뀐 갱신(예: DB 코드가 처음 들어온 묶음은 `psycopg`가 더해짐)에는 붙이지 않습니다.
+- `db/schema.sql`에 새 표가 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다.
 - 환경 파일 틀에 새 변수가 생기면 스크립트가 빠진 변수 이름을 알려 줍니다. 편집기로 줄을 추가합니다.
 - 단계 15(Auto Scaling) 뒤에는 그룹 서버를 직접 고치지 않습니다(체크리스트 단계 13-A).
 
@@ -225,14 +261,14 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 
 ## 10. 상권 서비스 자리 (월요일)
 
-- 지금은 `ic26-market.service` 파일만 `/etc/systemd/system/`에 있고 enable 하지 않았습니다. 상권 코드(`services/market-analysis`)가 없으면 켜도 조건 실패로 건너뜁니다.
-- 월요일에 코드가 `main`에 들어오면 2~4절처럼 묶고 설치합니다. `install_was.sh`가 `services/market-analysis/requirements*.txt`가 있으면 함께 설치합니다. 그 뒤:
+- 상권 코드(`services/market-analysis`)는 11/14에 `main`에 들어와(PR #12, #18, #13) 묶음에 들어 있습니다. `install_was.sh`가 그 requirements(`pyproj`, `pyshp` 등)도 함께 설치합니다.
+- 서비스는 `ic26-market.service` 파일만 `/etc/systemd/system/`에 넣고 enable 하지 않습니다. 비서 화면이 상권 서비스를 아직 부르지 않기 때문입니다(월요일에 연결). 켤 때:
 
   ```bash
   sudo systemctl enable --now ic26-market
   curl -s -H 'Host: 127.0.0.1:8766' http://127.0.0.1:8766/health
   ```
-- 서비스 파일의 경로(`services/market-analysis`)와 시작 명령(`python -m app.intake_api`)은 상권 비서 브랜치(`feat/assistant-chatbot`, `0f4d0fc`)를 읽고 적은 **가정**입니다. 코드가 들어올 때 다르면 `WorkingDirectory`, `ExecStart`, `ConditionPathExists`를 고칩니다.
+- 서비스 파일의 경로(`services/market-analysis`)와 시작 명령(`python -m app.intake_api`)은 `main`에 들어온 코드와 맞습니다(`app/intake_api.py`, `requirements.txt`, `requirements-assistant.txt`). 서버에서 켜 본 적은 없습니다. 다르게 돌면 `WorkingDirectory`, `ExecStart`, `ConditionPathExists`를 고칩니다.
 - **비서 화면 서버가 상권 서비스를 부를 때는 `Host: 127.0.0.1:8766`으로 부르고, 방문자의 쿠키를 넘겨야 합니다.** 상권 서비스는 바깥 주소 이름(로드 밸런서 도메인 등)으로 오는 요청을 막습니다(Host가 `127.0.0.1` 또는 `localhost`가 아니면 400, Origin도 `127.0.0.1:8766`만 허용). `APP_PUBLIC_ORIGIN`은 `/etc/ic26/env`에 적지 않습니다.
 - 상권 대화 기록은 서버 안의 SQLite 파일(`/var/lib/ic26/market/onboarding.sqlite3`)에 남습니다. WAS가 2대이면 서버마다 따로입니다(로드 밸런서가 같은 방문자를 다른 서버로 보내면 기록이 보이지 않을 수 있음). 이미지를 만들기 전에 `prepare_image.sh`가 이 폴더를 비웁니다.
 - 키는 `CLOVA_STUDIO_API_KEY`(가운데 밑줄이 하나 더 있는 이름), 챗봇을 켜는 값은 `ASSISTANT_ENABLED=1`, 하루 호출 한도는 `ASSISTANT_MODEL_DAILY_LIMIT=2000`입니다.
@@ -253,8 +289,8 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 
 ## 12. 알아 둘 것
 
-- **DB 변수는 아직 쓰이지 않습니다.** `DB_HOST` 등은 이름만 맞춰 둔 것이고(`architecture.md` 5절, **[제안]**) 현재 코드는 읽지 않으며 `psycopg`도 requirements에 없습니다. `postgresql-client`(`psql`)는 DB 접속 시험용으로 설치합니다. `psql`은 비밀번호를 묻는 칸에 입력하고 접속 문자열에 넣지 않습니다.
+- **DB는 `DB_HOST`를 넣었을 때만 씁니다(6-1절).** 비어 있으면 서버 메모리와 파일로 돌고, 서버가 2대면 서버마다 따로 보입니다. 표는 임시 6개(`db/schema.sql`)이고 ERD가 정해지면 바뀝니다. 방문자는 쿠키(`visitor_id`)로 나누며 로그인이 아닙니다. `postgresql-client`(`psql`)는 DB 접속 시험용으로 설치합니다. `psql`은 비밀번호를 묻는 칸에 입력하고 접속 문자열에 넣지 않습니다.
 - **live에서 키가 비면** 서비스는 시작되고(`Restart=always`로 계속 떠 있음) 첫 요청에서 오류가 납니다. `architecture.md`는 "시작하지 못한다"고 적었는데, 코드는 첫 요청 때 모델 설정을 만듭니다.
 - **live 글 생성은 `experiments/marketing/results/c6_reply_raw.txt`에 모델의 원문 응답을 남깁니다**(C6 코드가 그 폴더에 씀). 그래서 코드 폴더는 root 소유지만 이 폴더만 `ic26`이 쓸 수 있게 했습니다. 이미지를 만들 때는 비웁니다(`prepare_image.sh`). 실제 사장님 리뷰가 들어오게 되면 보관 기간을 정합니다.
-- 비서 화면의 승인 기록은 `/var/lib/ic26/runtime/approvals.jsonl`에 쌓입니다. 서버가 2대이면 서버마다 따로입니다.
-- 이 묶음은 Ubuntu 24.04(파이썬 3.12)에서 시험했습니다. 컨테이너에서 설치를 끝까지 돌려 mock 모드로 `/api/health` 200, `/api/briefing` 리뷰 40건, 글 생성 1회를 확인했습니다. **실제 네이버클라우드 서버, 실제 HCX 호출, DB 연결, 로드 밸런서 연동은 시험하지 못했습니다.**
+- 비서 화면의 승인 기록은 DB를 쓰면 `approvals` 표에, 쓰지 않으면 `/var/lib/ic26/runtime/approvals.jsonl`에 쌓입니다. DB 없이 서버가 2대이면 서버마다 따로입니다.
+- 이 묶음은 Ubuntu 24.04(파이썬 3.12)에서 시험했습니다. 컨테이너에서 설치를 끝까지 돌려 mock 모드로 `/api/health` 200, `/api/briefing` 리뷰 40건, 글 생성 1회를 확인했습니다. 11/14에 DB 코드와 상권 코드가 들어온 묶음도 같은 컨테이너에서 설치하고, PostgreSQL 16 컨테이너에 표를 만들어 붙여넣은 리뷰가 DB에 쌓이는 것까지 확인했습니다. **실제 네이버클라우드 서버, 실제 HCX 호출, 실제 Cloud DB 연결, 로드 밸런서 연동은 시험하지 못했습니다.**

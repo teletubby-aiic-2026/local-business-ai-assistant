@@ -12,7 +12,7 @@
 # 하는 일
 #   1 패키지(python3-venv, rsync, postgresql-client 등)  2 실행 계정 ic26  3 코드를 /opt/ic26 에 맞춤
 #   4 쓰기 폴더  5 환경 파일 틀(/etc/ic26/env, 없을 때만)  6 venv 와 requirements  7 서비스 등록
-# 하지 않는 일: 키·비밀번호를 쓰거나 읽어 출력하는 일, ic26-market 켜기(월요일에 따로), 로드 밸런서 설정
+# 하지 않는 일: 키·비밀번호를 쓰거나 읽어 출력하는 일, ic26-market 켜기(비서 화면이 상권 서비스를 부르게 된 뒤 따로), 로드 밸런서 설정
 # 갱신 때 건드리지 않는 것: /etc/ic26/env, /opt/ic26/.venv, 쓰기 폴더 안의 내용(붙여넣은 리뷰, 로그, 승인 기록, 상권 DB)
 set -euo pipefail
 
@@ -162,14 +162,24 @@ step 6/7 "파이썬 환경 $APP_DIR/.venv"
 if [ "$DO_PIP" = 1 ]; then
   [ -x "$APP_DIR/.venv/bin/python" ] || "$PY" -m venv "$APP_DIR/.venv"
   reqs=(-r "$APP_DIR/services/web/requirements.txt" -r "$APP_DIR/services/review-insight/requirements.txt")
-  # 상권 서비스 코드가 들어오면 그 requirements 도 설치한다 (월요일)
+  # 상권 서비스 코드가 묶음에 들어 있으면 그 requirements 도 설치한다 (서비스는 켜지 않음)
   for r in services/market-analysis/requirements.txt services/market-analysis/requirements-assistant.txt; do
     if [ -f "$APP_DIR/$r" ]; then reqs+=(-r "$APP_DIR/$r"); echo "상권 서비스 requirements 포함: $r"; fi
   done
   "$APP_DIR/.venv/bin/pip" install --disable-pip-version-check --no-input -q "${reqs[@]}"
   "$APP_DIR/.venv/bin/python" - <<'EOF'
-from importlib.metadata import version
-print("설치됨:", ", ".join(f"{n} {version(n)}" for n in ("fastapi", "uvicorn", "httpx", "kiwipiepy")))
+from importlib.metadata import PackageNotFoundError, version
+
+
+def shown(name):
+    try:
+        return f"{name} {version(name)}"
+    except PackageNotFoundError:
+        return f"{name} 없음"
+
+
+# psycopg 는 DB 를 쓸 때만 필요하다 (DB 코드가 없는 옛 커밋의 묶음에는 없음)
+print("설치됨:", ", ".join(shown(n) for n in ("fastapi", "uvicorn", "httpx", "kiwipiepy", "psycopg")))
 EOF
 else
   [ -x "$APP_DIR/.venv/bin/python" ] || die ".venv 가 없습니다 (--skip-pip 를 처음 설치에 쓸 수 없습니다)"
@@ -186,7 +196,7 @@ else
   done
   systemctl daemon-reload
   systemctl enable ic26-review.service ic26-was.service
-  echo "ic26-market 은 파일만 넣었고 켜지 않았습니다 (월요일에 상권 코드가 들어온 뒤: sudo systemctl enable --now ic26-market)"
+  echo "ic26-market 은 파일만 넣었고 켜지 않았습니다 (비서 화면이 상권 서비스를 부르게 된 뒤: sudo systemctl enable --now ic26-market)"
   if [ "$DO_START" = 1 ]; then
     systemctl restart ic26-review.service
     systemctl restart ic26-was.service
