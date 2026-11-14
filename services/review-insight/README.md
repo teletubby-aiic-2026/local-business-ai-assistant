@@ -267,6 +267,16 @@ kiwi가 설치되어 있지 않거나 `REVIEW_MORPH=off`면 글자 단서로 돌
 - 대회 동안에는 붙여넣기에도 합성 리뷰만 씁니다 (규격 9.2).
 - 붙여넣은 리뷰의 작성 시각은 붙여넣은 시각입니다 (원래 작성 시각을 모름).
 
+### 방문자별 구분과 DB 저장 (선택)
+
+- **방문자 id (선택 인자)**: `GET /reviews`, `GET /reviews/{id}`, `GET /insight`, `DELETE /reviews/pasted` 는 쿼리 `visitor_id`, `POST /reviews` 는 본문의 `visitor_id` 로 받습니다. 주면 합성 리뷰(모두에게 같음)에 **그 방문자가 붙여넣은 리뷰만** 더해 보여 주고·분석하고·지웁니다. 안 주면 지금까지처럼 모두가 쓰는 공용 값이고, 이 폴더의 자체 화면과 기존 시험이 그렇게 돕니다.
+  영문·숫자·`-`·`_` 1~64자만 받고 (파일 이름에 들어가므로 `/`·`.`·줄바꿈은 400 `VALIDATION_ERROR`), 비서 화면 서버가 쿠키로 만든 값을 넘깁니다.
+  파일 방식에서는 `data/runtime/visitors/<방문자>/pasted_<가게>.json` 에 따로 둡니다 (공용은 `pasted_<가게>.json` 그대로).
+- **DB 저장**: 환경 변수 `DB_HOST` (+ `DB_PORT`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`)가 있으면 붙여넣은 리뷰(`reviews` 표)와 그 분류 결과(`review_labels` 표)를 PostgreSQL 에 둡니다. 없으면 위의 파일 그대로입니다.
+  표 정의는 저장소 루트의 `db/schema.sql`, 만들기는 저장소 루트에서 `python -m shared.storage.init_db`. 코드는 저장소 루트의 `shared/storage` 라서 **서버에서는 `PYTHONPATH` 에 저장소 루트를 줍니다**
+  (이 폴더에서 직접 실행하면 루트를 찾아 붙입니다). Dockerfile 이미지는 이 폴더만 담아서 DB 방식을 쓰지 못하고 파일 방식으로만 돕니다.
+- DB 에 닿지 못하면 (장애 전환 중 등) 500 이 아니라 **503 `STORAGE_UNAVAILABLE`** (`retryable: true`) 로 답하고, DB 가 돌아오면 서비스를 다시 켜지 않아도 다음 요청부터 됩니다.
+
 ---
 
 ## 7. 실행과 설정

@@ -9,6 +9,7 @@ import contextvars
 import hmac
 import os
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -22,7 +23,7 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
-from app import service  # noqa: E402  (.env 를 먼저 읽어야 함)
+from app import service, storage  # noqa: E402  (.env 를 먼저 읽어야 함)
 from app.classify import Classifier  # noqa: E402
 
 SPEC_VERSION = "0.1"   # docs/module-io-spec.md 의 공통 규칙(3·6·7·9절)을 따름. C3 내용은 결정안 v0.4
@@ -64,14 +65,21 @@ def error(status: int, code: str, message: str, details: dict | None = None, ret
         "request_id": request_id()}})
 
 
+VISITOR_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"      # app/service.py 의 clean_visitor 와 같은 규칙 (파일 이름에 들어감)
+VISITOR_DESC = ("방문자 id (선택). 영문·숫자·-·_ 1~64자. 주면 합성 리뷰에 이 방문자가 붙여넣은 리뷰만 더해 보여 주고, 분석하고, 지운다. "
+                "안 주면 지금까지처럼 모두가 쓰는 공용 값")
+
+
 class PasteIn(BaseModel):
     text: str = Field(..., description="리뷰 글 (1~1000자)")
     rating: Optional[int] = Field(None, description="별점 1~5, 모르면 비움")
     channel: Optional[str] = Field(None, description="baemin | coupangeats | yogiyo | naver_place, 모르면 비움")
     store_id: str = Field(service.DEFAULT_STORE, description="가게 ID")
+    visitor_id: Optional[str] = Field(None, pattern=VISITOR_PATTERN, description=VISITOR_DESC)
 
 
 StoreQ = Query(service.DEFAULT_STORE, description="가게 ID (기본: 발표 시나리오 가게 store_ongi)")
+VisitorQ = Query(None, pattern=VISITOR_PATTERN, description=VISITOR_DESC)
 
 
 @router.get("/stores")
@@ -86,15 +94,15 @@ def get_store(store_id: str = StoreQ):
 
 
 @router.get("/reviews")
-def list_reviews(store_id: str = StoreQ):
-    rows = service.all_reviews(store_id)
+def list_reviews(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ):
+    rows = service.all_reviews(store_id, visitor_id)
     return {"items": [r.to_dict() for r in sorted(rows, key=lambda r: r.created_at, reverse=True)], "count": len(rows)}
 
 
 @router.get("/reviews/{review_id}")
-def get_review(review_id: str, store_id: str = StoreQ):
+def get_review(review_id: str, store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ):
     """리뷰 한 건과 그 분류 결과 (규격 6절 #5와 같은 모양, 분석 = 주제 분류)."""
-    review = next((r for r in service.all_reviews(store_id) if r.review_id == review_id), None)
+    review = next((r for r in service.all_reviews(store_id, visitor_id) if r.review_id == review_id), None)
     if review is None:
         return error(404, "REVIEW_NOT_FOUND", f"없는 리뷰입니다: {review_id}")
     c = classifier().classify([review])[0]
@@ -103,19 +111,19 @@ def get_review(review_id: str, store_id: str = StoreQ):
 
 
 @router.get("/insight")
-def get_insight(store_id: str = StoreQ):
+def get_insight(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ):
     """C5 추천 카드·C6 생성이 쓰는 결과: 감정·주제 건수, 반복 불만 묶음, 리뷰별 분류."""
-    return service.analyze(classifier(), store_id).to_dict()
+    return service.analyze(classifier(), store_id, visitor_id).to_dict()
 
 
 @router.post("/reviews", status_code=201)
 def paste_review(body: PasteIn):
     """S2 직접 붙여넣기 → 바로 분류 → 반복 묶음 다시 계산."""
     try:
-        review = service.add_pasted(body.text, body.rating, body.channel, store_id=body.store_id)
+        review = service.add_pasted(body.text, body.rating, body.channel, store_id=body.store_id, visitor_id=body.visitor_id)
     except ValueError as e:
         return error(400, "VALIDATION_ERROR", str(e))
-    insight = service.analyze(classifier(), body.store_id)
+    insight = service.analyze(classifier(), body.store_id, body.visitor_id)
     mine = next((c for c in insight.classifications if c.review_id == review.review_id), None)
     joined = [g.issue_id for g in insight.groups if review.review_id in g.review_ids]
     return {"review": review.to_dict() | ({"status": "analyzed"} if mine else {}), "classification": mine.to_dict() if mine else None,
@@ -127,12 +135,19 @@ def paste_review(body: PasteIn):
 
 
 @router.delete("/reviews/pasted")
-def reset_pasted(store_id: str = StoreQ):
-    """데모 다시 하기: 그 가게에 붙여넣은 리뷰를 모두 지움 (합성 리뷰는 그대로)."""
-    return {"deleted": service.clear_pasted(store_id)}
+def reset_pasted(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ):
+    """데모 다시 하기: 그 가게에 (그 방문자가) 붙여넣은 리뷰를 모두 지움 (합성 리뷰는 그대로)."""
+    return {"deleted": service.clear_pasted(store_id, visitor_id)}
 
 
-app = FastAPI(title="리뷰 분석 (C2·C3·S2)")
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    storage.database()      # DB_HOST 가 있는데 설정이 틀렸으면 켜질 때 멈춘다. DB 가 꺼져 있는 것은 괜찮다 (연결은 나중에 맺음)
+    yield
+    storage.close()
+
+
+app = FastAPI(title="리뷰 분석 (C2·C3·S2)", lifespan=_lifespan)
 app.include_router(router)
 
 
@@ -152,6 +167,12 @@ async def _with_request_id(request: Request, call_next):
 @app.exception_handler(AccessDenied)
 async def _denied(_: Request, exc: AccessDenied):
     return error(401, "UNAUTHORIZED", "접근 토큰이 없거나 틀렸습니다. X-Access-Token 헤더에 팀에서 정한 값을 넣어 주세요.")
+
+
+@app.exception_handler(storage.StorageUnavailable)
+async def _storage_down(_: Request, exc: storage.StorageUnavailable):
+    """DB 에 닿지 못함 (장애 전환 중 등). 잠시 뒤 다시 하면 된다."""
+    return error(503, "STORAGE_UNAVAILABLE", "저장소(DB)에 닿지 못했습니다. 잠시 뒤 다시 시도해 주세요.", retryable=True)
 
 
 @app.exception_handler(service.StoreNotFound)
