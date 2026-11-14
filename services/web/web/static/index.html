@@ -8,31 +8,31 @@
 </head>
 <body>
   <!-- 단계별 화면: 오늘 → 제안 → 초안 → 완료, 그리고 분석 (재정비/05 UI 디자인 레퍼런스 15·16번)
-       모양: 흰 상단 바 + 흰 탭 메뉴(현재 탭 녹색 밑줄) + 회색 바탕 위 흰 카드 (11/10 스마트플레이스풍) -->
+       모양 (11/14 리디자인): 왼쪽 고정 메뉴(연회색) + 흰 본문 한 줄 흐름 + 오른쪽 서랍.
+       무채색이 기본이고 녹색은 주 버튼·현재 메뉴·진행 표시·작은 점에만 쓴다 -->
   <header class="top">
     <div class="bar">
-      <a class="brand" href="#/today">
+      <!-- 로고는 넓은 화면에서 왼쪽 메뉴 맨 위에 있다. 이 로고는 760px 이하(메뉴가 위쪽 가로줄이 될 때)에만 보인다 -->
+      <a class="brand top-brand" href="#/today">
         <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 3C6.9 3 3 6.4 3 10.6c0 2.4 1.3 4.6 3.4 6L5.8 20.5l4-2.3c.7.1 1.4.2 2.2.2 5.1 0 9-3.4 9-7.8S17.1 3 12 3z"/></svg></span>
         <strong>텔레토비 AI 비서</strong>
       </a>
       <span id="store-name" class="store"></span>
       <div class="top-right">
-        <!-- 챗봇(S1 질문창, PR #13) 자리: 아직 숨김. 탭이 아니라 보조 서랍으로 연다 (05 17번) -->
-        <button id="ask-ai" class="ask" type="button" aria-controls="assistant" aria-expanded="false">
-          <svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>AI에게 묻기
-        </button>
-        <span id="timer" class="timer" title="무엇을 할까요? 버튼부터 재발 방지 공지 승인까지 (C8 KPI)">00:00</span>
+        <!-- 챗봇(S1 질문창, PR #13) 자리: 탭이 아니라 보조 서랍으로 연다 (05 17번) -->
+        <button id="ask-ai" class="ask" type="button" aria-controls="assistant" aria-expanded="false">AI에게 묻기</button>
       </div>
     </div>
   </header>
 
-  <div id="mode-notice" class="alert warn" role="note" hidden></div>
-  <div id="alert" class="alert" role="alert" hidden></div>
-
   <!-- 단계 화면(main) + 오른쪽 서랍(aside). 서랍이 열리면 main이 남은 폭으로 줄고 카드는 좁으면 1열 -->
   <div class="shell">
-  <!-- 왼쪽 메뉴 (11/11 대시보드 시안): 홈이 출발점, 단계 화면은 안쪽 화면. 375px에서는 위쪽 가로 메뉴 -->
+  <!-- 왼쪽 메뉴: 넓은 화면에서는 화면 왼쪽에 고정. 760px 이하에서는 상단 바 아래 가로 메뉴 -->
   <nav class="side" aria-label="메뉴">
+    <a class="brand side-brand" href="#/today">
+      <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 3C6.9 3 3 6.4 3 10.6c0 2.4 1.3 4.6 3.4 6L5.8 20.5l4-2.3c.7.1 1.4.2 2.2.2 5.1 0 9-3.4 9-7.8S17.1 3 12 3z"/></svg></span>
+      <strong>텔레토비 AI 비서</strong>
+    </a>
     <div class="menu">
       <a href="#/today" data-route="today"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/></svg>홈</a>
       <a href="#/cards" data-route="cards"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="8" height="14" rx="2"/><rect x="13" y="5" width="8" height="14" rx="2"/></svg><span><span class="long">추천 </span>카드</span></a>
@@ -50,54 +50,56 @@
     </div>
   </nav>
   <main>
-    <!-- 홈 = 대시보드 (11/11 시안 v2): 숫자 타일 4 → 불만 시간대·주제 차트 + 오늘 할 일 → AI에게 묻기.
+    <!-- 알림 띠 두 개: 화면마다 본문 맨 위 (시험용 실행 안내 · 오류) -->
+    <div id="mode-notice" class="alert warn" role="note" hidden></div>
+    <div id="alert" class="alert" role="alert" hidden></div>
+
+    <!-- 홈 = 대시보드: 제목 → 숫자 타일 4 → 오늘 할 일 → 불만 시간대·주제 차트 → AI에게 묻기 (한 줄 흐름).
          차트는 브리핑(불만 리뷰 시각·주제)에서 바로 센다. 외부 라이브러리 없음. API 그대로 -->
     <section class="view dash" data-view="today">
       <div class="dash-head">
-        <div>
-          <p class="eyebrow"><span>밤 11시 브리핑</span><span id="today-source">불러오는 중…</span></p>
-          <h1 id="dash-title" tabindex="-1">사장님, 오늘 가게 현황이에요</h1>
-        </div>
+        <p class="eyebrow"><span>밤 11시 브리핑</span><span id="today-source">불러오는 중…</span></p>
+        <h1 id="dash-title" tabindex="-1">사장님, 오늘 가게 현황이에요</h1>
         <p class="problem compact"><span class="label">오늘의 핵심 문제</span><strong id="hero-problem">오늘 들어온 리뷰를 정리하고 있어요</strong></p>
       </div>
-      <!-- 375px: 왼쪽 메뉴가 위쪽 가로 메뉴가 되면 그 아래 'AI 직원' 상태가 숨는다 → 홈에 한 줄로 (데스크톱에서는 숨김) -->
+      <!-- 760px 이하: 왼쪽 메뉴가 위쪽 가로 메뉴가 되면 그 아래 'AI 직원' 상태가 숨는다 → 홈에 한 줄로 (넓은 화면에서는 숨김) -->
       <ul id="staff-strip" class="staff-strip plain" aria-label="AI 직원 상태"></ul>
       <dl class="stats tiles">
         <div class="stat-card">
-          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5c0 4-3.6 7.2-8 7.2-.9 0-1.7-.1-2.5-.3L5 20l.9-3.6C4.7 15.1 4 13.4 4 11.5c0-4 3.6-7.2 8-7.2s8 3.2 8 7.2z"/></svg>리뷰</dt>
+          <dt>리뷰</dt>
           <dd><span id="stat-reviews" class="stat-n">–</span><span class="stat-unit">건</span><span id="stat-reviews-sub" class="stat-sub"></span></dd>
         </div>
         <div class="stat-card">
-          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>불만</dt>
+          <dt>불만</dt>
           <dd><span id="stat-complaints" class="stat-n">–</span><span class="stat-unit">건</span><span id="stat-complaints-sub" class="stat-sub"></span></dd>
         </div>
         <div class="stat-card">
-          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3l3 3-3 3"/><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/></svg>반복 불만</dt>
+          <dt>반복 불만</dt>
           <dd><span id="stat-repeated" class="stat-n bad-n">–</span><span class="stat-unit">건</span><span id="stat-repeated-sub" class="stat-sub"></span></dd>
         </div>
         <div class="stat-card">
-          <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7l6 6 4-4 6 6"/><path d="M20 11v4h-4"/></svg>상권 저녁 매출</dt>
+          <dt>상권 저녁 매출</dt>
           <dd><span id="stat-market" class="stat-n bad-n">–</span><span id="stat-market-sub" class="stat-sub"></span></dd>
         </div>
       </dl>
       <div class="dash-grid">
+        <section class="panel todo-panel" aria-labelledby="todo-title">
+          <div class="panel-head"><h2 id="todo-title">오늘 할 일</h2><span id="todo-count" class="small muted"></span></div>
+          <ol id="todo" class="todo plain"><li class="small muted">불러오는 중…</li></ol>
+          <div class="todo-foot">
+            <button id="start" class="primary" type="button" disabled>불러오는 중…</button>
+            <span class="small muted">추천 카드 2장을 나란히 보고 고르기</span>
+          </div>
+        </section>
         <section class="panel chart-panel" aria-labelledby="chart-title">
           <div class="panel-head"><h2 id="chart-title">불만 리뷰가 몰린 시간</h2><span id="chart-note" class="small muted"></span></div>
           <div id="hour-chart" class="hour-chart" role="img" aria-label="시간대별 불만 리뷰"></div>
           <div class="panel-head"><h2>주제별 불만</h2><a href="#/analysis" class="small">리뷰 분석 보기</a></div>
           <div id="keywords" class="topic-bars"></div>
         </section>
-        <section class="panel todo-panel" aria-labelledby="todo-title">
-          <div class="panel-head"><h2 id="todo-title">오늘 할 일</h2><span id="todo-count" class="small muted"></span></div>
-          <ol id="todo" class="todo plain"><li class="small muted">불러오는 중…</li></ol>
-          <div class="todo-foot">
-            <button id="start" class="ghost" type="button" disabled>불러오는 중…</button>
-            <span class="small muted">추천 카드 2장을 나란히 보고 고르기</span>
-          </div>
-        </section>
       </div>
       <button id="ask-open" class="ask-bar" type="button" aria-controls="assistant" aria-expanded="false">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2z"/></svg><span class="ask-ph">AI에게 묻기 · 예) 포장 누락은 언제 많아요?</span><span class="badge">준비 중</span>
+        <span class="ask-ph">AI에게 묻기 · 예) 포장 누락은 언제 많아요?</span><span class="badge">준비 중</span>
       </button>
     </section>
 
@@ -111,12 +113,12 @@
       <p id="no-card-b" class="small muted"></p>
     </section>
 
-    <!-- 3 초안: 원 리뷰와 AI 초안을 한 카드에 위아래로, 고치고 승인 -->
+    <!-- 3 초안: 원 리뷰와 AI 초안을 위아래로, 고치고 승인 -->
     <section class="view narrow" data-view="draft" hidden>
       <div id="draft"></div>
     </section>
 
-    <!-- 4 완료: 승인 결과 + KPI → 처음으로 -->
+    <!-- 4 완료: 승인 결과 → 처음으로 -->
     <section class="view narrow" data-view="done" hidden>
       <div id="done"></div>
     </section>
@@ -140,15 +142,15 @@
       <div id="an-summary" class="an-panel" role="tabpanel" aria-labelledby="an-tab-summary" tabindex="0">
         <dl class="stats">
           <div class="stat-card">
-            <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5c0 4-3.6 7.2-8 7.2-.9 0-1.7-.1-2.5-.3L5 20l.9-3.6C4.7 15.1 4 13.4 4 11.5c0-4 3.6-7.2 8-7.2s8 3.2 8 7.2z"/></svg>리뷰</dt>
+            <dt>리뷰</dt>
             <dd><span id="an-reviews" class="stat-n">–</span><span class="stat-unit">건</span><span id="an-reviews-sub" class="stat-sub"></span></dd>
           </div>
           <div class="stat-card">
-            <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>불만</dt>
+            <dt>불만</dt>
             <dd><span id="an-complaints" class="stat-n">–</span><span class="stat-unit">건</span><span id="an-complaints-sub" class="stat-sub"></span></dd>
           </div>
           <div class="stat-card">
-            <dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3l3 3-3 3"/><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/></svg>반복 불만</dt>
+            <dt>반복 불만</dt>
             <dd><span id="an-repeated" class="stat-n bad-n">–</span><span class="stat-unit">건</span><span id="an-repeated-sub" class="stat-sub"></span></dd>
           </div>
         </dl>
@@ -173,26 +175,30 @@
         </div>
       </div>
 
-      <!-- 리뷰 붙여넣기: 글 1건 + 별점 → 바로 분류해 묶음에 더함 -->
+      <!-- 리뷰 붙여넣기: 글 1건 + 별점 → 바로 분류해 묶음에 더함. 입력은 둥근 입력 상자 하나 (글 칸 + 별점 + 분류하기) -->
       <div id="an-paste" class="an-panel" role="tabpanel" aria-labelledby="an-tab-paste" tabindex="0" hidden>
-        <div class="panel paste">
+        <div class="paste">
           <label for="paste-text" class="small"><b>리뷰 글</b> <span class="muted">· 전화번호·이메일·링크는 저장 전에 가려요.</span></label>
-          <textarea id="paste-text" rows="4" maxlength="1000" placeholder="배달앱에서 받은 리뷰 글을 붙여넣으세요."></textarea>
+          <div class="composer">
+            <textarea id="paste-text" rows="4" maxlength="1000" placeholder="배달앱에서 받은 리뷰 글을 붙여넣으세요."></textarea>
+            <div class="composer-bar">
+              <label for="paste-rating" class="sr">별점</label>
+              <select id="paste-rating"><option value="">별점 모름</option><option value="5">별점 5</option><option value="4">별점 4</option><option value="3">별점 3</option><option value="2">별점 2</option><option value="1">별점 1</option></select>
+              <button id="paste-send" type="button" class="primary">분류하기</button>
+            </div>
+          </div>
           <div id="paste-samples" class="row an-samples"></div>
-          <div class="row">
-            <label for="paste-rating" class="sr">별점</label>
-            <select id="paste-rating"><option value="">별점 모름</option><option value="5">별점 5</option><option value="4">별점 4</option><option value="3">별점 3</option><option value="2">별점 2</option><option value="1">별점 1</option></select>
-            <button id="paste-send" type="button" class="primary">분류하기</button>
+          <div class="row paste-foot">
+            <p id="paste-msg" class="small muted" role="status"></p>
             <button id="paste-reset" type="button" class="ghost">붙여넣은 리뷰 지우기</button>
           </div>
-          <p id="paste-msg" class="small muted" role="status"></p>
         </div>
         <div id="paste-result"></div>
       </div>
     </section>
   </main>
 
-  <!-- 챗봇 서랍 자리 (기능은 아직 없음). 데스크톱 = 오른쪽 380px, 375px = 아래에서 올라오는 시트 -->
+  <!-- 챗봇 서랍 자리 (기능은 아직 없음). 넓은 화면 = 오른쪽 400px, 760px 이하 = 아래에서 올라오는 시트 -->
   <aside id="assistant" class="drawer" aria-labelledby="assistant-title" hidden>
     <div class="drawer-head">
       <h2 id="assistant-title">AI에게 묻기</h2>

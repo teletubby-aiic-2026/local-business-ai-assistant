@@ -13,7 +13,6 @@ const KIND_AGENT = { complaint: "고객 응대 비서", promo: "마케팅 에이
 // 재발 방지 공지를 답글보다 먼저 (강조점: 다시 안 생기게 하는 조치가 먼저)
 const GEN_ORDER = { prevention_notice: 0, coupon_promo: 1, reply_draft: 2 };
 const byGen = (a, b) => (GEN_ORDER[a.generator] ?? 9) - (GEN_ORDER[b.generator] ?? 9);
-const KPI_GEN = "prevention_notice";
 const SOURCE_NAMES = { live: "실시간 HCX-005", seed: "시험용 저장 예시 (실제 AI 결과 아님)" };
 
 // ── 준비 중 자리 (4차 회의에서 정한 뒤 채움) ──────────────────────────
@@ -28,7 +27,7 @@ const ROUTES = ["today", "cards", "draft", "done", "analysis", ...LATER.map((x) 
 
 const state = {
   health: null, briefing: null, cards: [], results: {}, approved: new Set(), approvedLog: [],
-  startedAt: null, timer: null, kpiAt: null, allAt: null, reviews: {}, pending: {},
+  reviews: {}, pending: {},
   current: null,   // 초안 화면에 보이는 카드
   draftId: null,   // 초안 화면에 크게 보이는 글
   insight: null,   // 리뷰 분석 화면 (/api/insight)
@@ -198,7 +197,7 @@ function renderCards(data) {
 
 // ── 홈 대시보드: 오늘 할 일 + 왼쪽 메뉴의 승인 대기 수·AI 직원 상태 (11/11 시안 v2) ─────────
 // 할 일은 지금 카드에서 만든다: 카드 ⓐ(불만) → 재발 방지 공지, 답글 n개 / 카드 ⓑ(홍보) → 쿠폰 홍보글.
-// 누르면 아직 안 만든 글은 만들고(타이머 시작), 만든 글은 3 초안 화면에서 그 글을 연다.
+// 누르면 아직 안 만든 글은 만들고, 만든 글은 3 초안 화면에서 그 글을 연다.
 const TODO_ICON = { done: "✓", wait: "", none: "" };
 function todosOf() {
   const care = state.cards.find((p) => p.card.kind === "complaint");
@@ -259,7 +258,6 @@ async function runTodo(t, button) {
   if (!t) return;
   const id = t.cid;   // t.card는 카드 묶음({card, title, …})이라 id는 t.card.card.card_id
   if (!state.results[id]) {
-    if (!state.startedAt) startTimer();   // KPI 타이머: 홈에서 바로 만들어도 여기서 시작
     // runCard에 버튼을 넘기지 않는다: runCard는 버튼 글자를 통째로 바꿔 할 일 칸(체크·글·상태)이 깨진다
     if (button) { button.disabled = true; const st = button.querySelector(".todo-st"); if (st) st.textContent = "만드는 중…"; }
     await runCard(id);
@@ -419,7 +417,6 @@ async function approve(id) {
     state.approvedLog = state.approvedLog.filter((x) => x.id !== id);
     state.approvedLog.push({ id, at: entry.approved_at || new Date().toISOString(), edited: !!entry.edited,
       name: GEN_NAMES[d.generator] || d.generator, card: card ? card.title : "" });
-    checkDone();
     const next = draftsOf(state.current).find((x) => !state.approved.has(x.draft_id));
     if (next) { state.draftId = next.draft_id; renderDraft(); window.scrollTo(0, 0); }
     else go("done");
@@ -434,12 +431,6 @@ async function copyDraft(id, button) {
 }
 
 // ── 4 완료 ───────────────────────────────────────────────────────
-function kpiLines() {
-  const lines = [];
-  if (state.kpiAt) lines.push(`반복 원인 확인부터 재발 방지 공지 승인까지 ${words(state.kpiAt - state.startedAt)}`);
-  if (state.allAt) lines.push(`글 ${Object.values(state.results).flatMap((r) => r.drafts || []).length}개 모두 승인까지 ${words(state.allAt - state.startedAt)}`);
-  return lines;
-}
 function renderDone() {
   const el = $("done");
   const log = state.approvedLog;
@@ -449,13 +440,11 @@ function renderDone() {
       <a class="button primary" href="#/draft">초안으로</a></div>`;
     return;
   }
-  const lines = kpiLines();
   const total = Object.values(state.results).flatMap((r) => r.drafts || []).length;
   el.innerHTML = `
     <div class="page-head"><h1 tabindex="-1">처리 완료</h1>
       <p class="muted">승인한 글 ${log.length}개 / 만든 글 ${total}개 · 게시는 복사해서 직접 올려요</p></div>
     <div class="panel">
-      ${lines.length ? `<p class="kpi">${lines.map(esc).join("<br>")}</p>` : `<p class="small muted" style="margin-top:0">타이머는 1 오늘의 '무엇을 할까요?'부터 잽니다.</p>`}
       <div class="progress"><span>승인 ${log.length} / ${total}</span><span class="track" aria-hidden="true"><i style="width:${total ? Math.round((log.length / total) * 100) : 0}%"></i></span></div>
       <ul class="plain log">${log.map((a) => `<li><span class="badge ok">승인 완료</span> ${esc(a.name)} <span class="small muted">· ${esc(a.card)} · ${esc(String(a.at).slice(11, 19))}${a.edited ? " · 사장님이 고침" : ""}</span></li>`).join("")}</ul>
     </div>
@@ -475,31 +464,8 @@ async function loadApprovals() {
 function restart() {
   state.results = {}; state.approved.clear(); state.approvedLog = []; state.pending = {};
   state.current = null; state.draftId = null;
-  clearInterval(state.timer); state.startedAt = null; state.kpiAt = null; state.allAt = null;
-  $("timer").textContent = "00:00";
   renderCards({ cards: state.cards, no_card_b: $("no-card-b").textContent });
   go("today");
-}
-
-// ── 타이머 (C8 KPI: 반복 원인을 알아채고 재발 방지 조치를 내놓기까지) ──
-// '무엇을 할까요?' → 재발 방지 공지 승인에서 멈춘다. 모든 글 승인까지 걸린 시간은 참고로 함께 적는다.
-function fmt(ms) { const s = Math.floor(ms / 1000); return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }
-const words = (ms) => `${Math.floor(ms / 60000)}분 ${Math.floor((ms % 60000) / 1000)}초`;
-function startTimer() {
-  state.startedAt = Date.now(); state.kpiAt = null; state.allAt = null;
-  clearInterval(state.timer);
-  state.timer = setInterval(() => ($("timer").textContent = fmt(Date.now() - state.startedAt)), 500);
-}
-function checkDone() {
-  if (!state.startedAt) return;
-  const drafts = Object.values(state.results).flatMap((r) => r.drafts || []);
-  const notice = drafts.find((d) => d.generator === KPI_GEN && state.approved.has(d.draft_id));
-  if (notice && !state.kpiAt) {
-    state.kpiAt = Date.now();
-    clearInterval(state.timer);
-    $("timer").textContent = fmt(state.kpiAt - state.startedAt);
-  }
-  if (drafts.length && drafts.every((d) => state.approved.has(d.draft_id))) state.allAt = state.allAt || Date.now();
 }
 
 // ── 리뷰 분석: 요약 · 불만 묶음 · 리뷰 붙여넣기 (탭 3개) ─────────────────
@@ -710,7 +676,7 @@ async function boot() {
 applyTheme(); // ?theme=light 는 서버 응답을 기다리지 않고 바로
 mountLater(); // 준비 중 메뉴·화면을 첫 route() 전에
 
-$("start").addEventListener("click", () => { startTimer(); go("cards"); });
+$("start").addEventListener("click", () => go("cards"));
 $("paste-send").addEventListener("click", paste);
 $("paste-reset").addEventListener("click", resetPaste);
 $("paste-samples").innerHTML = '<span class="small muted">예시:</span>' + PASTE_SAMPLES.map((s, i) =>
