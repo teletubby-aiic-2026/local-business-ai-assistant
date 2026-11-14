@@ -1,0 +1,42 @@
+# 상권 서비스 자리 (127.0.0.1:8766). 월요일에 코드가 들어옵니다. 지금은 켜지 않습니다.
+# install_was.sh 는 이 파일을 /etc/systemd/system/ 에 복사만 하고 enable 하지 않습니다.
+#
+# 켜는 때: 상권 코드가 /opt/ic26 에 들어온 뒤
+#   sudo systemctl enable --now ic26-market
+#
+# 아래 경로와 시작 명령은 상권 비서 브랜치(feat/assistant-chatbot, 0f4d0fc)를 읽고 적은 가정입니다.
+# 코드가 main 에 들어올 때 폴더 이름이나 시작 명령이 다르면 WorkingDirectory, ExecStart,
+# ConditionPathExists 를 고칩니다.
+#   - 시작 명령: python -m app.intake_api (127.0.0.1:8766 에 묶임)
+#   - 이 서비스는 Host 가 127.0.0.1 또는 localhost 인 요청만 받고, Origin 도 127.0.0.1:8766 만 받습니다.
+#     그래서 비서 화면 서버(ic26-was)가 부를 때 'Host: 127.0.0.1:8766' 으로 부르고 방문자 쿠키를 넘겨야 합니다.
+#   - APP_PUBLIC_ORIGIN 은 /etc/ic26/env 에 적지 않습니다 (적으면 위 Host 를 거절합니다).
+#   - 상권 대화 기록은 ONBOARDING_DB_PATH 의 SQLite 파일에 남습니다.
+#   - HCX 키는 CLOVA_STUDIO_API_KEY (가운데 밑줄이 하나 더 있는 이름), ASSISTANT_ENABLED=1 이어야 챗봇이 켜집니다.
+[Unit]
+Description=ic26 market (127.0.0.1:8766)
+After=network-online.target
+Wants=network-online.target
+# 상권 코드가 아직 없으면 오류 없이 건너뜁니다 (systemctl status 에 조건 실패로 보임)
+ConditionPathExists=/opt/ic26/services/market-analysis/app/intake_api.py
+
+[Service]
+Type=simple
+User=ic26
+Group=ic26
+WorkingDirectory=/opt/ic26/services/market-analysis
+EnvironmentFile=/etc/ic26/env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=ONBOARDING_DB_PATH=/var/lib/ic26/market/onboarding.sqlite3
+ExecStart=/opt/ic26/.venv/bin/python -m app.intake_api
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

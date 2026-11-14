@@ -1,0 +1,36 @@
+# 비서 화면 서버 (services/web). 내부 로드 밸런서가 8000번으로 부릅니다. 상태 확인 경로: /api/health
+# 설치: deploy/install_was.sh 가 /etc/systemd/system/ 으로 복사하고 enable 합니다.
+#
+# 모드와 키(APP_MODE, CLOVA_API_KEY)는 /etc/ic26/env 에서 읽습니다.
+# 아래 Environment= 는 비밀이 아닌 고정 값입니다. /etc/ic26/env 에 같은 이름을 적으면 그쪽이 이깁니다.
+#
+# --timeout-keep-alive 130: 내부 로드 밸런서의 유휴 시간 제한(120초)보다 길게 둡니다.
+#   서버가 먼저 연결을 끊어 간헐적으로 502 가 나는 것을 막습니다.
+[Unit]
+Description=ic26 was (0.0.0.0:8000)
+After=network-online.target ic26-review.service
+Wants=network-online.target ic26-review.service
+
+[Service]
+Type=simple
+User=ic26
+Group=ic26
+WorkingDirectory=/opt/ic26/services/web
+EnvironmentFile=/etc/ic26/env
+Environment=PYTHONPATH=/opt/ic26
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=REVIEW_INSIGHT_URL=http://127.0.0.1:8020
+Environment=WEB_RUNTIME_DIR=/var/lib/ic26/runtime
+StateDirectory=ic26
+ExecStart=/opt/ic26/.venv/bin/python -m uvicorn web.main:create_app --factory --host 0.0.0.0 --port 8000 --timeout-keep-alive 130 --log-level warning
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
