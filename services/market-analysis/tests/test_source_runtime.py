@@ -34,7 +34,8 @@ class BasicRuntimeTests(unittest.TestCase):
                     "/api/onboarding/stores", "/api/onboarding/population",
                     "/api/onboarding/comparison", "/api/onboarding/changes"}
         excluded = ("/api/intake", "/api/ask", "/conversation-preview", "/request-preview",
-                    "/conversation-assets/index.html", "/request-preview-assets/index.html")
+                    "/conversation-assets/index.html", "/request-preview-assets/index.html",
+                    "/api/assistant/status")
         for origin, base in (("", "http://testserver"), ("https://market.example", "https://market.example")):
             with self.subTest(origin=origin), patch.dict(os.environ, {"APP_PUBLIC_ORIGIN": origin}):
                 app = intake_api.create_app(self.store)
@@ -46,6 +47,45 @@ class BasicRuntimeTests(unittest.TestCase):
                     self.assertEqual(client.get(path).status_code, 404, path)
                     self.assertEqual(client.post(path, json={}).status_code, 404, path)
                 self.assertEqual(client.get("/health").json()["features"], ["B1", "B2", "B3", "B4", "B5", "B6"])
+
+    def test_assistant_routes_exist_only_when_enabled(self):
+        legacy = ("/api/intake", "/api/ask", "/conversation-preview", "/request-preview",
+                  "/conversation-assets/index.html", "/request-preview-assets/index.html")
+        for origin, base in (("", "http://testserver"), ("https://market.example", "https://market.example")):
+            for flag in ("1", "true", "TRUE"):
+                with self.subTest(origin=origin, flag=flag), patch.dict(
+                        os.environ, {"APP_PUBLIC_ORIGIN": origin, "ASSISTANT_ENABLED": flag}):
+                    app = intake_api.create_app(self.store)
+                    client = TestClient(app, base_url=base)
+                    paths = client.get("/openapi.json").json()["paths"]
+                    self.assertIn("/api/assistant/status", paths)
+                    self.assertIn("/api/onboarding/sales", paths)
+                    self.assertTrue(all(path in {"/", "/health"} or path.startswith(("/api/onboarding/", "/api/assistant/"))
+                                        for path in paths))
+                    # Removed experiment routes stay absent even with the assistant enabled.
+                    for path in legacy:
+                        self.assertEqual(client.get(path).status_code, 404, path)
+                        self.assertEqual(client.post(path, json={}).status_code, 404, path)
+                    status = client.get("/api/assistant/status")
+                    self.assertEqual(status.status_code, 200, status.text)
+                    self.assertEqual({key: status.json()[key] for key in ("enabled", "model_connected")},
+                                     {"enabled": True, "model_connected": False})
+                    self.assertIn("/api/assistant/messages", paths)
+                    self.assertEqual(client.get("/health").json()["features"], ["B1", "B2", "B3", "B4", "B5", "B6"])
+        with patch.dict(os.environ, {"ASSISTANT_ENABLED": "1"}):
+            client = TestClient(intake_api.create_app(self.store))
+            page = client.get("/assistant")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn("상권 비서", page.text)
+            self.assertEqual(client.get("/assistant-assets/assistant.js").status_code, 200)
+        for flag in ("0", "false", " "):
+            with self.subTest(flag=flag), patch.dict(os.environ, {"ASSISTANT_ENABLED": flag}):
+                client = TestClient(intake_api.create_app(self.store))
+                self.assertEqual(client.get("/api/assistant/status").status_code, 404)
+                self.assertEqual(client.get("/assistant").status_code, 404)
+                self.assertEqual(client.get("/assistant-assets/assistant.js").status_code, 404)
+        with patch.dict(os.environ, {"ASSISTANT_ENABLED": "yes"}), self.assertRaises(ValueError):
+            intake_api.create_app(self.store)
 
     def test_profile_round_trip_session_isolation_and_stale_revision(self):
         app = intake_api.create_app(self.store)

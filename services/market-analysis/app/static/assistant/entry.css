@@ -1,0 +1,8 @@
+/* Floating button on the B1~B6 page. Loaded only when ASSISTANT_ENABLED is set. */
+.assistant-entry{position:fixed;right:28px;bottom:28px;z-index:50;display:flex;align-items:center;gap:10px;padding:11px 19px 11px 11px;border-radius:999px;background:#18594d;color:#fff;text-decoration:none;font-size:14px;font-weight:700;letter-spacing:-.3px;box-shadow:0 8px 24px #18594d40}
+.assistant-entry:hover{background:#124a3f}
+.assistant-entry:focus-visible{outline:3px solid #5d9d85;outline-offset:3px}
+.assistant-entry-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#fff;color:#18594d;font-size:12px;font-weight:800;letter-spacing:0}
+.page-shell{padding-bottom:96px}
+@media(max-width:740px){.assistant-entry{right:16px;bottom:16px;padding:9px 15px 9px 9px;font-size:13px}.assistant-entry-mark{width:26px;height:26px;font-size:11px}}
+@media print{.assistant-entry{display:none}}
