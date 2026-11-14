@@ -1,0 +1,32 @@
+# 리뷰 분석 서버 (services/review-insight). 서버 안에서만 열립니다 (127.0.0.1:8020).
+# 설치: deploy/install_was.sh 가 /etc/systemd/system/ 으로 복사하고 enable 합니다.
+#
+# 키(CLOVASTUDIO_API_KEY)와 모드(APP_MODE)는 /etc/ic26/env 에서 읽습니다.
+# APP_MODE=live 인데 키가 비어 있으면 첫 요청에서 오류가 납니다 (/api/health 가 500).
+# DB_HOST 가 있으면 붙여넣은 리뷰를 DB 에 둡니다. 그 코드(shared/storage)가 저장소 루트에 있어 PYTHONPATH 를 적어 둡니다.
+[Unit]
+Description=ic26 review-insight (127.0.0.1:8020)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ic26
+Group=ic26
+WorkingDirectory=/opt/ic26/services/review-insight
+EnvironmentFile=/etc/ic26/env
+Environment=PYTHONPATH=/opt/ic26
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ic26/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8020 --log-level warning
+Restart=always
+RestartSec=3
+
+# 쓰기 폴더(services/review-insight/logs, data/runtime, data/replay)는 install_was.sh 가 ic26 소유로 만듭니다.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
