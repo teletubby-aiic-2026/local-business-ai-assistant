@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>리뷰 분석 확인</title>
+<style>
+  /* 공통 토큰: 텔레토비 AI 비서 화면(services/web)과 같은 값. 모양도 같음: 흰 상단 바 + 흰 탭(현재 탭 녹색 밑줄) + 회색 바탕 위 흰 카드 (재정비/05 16번) */
+  :root { --bg:#f2f4f6; --card:#fff; --ink:#17212b; --sub:#5f6c7b; --line:#e1e5ea; --field-line:#7e8a97; --neg:#c43d3d; --neg-bg:#fcefef; --pos:#087f5b; --pos-bg:#edf7f2; --acc:#087f5b; --warn:#9a5b00; --chip:#eef1f4; --meta:13px;
+    --brand:#03c75a; /* 면 전용(띠·밑줄·아이콘). 흰 바탕 대비 2.25:1이라 글자·버튼 바탕에는 쓰지 않음 */ }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 24px; margin: 0 0 2px; } h1:focus { outline: none; } h2 { font-size: 18px; margin: 0 0 12px; }
+  .sub { color: var(--sub); font-size: 13px; }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .ico { width:18px; height:18px; flex-shrink:0; color:var(--brand); }
+  /* 상단 바 + 탭 */
+  .top { position:sticky; top:0; z-index:5; background:var(--card); box-shadow:0 1px 0 var(--line); }
+  .top::before { content:""; display:block; height:3px; background:var(--brand); }
+  .bar { max-width:980px; margin:0 auto; padding:10px 16px; display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; }
+  .brand { display:inline-flex; align-items:center; gap:8px; font-size:17px; }
+  .logo { display:inline-grid; place-items:center; width:28px; height:28px; border-radius:8px; background:var(--brand); }
+  .logo svg { width:17px; height:17px; }
+  .store { display:flex; align-items:center; gap:8px; padding-left:12px; border-left:1px solid var(--line); }
+  .top-right { margin-left:auto; display:flex; gap:6px; align-items:center; flex-shrink:0; }
+  .tag { display:inline-block; font-size:var(--meta); padding:2px 10px; border-radius:999px; background:var(--chip); color:var(--ink); white-space:nowrap; }
+  .menu-wrap { border-top:1px solid var(--line); }
+  .menu { max-width:980px; margin:0 auto; padding:0 8px; display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; }
+  .menu a { display:inline-flex; align-items:center; min-height:46px; padding:0 12px; white-space:nowrap; color:var(--sub); font-weight:600; text-decoration:none; box-shadow:inset 0 -3px 0 transparent; }
+  .menu a:hover { color:var(--ink); }
+  .menu a[aria-current="page"] { color:var(--ink); font-weight:800; box-shadow:inset 0 -3px 0 var(--brand); }
+  /* 카드 */
+  .page-head { margin:0 0 14px; } .page-head p { margin:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-top:12px; }
+  .page-head + .card, .stats + .card { margin-top:0; }
+  .stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin:0 0 12px; }
+  .stat-card { position:relative; overflow:hidden; margin:0; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px 14px 20px; }
+  .stat-card::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--brand); }
+  .stat-card dt { display:flex; align-items:center; gap:6px; color:var(--sub); font-size:14px; font-weight:600; }
+  .stat-card dd { margin:4px 0 0; }
+  .stat-n { font-size:28px; font-weight:800; line-height:1.2; font-variant-numeric:tabular-nums; } .stat-unit { margin-left:2px; font-weight:700; }
+  .stat-sub { display:block; margin-top:2px; font-size:var(--meta); color:var(--sub); }
+  .kw { display:grid; gap:10px; }
+  .kw-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0; }
+  .kw-title { font-size:14px; font-weight:700; min-width:84px; }
+  .kw-chip { font-size:var(--meta); padding:3px 10px; border-radius:999px; } .kw-chip b { margin-left:4px; }
+  .kw-chip.neg { background:var(--neg-bg); color:var(--neg); } .kw-chip.pos { background:var(--pos-bg); color:var(--pos); }
+  textarea { width:100%; min-height:90px; padding:10px 12px; border:1px solid var(--field-line); border-radius:8px; font:inherit; resize:vertical; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+  select, button { font:inherit; padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--ink); }
+  .store select { padding:4px 10px; font-size:14px; border-color:var(--field-line); }
+  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.5; }
+  .chips button { font-size:13px; padding:5px 10px; cursor:pointer; }
+  .topic { display:inline-flex; gap:6px; align-items:baseline; margin:4px 8px 4px 0; padding:4px 10px; border-radius:8px; font-size:14px; }
+  .topic.negative { background:var(--neg-bg); color:var(--neg); } .topic.positive { background:var(--pos-bg); color:var(--pos); }
+  .topic q { color:var(--ink); font-size:13px; }
+  .warn { color:var(--warn); font-size:var(--meta); margin-top:6px; }
+  .issues { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:12px; }
+  .issue { border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .issue.new { outline:2px solid var(--acc); }
+  .issue h3 { margin:0; font-size:15px; display:flex; justify-content:space-between; }
+  .issue.rep { box-shadow:inset 4px 0 0 var(--brand); }
+  .badge { font-size:var(--meta); padding:1px 8px; border-radius:6px; background:var(--acc); color:#fff; margin-left:6px; vertical-align:middle; }
+  .brief { font-size:16px; font-weight:600; margin:0 0 12px; }
+  .singles { margin:14px 0 0; padding-left:16px; font-size:13px; color:var(--sub); }
+  .bars { display:grid; grid-template-columns: 62px 1fr 22px; gap:3px 8px; font-size:var(--meta); color:var(--sub); margin:10px 0; align-items:center; }
+  .bar-t { height:8px; background:var(--chip); border-radius:4px; overflow:hidden; } .bar-t i { display:block; height:100%; background:var(--neg); }
+  .quotes { font-size:13px; color:var(--sub); margin:0; padding-left:16px; }
+  .err { color:var(--neg); margin-top:8px; }
+  @media (max-width:760px) {
+    .store { order:3; flex-basis:100%; padding-left:0; border-left:0; }
+    .card { padding:16px; }
+    .stats { gap:8px; } .stat-card { padding:12px 10px 12px 14px; } .stat-n { font-size:24px; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="bar">
+    <span class="brand"><span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 3C6.9 3 3 6.4 3 10.6c0 2.4 1.3 4.6 3.4 6L5.8 20.5l4-2.3c.7.1 1.4.2 2.2.2 5.1 0 9-3.4 9-7.8S17.1 3 12 3z"/></svg></span><strong>리뷰 분석</strong></span>
+    <span class="store"><label for="store" class="sr">매장</label><select id="store"></select></span>
+    <div class="top-right"><span class="tag">합성 데이터</span><span class="tag" id="mode">-</span></div>
+  </div>
+  <nav class="menu-wrap" aria-label="화면">
+    <div class="menu">
+      <a href="#/summary" data-route="summary">요약</a>
+      <a href="#/issues" data-route="issues">불만 묶음</a>
+      <a href="#/paste" data-route="paste">리뷰 붙여넣기</a>
+    </div>
+  </nav>
+</header>
+<main>
+  <div class="row card" id="tokenRow" hidden>
+    <label for="token" class="sub">접근 토큰</label>
+    <input id="token" type="password" autocomplete="off" style="padding:8px 12px;border:1px solid var(--field-line);border-radius:8px;font:inherit">
+    <button id="tokenSave">저장</button>
+  </div>
+
+  <!-- 요약: 숫자 카드 줄 → 칭찬·불만 키워드 (R1) -->
+  <section data-view="summary">
+    <div class="page-head"><h1 tabindex="-1">리뷰 요약</h1><p class="sub" id="storeLine">불러오는 중…</p></div>
+    <dl class="stats">
+      <div class="stat-card"><dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5c0 4-3.6 7.2-8 7.2-.9 0-1.7-.1-2.5-.3L5 20l.9-3.6C4.7 15.1 4 13.4 4 11.5c0-4 3.6-7.2 8-7.2s8 3.2 8 7.2z"/></svg>리뷰</dt>
+        <dd><span class="stat-n" id="sReviews">–</span><span class="stat-unit">건</span><span class="stat-sub" id="sReviewsSub"></span></dd></div>
+      <div class="stat-card"><dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>불만</dt>
+        <dd><span class="stat-n" id="sComplaints">–</span><span class="stat-unit">건</span><span class="stat-sub" id="sComplaintsSub"></span></dd></div>
+      <div class="stat-card"><dt><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3l3 3-3 3"/><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/></svg>반복 불만</dt>
+        <dd><span class="stat-n" id="sRepeated">–</span><span class="stat-unit">건</span><span class="stat-sub" id="sRepeatedSub"></span></dd></div>
+    </dl>
+    <div class="card kw" id="kw"></div>
+  </section>
+
+  <!-- 불만 묶음 (C3) -->
+  <section data-view="issues" hidden>
+    <div class="page-head"><h1 tabindex="-1">불만 묶음 (C3)</h1><p class="sub" id="period"></p></div>
+    <div class="card">
+      <div class="brief" id="brief"></div>
+      <div class="issues" id="issues"></div>
+    </div>
+  </section>
+
+  <!-- 리뷰 직접 붙여넣기 (S2) -->
+  <section data-view="paste" hidden>
+    <div class="page-head"><h1 tabindex="-1">리뷰 직접 붙여넣기 (S2)</h1><p class="sub">전화번호·이메일·링크는 저장 전에 가립니다.</p></div>
+    <div class="card">
+      <label for="text" class="sr">리뷰 글</label>
+      <textarea id="text" maxlength="1000" placeholder="배달앱에서 받은 리뷰 글을 붙여넣으세요."></textarea>
+      <div class="row chips" id="chips"></div>
+      <div class="row">
+        <label for="rating" class="sr">별점</label>
+        <select id="rating"><option value="">별점 모름</option><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select>
+        <label for="channel" class="sr">채널</label>
+        <select id="channel"><option value="">채널 모름</option><option value="baemin">배달의민족</option><option value="coupangeats">쿠팡이츠</option><option value="yogiyo">요기요</option><option value="naver_place">네이버 플레이스</option></select>
+        <button class="primary" id="send">분류하기</button>
+        <button id="reset" title="붙여넣은 리뷰만 지웁니다">붙여넣기 초기화</button>
+      </div>
+    </div>
+    <div id="result"></div>
+  </section>
+</main>
+<script>
+const NAMES = { texture:'식감', taste:'맛', portion:'양', price:'가격', delivery_time:'배달 시간', temperature:'음식 온도', packaging:'포장 상태', missing_item:'포장 누락', service:'응대', hygiene:'위생', menu:'메뉴 구성', atmosphere:'매장 환경', wait_time:'매장 대기' };
+const SAMPLES = [
+  { text: '저녁 8시에 시켰는데 한 시간 넘게 걸렸고 국물도 다 식었어요', rating: 1 },
+  { text: '맛은 정말 좋은데 포장이 허술해서 국물이 조금 샜어요', rating: 3 },
+  { text: '점심에 먹었는데 반찬도 깔끔하고 사장님도 친절하세요!', rating: 5 },
+];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const $ = id => document.getElementById(id);
+let STORE = '';
+let LOAD_SEQ = 0;   // 늦게 끝난 예전 불러오기가 새 결과를 덮지 않게
+const q = () => 'store_id=' + encodeURIComponent(STORE);
+// 화면은 주소 해시로: #/summary #/issues #/paste
+const ROUTES = ['summary', 'issues', 'paste'];
+function route() {
+  const r = (location.hash.match(/^#\/(\w+)/) || [])[1];
+  const name = ROUTES.includes(r) ? r : 'summary';
+  document.querySelectorAll('[data-view]').forEach(v => (v.hidden = v.dataset.view !== name));
+  document.querySelectorAll('.menu a').forEach(a => a.dataset.route === name ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
+  const h = document.querySelector(`[data-view="${name}"] h1`); if (h) h.focus({ preventScroll: true });
+}
+// 서버가 접근 토큰을 요구하면(APP_ACCESS_TOKEN) 한 번 입력받아 이 브라우저에만 기억
+let TOKEN = '';
+try { TOKEN = localStorage.getItem('reviewInsightToken') || ''; } catch (e) {}
+async function api(path, opt = {}) {
+  const r = await fetch('/api/review-insight' + path, { ...opt, headers: { 'Content-Type': 'application/json', 'X-Access-Token': TOKEN } });
+  const d = await r.json();
+  if (r.status === 401) {
+    $('tokenRow').hidden = false;
+    throw new Error('접근 토큰을 입력해 주세요.');
+  }
+  if (!r.ok) throw new Error(d.error?.message || r.status);
+  return d;
+}
+// 요약 (R1): 숫자 카드 + 칭찬·불만 키워드 (주제별 긍정·부정 수 topic_counts, 리뷰 하나에 주제 여러 개면 모두 셈)
+function renderSummary(d) {
+  const days = Math.round((new Date(d.period_end) - new Date(d.period_start)) / 86400000) + 1;
+  const rep = d.groups.filter(g => g.is_repeated);
+  const s = d.sentiment_counts || {};
+  $('sReviews').textContent = d.review_count;
+  $('sReviewsSub').textContent = `${Number.isFinite(days) ? days + '일 · ' : ''}긍정 ${s.positive ?? 0} · 중립 ${s.neutral ?? 0}`;
+  $('sComplaints').textContent = d.complaint_count;
+  $('sComplaintsSub').textContent = d.review_count ? `리뷰의 ${Math.round(d.complaint_count / d.review_count * 100)}%` : '';
+  $('sRepeated').textContent = rep.reduce((n, g) => n + g.review_count, 0);
+  $('sRepeatedSub').textContent = rep.map(g => g.topic_name).join(', ') || '없음';
+  const list = pol => Object.entries(d.topic_counts || {}).map(([t, v]) => [NAMES[t] || t, v[pol] || 0]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const chips = (l, tone) => l.length ? l.map(([t, n]) => `<span class="kw-chip ${tone}">${esc(t)}<b>${n}</b></span>`).join('') : '<span class="sub">없음</span>';
+  $('kw').innerHTML = `<p class="kw-row"><span class="kw-title">칭찬 키워드</span>${chips(list('positive'), 'pos')}</p>
+    <p class="kw-row"><span class="kw-title">불만 키워드</span>${chips(list('negative'), 'neg')}</p>
+    <p class="sub" style="margin:0">리뷰 하나에 주제가 여럿이면 모두 셉니다. <a href="#/issues" style="color:var(--acc)">불만 묶음 보기</a></p>`;
+}
+function renderIssues(d, highlight = []) {
+  const list = d.groups;
+  const rep = list.filter(g => g.is_repeated).length;
+  $('brief').textContent = `리뷰 ${d.review_count ?? ''}건 → 불만 ${d.complaint_count}건 → 묶음 ${list.length}개 (반복 ${rep}) + 단발 ${d.single_complaints.length}건`;
+  $('issues').innerHTML = (list.length ? list.map(i => {
+    const max = Math.max(...Object.values(i.time_bands), 1);
+    return `<div class="issue ${i.is_repeated ? 'rep' : ''} ${highlight.includes(i.issue_id) ? 'new' : ''}">
+      <h3><span>${esc(i.topic_name)}${i.is_repeated ? '<span class="badge">반복</span>' : ''}${i.issue_id === d.top_issue_id ? '<span class="badge" style="background:var(--ink)">카드 ⓐ</span>' : ''}</span><span>${i.review_count}건</span></h3>
+      <div class="sub">${i.main_time_band ? `주로 ${i.main_time_band}` : '여러 시간대'} · 앞 2주 ${i.previous_count}건 → 최근 2주 ${i.recent_count}건</div>
+      <div class="bars">${Object.entries(i.time_bands).map(([b, n]) => `<span>${b}</span><span class="bar-t"><i style="width:${n / max * 100}%"></i></span><span>${n}</span>`).join('')}</div>
+      <ul class="quotes">${i.evidence.slice(0, 3).map(e => `<li>“${esc(e.quote)}” <span class="sub">${e.review_id}</span></li>`).join('')}</ul>
+    </div>`; }).join('') : '<div class="sub">묶인 불만이 없어요.</div>')
+    + (d.single_complaints.length ? `<div style="grid-column:1/-1"><div class="sub"><b>단발 불만 ${d.single_complaints.length}건</b> (어느 묶음에도 안 듦)</div>
+       <ul class="singles">${d.single_complaints.map(s => `<li>${esc(s.topic_names.join('·'))} — “${esc(s.quote)}” <span class="sub">${s.review_id}</span></li>`).join('')}</ul></div>` : '');
+}
+function renderResult(d) {
+  const c = d.classification;
+  $('result').innerHTML = `<div class="card">
+    <div class="sub">${esc(d.review.review_id)} · 감정 <b>${esc(c.sentiment)}</b> · 방식 ${esc(c.method)}${d.review.pii_masked ? ' · 개인정보 가림' : ''}</div>
+    <div style="margin:6px 0">${esc(d.review.text)}</div>
+    <div>${c.topics.length ? c.topics.map(t => `<span class="topic ${t.polarity}">${t.polarity === 'negative' ? '불만' : '칭찬'} · ${esc(NAMES[t.topic] || t.topic)} <q>${esc(t.evidence)}</q></span>`).join('') : '<span class="sub">찾은 주제가 없어요</span>'}</div>
+    ${d.joined_issues.length ? `<div class="sub" style="margin-top:6px">→ 불만 묶음에 들어갔어요: ${d.joined_issues.map(id => esc(id.slice(4).split('_').filter(Boolean).length ? (d.groups.find(g => g.issue_id === id)?.topic_name || id) : id)).join(', ')} · <a href="#/issues" style="color:var(--acc)">불만 묶음 보기</a></div>` : ''}
+    ${c.warnings.map(w => `<div class="warn">검증: ${esc(w)}</div>`).join('')}</div>`;
+}
+async function load() {
+  const seq = ++LOAD_SEQ;
+  try {
+    if (!STORE) {
+      const s = await api('/stores');
+      $('store').innerHTML = s.items.map(x => `<option value="${esc(x.store_id)}">${esc(x.name)}</option>`).join('');
+      STORE = s.default;
+      $('store').value = STORE;
+      $('store').onchange = () => { STORE = $('store').value; $('result').innerHTML = ''; load(); };
+    }
+    // 가게를 바꾸면 예전 가게 결과를 바로 지우고 '분석 중'을 보여 줌 (live 는 처음 한 번 1~2분 걸림)
+    const name = $('store').selectedOptions[0]?.textContent || '';
+    const health = await (await fetch('/health')).json();
+    if (seq !== LOAD_SEQ) return;
+    $('mode').textContent = 'APP_MODE ' + health.mode;
+    $('storeLine').textContent = `${name} · 분석 중…`;
+    $('brief').textContent = '';
+    $('period').textContent = '';
+    const wait = health.mode === 'live'
+      ? 'HCX-005가 리뷰를 분류하는 중이에요. 이 가게를 처음 분석할 때만 1~2분 걸리고, 그다음부터는 저장본으로 바로 떠요.'
+      : '불러오는 중…';
+    $('issues').innerHTML = `<div class="sub" style="grid-column:1/-1">${wait}</div>`;
+    // 대시보드 구조: 예전 가게 결과는 요약 화면(숫자 카드·키워드)에도 있으므로 같이 지우고 같은 안내를 보임
+    ['sReviews', 'sComplaints', 'sRepeated'].forEach(id => { $(id).textContent = '–'; });
+    ['sReviewsSub', 'sComplaintsSub', 'sRepeatedSub'].forEach(id => { $(id).textContent = ''; });
+    $('kw').innerHTML = `<div class="sub">${wait}</div>`;
+    const [store, ins] = await Promise.all([api('/store?' + q()), api('/insight?' + q())]);
+    if (seq !== LOAD_SEQ) return;
+    $('storeLine').textContent = `${store.name} · ${store.business_type_name} · ${ins.period_start} ~ ${ins.period_end}`;
+    $('period').textContent = `${ins.period_start} ~ ${ins.period_end} · 같은 불만 2건 이상이면 묶음, 3건 이상이면 반복`;
+    renderSummary(ins);
+    renderIssues(ins);
+  } catch (e) {
+    if (seq === LOAD_SEQ) $('storeLine').innerHTML = `<span class="err">${esc(e.message)}</span>`;
+  }
+}
+$('chips').innerHTML = '<span class="sub">예시:</span>' + SAMPLES.map((s, i) => `<button data-i="${i}">${esc(s.text.slice(0, 18))}…</button>`).join('');
+$('chips').onclick = e => { const s = SAMPLES[e.target.dataset.i]; if (s) { $('text').value = s.text; $('rating').value = s.rating; } };
+$('send').onclick = async () => {
+  const text = $('text').value.trim();
+  if (!text) return;
+  $('send').disabled = true;
+  LOAD_SEQ++;
+  try {
+    const d = await api('/reviews', { method: 'POST', body: JSON.stringify({ store_id: STORE, text, rating: $('rating').value ? +$('rating').value : null, channel: $('channel').value || null }) });
+    renderResult(d); renderIssues(d, d.joined_issues); $('text').value = '';
+    api('/insight?' + q()).then(renderSummary).catch(() => {});   // 붙여넣기 응답에는 주제별 긍정·부정 수가 없어 요약만 다시 받음
+  } catch (e) { $('result').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  $('send').disabled = false;
+};
+$('reset').onclick = async () => { await api('/reviews/pasted?' + q(), { method: 'DELETE' }); $('result').innerHTML = ''; load(); };
+$('tokenSave').onclick = () => {
+  TOKEN = $('token').value.trim();
+  try { localStorage.setItem('reviewInsightToken', TOKEN); } catch (e) {}
+  $('tokenRow').hidden = true; STORE = ''; load();
+};
+window.addEventListener('hashchange', route);
+route();
+load();
+</script>
+</body>
+</html>

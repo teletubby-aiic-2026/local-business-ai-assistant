@@ -1,0 +1,20 @@
+{
+  "store_id": "store_mongle",
+  "name": "몽글카페 (가상)",
+  "business_type": "cafe",
+  "business_type_name": "커피-음료",
+  "channels": [
+    "baemin",
+    "coupangeats",
+    "yogiyo",
+    "naver_place"
+  ],
+  "menu": [
+    "아메리카노",
+    "바닐라라떼",
+    "딸기 케이크",
+    "소금빵",
+    "크로플"
+  ],
+  "data_origin": "synthetic"
+}

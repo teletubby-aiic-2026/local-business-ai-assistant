@@ -1,0 +1,14 @@
+[
+  {
+    "snapshot_id": "snap_3110826_evening_17_24_common_yoy_2026Q2",
+    "area_name": "장승배기역 4번",
+    "metric_name": "저녁 시간대(17~24시) 추정매출 전년 동기 대비 변화율 · 두 분기 공통 업종",
+    "value": -19.306697315937033,
+    "unit": "%",
+    "basis_quarter": "2026Q2",
+    "is_estimate": true,
+    "source": "서울시 상권분석서비스 · https://data.seoul.go.kr/dataList/OA-15572/S/1/datasetView.do",
+    "compared_with_quarter": "2025Q2",
+    "note": "상권코드 3110826. 17~21시와 21~24시 추정매출 합산. 비교 두 분기 공통 12개 업종 기준: 2025Q2 2,778,386,532원 → 2026Q2 2,241,971,854원. 후보 5곳 비교로 선정; 서울 전체 하락률 1위가 아님. 관측 업종 합계는 -19.99%. 하루 전체 매출·개별 가게 실적과 구분."
+  }
+]

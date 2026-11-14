@@ -1,19 +1,37 @@
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-node_modules/
-.pytest_cache/
+# 비밀: 키·토큰은 저장소 밖 ~/.config/teletubby-aiic/env 에만 둡니다. 저장소 안의 .env 는 올리지 않습니다.
 .env
 .env.*
 !.env.example
 *.pem
 *.key
+
+# 실행 중에 생기는 것
+**/data/runtime/
+**/data/team/
+*.log
+
+# macOS
+.DS_Store
+
+# 파이썬
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.py[cod]
+.pytest_cache/
+
+# Node
+node_modules/
+
+# 로컬 DB 파일
 *.sqlite
 *.sqlite3
 *.sqlite3-*
 *.db
 *.db-*
+
+# 상권 분석 (services/market-analysis)
 services/market-analysis/data/
 services/market-analysis/logs/
 services/market-analysis/.coverage

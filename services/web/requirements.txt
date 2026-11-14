@@ -1,0 +1,6 @@
+# C7 한 화면. 리뷰 분석(#14)과 같은 버전 범위
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+httpx>=0.28,<1
+# DB(PostgreSQL) 저장. DB_HOST 환경 변수가 있을 때만 import 한다 — 없으면 이 패키지가 안 깔려 있어도 돈다
+psycopg[binary,pool]>=3.2,<4

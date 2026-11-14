@@ -1,0 +1,211 @@
+[
+  {
+    "card_id": "card_sample_a",
+    "kind": "complaint",
+    "reason_text": "포장 누락을 말한 리뷰가 3건 반복됐고, 공깃밥·수저·계란말이처럼 주문한 품목이나 구성품이 빠졌다는 내용입니다.",
+    "basis_label": null,
+    "drafts": [
+      {
+        "draft_id": "d_d368820d",
+        "card_id": "card_sample_a",
+        "store_id": "store_ongi",
+        "generator": "reply_draft",
+        "target_review_id": "rv_ongi_001",
+        "text": "안녕하세요 고객님 :) 공깃밥 추가로 보내드렸어요. 포장 마감 전 주문서를 다시 한번 확인하는 절차를 도입해서 이런 일이 다시 없도록 주의하겠습니다. 소중한 의견 감사합니다. 온기한식 드림",
+        "evidence_ids": [
+          "F_rv_ongi_001",
+          "M1"
+        ],
+        "checks": {
+          "evidence_valid": true,
+          "no_invented_measure": true,
+          "chosen_measure_included": true,
+          "missing_mentioned": true,
+          "no_bad_promise": true,
+          "no_bad_number": true,
+          "no_personal_info": true,
+          "length_ok": false,
+          "no_stiff_words": true,
+          "no_overpromise": true,
+          "uses_opening": true,
+          "uses_closing": true,
+          "no_forbidden_phrase": true,
+          "not_too_similar": true
+        },
+        "failed_reasons": [],
+        "rewrites": 1,
+        "needs_input": [],
+        "status": "draft",
+        "edited_text": null,
+        "model": "HCX-005",
+        "elapsed_ms": 2511,
+        "data_origin": "synthetic"
+      },
+      {
+        "draft_id": "d_1ee5ebed",
+        "card_id": "card_sample_a",
+        "store_id": "store_ongi",
+        "generator": "reply_draft",
+        "target_review_id": "rv_ongi_002",
+        "text": "안녕하세요 고객님 :) 주문하신 수저와 젓가락이 빠졌다니 정말 속상하시겠어요. 포장 마감 전 주문서와 대조하여 확인하는 절차를 도입하도록 하겠습니다. 다음번에는 꼼꼼히 챙긴 후 받아보실 수 있도록 최선을 다하겠습니다. 소중한 의견 감사합니다. 온기한식 드림",
+        "evidence_ids": [
+          "F_rv_ongi_002",
+          "M1"
+        ],
+        "checks": {
+          "evidence_valid": true,
+          "no_invented_measure": true,
+          "chosen_measure_included": true,
+          "missing_mentioned": true,
+          "no_bad_promise": true,
+          "no_bad_number": true,
+          "no_personal_info": true,
+          "length_ok": true,
+          "no_stiff_words": true,
+          "no_overpromise": true,
+          "uses_opening": true,
+          "uses_closing": true,
+          "no_forbidden_phrase": true,
+          "not_too_similar": true
+        },
+        "failed_reasons": [],
+        "rewrites": 0,
+        "needs_input": [],
+        "status": "draft",
+        "edited_text": null,
+        "model": "HCX-005",
+        "elapsed_ms": 2511,
+        "data_origin": "synthetic"
+      },
+      {
+        "draft_id": "d_cb6450bc",
+        "card_id": "card_sample_a",
+        "store_id": "store_ongi",
+        "generator": "reply_draft",
+        "target_review_id": "rv_ongi_003",
+        "text": "안녕하세요 고객님 :) 주문하신 계란말이가 빠졌다니 정말 속상하시겠어요. 다음에는 꼭 챙길 수 있도록 포장 마감 전 주문서를 한번 더 꼼꼼히 확인해볼게요. 소중한 의견 감사합니다! 온기한식 드림",
+        "evidence_ids": [
+          "F_rv_ongi_003",
+          "M1"
+        ],
+        "checks": {
+          "evidence_valid": true,
+          "no_invented_measure": true,
+          "chosen_measure_included": true,
+          "missing_mentioned": true,
+          "no_bad_promise": true,
+          "no_bad_number": true,
+          "no_personal_info": true,
+          "length_ok": false,
+          "no_stiff_words": true,
+          "no_overpromise": true,
+          "uses_opening": true,
+          "uses_closing": true,
+          "no_forbidden_phrase": true,
+          "not_too_similar": true
+        },
+        "failed_reasons": [],
+        "rewrites": 0,
+        "needs_input": [],
+        "status": "draft",
+        "edited_text": null,
+        "model": "HCX-005",
+        "elapsed_ms": 2511,
+        "data_origin": "synthetic"
+      },
+      {
+        "draft_id": "d_af7e466a",
+        "card_id": "card_sample_a",
+        "store_id": "store_ongi",
+        "generator": "prevention_notice",
+        "target_review_id": null,
+        "text": "안녕하세요 고객님 :) 주문이 잘못돼서 속상하셨죠? 진짜 죄송해요. 밥이랑 수저, 계란말이가 빠진 적이 몇 번 있었네요. 앞으론 주문서랑 꼼꼼히 비교해서 이런 실수 없게 할게요. 앞으로 포장 마감 전에 주문서와 한 번 더 대조할게요. 다음엔 요청 사항에 꼭 필요한 거 적어주시면 제가 특별히 더 잘 챙길게요! 온기한식 드림",
+        "evidence_ids": [
+          "F_rv_ongi_001",
+          "F_rv_ongi_002",
+          "F_rv_ongi_003",
+          "M1"
+        ],
+        "checks": {
+          "no_bad_promise": true,
+          "no_personal_info": true,
+          "length_ok": true,
+          "chosen_measure_included": true,
+          "no_invented_measure": true,
+          "not_quote_review": true,
+          "no_stiff_words": true,
+          "no_overpromise": true,
+          "has_apology": false,
+          "uses_opening": true,
+          "uses_closing": true,
+          "no_forbidden_phrase": true
+        },
+        "failed_reasons": [
+          "첫 문장에 불편을 드려 죄송하다는 사과를 넣어 주세요."
+        ],
+        "rewrites": 1,
+        "needs_input": [],
+        "status": "draft",
+        "edited_text": null,
+        "model": "HCX-005",
+        "elapsed_ms": 4309,
+        "data_origin": "synthetic"
+      }
+    ],
+    "chosen_measures": [
+      {
+        "id": "M1",
+        "text": "포장 마감 전 주문서 대조"
+      }
+    ],
+    "elapsed_ms": 6821,
+    "won": 24.94
+  },
+  {
+    "card_id": "card_sample_b",
+    "kind": "promo",
+    "reason_text": "이 상권의 저녁 시간대 추정매출이 전년 동기 대비 -X% 줄었습니다. (기준: 2026 2분기 · 추정 · 출처 서울시, 수치 확정 전)",
+    "basis_label": "기준: 2026 2분기 · 추정 · 출처 서울시",
+    "drafts": [
+      {
+        "draft_id": "d_9018bf15",
+        "card_id": "card_sample_b",
+        "store_id": "store_ongi",
+        "generator": "coupon_promo",
+        "target_review_id": null,
+        "text": "저녁 메뉴 아직 못 정했다면 이거 어때요? 손님들 사이에서 인기 폭발 중인 제육볶음이랑 언제 먹어도 맛있는 된장찌개를 준비했거든요. 밥 두 공기도 거뜬히 비우게 만드는 맛이라니까요!\n🎟 제육볶음 정식 1,000원 할인 쿠폰 · 받은 날 포함 14일",
+        "evidence_ids": [
+          "snap_sample_01",
+          "coupon:제육볶음 정식"
+        ],
+        "checks": {
+          "no_bad_number": true,
+          "no_personal_info": true,
+          "no_coupon_invented": true,
+          "no_stiff_words": true,
+          "no_fewshot_copy": true,
+          "no_bad_promise": true,
+          "no_unknown_menu": false,
+          "no_markdown": true,
+          "length_ok": true,
+          "no_forbidden_phrase": true
+        },
+        "failed_reasons": [
+          "메뉴에 있는 음식 이름만 써 주세요."
+        ],
+        "rewrites": 1,
+        "needs_input": [
+          "사장님 확인 필요"
+        ],
+        "status": "draft",
+        "edited_text": null,
+        "model": "HCX-005",
+        "elapsed_ms": 4614,
+        "data_origin": "synthetic"
+      }
+    ],
+    "chosen_measures": [],
+    "elapsed_ms": 4614,
+    "won": 12.51
+  }
+]
