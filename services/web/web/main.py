@@ -37,7 +37,7 @@ class RunIn(BaseModel):
 
 
 class PasteIn(BaseModel):
-    text: str = Field(min_length=1, max_length=4000)
+    text: str = Field(min_length=1, max_length=1000)   # 리뷰 분석 서버(review-insight MAX_TEXT)·입력칸(maxlength)과 같은 1000자
     rating: int | None = Field(default=None, ge=1, le=5)
     channel: str | None = None
 

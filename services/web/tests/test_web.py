@@ -350,6 +350,15 @@ class Flow(unittest.TestCase):
         self.assertEqual(len(self.client.get("/api/briefing").json()["pasted"]), 1)
         self.assertEqual(self.client.delete("/api/reviews/pasted").json()["deleted"], 1)
 
+    def test_paste_length_limit_matches_review_service(self):
+        """리뷰 분석 서버는 1~1000자만 받는다 (입력칸 maxlength 도 1000). 1001자부터는 여기서 422 로 막는다."""
+        self.assertEqual(self.client.post("/api/reviews", json={"text": "가" * 1000}).status_code, 201)
+        for text in ("가" * 1001, "가" * 4000, ""):
+            with self.subTest(length=len(text)):
+                self.assertEqual(self.client.post("/api/reviews", json={"text": text}).status_code, 422)
+        self.assertEqual(len(self.client.get("/api/briefing").json()["pasted"]), 1)   # 1000자 하나만 들어갔다
+        self.assertEqual(self.client.delete("/api/reviews/pasted").json()["deleted"], 1)
+
 
 # ── live 와 mock 두 가지만 (발표 모드·사다리·저장본 자동 기록은 없음) ─────────
 class LiveAndMockOnly(unittest.TestCase):
