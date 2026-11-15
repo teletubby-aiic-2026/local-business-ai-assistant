@@ -73,6 +73,36 @@ def few_shot_examples(ctx, n: int = 3) -> list[str]:
     return list(ctx.owner_replies)[:n]
 
 
+_SENT_SPLIT_LOOSE = re.compile(r"[.!?\n]+")
+_HAMNIDA_END = re.compile(r"(니다|ㅂ니다)\s*$")
+_HAEYO_END = re.compile(r"(요|죠|용)\s*$")
+
+
+def detect_register(tone) -> str:
+    """ToneProfile.example_sentences·style_description 의 문장 끝(요/니다) 비율로
+    haeyo 또는 hamnida 를 고른다. 판단 불가(둘 다 0이거나 동률)면 haeyo."""
+    if not tone:
+        return "haeyo"
+
+    texts = list(tone.example_sentences or [])
+    if tone.style_description:
+        texts.append(tone.style_description)
+
+    haeyo_n = 0
+    hamnida_n = 0
+    for text in texts:
+        for piece in _SENT_SPLIT_LOOSE.split(text):
+            piece = piece.strip()
+            if not piece:
+                continue
+            if _HAMNIDA_END.search(piece):
+                hamnida_n += 1
+            elif _HAEYO_END.search(piece):
+                haeyo_n += 1
+
+    return "hamnida" if hamnida_n > haeyo_n else "haeyo"
+
+
 def tone_style_section(tone, owner_replies: list[str]) -> str:
     """프롬프트의 말투 섹션을 만든다. ToneProfile 우선."""
     if tone and tone.style_description:

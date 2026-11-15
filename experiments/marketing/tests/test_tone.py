@@ -25,7 +25,7 @@ EVENTS = [
 
 # ── 실행 ─────────────────────────────────────────────────────
 def main():
-    key = config.get_api_key()
+    key = config.get_api_key() or input("CLOVA Studio API 키: ").strip()
     profiles = {s["이름"]: T.build_profile(s) for s in STORES}
     for s in STORES:
         print(f"\n[{s['이름']}] 말투 프로필\n{T.profile_text(profiles[s['이름']])}")

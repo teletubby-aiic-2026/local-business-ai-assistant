@@ -34,7 +34,7 @@ def load(name):
 
 
 def main():
-    key = config.get_api_key()
+    key = config.get_api_key() or input("CLOVA Studio API 키: ").strip()
     seoul, tour = load("events_raw.json"), load("tour_festivals_raw.json")
     events = P.load_events(seoul, tour, TODAY)
     types = Counter(e["유형"] for e in events)

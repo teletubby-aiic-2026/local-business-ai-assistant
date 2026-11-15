@@ -20,7 +20,8 @@
 응답에 싣고, 사장님이 사실을 확인하라는 안내(needs_input)를 붙인다. 답글은 늘 사장님이 고치고 승인한 뒤 올린다.
 
 점검 묶음 (태도마다 다른 묶음을 쓴다. 점검을 느슨하게 한 것이 아니라 상황에 맞는 점검으로 바꾼 것)
-- APOLOGY_CHECKS: c6.reply._run_checks. main 의 점검에 apology_expressed(글 어디든 사과 표현이 있는가)를 더했다.
+- APOLOGY_CHECKS: c6.reply._run_checks 와 _check. main 의 점검에 apology_expressed(글 어디든 사과 표현이 있는가)를 더했다.
+  PR #36(AI 는 공감·사과만, 조치·요청사항·인사는 코드가 붙임)의 점검(no_broken_ending·no_claimed_action·ai_part_only_empathy·style_match)도 들어 있다.
   첫 문장 강제(has_apology)가 아니다. 가게 과실일 수 있는 불만에 사과 없는 답글이 '점검 통과'로 나가지 않게 한다.
 - EXPLAIN_CHECKS: c6.reply_explain.run_explain_checks. 사과 대신 '과실 인정 없음'·'유감 표현'·'원칙 설명'·'보상 약속 없음'·
   '손님 탓·훈계·비꼼 없음'을 보고, 정책·숫자·개인정보·길이·딱딱한 말·장담·금지 표현은 apology 와 같은 점검을 쓴다.
@@ -42,6 +43,7 @@ STANCE_LABELS = {APOLOGY: "사과하는 답글", EXPLAIN: "사과 없이 사실�
 APOLOGY_CHECKS = (
     "evidence_valid", "no_invented_measure", "chosen_measure_included", "missing_mentioned", "apology_expressed", "no_bad_promise",
     "no_bad_number", "no_personal_info", "length_ok", "no_stiff_words", "no_overpromise", "uses_opening", "uses_closing",
+    "no_broken_ending", "no_claimed_action", "ai_part_only_empathy", "style_match",
 )
 EXPLAIN_CHECKS = (
     "evidence_valid", "no_bad_promise", "no_compensation_offer", "no_fault_admission", "no_customer_blame",
@@ -49,7 +51,8 @@ EXPLAIN_CHECKS = (
     "no_personal_info", "length_ok", "no_stiff_words", "no_overpromise", "uses_opening", "uses_closing",
 )
 CHECKS_BY_STANCE = {APOLOGY: APOLOGY_CHECKS, EXPLAIN: EXPLAIN_CHECKS}
-OPTIONAL_CHECKS = ("no_forbidden_phrase", "not_too_similar")
+# used_fallback: 코드 템플릿을 썼는지, ai_part_repaired: AI 글의 사과 어미를 바꾸거나 사과 한 문장을 덧붙였는지 (둘 다 참고용 표시)
+OPTIONAL_CHECKS = ("no_forbidden_phrase", "not_too_similar", "used_fallback", "ai_part_repaired")
 
 # explain 답글에 붙이는 사장님 확인 안내 (화면에서는 '확인 필요'로 보인다)
 EXPLAIN_NEEDS_INPUT = ("사실 확인: 가게 잘못이 아니라 메뉴·원칙 밖 요청을 거절해 남은 리뷰로 보고, 사과 없이 사실·원칙을 "

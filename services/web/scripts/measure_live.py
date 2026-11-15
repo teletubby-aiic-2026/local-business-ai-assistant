@@ -50,8 +50,27 @@ CARD_KIND_NAMES = {"complaint": "불만 카드", "promo": "홍보 카드"}
 
 # C6 가 '다시 쓰기 사유'에서 뺀 점검 (c6/reply.py _RETRY_EXEMPT, notice.py retry_exempt, promo.py retry_exempt).
 # checks 에는 False 로 남아도 failed_reasons(= 화면의 '점검 실패')에는 들어가지 않는다.
-RETRY_EXEMPT = frozenset({"length_ok", "uses_opening", "uses_closing"})
+# used_fallback 은 참고용 정보 필드라 같이 뺀다 (False=기본값=대체 문장 안 씀, "실패"가 아니다.
+# c6/reply.py 의 chk["used_fallback"] 참고). not_too_similar 도 참고용이다 — 한 번 다시 써도
+# 비슷하면 실패로 세지 않는다(c6/reply.py generate_reply_draft 참고).
+# ai_part_repaired 도 같은 참고용 표시다 (True=코드가 AI 글의 사과 어미를 바꾸거나 사과 한 문장을 덧붙임).
+RETRY_EXEMPT = frozenset({"length_ok", "uses_opening", "uses_closing", "used_fallback", "not_too_similar",
+                          "ai_part_repaired"})
 UNKNOWN_CHECK = "(점검 이름 없음)"   # failed_reasons 는 있는데 checks 에서 이름을 찾지 못한 경우
+
+# 글을 누가 썼나. '점검 통과'에는 코드 템플릿으로 바꿔 넣은 글도 들어가므로(used_fallback), 통과 수만 보면
+# AI 가 글을 덜 쓸수록 숫자가 오를 수 있다(11/15 PR #36 병합본: 답글 15/15 통과가 전부 템플릿). 그래서 따로 센다.
+ORIGIN_AI, ORIGIN_REPAIRED, ORIGIN_TEMPLATE = "AI 글 그대로", "AI 글 + 코드 보정", "코드 템플릿"
+ORIGINS = (ORIGIN_AI, ORIGIN_REPAIRED, ORIGIN_TEMPLATE)
+
+
+def draft_origin(draft: dict) -> str:
+    checks = draft.get("checks") if isinstance(draft.get("checks"), dict) else {}
+    if checks.get("used_fallback"):
+        return ORIGIN_TEMPLATE
+    if checks.get("ai_part_repaired"):
+        return ORIGIN_REPAIRED
+    return ORIGIN_AI
 
 
 def _items(draft: dict, key: str) -> list:
@@ -105,7 +124,7 @@ def describe_draft(draft: dict) -> dict:
     return {
         "draft_id": draft.get("draft_id"), "generator": draft.get("generator"), "kind": draft_kind(draft),
         "target_review_id": draft.get("target_review_id"),
-        "status": draft_status(draft),
+        "status": draft_status(draft), "origin": draft_origin(draft),
         "failed_checks": failed_check_names(draft), "needs_checks": needs_check_names(draft),
         "failed_reason_count": len(_items(draft, "failed_reasons")),
         "needs_input_count": len(_items(draft, "needs_input")), "c7_flag_count": len(_items(draft, "c7_flags")),
@@ -273,6 +292,7 @@ def _stats(values: list[float]) -> dict:
 
 def summarize_rounds(rounds: list[dict]) -> dict:
     counts: dict[str, dict[str, int]] = {}
+    passed_by: dict[str, dict[str, int]] = {}
     failed_checks: dict[str, dict[str, int]] = {}
     needs_checks: dict[str, dict[str, int]] = {}
     failures: list[dict] = []
@@ -297,6 +317,9 @@ def summarize_rounds(rounds: list[dict]) -> dict:
                 kind = d["kind"]
                 row = counts.setdefault(kind, {s: 0 for s in STATUSES})
                 row[d["status"]] += 1
+                if d["status"] == PASS:   # 통과한 글을 누가 썼나 (예전 저장 결과에는 origin 이 없어 AI 글로 센다)
+                    by = passed_by.setdefault(kind, {o: 0 for o in ORIGINS})
+                    by[d.get("origin") or ORIGIN_AI] += 1
                 for name in d["failed_checks"]:
                     failed_checks.setdefault(kind, {})[name] = failed_checks.get(kind, {}).get(name, 0) + 1
                 for name in d["needs_checks"]:
@@ -304,7 +327,10 @@ def summarize_rounds(rounds: list[dict]) -> dict:
     order = [n for n in GENERATOR_NAMES.values() if n in counts] + [k for k in counts if k not in GENERATOR_NAMES.values()]
     counts = {k: {**counts[k], "합계": sum(counts[k].values())} for k in order}
     total = {s: sum(r[s] for r in counts.values()) for s in (*STATUSES, "합계")}
-    return {"counts": counts, "total": total, "failed_checks": failed_checks, "needs_checks": needs_checks,
+    passed_by = {k: passed_by.get(k, {o: 0 for o in ORIGINS}) for k in order}
+    passed_by_total = {o: sum(r[o] for r in passed_by.values()) for o in ORIGINS}
+    return {"counts": counts, "total": total, "passed_by": passed_by, "passed_by_total": passed_by_total,
+            "failed_checks": failed_checks, "needs_checks": needs_checks,
             "call_failures": failures, "result_sources": sources,
             "cards_seconds": _stats(cards_seconds),
             "run_seconds": {k: _stats(v) for k, v in run_seconds.items()}}
@@ -361,6 +387,11 @@ def format_report(result: dict) -> str:
         out.append("  ".join(_pad(r[i], widths[i], right=i > 0) for i in range(5)))
     if not s["counts"]:
         out.append("(측정된 초안이 없어요)")
+    else:
+        pb, pt = s["passed_by"], s["passed_by_total"]
+        out.append("통과한 글을 누가 썼나: " + " · ".join(
+            f"{kind} " + "/".join(str(c[o]) for o in ORIGINS) for kind, c in pb.items())
+            + f" · 전체 {'/'.join(str(pt[o]) for o in ORIGINS)}  ({' / '.join(ORIGINS)})")
     out.append("")
 
     fails = s["call_failures"]
