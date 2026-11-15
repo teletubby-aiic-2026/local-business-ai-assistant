@@ -354,6 +354,7 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
         ai_body = fallback_apology(review, menu_names, ai_register)
         needs.append(CALL_FAILED_NOTE)
     text, evidence, chk, failed = _check(ai_body)
+    last_ai_body = "" if needs else ai_body   # HCX 가 마지막으로 쓴 공감·사과 — 최종 글이 이와 다르면 코드가 고친 것
 
     rewrite_call_failed = False
     while failed and ai_body and not needs and rewrites < _MAX_REWRITES:   # 호출 실패로 채운 글은 다시 쓰지 않는다
@@ -366,6 +367,7 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
         rewrites += 1
         if ai_body2:
             ai_body = ai_body2
+            last_ai_body = ai_body2
         text, evidence, chk, failed = _check(ai_body)
 
     # 딱딱한 표현이 남으면 AI 가 쓴 공감·사과 부분에만 사전대로 단어를 바꾼다 (추가 호출 없음)
@@ -374,15 +376,15 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
         text, evidence, chk, failed = _check(ai_body)
 
     # 남은 실패가 사과 말투·사과 빠짐뿐이면 코드가 그 부분만 고친다 (추가 호출 없음, _repair_ai_part).
-    # 고친 글이 점검을 전부 넘을 때만 쓰고, 아니면 아래 템플릿으로 간다. 고쳤는지는 checks.ai_part_repaired 로 남긴다.
-    ai_part_repaired = False
+    # 고친 글이 점검을 전부 넘을 때만 쓰고, 아니면 아래 템플릿으로 간다.
     if failed and not needs and not rewrite_call_failed:
         repaired = _repair_ai_part(ai_body, failed, style, ai_register)
         if repaired != ai_body:
             r_text, r_evidence, r_chk, r_failed = _check(repaired)
             if not r_failed:
                 ai_body, text, evidence, chk, failed = repaired, r_text, r_evidence, r_chk, r_failed
-                ai_part_repaired = True
+    # 최종 글이 HCX 가 마지막으로 쓴 글과 다르면(사전 치환·사과 어미·사과 한 문장) 코드가 고친 것 → checks.ai_part_repaired
+    ai_part_repaired = bool(not needs and not failed and ai_body != last_ai_body)
 
     # 그래도(총 1 + _MAX_REWRITES 번 시도) 점검을 못 넘으면 코드 템플릿으로 바꿔 넣고 통과 처리한다.
     # needs_input 에는 남기지 않는다 — 대체 문장은 늘 점검을 통과하므로 사람이 볼 필요가 없다.

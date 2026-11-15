@@ -121,16 +121,27 @@ class TestStiffWordsInNotices(unittest.TestCase):
         self.assertIn("'기재' → 적어 주세요", hint)
         self.assertEqual(checks.stiff_words_hint(LINE1), "")
 
-    def test_stiff_notice_is_rewritten_with_named_words_then_fixed_by_code(self):
+    def test_fixable_stiff_words_are_replaced_without_a_rewrite(self):
+        """사전으로 고칠 수 있는 말만 걸렸으면 다시 쓰기를 부르지 않고 바로 바꾼다 (다시 쓰면 '오늘부터' 줄을 잃곤 했다).
+        코드가 바꾼 글이라 'AI 글 + 코드 보정'으로 표시한다."""
         body = f"{LINE1}\n이러한 일로 불편을 드려 죄송합니다.\n{LINE3}\n필요한 것은 요청사항에 기재해 주시면 챙기겠습니다."
         d, seen = run_notice(body)
-        self.assertEqual(len(seen), 3)                                    # 처음 1번 + 다시 쓰기 2번
+        self.assertEqual(len(seen), 1)
+        self.assertEqual((d.rewrites, d.checks["used_fallback"], d.checks["ai_part_repaired"]), (0, False, True))
+        self.assertEqual(body_lines(d), [LINE1, "이런 일로 불편을 드려 죄송합니다.", LINE3,
+                                         "필요한 것은 요청사항에 적어 주시면 챙기겠습니다."])
+        self.assertEqual(d.failed_reasons, [])
+
+    def test_unfixable_stiff_word_is_rewritten_with_the_words_named(self):
+        body = (f"{LINE1}\n이러한 일로 불편을 드려 죄송합니다.\n{LINE3}\n"
+                "만족을 최우선으로 여기며 요청사항에 기재해 주시면 챙기겠습니다.")
+        d, seen = run_notice(body)
+        self.assertEqual(len(seen), 3)                                    # '만족을 최우선으로'는 사전에 바꿀 말이 없어 다시 쓰기
         retry = seen[1][-1]["content"]
-        self.assertIn("'이러한'", retry)
-        self.assertIn("'기재'", retry)
-        self.assertFalse(d.checks["used_fallback"])                       # 다시 쓰기 뒤 코드 치환으로 통과 (템플릿 아님)
-        self.assertIn("요청사항에 적어 주시면 챙기겠습니다.", d.text)
-        self.assertNotIn("적어해", d.text)
+        for word in ("'이러한'", "'기재'", "'만족을 최우선으로'"):
+            self.assertIn(word, retry)
+        self.assertIn("'오늘부터'로 시작하는 조치 문장", retry)             # 지적한 곳만 고치고 나머지는 두라고 함
+        self.assertTrue(d.checks["used_fallback"])                        # 끝까지 못 고치면 예전처럼 템플릿
         self.assertEqual(d.failed_reasons, [])
 
 
@@ -176,6 +187,20 @@ class TestNoticeRepair(unittest.TestCase):
                          "꼭 챙기겠습니다.\n더 신경 쓰겠습니다!\n문제입니다\n바로 드립니다.")
         self.assertEqual(checks.to_formal_endings("새로 만들게요."), "새로 만들게요.")    # 표에 없는 꼴은 그대로
         self.assertEqual(checks.to_formal_endings(LINE4), LINE4)                        # '-세요'는 공지에서도 씀
+
+    def test_missing_start_label_is_restored(self):
+        """다시 쓴 글이 '오늘부터' 대신 '앞으로는'으로 조치 줄을 쓰면 그 말만 '오늘부터'로 바꾼다."""
+        later = "앞으로는 포장 마감 전에 주문서와 한 번 더 대조하겠습니다."
+        d, seen = run_notice(f"{LINE1}\n불편을 드려 죄송합니다.\n{later}\n{LINE4}")
+        self.assertEqual(len(seen), 3)
+        self.assertEqual((d.checks["used_fallback"], d.checks["ai_part_repaired"]), (False, True))
+        self.assertEqual(body_lines(d), [LINE1, "불편을 드려 죄송합니다.", LINE3, LINE4])
+
+    def test_start_label_is_not_glued_to_apeurodo(self):
+        body = f"{LINE1}\n불편을 드려 죄송합니다.\n앞으로도 많은 관심 부탁드립니다.\n포장 마감 전에 주문서와 한 번 더 대조하겠습니다."
+        fixed = _repair_notice_body(body, ["notice_has_start"], "오늘부터", [MEASURES[0]])
+        self.assertIn("앞으로도 많은 관심 부탁드립니다.", fixed)                  # '앞으로도'는 시점 말이 아님
+        self.assertIn("오늘부터 포장 마감 전에 주문서와 한 번 더 대조하겠습니다.", fixed)   # 조치 줄 앞에 붙임
 
     def test_other_faults_still_go_to_template(self):
         d, _ = run_notice(f"{LINE1}\n고객님께서 주문하신 음식이 늦어 실망하셨을 것 같습니다.\n{LINE3}\n{LINE4}")

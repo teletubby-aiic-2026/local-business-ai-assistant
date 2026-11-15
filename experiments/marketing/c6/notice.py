@@ -41,19 +41,41 @@ NOTICE_FALLBACK_TMPL = (
 _NOTICE_FALLBACK_GENERIC_MEASURE = "비슷한 일이 반복되지 않도록 더 신경 쓰겠습니다."
 
 # 다시 쓰기를 다 써도 남은 실패가 이것뿐이면 템플릿으로 통째 덮지 않고 코드가 AI 본문의 그 부분만 고친다 (_repair_notice_body).
-_NOTICE_REPAIRABLE = frozenset({"has_apology", "notice_formal"})
+_NOTICE_REPAIRABLE = frozenset({"has_apology", "notice_formal", "notice_has_start"})
 NOTICE_APOLOGY_LINE = "불편을 드려 죄송합니다."   # 본문 2번째 줄(짧은 사과) 자리에 넣는 문장 — 템플릿·예시와 같은 문장
 
 
-def _repair_notice_body(body, failed):
-    """다시 쓰기 뒤에도 남은 실패가 사과 빠짐·해요체 어미뿐일 때, AI 본문을 살리고 그 부분만 고친 본문을 돌려준다.
+def _fix_start_label(body, start_label, chosen_measures):
+    """'오늘부터'(start_label)로 시작하는 조치 줄이 없을 때: '앞으로는'·'다음부터' 같은 시점 말로 시작하는 줄이 있으면
+    그 말을 start_label 로 바꾸고, 없으면 고른 조치가 든 줄 앞에 start_label 을 붙인다. 둘 다 없으면 그대로 둔다."""
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    for i, ln in enumerate(lines):
+        # 시점 말 바로 뒤가 띄어쓰기일 때만 ('앞으로도 많은 관심…'의 '앞으로'는 시점 말이 아니다)
+        phrase = next((p for p in _LEADING_TIME_PHRASES if ln.startswith(p + " ")), None)
+        if phrase:
+            lines[i] = f"{start_label} {ln[len(phrase):].lstrip()}"
+            return "\n".join(lines)
+    for i, ln in enumerate(lines):
+        if chosen_measures and checks.chosen_measure_included(ln, chosen_measures):
+            lines[i] = f"{start_label} {ln}"
+            return "\n".join(lines)
+    return body
+
+
+def _repair_notice_body(body, failed, start_label="오늘부터", chosen_measures=None):
+    """다시 쓰기 뒤에도 남은 실패가 사과 빠짐·해요체 어미·'오늘부터' 빠짐뿐일 때, AI 본문을 살리고 그 부분만 고친 본문을 돌려준다.
     (a) notice_formal: 줄 끝 해요체 어미를 합니다체로 바꾼다(checks.to_formal_endings). 그래도 합니다체가 아니면 고치지 않는다.
     (b) has_apology: 처음 두 문장에 사과가 없으면, 뒤쪽 줄에 사과가 있으면 그 줄을 2번째로 올리고, 없으면
         '불편을 드려 죄송합니다.'를 2번째 줄로 넣는다(시스템 프롬프트의 본문 순서 2 = 짧은 사과).
+    (c) notice_has_start: '앞으로는' 같은 시점 말을 '오늘부터'로 바꾸거나 조치 줄 앞에 붙인다(_fix_start_label).
     고칠 수 없으면 body 를 그대로 돌려준다. 고친 본문을 쓸지는 호출부가 점검을 다시 돌려 정한다."""
     if not body or not failed or not set(failed) <= _NOTICE_REPAIRABLE:
         return body
     fixed = body
+    if "notice_has_start" in failed:
+        fixed = _fix_start_label(fixed, start_label, chosen_measures)
+        if not checks.notice_has_start(fixed, start_label):
+            return body
     if "notice_formal" in failed:
         fixed = checks.to_formal_endings(fixed)
         if not checks.notice_formal(fixed):
@@ -276,7 +298,20 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         body = _notice_fallback_text(target_reviews, menu_names, chosen_measures, start_label)   # 합니다체 공지 템플릿 (사과 포함)
         needs.append(CALL_FAILED_NOTE)
 
-    text, check_results, failed = _check(body)
+    def _check_with_word_fix(body_):
+        """점검하고, 딱딱한 표현이 걸렸으면 사전 치환(합니다체)을 먼저 해 본다 — 실패가 줄 때만 쓴다 (추가 호출 없음).
+        11/15 실시간: 첫 글이 '기재'·'이러한'만 걸렸는데 다시 쓰기를 부르면 새 글이 '오늘부터' 줄·조치를 잃곤 했다."""
+        text_, chk_, failed_ = _check(body_)
+        if "no_stiff_words" in failed_:
+            fixed = checks.fix_stiff_words(body_, formal=True)
+            if fixed != body_:
+                text2, chk2, failed2 = _check(fixed)
+                if set(failed2) < set(failed_):
+                    return fixed, text2, chk2, failed2
+        return body_, text_, chk_, failed_
+
+    last_ai_body = "" if needs else body   # HCX 가 마지막으로 쓴 본문 — 최종 본문이 이와 다르면 코드가 고친 것(ai_part_repaired)
+    body, text, check_results, failed = _check_with_word_fix(body)
 
     rewrite_call_failed = False
     while failed and body and not needs and rewrites < _MAX_REWRITES:   # 호출 실패로 채운 글은 다시 쓰지 않는다
@@ -297,6 +332,8 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
             hint = checks.quote_hint(body, target_reviews)
             if hint:
                 hints = hints + [hint]
+        # 다시 쓴 글이 처음부터 새로 쓰면서 '오늘부터' 줄·조치를 잃는 일이 잦았다 → 지적한 곳만 고치게 한다
+        hints = hints + [f"지적한 부분만 고치고, 나머지 문장과 4줄 순서(3번째 줄은 '{start_label}'로 시작하는 조치 문장)는 그대로 두세요."]
         retry_msg = [
             {"role": "user", "content": f"카드 이유: {card.reason_text}"},
             {"role": "assistant", "content": raw},
@@ -312,7 +349,8 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         rewrites += 1
         if body2:
             body = _dedupe_start_label_line(body2, start_label)
-        text, check_results, failed = _check(body)
+            last_ai_body = body
+        body, text, check_results, failed = _check_with_word_fix(body)
 
     # 딱딱한 표현이 남으면 본문에만 사전대로 단어를 바꾼다 (추가 호출 없음). 공지는 합니다체라 formal=True —
     # 기본 사전 값('정말 죄송해요'·'더 신경 쓸게요')은 해요체라 공지에 넣으면 말투가 섞인다.
@@ -327,17 +365,18 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         body = _insert_measure_line(body, f"{start_label} {fallback}")
         text, check_results, failed = _check(body)
 
-    # 남은 실패가 사과 빠짐·해요체 어미뿐이면 코드가 그 부분만 고친다 (추가 호출 없음, _repair_notice_body).
-    # 고친 본문이 점검을 전부 넘을 때만 쓰고, 아니면 아래 템플릿으로 간다. 고쳤는지는 checks.ai_part_repaired 로 남긴다
-    # (c6.reply 와 같은 표시 — measure_live.py 가 'AI 글 + 코드 보정'으로 센다).
-    ai_part_repaired = False
+    # 남은 실패가 사과 빠짐·해요체 어미·'오늘부터' 빠짐뿐이면 코드가 그 부분만 고친다 (추가 호출 없음, _repair_notice_body).
+    # 고친 본문이 점검을 전부 넘을 때만 쓰고, 아니면 아래 템플릿으로 간다.
     if failed and not needs and not rewrite_call_failed:
-        repaired = _repair_notice_body(body, failed)
+        repaired = _repair_notice_body(body, failed, start_label, chosen_measures)
         if repaired != body:
             r_text, r_chk, r_failed = _check(repaired)
             if not r_failed:
                 body, text, check_results, failed = repaired, r_text, r_chk, r_failed
-                ai_part_repaired = True
+
+    # 최종 본문이 HCX 가 마지막으로 쓴 본문과 다르면 코드가 고친 것이다(사전 치환·조치 줄·사과 줄·어미·'오늘부터').
+    # checks.ai_part_repaired 로 남겨 measure_live.py 가 'AI 글 + 코드 보정'으로 센다 (c6.reply 와 같은 표시).
+    ai_part_repaired = bool(not needs and not failed and body != last_ai_body)
 
     # 그래도(총 1 + _MAX_REWRITES 번 시도) 점검을 못 넘으면 코드 템플릿으로 바꿔 넣고 통과 처리한다
     # (c6.reply 의 used_fallback 과 같은 방식). needs_input 에는 남기지 않는다 — 대체 문장은 늘
