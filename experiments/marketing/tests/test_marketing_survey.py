@@ -1505,33 +1505,41 @@ class TestEditDraftApprove(unittest.TestCase):
 
 
 class TestIdeasPerGoal(unittest.TestCase):
-    """12. 목표별 결과가 서로 다르다 — ideas.py 의 아이디어가 목표마다 다르고, [다른 아이디어
-    보기]는 무작위가 아니라 코드 순서대로 순환한다."""
+    """12. 목표별 결과가 서로 다르다 — 기본 할 일 2개와 아이디어 목록이 목표마다 겹치지 않고
+    (아이디어는 "공통" 없이 목표 하나에만 배정), [다른 아이디어 보기]는 그 목표 안에서만 순환한다."""
 
-    def test_goals_have_different_idea_sets(self):
+    _GOALS = ("새 손님", "재주문", "객단가")
+
+    def test_basic_todos_do_not_overlap_across_goals(self):
+        titles_by_goal = {g: set(playbooks.basic_todos_for_goal(g)) for g in self._GOALS}
+        for a in self._GOALS:
+            for b in self._GOALS:
+                if a == b:
+                    continue
+                self.assertEqual(titles_by_goal[a] & titles_by_goal[b], set(), (a, b))
+
+    def test_idea_ids_do_not_overlap_across_goals_and_have_no_common_bucket(self):
         answers = SurveyAnswers(budget_won=0, goal="")
-        new_customer = {i["id"] for i in ideas.ideas_for("새 손님", DEFAULT_CTX, answers)}
-        reorder = {i["id"] for i in ideas.ideas_for("재주문", DEFAULT_CTX, answers)}
-        upsell = {i["id"] for i in ideas.ideas_for("객단가", DEFAULT_CTX, answers)}
+        ids_by_goal = {g: {i["id"] for i in ideas.ideas_for(g, DEFAULT_CTX, answers)} for g in self._GOALS}
 
-        self.assertNotEqual(new_customer, reorder)
-        self.assertNotEqual(reorder, upsell)
-        self.assertIn("story_link", new_customer)
-        self.assertIn("thank_note", reorder)
-        self.assertIn("upsell_pair", upsell)
+        for a in self._GOALS:
+            for b in self._GOALS:
+                if a == b:
+                    continue
+                self.assertEqual(ids_by_goal[a] & ids_by_goal[b], set(), (a, b))
+        self.assertIn("story_link", ids_by_goal["새 손님"])
+        self.assertIn("remember_taste", ids_by_goal["재주문"])
+        self.assertIn("two_person_set", ids_by_goal["객단가"])
 
-    def test_min_order_check_only_appears_when_avg_order_is_low(self):
-        store = DEFAULT_CTX.store
-        menu = next(iter(store.menu_prices))
-        price = store.menu_prices[menu]
+    def test_basic_todos_and_ideas_do_not_reuse_the_same_concept_per_goal(self):
+        """기본 할 일에 쓴 것과 같은 아이디어는 그 목표에서 다시 나오지 않는다(upsell_pair·
+        min_order_check·thank_note·remember_request 는 더 이상 아이디어 목록에 없다)."""
+        answers = SurveyAnswers(budget_won=0, goal="")
+        all_idea_ids = {i["id"] for g in self._GOALS for i in ideas.ideas_for(g, DEFAULT_CTX, answers)}
+        for retired in ("upsell_pair", "min_order_check", "thank_note", "remember_request"):
+            self.assertNotIn(retired, all_idea_ids)
 
-        low = SurveyAnswers(budget_won=0, goal="객단가", discount_menu=menu, avg_order_won=1)
-        high = SurveyAnswers(budget_won=0, goal="객단가", discount_menu=menu, avg_order_won=price * 3)
-
-        self.assertIn("min_order_check", {i["id"] for i in ideas.ideas_for("객단가", DEFAULT_CTX, low)})
-        self.assertNotIn("min_order_check", {i["id"] for i in ideas.ideas_for("객단가", DEFAULT_CTX, high)})
-
-    def test_idea_at_cycles_in_fixed_code_order_not_randomly(self):
+    def test_idea_at_cycles_within_goal_only_in_fixed_code_order(self):
         answers = SurveyAnswers(budget_won=0, goal="재주문")
         candidates = ideas.ideas_for("재주문", DEFAULT_CTX, answers)
         n = len(candidates)
@@ -1540,17 +1548,60 @@ class TestIdeasPerGoal(unittest.TestCase):
         picked = [ideas.idea_at("재주문", DEFAULT_CTX, answers, i)[0]["id"] for i in range(n + 1)]
         self.assertEqual(picked[:n], [c["id"] for c in candidates])  # 코드에 적힌 순서 그대로
         self.assertEqual(picked[n], picked[0])  # n바퀴 돌면 처음으로 되돌아온다(무작위 아님)
+        # 그 목표 아이디어 밖으로는 절대 넘어가지 않는다
+        other_goal_ids = {i["id"] for i in ideas.ideas_for("객단가", DEFAULT_CTX, answers)}
+        self.assertEqual(set(picked) & other_goal_ids, set())
 
-    def test_upsell_pair_draft_computes_add_price_from_store_data(self):
+    def test_custom_option_skips_when_adjustment_not_possible(self):
+        """재주문의 custom_option — 맵기·밥 양 조절이 "아니요"면 이 아이디어는 건너뛴다."""
+        answers = SurveyAnswers(budget_won=0, goal="재주문")
+        idea = next(i for i in ideas.IDEAS_BY_GOAL["재주문"] if i["id"] == "custom_option")
+
+        no_result = ideas.try_idea(idea, DEFAULT_CTX, answers, answer="아니요")
+        self.assertTrue(no_result["skip"])
+        self.assertIsNone(no_result["draft"])
+
+        yes_result = ideas.try_idea(idea, DEFAULT_CTX, answers, answer="예")
+        self.assertFalse(yes_result["skip"])
+        self.assertIsNotNone(yes_result["draft"])
+
+    def test_weekly_side_skips_when_answer_is_empty(self):
+        answers = SurveyAnswers(budget_won=0, goal="재주문")
+        idea = next(i for i in ideas.IDEAS_BY_GOAL["재주문"] if i["id"] == "weekly_side")
+
+        empty = ideas.try_idea(idea, DEFAULT_CTX, answers, answer="")
+        self.assertTrue(empty["skip"])
+
+        filled = ideas.try_idea(idea, DEFAULT_CTX, answers, answer="계란찜")
+        self.assertFalse(filled["skip"])
+        self.assertIn("계란찜", filled["draft"])
+
+    def test_first_order_combo_computes_sum_price_from_store_data(self):
+        """새 손님의 first_order_combo — 조합 합계 가격은 코드가 메뉴 가격을 더해서 만든다."""
+        store = DEFAULT_CTX.store
+        menu = next(iter(store.menu_prices))
+        answers = SurveyAnswers(budget_won=0, goal="새 손님", discount_menu=menu)
+        idea = next(i for i in ideas.IDEAS_BY_GOAL["새 손님"] if i["id"] == "first_order_combo")
+
+        result = ideas.try_idea(idea, DEFAULT_CTX, answers)
+
+        other = next(m for m in store.menu_prices if m != menu)
+        expected_total = store.menu_prices[menu] + store.menu_prices[other]
+        self.assertFalse(result["skip"])
+        self.assertIn(f"{expected_total:,}원", result["draft"])
+
+    def test_two_person_set_computes_sum_price_with_no_discount(self):
         store = DEFAULT_CTX.store
         menu = next(iter(store.menu_prices))
         answers = SurveyAnswers(budget_won=0, goal="객단가", discount_menu=menu)
-        idea = next(i for i in ideas.IDEAS if i["id"] == "upsell_pair")
+        idea = next(i for i in ideas.IDEAS_BY_GOAL["객단가"] if i["id"] == "two_person_set")
 
-        draft = ideas.render_idea_draft(idea, DEFAULT_CTX, answers)
+        result = ideas.try_idea(idea, DEFAULT_CTX, answers)
 
         other = next(m for m in store.menu_prices if m != menu)
-        self.assertIn(f"{store.menu_prices[other]:,}원", draft)
+        expected_total = store.menu_prices[menu] + store.menu_prices[other]
+        self.assertIn(f"{expected_total:,}원", result["draft"])
+        self.assertIn("할인 없음", result["draft"])
 
     def test_build_plan_attaches_goal_specific_idea_and_basic_todos(self):
         answers = SurveyAnswers(
@@ -1559,12 +1610,14 @@ class TestIdeasPerGoal(unittest.TestCase):
         plan = decide(DEFAULT_CTX, answers, confirms={})
         out = build_plan(DEFAULT_CTX, plan.strategies[0], answers, None, today=date(2026, 11, 15))
 
-        self.assertEqual(out["basic_todos"], playbooks.basic_todos_for_goal("재주문"))
-        self.assertNotEqual(
-            playbooks.basic_todos_for_goal("재주문"), playbooks.basic_todos_for_goal("새 손님"),
-        )
+        titles = [t["title"] for t in out["basic_todos"]]
+        self.assertEqual(titles, playbooks.basic_todos_for_goal("재주문"))
+        self.assertNotEqual(titles, playbooks.basic_todos_for_goal("새 손님"))
         self.assertIsNotNone(out["idea"])
         self.assertIn(out["idea"]["id"], {i["id"] for i in ideas.ideas_for("재주문", DEFAULT_CTX, answers)})
+        # 재주문의 첫 아이디어(remember_taste)는 질문이 필요 없어 바로 글이 채워진다
+        self.assertFalse(out["idea"]["needs_question"])
+        self.assertIsNotNone(out["idea"]["draft"])
 
     def test_next_idea_endpoint_cycles_through_server(self):
         from fastapi.testclient import TestClient
@@ -1600,6 +1653,46 @@ class TestIdeasPerGoal(unittest.TestCase):
         body = res.json()
         self.assertIsNotNone(body["idea"])
         self.assertNotEqual(body["idea"]["id"], first_id)
+        reorder_ids = {i["id"] for i in ideas.IDEAS_BY_GOAL["재주문"]}
+        self.assertIn(body["idea"]["id"], reorder_ids)
+
+    def test_idea_try_endpoint_asks_question_then_honors_skip(self):
+        """custom_option — 먼저 answer 없이 부르면 질문만 오고, "아니요"로 답하면 skip=True."""
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        client = TestClient(app)
+        data = client.post("/api/marketing-survey/step", json={"state": None, "answer": None}).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "맞춤 홍보 제안"},
+        ).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "아니요"},
+        ).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "재주문"},
+        ).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "아니요"},
+        ).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "0원(지금은 안 씀)"},
+        ).json()
+        state = data["state"]
+
+        ask = client.post(
+            "/api/marketing-survey/idea-try",
+            json={"state": state, "idea_id": "custom_option", "index": 1},
+        ).json()
+        self.assertTrue(ask["need_answer"])
+        self.assertIsNotNone(ask["question"])
+
+        answered = client.post(
+            "/api/marketing-survey/idea-try",
+            json={"state": state, "idea_id": "custom_option", "index": 1, "answer": "아니요"},
+        ).json()
+        self.assertFalse(answered["need_answer"])
+        self.assertTrue(answered["skip"])
 
 
 if __name__ == "__main__":

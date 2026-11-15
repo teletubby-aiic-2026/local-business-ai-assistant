@@ -540,18 +540,74 @@ function buildAdspendBars(rows) {
   return box;
 }
 
-/* "AI 추천 아이디어" 상자 — 정보 파랑 배지 + 제목·왜·할 일·글. [다른 아이디어 보기]로
-   같은 목표의 다음 아이디어로 순서대로 바뀐다(서버 /next-idea, 무작위 아님). */
+/* "AI 추천 아이디어" 상자 — 정보 파랑 배지 + 제목·왜·할 일·(글). 아이디어는 목표 하나에만
+   배정되어 있어 [다른 아이디어 보기]도 그 목표 안에서만 순환한다(서버 /next-idea, 무작위 아님).
+   질문이 필요한 아이디어(custom_option·weekly_side·neighbor_cross)는 바로 글을 보여주지 않고
+   [이 아이디어 해 보기]를 눌렀을 때만 질문을 잇는다(/idea-try) — "아니요"처럼 조건이 안 맞으면
+   (skip=true) 자동으로 다음 아이디어로 넘어간다. */
 function buildIdeaBox(idea, index) {
   const box = document.createElement("div");
   box.className = "step-card idea-box";
+  const nextBtn = document.createElement("button");
+  nextBtn.className = "btn-secondary";
+  nextBtn.textContent = "다른 아이디어 보기";
+
+  async function goToNext() {
+    try {
+      const r = await postJSON(`${API}/next-idea`, { state, current_index: index });
+      if (r.idea) {
+        index = r.idea_index;
+        render(r.idea);
+      }
+    } catch (e) {
+      /* 실패하면 [다른 아이디어 보기]를 다시 눌러 볼 수 있게 둔다 */
+    }
+  }
+
+  function askQuestion(idea, questionType, afterRow) {
+    const row = document.createElement("div");
+    row.className = "input-row";
+    const submit = async (answer) => {
+      row.remove();
+      const r = await postJSON(`${API}/idea-try`, { state, idea_id: idea.id, index, answer });
+      if (r.skip) {
+        const note = document.createElement("div");
+        note.className = "basis";
+        note.textContent = "이 아이디어는 지금은 건너뛸게요.";
+        box.appendChild(note);
+        await goToNext();
+        return;
+      }
+      if (r.draft) box.appendChild(buildDraftBox(`idea_${idea.id}`, r.draft));
+    };
+    if (questionType === "bool") {
+      ["예", "아니요"].forEach((label) => {
+        const btn = document.createElement("button");
+        btn.className = "opt-btn";
+        btn.textContent = label;
+        btn.onclick = () => submit(label);
+        row.appendChild(btn);
+      });
+    } else {
+      const input = document.createElement("input");
+      input.className = "text-input";
+      input.type = "text";
+      const sendBtn = document.createElement("button");
+      sendBtn.className = "next-btn";
+      sendBtn.textContent = "보내기";
+      sendBtn.onclick = () => submit(input.value.trim());
+      row.appendChild(input);
+      row.appendChild(sendBtn);
+    }
+    afterRow.appendChild(row);
+  }
 
   function render(idea) {
     box.innerHTML = `<div class="tag b"><i>${icon("spark", 14)}</i>AI 추천 아이디어</div>
       <div class="step-head">${idea.title}</div>
       <div class="step-meta">${idea.why}</div>` +
       idea.todos.map((t) => `<div class="step-meta">· ${t}</div>`).join("");
-    if (idea.draft) box.appendChild(buildDraftBox(`idea_${idea.id}`, idea.draft));
+
     if (idea.id === "story_link") {
       const linkBtn = document.createElement("button");
       linkBtn.className = "btn-secondary";
@@ -564,28 +620,31 @@ function buildIdeaBox(idea, index) {
         renderPrompt(r);
       };
       box.appendChild(linkBtn);
+    } else if (idea.needs_question) {
+      const tryBtn = document.createElement("button");
+      tryBtn.className = "btn-secondary";
+      tryBtn.textContent = "이 아이디어 해 보기";
+      tryBtn.onclick = () => {
+        tryBtn.remove();
+        const q = document.createElement("div");
+        q.className = "example-line";
+        q.textContent = idea.question;
+        box.appendChild(q);
+        askQuestion(idea, idea.question_type, box);
+      };
+      box.appendChild(tryBtn);
+    } else if (idea.draft) {
+      box.appendChild(buildDraftBox(`idea_${idea.id}`, idea.draft));
     }
+    box.appendChild(nextBtn);
   }
   render(idea);
 
-  const nextBtn = document.createElement("button");
-  nextBtn.className = "btn-secondary";
-  nextBtn.textContent = "다른 아이디어 보기";
   nextBtn.onclick = async () => {
     nextBtn.disabled = true;
-    try {
-      const r = await postJSON(`${API}/next-idea`, { state, current_index: index });
-      if (r.idea) {
-        index = r.idea_index;
-        render(r.idea);
-        box.appendChild(nextBtn);
-      }
-    } catch (e) {
-      /* 실패하면 다시 눌러 볼 수 있게 둔다 */
-    }
+    await goToNext();
     nextBtn.disabled = false;
   };
-  box.appendChild(nextBtn);
   return box;
 }
 
@@ -654,7 +713,10 @@ async function showDecision() {
     const box = document.createElement("div");
     box.className = "step-card";
     box.innerHTML = `<div class="step-head">기본 할 일</div>` +
-      data.basic_todos.map((t) => `<div class="step-meta">· ${t}</div>`).join("");
+      data.basic_todos.map((t) => `<div class="step-meta">· ${t.title}</div>`).join("");
+    data.basic_todos.forEach((t, i) => {
+      if (t.draft) box.appendChild(buildDraftBox(`basic_todo_${i}`, t.draft));
+    });
     card.appendChild(box);
   }
 

@@ -23,7 +23,7 @@ from common.korean import display_name
 from marketing_survey import adspend, coupon_result, flow, ideas, leftover, notice_followup, playbooks, story
 from marketing_survey.coupon_calc import calc as coupon_calc
 from marketing_survey.decide import build_follow_up_strategy, decide
-from marketing_survey.execute import COUPON_DAYS, NOTICE_CARD, build_plan, execute_strategy
+from marketing_survey.execute import COUPON_DAYS, NOTICE_CARD, _idea_entry, build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
 from marketing_survey.models import Strategy
 from marketing_survey.survey import answers_from_raw
@@ -73,6 +73,13 @@ class ApproveRequest(BaseModel):
 class NextIdeaRequest(BaseModel):
     state: FlowState
     current_index: int = 0
+
+
+class IdeaTryRequest(BaseModel):
+    state: FlowState
+    idea_id: str
+    index: int = 0
+    answer: str | None = None
 
 
 class CouponCalcRequest(BaseModel):
@@ -280,13 +287,26 @@ def next_idea(req: NextIdeaRequest):
     idea, idx = ideas.idea_at(answers.goal, CTX, answers, req.current_index + 1)
     if idea is None:
         return {"idea": None, "idea_index": req.current_index}
-    return {
-        "idea": {
-            "id": idea["id"], "title": idea["title"], "why": idea["why"],
-            "todos": list(idea["todos"]), "draft": ideas.render_idea_draft(idea, CTX, answers),
-        },
-        "idea_index": idx,
-    }
+    return {"idea": _idea_entry(idea, CTX, answers), "idea_index": idx}
+
+
+@app.post("/api/marketing-survey/idea-try")
+def idea_try(req: IdeaTryRequest):
+    """질문이 필요한 아이디어(custom_option·weekly_side·neighbor_cross) — [이 아이디어 해 보기]를
+    누르면(answer 없이) 질문만 먼저 돌려주고, 답을 받으면 글을 만든다(불가능하면 skip=True)."""
+    if req.state.mode not in _SURVEY_MODES:
+        raise HTTPException(400, "이 기능은 설문 결과에서만 써요.")
+    _, answers = _resolve_strategy_and_answers(req.state)
+    candidates = ideas.ideas_for(answers.goal, CTX, answers)
+    idea = next((i for i in candidates if i["id"] == req.idea_id), None)
+    if idea is None:
+        raise HTTPException(400, "아이디어를 찾을 수 없어요.")
+
+    if idea.get("needs_question") and req.answer is None:
+        return {"need_answer": True, "question": idea.get("question"), "question_type": idea.get("question_type")}
+
+    result = ideas.try_idea(idea, CTX, answers, req.answer)
+    return {"need_answer": False, "draft": result["draft"], "skip": result["skip"]}
 
 
 @app.post("/api/marketing-survey/coupon-calc")

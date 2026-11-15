@@ -110,6 +110,46 @@ def _run_review_promo(ctx, strategy, key, model):
     return result, draft
 
 
+def _review_promo_text(ctx, menu, key, model):
+    """review_promo 생성기를 메뉴 이름만으로 바로 돌린다(기본 할 일 — Strategy 객체가 없어도 된다)."""
+    if key is None:
+        return review_promo_fallback_text(ctx.store, menu or None)
+    result = generate_review_promo(ctx, PROMO_CARD, key, model=model, menu=menu or None)
+    draft = next((d for d in result.drafts if d.generator == "review_promo"), None)
+    return draft.text if draft else None
+
+
+_PACK_THANK_NOTE = "\n".join([
+    "오늘도 맛있게 드세요, 감사합니다 :)",
+    "정성껏 담았어요. 다음에 또 뵐게요!",
+    "맛있게 드시고 좋은 하루 보내세요.",
+])
+
+
+def _basic_todo_drafts(ctx, answers, key, model):
+    """목표별 기본 할 일 2개 + 글(가능하면). 할 일 제목은 playbooks(순수 데이터), 글은 여기서 생성기로 채운다."""
+    titles = playbooks.basic_todos_for_goal(answers.goal)
+    drafts: list[str | None] = [None] * len(titles)
+    store = ctx.store
+    menu = answers.discount_menu or playbooks.default_menu(store)
+
+    if answers.goal == "새 손님":
+        drafts[0] = _review_promo_text(ctx, menu, key, model)
+    elif answers.goal == "재주문":
+        _, reply_draft = _run_reply(ctx, key, model)
+        base = reply_draft.text if reply_draft else ""
+        extra = "다음 주문 때도 같은 요청사항이 있으시면 요청사항에 적어 주세요."
+        drafts[0] = f"{base}\n{extra}" if base else extra
+        drafts[1] = _PACK_THANK_NOTE
+    elif answers.goal == "객단가":
+        other = next((m for m in store.menu_prices if m != menu), None)
+        if menu and other:
+            add_price = store.menu_prices[other]
+            drafts[0] = f"{menu} 주문하시면 {other} 추가 시 {add_price:,}원에 같이 담아 드려요."
+
+    return [{"title": t, "draft": d} for t, d in zip(titles, drafts)]
+
+
 def run_step_generator(ctx, strategy, generator_name, key, model="HCX-005"):
     """playbooks.PlaybookStep.generator 이름 하나를 실제로 돌려 글 텍스트만 돌려준다."""
     if generator_name == "prevention_notice":
@@ -169,17 +209,28 @@ def build_plan(ctx, strategy, answers, key, model="HCX-005", today=None):
     plan["drafts"] = drafts
     plan["coupon_card"] = coupon_card
     plan["strategy_type"] = strategy.type  # 화면이 카드 아이콘을 고르는 용도(사실 자체는 그대로 strategy 가 정함)
-    plan["basic_todos"] = playbooks.basic_todos_for_goal(answers.goal)
+    plan["basic_todos"] = _basic_todo_drafts(ctx, answers, key, model)
     plan["idea"] = None
     plan["idea_index"] = 0
     idea, idx = _ideas.idea_at(answers.goal, ctx, answers, 0)
     if idea is not None:
         plan["idea_index"] = idx
-        plan["idea"] = {
-            "id": idea["id"], "title": idea["title"], "why": idea["why"],
-            "todos": list(idea["todos"]), "draft": _ideas.render_idea_draft(idea, ctx, answers),
-        }
+        plan["idea"] = _idea_entry(idea, ctx, answers)
     return plan
+
+
+def _idea_entry(idea, ctx, answers):
+    """plan["idea"] 1개 모양 — needs_question 이면 글은 비워 두고(질문에 답한 뒤에만 만든다),
+    아니면 바로 try_idea() 로 채운다."""
+    entry = {
+        "id": idea["id"], "title": idea["title"], "why": idea["why"], "todos": list(idea["todos"]),
+        "needs_question": bool(idea.get("needs_question")),
+        "question": idea.get("question"), "question_type": idea.get("question_type"),
+        "draft": None,
+    }
+    if not entry["needs_question"]:
+        entry["draft"] = _ideas.try_idea(idea, ctx, answers)["draft"]
+    return entry
 
 
 def _run_coupon(ctx, strategy, key, model):
