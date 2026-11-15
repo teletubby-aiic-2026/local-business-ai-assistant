@@ -9,6 +9,7 @@ const restartBtn = document.getElementById("restart-btn");
 
 let state = null;
 let editedTexts = {};
+let sessionId = null; // /plan 이 돌려준 기록 id — 승인할 때 같이 보낸다
 let selectedStore = "store_ongi";
 let storeList = [];
 
@@ -404,6 +405,7 @@ function renderPrompt(data) {
   if (data.input) {
     renderInput(data.input);
   }
+  if (state && state.node === "start") renderReportEntry();
 }
 
 async function handleAnswer(answer, displayLabel) {
@@ -1087,6 +1089,7 @@ async function showDecision() {
 /* 사장님용 "진단 보고서" 카드 — 머리(제목+판정) → 요약 → 숫자 타일 → 왜 판단했나요 → 시각 요소
    → 할 일 → AI 추천 아이디어 → 쿠폰 카드 → 측정 줄 → 승인/다시 쓰기. 값이 없는 부분은 통째로 숨긴다. */
 function renderResultCard(data) {
+  sessionId = data.session_id || null;
   const row = document.createElement("div");
   row.className = "row bot";
   const card = document.createElement("div");
@@ -1271,7 +1274,7 @@ function renderResultCard(data) {
     const loadingRow = addLoadingBubble();
     let a;
     try {
-      a = await postJSON(`${API}/approve`, { state, draft_id: null, edited_texts: editedTexts });
+      a = await postJSON(`${API}/approve`, { state, draft_id: null, session_id: sessionId, edited_texts: editedTexts });
     } catch (e) {
       loadingRow.remove();
       actions.querySelectorAll("button").forEach((b) => (b.disabled = false));
@@ -1302,6 +1305,190 @@ function renderResultCard(data) {
   };
   approveBtn.onclick = approveClick;
 
+  scrollToRow(row);
+}
+
+/* ---------- 마케팅 보고서 (첫 화면 보기 버튼 → 주간/월간 → 결과 카드) ---------- */
+
+const PERIOD_LABELS = {
+  weekly: { name: "주간", now: "이번 주", prev: "지난주", next: "다음 주" },
+  monthly: { name: "월간", now: "이번 달", prev: "지난달", next: "다음 달" },
+};
+
+function renderReportEntry() {
+  const btn = document.createElement("button");
+  btn.className = "opt-btn";
+  btn.textContent = "마케팅 보고서";
+  btn.onclick = () => {
+    optionsEl.querySelectorAll(".opt-btn").forEach((b) => {
+      b.disabled = true;
+      b.classList.remove("selected");
+    });
+    btn.classList.add("selected");
+    addUserBubble("마케팅 보고서");
+    addBotBubble("어느 기간을 볼까요?");
+    renderPeriodChoice();
+  };
+  optionsEl.appendChild(btn);
+}
+
+function renderPeriodChoice() {
+  clearOptions();
+  ["weekly", "monthly"].forEach((kind) => {
+    const btn = document.createElement("button");
+    btn.className = "opt-btn";
+    btn.textContent = PERIOD_LABELS[kind].name;
+    btn.onclick = () => {
+      addUserBubble(PERIOD_LABELS[kind].name);
+      showReport(kind);
+    };
+    optionsEl.appendChild(btn);
+  });
+}
+
+async function showReport(kind) {
+  setOptionsDisabled(true);
+  const loadingRow = addLoadingBubble();
+  let data;
+  try {
+    const res = await fetch(`${API}/report?period=${kind}&store=${encodeURIComponent(selectedStore)}`);
+    if (!res.ok) throw new Error(res.statusText);
+    data = await res.json();
+  } catch (e) {
+    loadingRow.remove();
+    showRetryPrompt(() => showReport(kind));
+    return;
+  }
+  loadingRow.remove();
+  renderReportCard(data);
+  addBotBubble("다른 기간도 볼까요?");
+  renderPeriodChoice();
+}
+
+function buildReportTiles(data, labels) {
+  const tiles = [];
+  const approved = data.activity ? Object.entries(data.activity.approved || {}) : [];
+  if (approved.length) {
+    const total = approved.reduce((sum, [, n]) => sum + n, 0);
+    tiles.push({ n: `${total}건`, l: `승인한 글 (${approved.map(([k, n]) => `${k} ${n}`).join(" · ")})` });
+  }
+  const c = data.cost && data.cost.coupon;
+  if (c) {
+    if (c.usage_rate != null) tiles.push({ n: `${Math.round(c.usage_rate * 100)}%`, l: `쿠폰 사용률 (${c.issued}장 중 ${c.used}장)` });
+    tiles.push({ n: fmtWon(c.discount_spent), l: "할인에 쓴 돈" });
+  }
+  (data.fixed || []).forEach((f) => {
+    const l = f.tile_label || `${f.complaint} 불만 재발`;  // 문구는 서버(report.py)가 만든다
+    tiles.push({ n: `${f.before_14d}건 → ${f.after_14d}건`, l });
+  });
+  return tiles;
+}
+
+/* 광고 앱별 막대 — 건당 광고비를 건당 이익과 같은 눈금으로, 옆에 "지난 판정 → 이번 판정". */
+function buildReportAds(ads, labels) {
+  const box = document.createElement("div");
+  box.className = "adspend-bars";
+  const scale = Math.max(...ads.flatMap((a) => [a.cost_per_order, a.profit_per_order || 0]), 1);
+  ads.forEach((a) => {
+    const cls = (VERDICT_BADGE[a.verdict] || {}).cls || "good";
+    const prev = a.prev_verdict ? escapeHtml(a.prev_verdict) : "기록 없음";
+    const row = document.createElement("div");
+    row.className = "adspend-bar-row";
+    row.innerHTML = `
+      <div class="adspend-bar-label">${escapeHtml(a.label)}
+        <span class="note-line">${labels.prev} ${prev} → ${labels.now} ${escapeHtml(a.verdict || "-")}</span></div>
+      <div class="adspend-bar-pair">
+        <div class="adspend-bar-track">
+          <div class="adspend-bar-fill ${cls}" style="width:${(a.cost_per_order / scale) * 100}%"></div>
+        </div>
+        <span class="adspend-bar-val">건당 광고비 ${fmtWon(a.cost_per_order)}</span>
+      </div>
+      ${a.profit_per_order != null ? `<div class="adspend-bar-pair">
+        <div class="adspend-bar-track">
+          <div class="adspend-bar-fill profit" style="width:${(a.profit_per_order / scale) * 100}%"></div>
+        </div>
+        <span class="adspend-bar-val">건당 이익 ${fmtWon(a.profit_per_order)}</span>
+      </div>` : ""}`;
+    box.appendChild(row);
+  });
+  return box;
+}
+
+/* 결과 카드 틀(result-card · card-head · stat-tiles · info-card) 그대로. 값 없는 덩어리는 통째로 숨긴다. */
+function renderReportCard(data) {
+  const labels = PERIOD_LABELS[data.period.kind];
+  const row = document.createElement("div");
+  row.className = "row bot";
+  const card = document.createElement("div");
+  card.className = "result-card";
+
+  const head = document.createElement("div");
+  head.className = "card-head";
+  head.innerHTML = `<div class="head-icon">${icon("spark", 14)}</div>` +
+    `<div class="head-title">${labels.now} 마케팅 보고서</div>`;
+  if (data.demo) {
+    const demo = document.createElement("span");
+    demo.className = "badge info";
+    demo.textContent = "데모 기록";
+    head.appendChild(demo);
+  }
+  card.appendChild(head);
+
+  const range = document.createElement("div");
+  range.className = "note-line";
+  range.textContent = `${data.period.start} ~ ${data.period.until.slice(0, 10)}`;
+  card.appendChild(range);
+
+  const tiles = buildReportTiles(data, labels);
+  if (tiles.length) {
+    const tileBox = document.createElement("div");
+    tileBox.className = "stat-tiles";
+    tiles.forEach((t) => {
+      const tile = document.createElement("div");
+      tile.className = "stat-tile";
+      tile.innerHTML = `<div class="n">${escapeHtml(t.n)}</div><div class="l">${escapeHtml(t.l)}</div>`;
+      tileBox.appendChild(tile);
+    });
+    card.appendChild(tileBox);
+  }
+
+  const tried = (data.activity && data.activity.ideas_tried) || [];
+  if (tried.length) {
+    const box = document.createElement("div");
+    box.className = "info-card";
+    box.innerHTML = `<div class="info-card-title">해 본 아이디어</div>` +
+      tried.map((t) => `<div class="note-line">· ${escapeHtml(t)}</div>`).join("");
+    card.appendChild(box);
+  }
+
+  const ads = (data.cost && data.cost.ads) || [];
+  if (ads.length) {
+    const box = document.createElement("div");
+    box.className = "info-card";
+    box.innerHTML = `<div class="info-card-title">광고 앱별 판정 (${labels.prev} → ${labels.now})</div>`;
+    box.appendChild(buildReportAds(ads, labels));
+    card.appendChild(box);
+  }
+
+  const next = data.next || [];
+  if (next.length) {
+    const box = document.createElement("div");
+    box.className = "info-card dashed";
+    box.innerHTML = `<div class="info-card-title">${labels.next} 할 것</div>` +
+      next.map((n) => `<div class="note-line">· <b>${escapeHtml(n.title)}</b> — ${escapeHtml(n.why)}</div>`).join("");
+    card.appendChild(box);
+  }
+
+  if (!tiles.length && !tried.length && !ads.length && !next.length) {
+    const empty = document.createElement("div");
+    empty.className = "note-line";
+    empty.textContent = "이 기간에 쌓인 기록이 아직 없어요";
+    card.appendChild(empty);
+  }
+
+  row.innerHTML = `<div class="icon">${icon("spark", 16)}</div>`;
+  row.appendChild(card);
+  chatEl.appendChild(row);
   scrollToRow(row);
 }
 

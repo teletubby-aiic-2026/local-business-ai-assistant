@@ -7,14 +7,16 @@
 """
 
 import json
+import os
+import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 
 from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
 from marketing_survey import (
-    adspend, coupon_calc, coupon_result, flow, ideas, leftover, notice_followup, playbooks, story,
+    adspend, coupon_calc, coupon_result, flow, ideas, leftover, notice_followup, playbooks, records, report, story,
 )
 from marketing_survey.decide import build_follow_up_strategy, decide
 from marketing_survey.execute import build_plan, execute_strategy
@@ -26,6 +28,9 @@ from shared.contracts import AnalysisSnapshot, RecommendationCard, ReviewRecord,
 from shared.sample_scenario import (
     SAMPLE_CARDS, SAMPLE_REVIEWS, SAMPLE_SNAPSHOTS, SAMPLE_STORE, SAMPLE_TONE,
 )
+
+# 서버 테스트가 /plan·/approve 를 불러도 실제 data/marketing 에 기록이 쌓이지 않게 임시 폴더로 돌린다.
+os.environ[records.RECORDS_DIR_ENV] = tempfile.mkdtemp(prefix="marketing_records_")
 
 DEFAULT_CTX = build_context(
     store=SAMPLE_STORE, reviews=list(SAMPLE_REVIEWS), tone=SAMPLE_TONE,
@@ -1973,6 +1978,313 @@ class TestServerStoreParam(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(res.json()["state"]["node"], "start")
+
+
+TODAY = date(2026, 11, 15)  # 일요일. 주간 = 11/9~11/15, 월간 = 11/1~11/30
+
+
+def _clear_records(store_id="store_ongi"):
+    path = records.records_path(store_id)
+    if path.exists():
+        path.unlink()
+
+
+def _session(feature, decision, kinds, at):
+    return {"table": records.SESSIONS, "id": at, "feature": feature, "decision": decision,
+            "result": {"kinds": kinds}, "created_at": at + "+09:00"}
+
+
+def _coupon_run(used, issued=50, discount=1900, at="2026-11-10T09:00:00", margin=30, avg=15000):
+    return {"table": records.COUPON_RUNS, "id": at, "discount_krw": discount, "issued": issued, "used": used,
+            "avg_order_krw": avg, "margin_pct": margin, "created_at": at + "+09:00"}
+
+
+def _adspend_row(at, verdicts_by_app, cpo=4800, profit=4500):
+    table = [{"channel": app, "label": adspend.AD_APP_LABELS[app], "cost_per_order_won": cpo,
+              "profit_per_order_won": profit, "verdict": v} for app, v in verdicts_by_app.items()]
+    return {"table": records.SESSIONS, "id": "ad" + at, "feature": "adspend", "decision": "checked",
+            "result": {"table": table}, "created_at": at + "+09:00"}
+
+
+class TestMarketingRecords(unittest.TestCase):
+    def setUp(self):
+        _clear_records()
+
+    def test_append_writes_one_line_per_record_with_table_columns(self):
+        s = records.append_session("store_ongi", "survey", goal="repeat", answers={"a": 1}, decision="proposed",
+                                   result={"kinds": ["공지"]})
+        a = records.append_session("store_ongi", "survey", decision="approved", parent_id=s["id"])
+        records.append_coupon_run("store_ongi", menu_name="제육볶음 정식", discount_krw=1900, issued=50, used=23,
+                                  avg_order_krw=15000, margin_pct=30)
+        lines = records.records_path("store_ongi").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 3)
+        rows = records.load("store_ongi")
+        for col in ("feature", "goal", "answers", "decision", "result", "parent_id", "created_at"):
+            self.assertIn(col, rows[0])
+        self.assertEqual(rows[1]["parent_id"], rows[0]["id"])
+        self.assertEqual(rows[1]["id"], a["id"])
+        for col in ("menu_name", "discount_krw", "issued", "used", "avg_order_krw", "period_start", "period_end"):
+            self.assertIn(col, rows[2])
+
+    def test_bad_store_id_is_rejected(self):
+        with self.assertRaises(ValueError):
+            records.records_path("../evil")
+
+    def test_demo_file_is_synthetic_and_loadable(self):
+        doc = json.loads(records.demo_path("store_ongi").read_text(encoding="utf-8"))
+        self.assertEqual(doc["data_origin"], "synthetic")
+        self.assertTrue(records.load_demo("store_ongi"))
+
+
+class TestMarketingReportPeriod(unittest.TestCase):
+    def test_monthly_and_weekly_bounds(self):
+        self.assertEqual(report.period_bounds("monthly", TODAY),
+                         (date(2026, 11, 1), date(2026, 11, 30), date(2026, 10, 1), date(2026, 10, 31)))
+        self.assertEqual(report.period_bounds("weekly", TODAY),
+                         (date(2026, 11, 9), date(2026, 11, 15), date(2026, 11, 2), date(2026, 11, 8)))
+        # 월요일이 주의 시작, 1월은 앞 해 12월이 이전 기간
+        self.assertEqual(report.period_bounds("weekly", date(2026, 11, 9))[0], date(2026, 11, 9))
+        self.assertEqual(report.period_bounds("monthly", date(2027, 1, 20))[2:],
+                         (date(2026, 12, 1), date(2026, 12, 31)))
+        with self.assertRaises(ValueError):
+            report.period_bounds("daily", TODAY)
+
+    def test_edge_days_are_inclusive(self):
+        sessions = [_session("survey", "approved", ["답글"], at) for at in
+                    ("2026-10-31T23:59:59", "2026-11-01T00:00:00", "2026-11-30T23:59:59", "2026-12-01T00:00:00")]
+        out = report._activity(sessions, date(2026, 11, 1), date(2026, 11, 30))
+        self.assertEqual(out["approved"], {"답글": 2})
+
+    def test_period_in_section(self):
+        _clear_records()
+        p = report.marketing_section("store_ongi", "monthly", TODAY)["period"]
+        self.assertEqual((p["start"], p["end"], p["month"]), ("2026-11-01", "2026-11-30", "2026-11"))
+        self.assertTrue(p["until"].startswith("2026-11-15T23:59:59"))
+
+
+class TestMarketingReportDemo(unittest.TestCase):
+    def setUp(self):
+        _clear_records()
+
+    def test_demo_numbers(self):
+        r = report.marketing_section("store_ongi", "monthly", TODAY)
+        self.assertTrue(r["demo"])
+        c = r["cost"]["coupon"]
+        self.assertEqual((c["issued"], c["used"], c["coupon_orders"]), (50, 23, 23))
+        self.assertEqual(round(c["usage_rate"] * 100), 46)
+        self.assertEqual(c["discount_spent"], 43_700)
+        self.assertEqual(c["breakeven_orders"], 10)  # ceil(43,700 / 4,500)
+        self.assertEqual(r["activity"]["approved"], {"공지": 1, "답글": 3, "홍보 글": 2})  # 공지 승인 11/07
+        ads = {a["app"]: a for a in r["cost"]["ads"]}
+        self.assertEqual((ads["baemin"]["prev_verdict"], ads["baemin"]["verdict"]), ("손해 광고", "주의"))
+        self.assertEqual((ads["coupangeats"]["prev_verdict"], ads["coupangeats"]["verdict"]), ("주의", "손해 광고"))
+        self.assertEqual(ads["ddanggyeoyo"]["verdict"], "괜찮음")
+        self.assertEqual(ads["coupangeats"]["cost_per_order"], 4_700)
+
+    def test_demo_fixed_counts_the_10_30_notice(self):
+        r = report.marketing_section("store_ongi", "monthly", TODAY)
+        self.assertEqual(len(r["fixed"]), 1)
+        f = r["fixed"][0]
+        self.assertEqual((f["before_14d"], f["after_14d"], f["after_complete"]), (3, 0, False))
+        self.assertEqual(f["approved_on"], "2026-11-07")
+        self.assertEqual(f["complaint"], "포장 누락")
+
+    def test_demo_weekly_and_next(self):
+        r = report.marketing_section("store_ongi", "weekly", TODAY)
+        self.assertEqual(r["cost"]["coupon"]["used"], 23)  # 11/10 입력
+        self.assertIsNone(r["cost"]["ads"][0]["prev_verdict"])  # 지난주 점검 기록 없음
+        titles = [n["title"] for n in r["next"]]
+        self.assertIn("쿠팡이츠 광고 조건 다시 보기", titles)
+        self.assertLessEqual(len(r["next"]), 3)
+
+    def test_notice_outside_this_month_still_in_monthly_fixed(self):
+        # 승인일(10/25)이 이번 달(11월) 밖이어도 앞 14일 범위(11/1 - 14일 = 10/18)에 걸리면 월간 칸에 든다
+        sessions = [_session("survey", "approved", ["공지"], "2026-10-25T10:00:00")]
+        out = report._fixed(sessions, DEFAULT_CTX, date(2026, 11, 1), date(2026, 11, 30), TODAY)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["approved_on"], "2026-10-25")
+
+    def test_real_records_replace_demo(self):
+        records.append_session("store_ongi", "survey", decision="approved", result={"kinds": ["답글"]},
+                               now=datetime(2026, 11, 12, 10, 0, tzinfo=records.KST))
+        r = report.marketing_section("store_ongi", "monthly", TODAY)
+        self.assertFalse(r["demo"])
+        self.assertEqual(r["activity"]["approved"], {"답글": 1})
+        self.assertIsNone(r["cost"]["coupon"])
+        self.assertEqual(r["cost"]["ads"], [])  # 데모 광고 기록이 섞이지 않는다
+
+    def test_no_records_and_no_demo_file_is_empty_not_invented(self):
+        r = report.marketing_section("store_basak", "monthly", TODAY)
+        self.assertEqual((r["activity"]["approved"], r["cost"]["coupon"], r["cost"]["ads"], r["fixed"]),
+                         ({}, None, [], []))
+
+
+class TestMarketingReportNext(unittest.TestCase):
+    def _coupon(self, used):
+        return report._coupon([_coupon_run(used)], date(2026, 11, 1), date(2026, 11, 30))
+
+    def test_low_coupon_usage_suggests_discount_or_time(self):
+        out = report._next(self._coupon(9), [], [])  # 9/50 = 18%
+        self.assertEqual(out[0]["title"], coupon_result.TODO_LOW_USAGE)
+        self.assertIn("18%", out[0]["why"])
+        self.assertEqual(report._next(self._coupon(10), [], []), [])  # 20% 는 해당 없음
+
+    def test_loss_ad_app_suggests_rechecking_that_app(self):
+        ads = [{"app": "baemin", "label": "배민", "cost_per_order": 4800, "profit_per_order": 4500,
+                "verdict": "손해 광고", "prev_verdict": None},
+               {"app": "yogiyo", "label": "요기요", "cost_per_order": 1000, "profit_per_order": 4500,
+                "verdict": "괜찮음", "prev_verdict": None}]
+        out = report._next(self._coupon(23), ads, [])
+        self.assertEqual([n["title"] for n in out], ["배민 광고 조건 다시 보기"])
+
+    def test_zero_recurrence_suggests_improvement_news(self):
+        done = {"complaint": "포장 누락", "before_14d": 3, "after_14d": 0, "after_complete": True,
+                "window_ends": "2026-11-21"}
+        out = report._next(self._coupon(23), [], [done])
+        self.assertEqual(out[0]["title"], report.TITLE_IMPROVE_NEWS)
+        self.assertEqual(report._next(self._coupon(23), [], [{**done, "before_14d": 0}]), [])
+
+    def test_in_progress_zero_recurrence_shows_end_date_and_recheck(self):
+        # 진행 중(확인 기간 안 끝남) + 지금까지 0건 -> 다시 확인 날짜를 제안, 개선 소식은 아직 아님
+        prog = {"complaint": "포장 누락", "before_14d": 3, "after_14d": 0, "after_complete": False,
+                "window_ends": "2026-11-21"}
+        out = report._next(self._coupon(23), [], [prog])
+        self.assertEqual(out[0]["title"], "11/21에 다시 확인하고, 그때도 0건이면 개선 소식 올리기")
+        self.assertNotIn(report.TITLE_IMPROVE_NEWS, [n["title"] for n in out])
+
+    def test_confirmed_recurrence_suggests_cause_recheck(self):
+        rec = {"complaint": "포장 누락", "before_14d": 1, "after_14d": 2, "after_complete": True,
+               "window_ends": "2026-11-15"}
+        out = report._next(self._coupon(23), [], [rec])
+        self.assertEqual([n["title"] for n in out], [report.TITLE_CAUSE_RECHECK])
+
+    def test_three_cases_from_real_fixed_rows(self):
+        # 같은 승인(11/07, 리뷰 3건 앞·0건 뒤)을 오늘 날짜만 바꿔 세 경우를 확인한다
+        notice = [_session("survey", "approved", ["공지"], "2026-11-07T10:05:00")]
+        start, end = date(2026, 10, 1), date(2026, 12, 31)
+        progress = report._fixed(notice, DEFAULT_CTX, start, end, date(2026, 11, 15))[0]
+        self.assertFalse(progress["after_complete"])
+        self.assertEqual(progress["window_ends"], "2026-11-21")
+        done = report._fixed(notice, DEFAULT_CTX, start, end, date(2026, 12, 1))[0]
+        self.assertTrue(done["after_complete"])
+        self.assertEqual(report._next(None, [], [done])[0]["title"], report.TITLE_IMPROVE_NEWS)
+        # 재발: 11/01 승인, 뒤 14일(11/01~11/15)에 11/03·11/06 두 건
+        relapse_notice = [_session("survey", "approved", ["공지"], "2026-11-01T10:05:00")]
+        relapse = report._fixed(relapse_notice, DEFAULT_CTX, start, end, date(2026, 11, 20))[0]
+        self.assertEqual((relapse["before_14d"], relapse["after_14d"], relapse["after_complete"]), (1, 2, True))
+        self.assertEqual(report._next(None, [], [relapse])[0]["title"], report.TITLE_CAUSE_RECHECK)
+
+    def test_no_coupon_record_asks_for_input(self):
+        out = report._next(None, [], [])
+        self.assertEqual(out, [{"title": report.TITLE_COUPON_INPUT,
+                                "why": "쿠폰 결과를 입력하면 다음 보고서에 들어가요"}])
+
+    def test_at_most_three(self):
+        ads = [{"app": a, "label": a, "cost_per_order": 5000, "profit_per_order": 4500, "verdict": "손해 광고",
+                "prev_verdict": None} for a in ("baemin", "yogiyo", "coupangeats", "ddanggyeoyo")]
+        self.assertEqual(len(report._next(self._coupon(5), ads, [])), 3)
+
+    def test_fixed_hidden_without_reviews(self):
+        no_reviews = build_context(
+            store=SAMPLE_STORE, reviews=[], tone=SAMPLE_TONE, cards=list(SAMPLE_CARDS),
+            snapshots=list(SAMPLE_SNAPSHOTS), owner_replies=OWNER_REPLIES, policies=POLICIES,
+        )
+        notice = _session("survey", "approved", ["공지"], "2026-10-30T10:05:00")
+        self.assertEqual(report._fixed([notice], no_reviews, date(2026, 11, 1), date(2026, 11, 30), TODAY), [])
+        self.assertEqual(report._fixed([notice], None, date(2026, 11, 1), date(2026, 11, 30), TODAY), [])
+
+    def test_ads_use_latest_check_and_previous_period_verdict(self):
+        sessions = [
+            _adspend_row("2026-10-12T21:00:00", {"baemin": "손해 광고"}),
+            _adspend_row("2026-11-03T21:00:00", {"baemin": "괜찮음"}),
+            _adspend_row("2026-11-12T21:00:00", {"baemin": "주의"}),
+        ]
+        ads = report._ads(sessions, date(2026, 11, 1), date(2026, 11, 30), date(2026, 10, 1), date(2026, 10, 31))
+        self.assertEqual([(a["verdict"], a["prev_verdict"]) for a in ads], [("주의", "손해 광고")])
+
+
+class TestMarketingReportServer(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        cls.client = TestClient(app)
+
+    def setUp(self):
+        _clear_records()
+
+    def test_report_endpoint_shape_and_demo_flag(self):
+        res = self.client.get("/api/marketing-survey/report", params={"period": "monthly", "store": "store_ongi"})
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        for key in ("period", "demo", "activity", "cost", "fixed", "next"):
+            self.assertIn(key, body)
+        self.assertTrue(body["demo"])
+
+    def test_in_progress_notice_has_date_in_tile_and_next(self):
+        # 시계를 11/15 22:00 으로 고정해 "진행 중" 경우를 확실히 본다(실제 날짜와 무관).
+        from unittest import mock
+
+        class _Fake(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 11, 15, 22, 0, tzinfo=records.KST)
+
+        records.append_session("store_ongi", "survey", decision="approved", result={"kinds": ["공지"]},
+                               now=datetime(2026, 11, 7, 10, 5, tzinfo=records.KST))
+        with mock.patch.object(report, "datetime", _Fake):
+            for period in ("monthly", "weekly"):
+                body = self.client.get("/api/marketing-survey/report", params={"period": period}).json()
+                fixed = body["fixed"]
+                self.assertEqual(len(fixed), 1, body)
+                f = fixed[0]
+                self.assertFalse(f["after_complete"])
+                self.assertEqual(f["window_ends"], "2026-11-21")
+                self.assertEqual(f["tile_label"], "포장 누락 불만 재발 (진행 중, 11/21 확정)")
+                titles = [n["title"] for n in body["next"]]
+                self.assertIn("11/21에 다시 확인하고, 그때도 0건이면 개선 소식 올리기", titles, period)
+
+    def test_in_progress_fixed_row_with_fixed_today(self):
+        # 오늘을 11/15 로 고정한 계산(서버 기본 날짜와 상관없이 report 함수로 확인)
+        notice = [_session("survey", "approved", ["공지"], "2026-11-07T10:05:00")]
+        f = report._fixed(notice, DEFAULT_CTX, date(2026, 11, 1), date(2026, 11, 30), TODAY)[0]
+        self.assertEqual(f["tile_label"], "포장 누락 불만 재발 (진행 중, 11/21 확정)")
+        self.assertIn("11/21에 다시 확인하고, 그때도 0건이면 개선 소식 올리기",
+                      [n["title"] for n in report._next(None, [], [f])])
+
+    def test_report_endpoint_rejects_bad_period_and_unknown_store(self):
+        self.assertEqual(self.client.get("/api/marketing-survey/report", params={"period": "daily"}).status_code, 400)
+        res = self.client.get("/api/marketing-survey/report", params={"store": "store_basak"})
+        self.assertEqual(res.status_code, 404)
+
+    def test_plan_then_approve_leaves_linked_records(self):
+        step = lambda s, a: self.client.post("/api/marketing-survey/step", json={"state": s, "answer": a}).json()
+        data = step(None, None)
+        data = step(data["state"], "맞춤 홍보 제안")
+        data = step(data["state"], "예")
+        data = step(data["state"], "포장 누락")
+        state = data["state"]
+        plan = self.client.post("/api/marketing-survey/plan", json={"state": state})
+        self.assertEqual(plan.status_code, 200, plan.text)
+        sid = plan.json()["session_id"]
+        self.assertTrue(sid)
+        ok = self.client.post("/api/marketing-survey/approve", json={"state": state, "session_id": sid})
+        self.assertEqual(ok.status_code, 200, ok.text)
+        rows = records.load("store_ongi")
+        self.assertEqual([r["decision"] for r in rows], ["proposed", "approved"])
+        self.assertEqual(rows[1]["parent_id"], rows[0]["id"])
+        self.assertIn("공지", rows[1]["result"]["kinds"])
+
+    def test_coupon_result_plan_saves_a_coupon_run(self):
+        raw = {"coupon_issued": 50, "coupon_used": 23, "coupon_discount_won": 1900,
+               "coupon_avg_order_won": 15000, "coupon_margin_pct": 30}
+        state = {"node": "DECISION", "raw": raw, "confirms": {}, "mode": "coupon_result"}
+        res = self.client.post("/api/marketing-survey/plan", json={"state": state})
+        self.assertEqual(res.status_code, 200, res.text)
+        rows = records.load("store_ongi")
+        self.assertEqual(rows[0]["table"], records.COUPON_RUNS)
+        self.assertEqual((rows[0]["issued"], rows[0]["used"], rows[0]["discount_krw"]), (50, 23, 1900))
 
 
 if __name__ == "__main__":

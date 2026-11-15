@@ -1,0 +1,225 @@
+{
+ "data_origin": "synthetic",
+ "store_id": "store_ongi",
+ "note": "합성 데모 기록(실제 기록이 없을 때만 보고서가 읽어요). 최근 30일.",
+ "records": [
+  {
+   "table": "marketing_sessions",
+   "id": "demo_plan_notice",
+   "store_id": "store_ongi",
+   "feature": "survey",
+   "goal": "repeat_complaint",
+   "answers": {},
+   "decision": "proposed",
+   "result": {
+    "kinds": [
+     "공지"
+    ]
+   },
+   "parent_id": null,
+   "created_at": "2026-11-07T10:00:00+09:00"
+  },
+  {
+   "table": "marketing_sessions",
+   "id": "demo_notice",
+   "store_id": "store_ongi",
+   "feature": "survey",
+   "goal": "repeat_complaint",
+   "answers": {},
+   "decision": "approved",
+   "result": {
+    "kinds": [
+     "공지"
+    ]
+   },
+   "parent_id": "demo_plan_notice",
+   "created_at": "2026-11-07T10:05:00+09:00"
+  },
+  {
+   "table": "marketing_sessions",
+   "id": "demo_ads_prev",
+   "store_id": "store_ongi",
+   "feature": "adspend",
+   "goal": null,
+   "answers": {
+    "adspend_avg_amount_won": 15000,
+    "adspend_margin_pct": 30
+   },
+   "decision": "checked",
+   "result": {
+    "table": [
+     {
+      "channel": "baemin",
+      "label": "배민",
+      "spend_won": 240000,
+      "orders": 50,
+      "cost_per_order_won": 4800,
+      "profit_per_order_won": 4500,
+      "verdict": "손해 광고"
+     },
+     {
+      "channel": "coupangeats",
+      "label": "쿠팡이츠",
+      "spend_won": 150000,
+      "orders": 50,
+      "cost_per_order_won": 3000,
+      "profit_per_order_won": 4500,
+      "verdict": "주의"
+     },
+     {
+      "channel": "ddanggyeoyo",
+      "label": "땡겨요",
+      "spend_won": 75000,
+      "orders": 50,
+      "cost_per_order_won": 1500,
+      "profit_per_order_won": 4500,
+      "verdict": "괜찮음"
+     }
+    ],
+    "profit_per_order_won": 4500
+   },
+   "parent_id": null,
+   "created_at": "2026-10-12T21:00:00+09:00"
+  },
+  {
+   "table": "marketing_sessions",
+   "id": "demo_reply_1",
+   "store_id": "store_ongi",
+   "feature": "survey",
+   "goal": null,
+   "answers": {},
+   "decision": "approved",
+   "result": {
+    "kinds": [
+     "답글"
+    ]
+   },
+   "parent_id": null,
+   "created_at": "2026-11-04T11:00:00+09:00"
+  },
+  {
+   "table": "marketing_sessions",
+   "id": "demo_reply_2",
+   "store_id": "store_ongi",
+   "feature": "survey",
+   "goal": null,
+   "answers": {},
+   "decision": "approved",
+   "result": {
+    "kinds": [
+     "답글"
+    ]
+   },
+   "parent_id": null,
+   "created_at": "2026-11-07T11:20:00+09:00"
+  },
+  {
+   "table": "marketing_sessions",
+   "id": "demo_reply_3",
+   "store_id": "store_ongi",
+   "feature": "survey",
+   "goal": null,
+   "answers": {},
+   "decision": "approved",
+   "result": {
+    "kinds": [
+     "답글"
+    ]
+   },
+   "parent_id": null,
+   "created_at": "2026-11-09T12:10:00+09:00"
+  },
+  {
+   "table": "coupon_runs",
+   "id": "demo_coupon_1",
+   "store_id": "store_ongi",
+   "menu_name": "제육볶음 정식",
+   "discount_krw": 1900,
+   "issued": 50,
+   "used": 23,
+   "avg_order_krw": 15000,
+   "margin_pct": 30,
+   "period_start": "2026-11-03",
+   "period_end": "2026-11-09",
+   "created_at": "2026-11-10T09:30:00+09:00"
+  },
+  {
+   "table": "marketing_sessions",
+   "id": "demo_promo_1",
+   "store_id": "store_ongi",
+   "feature": "survey",
+   "goal": null,
+   "answers": {},
+   "decision": "approved",
+   "result": {
+    "kinds": [
+     "홍보 글"
+    ]
+   },
+   "parent_id": null,
+   "created_at": "2026-11-08T15:00:00+09:00"
+  },
+  {
+   "table": "marketing_sessions",
+   "id": "demo_promo_2",
+   "store_id": "store_ongi",
+   "feature": "survey",
+   "goal": null,
+   "answers": {},
+   "decision": "approved",
+   "result": {
+    "kinds": [
+     "홍보 글"
+    ]
+   },
+   "parent_id": null,
+   "created_at": "2026-11-11T15:30:00+09:00"
+  },
+  {
+   "table": "marketing_sessions",
+   "id": "demo_ads_now",
+   "store_id": "store_ongi",
+   "feature": "adspend",
+   "goal": null,
+   "answers": {
+    "adspend_avg_amount_won": 15000,
+    "adspend_margin_pct": 30
+   },
+   "decision": "checked",
+   "result": {
+    "table": [
+     {
+      "channel": "baemin",
+      "label": "배민",
+      "spend_won": 195000,
+      "orders": 50,
+      "cost_per_order_won": 3900,
+      "profit_per_order_won": 4500,
+      "verdict": "주의"
+     },
+     {
+      "channel": "coupangeats",
+      "label": "쿠팡이츠",
+      "spend_won": 235000,
+      "orders": 50,
+      "cost_per_order_won": 4700,
+      "profit_per_order_won": 4500,
+      "verdict": "손해 광고"
+     },
+     {
+      "channel": "ddanggyeoyo",
+      "label": "땡겨요",
+      "spend_won": 70000,
+      "orders": 50,
+      "cost_per_order_won": 1400,
+      "profit_per_order_won": 4500,
+      "verdict": "괜찮음"
+     }
+    ],
+    "profit_per_order_won": 4500
+   },
+   "parent_id": null,
+   "created_at": "2026-11-12T21:00:00+09:00"
+  }
+ ]
+}

@@ -17,7 +17,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from c6.checks import personal_info, promises_not_in_policy
-from marketing_survey import adspend, coupon_result, flow, ideas, leftover, notice_followup, playbooks, story, stores
+from marketing_survey import (
+    adspend, coupon_result, flow, ideas, leftover, notice_followup, playbooks, records, report, story, stores,
+)
 from marketing_survey.coupon_calc import calc as coupon_calc
 from marketing_survey.decide import build_follow_up_strategy, decide
 from marketing_survey.execute import COUPON_DAYS, _card_by_kind, _idea_entry, build_plan, execute_strategy
@@ -54,6 +56,7 @@ class StateOnlyRequest(BaseModel):
 class ApproveRequest(BaseModel):
     state: FlowState
     draft_id: str | None = None
+    session_id: str | None = None  # /plan 이 돌려준 기록 id — 승인 기록의 parent_id 가 된다
     edited_texts: dict[str, str] = Field(default_factory=dict)
 
 
@@ -121,6 +124,55 @@ def _check_edited_text(text: str, ctx) -> list[str]:
 def _resolve_strategy(state: FlowState, ctx):
     strategy, _ = _resolve_strategy_and_answers(state, ctx)
     return strategy
+
+
+# playbook 글 생성기 이름 -> 보고서에 세는 글 종류
+_GENERATOR_KINDS = {
+    "prevention_notice": "공지", "late_notice_template": "공지", "reply_draft": "답글",
+    "review_promo": "홍보 글", "coupon_promo": "쿠폰 글",
+}
+
+
+def _record(write, *args, **kwargs) -> dict | None:
+    """기록은 보조 기능 — 쓰기에 실패해도(디스크 등) 화면 흐름은 그대로 간다."""
+    try:
+        return write(*args, **kwargs)
+    except (OSError, ValueError):
+        return None
+
+
+def _plan_kinds(steps: list[dict]) -> list[str]:
+    kinds: list[str] = []
+    for s in steps:
+        kind = _GENERATOR_KINDS.get(s.get("generator") or "")
+        if kind and kind not in kinds:
+            kinds.append(kind)
+    return kinds
+
+
+def _record_plan(store: str, state: FlowState, result: dict, answers_goal: str | None) -> str | None:
+    """/plan 결과 기록. 쿠폰 결과는 coupon_runs, 나머지는 marketing_sessions. 기록 id(없으면 None)."""
+    if state.mode == "coupon_result":
+        if result.get("issued"):
+            row = _record(
+                records.append_coupon_run, store, menu_name=None, discount_krw=result["discount_won"],
+                issued=result["issued"], used=result["used"], avg_order_krw=result["avg_order_won"],
+                margin_pct=result["margin_pct"],
+            )
+            return row["id"] if row else None
+        return None
+    if state.mode == "adspend":
+        summary = {"table": [
+            {k: r[k] for k in ("channel", "label", "spend_won", "orders", "cost_per_order_won",
+                               "profit_per_order_won", "verdict")} for r in result["table"]
+        ], "profit_per_order_won": result["profit_per_order_won"]}
+        row = _record(records.append_session, store, "adspend", answers=state.raw, decision="checked", result=summary)
+        return row["id"] if row else None
+    row = _record(
+        records.append_session, store, state.mode, goal=answers_goal, answers=state.raw, decision="proposed",
+        result={"title": result.get("title"), "kinds": _plan_kinds(result.get("steps") or [])},
+    )
+    return row["id"] if row else None
 
 
 @app.get("/")
@@ -266,6 +318,7 @@ def plan(req: StateOnlyRequest, store: str = stores.DEFAULT_STORE_ID):
     ctx = _get_ctx(store)
     state = req.state
     key = os.environ.get("CLOVA_API_KEY")
+    goal = None
 
     if state.mode == "leftover":
         result = leftover.build_leftover_plan(ctx, state.raw, key)
@@ -278,8 +331,10 @@ def plan(req: StateOnlyRequest, store: str = stores.DEFAULT_STORE_ID):
     else:
         strategy, answers = _resolve_strategy_and_answers(state, ctx)
         result = build_plan(ctx, strategy, answers, key)
+        goal = answers.goal
 
     result["demo"] = key is None
+    result["session_id"] = _record_plan(store, state, result, goal)
     return result
 
 
@@ -313,6 +368,9 @@ def idea_try(req: IdeaTryRequest, store: str = stores.DEFAULT_STORE_ID):
         return {"need_answer": True, "question": idea.get("question"), "question_type": idea.get("question_type")}
 
     result = ideas.try_idea(idea, ctx, answers, req.answer)
+    if not result["skip"]:
+        _record(records.append_session, store, "idea", goal=answers.goal, decision="tried",
+                result={"idea_id": idea["id"], "title": idea.get("title")})
     return {"need_answer": False, "draft": result["draft"], "skip": result["skip"]}
 
 
@@ -339,7 +397,10 @@ def approve(req: ApproveRequest, store: str = stores.DEFAULT_STORE_ID):
 
     if state.mode not in _SURVEY_MODES:
         return {"follow_up": False, "state": state}
-    strategy = _resolve_strategy(state, ctx)
+    strategy, answers = _resolve_strategy_and_answers(state, ctx)
+    steps = playbooks.build_playbook(ctx, strategy, answers)["steps"]
+    _record(records.append_session, store, state.mode, goal=answers.goal, answers=state.raw,
+            decision="approved", result={"kinds": _plan_kinds(steps)}, parent_id=req.session_id)
 
     if state.mode == "survey" and strategy.source_hypothesis == "H_REPEAT":
         next_state = FlowState(
@@ -365,3 +426,12 @@ def notice_followup_endpoint(req: StateOnlyRequest, store: str = stores.DEFAULT_
     ctx = _get_ctx(store)
     notice_card = _card_by_kind(ctx, "complaint")
     return notice_followup.build_notice_followup(ctx, notice_card)
+
+
+@app.get("/api/marketing-survey/report")
+def report_endpoint(period: str = "monthly", store: str = stores.DEFAULT_STORE_ID):
+    """마케팅 보고서 — 기록에서 이번 주/이번 달을 센다(기록이 없으면 데모 기록, demo:true)."""
+    _get_ctx(store)
+    if period not in report.PERIOD_KINDS:
+        raise HTTPException(400, "period 는 weekly 또는 monthly 여야 해요.")
+    return report.marketing_section(store, period)
