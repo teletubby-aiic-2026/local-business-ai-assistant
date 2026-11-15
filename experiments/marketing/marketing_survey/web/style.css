@@ -190,6 +190,49 @@ body {
   border-radius: 10px; padding: 10px 14px; font-size: 0.88rem; line-height: 1.55;
 }
 
+.subtitle-line {
+  margin: -6px 0 0 44px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* 쿠폰 계산 슬라이더 패널 */
+.coupon-calc { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.slider-row { display: flex; flex-direction: column; gap: 4px; }
+.slider-row label { font-size: 0.85rem; color: var(--muted); display: flex; justify-content: space-between; }
+.slider-row .slider-val { color: #1D2125; font-weight: 700; }
+.slider-row input[type="range"] { width: 100%; accent-color: var(--green); }
+
+.budget-bar {
+  height: 10px; border-radius: 999px; background: #D9DBD6; overflow: hidden;
+}
+.budget-bar-fill { height: 100%; background: var(--green); border-radius: 999px; }
+.budget-bar-label { font-size: 0.82rem; color: var(--muted); }
+
+.calc-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.calc-tile {
+  border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; text-align: center;
+}
+.calc-tile .n { font-size: 1.05rem; font-weight: 700; }
+.calc-tile .l { font-size: 0.76rem; color: var(--muted); }
+
+.calc-warn { font-size: 0.85rem; }
+
+/* 광고비 점검 — 채널별 가로 막대 2개(건당 광고비 / 건당 이익) */
+.adspend-bars { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.adspend-bar-row { display: flex; flex-direction: column; gap: 3px; }
+.adspend-bar-label { font-size: 0.85rem; font-weight: 700; }
+.adspend-bar-pair { display: flex; align-items: center; gap: 8px; }
+.adspend-bar-track {
+  flex: 1 1 auto; height: 8px; border-radius: 999px; background: #E9EAE6; overflow: hidden;
+}
+.adspend-bar-fill { height: 100%; border-radius: 999px; }
+.adspend-bar-fill.good { background: var(--green); }
+.adspend-bar-fill.warn { background: #D9A400; }
+.adspend-bar-fill.bad { background: #C94A3B; }
+.adspend-bar-fill.profit { background: #9AA3AD; }
+.adspend-bar-val { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+
 .restart-row { max-width: 1000px; margin: 0 auto 40px; text-align: center; }
 
 @media (max-width: 720px) {

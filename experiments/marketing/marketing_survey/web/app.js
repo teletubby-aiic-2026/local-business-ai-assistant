@@ -210,7 +210,104 @@ function fmtWon(n) {
   return `${Number(n).toLocaleString("ko-KR")}원`;
 }
 
-function buildCouponCard(coupon) {
+function roundToStep(value, step) {
+  return Math.round(value / step) * step;
+}
+
+/* 쿠폰 계산 슬라이더 — 월 예산·할인액 2개, 움직일 때마다 150ms 디바운스로 /coupon-calc 를 불러
+   계산 결과(장수·최대 비용·본전 주문 수)를 그려 준다. 계산은 전부 서버(coupon_calc.calc), 이 함수는
+   화면만 그린다. */
+function buildCouponCalcPanel(coupon, state) {
+  const input = coupon.calc_input;
+  const price = input.price_won || 0;
+  const minDiscount = Math.max(100, roundToStep(price * 0.05, 100));
+  const maxDiscount = Math.max(minDiscount, roundToStep(price * 0.3, 100));
+  const startDiscount = Math.min(Math.max(input.discount_won, minDiscount), maxDiscount);
+
+  const panel = document.createElement("div");
+  panel.className = "coupon-calc";
+  panel.innerHTML = `
+    <div class="slider-row">
+      <label>월 예산 <span class="slider-val" data-k="budget">${fmtWon(input.budget_won)}</span></label>
+      <input type="range" min="0" max="300000" step="10000" value="${input.budget_won}" data-k="budget">
+    </div>
+    <div class="slider-row">
+      <label>할인액 <span class="slider-val" data-k="discount">${fmtWon(startDiscount)}</span></label>
+      <input type="range" min="${minDiscount}" max="${maxDiscount}" step="100" value="${startDiscount}" data-k="discount">
+    </div>
+    <div class="budget-bar"><div class="budget-bar-fill"></div></div>
+    <div class="budget-bar-label"></div>
+    <div class="calc-tiles">
+      <div class="calc-tile"><div class="n" data-t="count"></div><div class="l">쿠폰 장수</div></div>
+      <div class="calc-tile"><div class="n" data-t="cost"></div><div class="l">최대 비용</div></div>
+      <div class="calc-tile"><div class="n" data-t="breakeven"></div><div class="l">본전 주문 수</div></div>
+    </div>
+    <div class="warn-box calc-warn" style="display:none">할인이 클수록 본전까지 더 많은 주문이 필요해요</div>
+  `;
+  const regenBtn = document.createElement("button");
+  regenBtn.className = "btn-secondary";
+  regenBtn.textContent = "이 조건으로 쿠폰 글 만들기";
+  panel.appendChild(regenBtn);
+
+  const current = { budget_won: input.budget_won, discount_won: startDiscount };
+  let debounceTimer = null;
+
+  function renderFigures(fig) {
+    const pct = current.budget_won > 0 ? Math.min(100, (fig.max_cost_won / current.budget_won) * 100) : 0;
+    panel.querySelector(".budget-bar-fill").style.width = `${pct}%`;
+    panel.querySelector(".budget-bar-label").textContent =
+      `쿠폰 비용 ${fmtWon(fig.max_cost_won)} · 남는 예산 ${fmtWon(fig.remaining_won)}`;
+    panel.querySelector('[data-t="count"]').textContent = `${fig.count}장`;
+    panel.querySelector('[data-t="cost"]').textContent = fmtWon(fig.max_cost_won);
+    panel.querySelector('[data-t="breakeven"]').textContent =
+      fig.breakeven_orders != null ? `${fig.breakeven_orders}건` : "-";
+    panel.querySelector(".calc-warn").style.display = fig.discount_pct > 20 ? "block" : "none";
+  }
+
+  async function recalc() {
+    let fig;
+    try {
+      fig = await postJSON(`${API}/coupon-calc`, {
+        budget_won: current.budget_won, discount_won: current.discount_won, price_won: price,
+        avg_order_won: input.avg_order_won, margin_pct: input.margin_pct,
+      });
+    } catch (e) {
+      return;
+    }
+    renderFigures(fig);
+  }
+
+  panel.querySelectorAll("input[type=range]").forEach((slider) => {
+    slider.addEventListener("input", (e) => {
+      const key = e.target.dataset.k === "budget" ? "budget_won" : "discount_won";
+      current[key] = Number(e.target.value);
+      panel.querySelector(`.slider-val[data-k="${e.target.dataset.k}"]`).textContent = fmtWon(current[key]);
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(recalc, 150);
+    });
+  });
+
+  regenBtn.onclick = async () => {
+    regenBtn.disabled = true;
+    try {
+      const g = await postJSON(`${API}/generate`, { state, coupon_override: { ...current } });
+      if (g.text) {
+        const box = document.createElement("div");
+        box.className = "draft-box";
+        box.textContent = g.text;
+        panel.appendChild(box);
+      }
+    } catch (e) {
+      /* 실패하면 버튼을 다시 눌러 볼 수 있게 둔다 */
+    }
+    regenBtn.disabled = false;
+  };
+
+  recalc();
+  return panel;
+}
+
+function buildCouponCard(coupon, state) {
   const box = document.createElement("div");
   box.className = "coupon-card";
   box.innerHTML = `
@@ -228,6 +325,9 @@ function buildCouponCard(coupon) {
     tile.className = "basis";
     tile.textContent = `본전이 되려면 ${coupon.breakeven_orders}건이 필요해요`;
     box.appendChild(tile);
+  }
+  if (coupon.calc_input) {
+    box.appendChild(buildCouponCalcPanel(coupon, state));
   }
   return box;
 }
@@ -317,6 +417,42 @@ function buildAdspendTable(data) {
     todos.textContent = `할 일: ${data.todos.join(", ")}` + (data.todo_note ? ` (${data.todo_note})` : "");
     box.appendChild(todos);
   }
+
+  box.appendChild(buildAdspendBars(data.table));
+  return box;
+}
+
+const VERDICT_CLASS = { "손해 광고": "bad", "주의": "warn", "괜찮음": "good" };
+
+/* 채널별 가로 막대 2개(건당 광고비 / 건당 이익), 같은 눈금 — 슬라이더 없음, 서버 값만 그린다. */
+function buildAdspendBars(rows) {
+  const judged = rows.filter((r) => r.cost_per_order_won != null);
+  const box = document.createElement("div");
+  box.className = "adspend-bars";
+  if (!judged.length) return box;
+  const scale = Math.max(...judged.flatMap((r) => [r.cost_per_order_won, r.profit_per_order_won]), 1);
+
+  judged.forEach((r) => {
+    const cls = VERDICT_CLASS[r.verdict] || "good";
+    const row = document.createElement("div");
+    row.className = "adspend-bar-row";
+    row.innerHTML = `
+      <div class="adspend-bar-label">${r.label}</div>
+      <div class="adspend-bar-pair">
+        <div class="adspend-bar-track">
+          <div class="adspend-bar-fill ${cls}" style="width:${(r.cost_per_order_won / scale) * 100}%"></div>
+        </div>
+        <span class="adspend-bar-val">건당 광고비 ${fmtWon(r.cost_per_order_won)}</span>
+      </div>
+      <div class="adspend-bar-pair">
+        <div class="adspend-bar-track">
+          <div class="adspend-bar-fill profit" style="width:${(r.profit_per_order_won / scale) * 100}%"></div>
+        </div>
+        <span class="adspend-bar-val">건당 이익 ${fmtWon(r.profit_per_order_won)}</span>
+      </div>
+    `;
+    box.appendChild(row);
+  });
   return box;
 }
 
@@ -363,7 +499,14 @@ async function showDecision() {
 
   const hasPreventionNotice = data.steps.some((s) => s.generator === "prevention_notice");
 
-  if (data.coupon_card) card.appendChild(buildCouponCard(data.coupon_card));
+  if (data.bundle) {
+    const tile = document.createElement("div");
+    tile.className = "basis";
+    tile.textContent = `원래 합계 ${fmtWon(data.bundle.original_won)} → 세트 가격 ${fmtWon(data.bundle.bundle_won)}`;
+    card.appendChild(tile);
+  }
+
+  if (data.coupon_card) card.appendChild(buildCouponCard(data.coupon_card, state));
 
   if (data.breakeven_orders != null) {
     const tile = document.createElement("div");
@@ -509,7 +652,15 @@ async function start() {
   loadingRow.remove();
   state = data.state;
   data.bot_messages.forEach(addBotBubble);
+  addSubtitleLine("고친 만큼, 남는 만큼만 홍보해요");
   renderPrompt(data);
+}
+
+function addSubtitleLine(text) {
+  const row = document.createElement("div");
+  row.className = "subtitle-line";
+  row.textContent = text;
+  chatEl.appendChild(row);
 }
 
 restartBtn.onclick = () => start();

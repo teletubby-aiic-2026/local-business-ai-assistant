@@ -20,6 +20,7 @@ from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
 from common.korean import display_name
 from marketing_survey import adspend, coupon_result, flow, leftover, notice_followup, playbooks, story
+from marketing_survey.coupon_calc import calc as coupon_calc
 from marketing_survey.decide import build_follow_up_strategy, decide
 from marketing_survey.execute import COUPON_DAYS, NOTICE_CARD, build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
@@ -59,11 +60,20 @@ class StepRequest(BaseModel):
 
 class StateOnlyRequest(BaseModel):
     state: FlowState
+    coupon_override: dict | None = None
 
 
 class ApproveRequest(BaseModel):
     state: FlowState
     draft_id: str | None = None
+
+
+class CouponCalcRequest(BaseModel):
+    budget_won: int
+    discount_won: int
+    price_won: int
+    avg_order_won: int
+    margin_pct: int
 
 
 def _options_payload(node_id: str, state: FlowState) -> list[dict]:
@@ -192,7 +202,17 @@ def generate(req: StateOnlyRequest):
         }
     if req.state.mode not in _SURVEY_MODES:
         raise HTTPException(400, "이 기능은 글을 /plan 으로 바로 받아요.")
-    strategy = _resolve_strategy(req.state)
+    strategy, answers = _resolve_strategy_and_answers(req.state)
+    if req.coupon_override and strategy.discount_won:
+        price_won = CTX.store.menu_prices.get(strategy.menu, 0)
+        figures = coupon_calc(
+            int(req.coupon_override.get("budget_won") or 0),
+            int(req.coupon_override.get("discount_won") or 0),
+            price_won, answers.avg_order_won, answers.margin_pct,
+        )
+        strategy.discount_won = int(req.coupon_override.get("discount_won") or 0)
+        strategy.count = figures["count"]
+        strategy.budget_won = figures["max_cost_won"]
     _, draft, todo = execute_strategy(CTX, strategy, key)
 
     coupon = None
@@ -231,6 +251,14 @@ def plan(req: StateOnlyRequest):
 
     result["demo"] = key is None
     return result
+
+
+@app.post("/api/marketing-survey/coupon-calc")
+def coupon_calc_endpoint(req: CouponCalcRequest):
+    """쿠폰 슬라이더(예산·할인액) 가 움직일 때마다 부른다 — 계산은 전부 coupon_calc.calc()."""
+    return coupon_calc(
+        req.budget_won, req.discount_won, req.price_won, req.avg_order_won, req.margin_pct,
+    )
 
 
 @app.post("/api/marketing-survey/approve")

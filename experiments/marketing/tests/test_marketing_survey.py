@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
-from marketing_survey import adspend, coupon_result, flow, leftover, notice_followup, playbooks, story
+from marketing_survey import adspend, coupon_calc, coupon_result, flow, leftover, notice_followup, playbooks, story
 from marketing_survey.decide import build_follow_up_strategy, decide
 from marketing_survey.execute import build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
@@ -916,41 +916,111 @@ class TestBudgetAllocation(unittest.TestCase):
 
 
 class TestLeftoverFeature(unittest.TestCase):
-    """2. 남은 재료 팔기 — 세트 가격 계산 + 할인 불가일 때 "오늘의 추천"으로 바뀌는지."""
+    """2. 남은 재료 팔기 — "어떻게 팔까요?" 3갈래(세트/이 메뉴만 할인/추천) + 세트는 사장님이
+    고른 메뉴만 들어가는지(묻지 않은 메뉴가 자동으로 세트에 들어가던 버그 재발 방지)."""
 
-    def test_set_bundle_price_is_90_percent_rounded_to_100(self):
+    def test_bundle_price_is_90_percent_rounded_to_100_and_uses_chosen_pair_only(self):
         store = DEFAULT_CTX.store
         menu_items = list(store.menu_prices.items())
-        first_menu = menu_items[0][0]
-        bundle = leftover.set_bundle_price(store, first_menu)
+        item, partner = menu_items[0][0], menu_items[1][0]
+        bundle = leftover.bundle_price(store, item, partner)
 
-        self.assertIsNotNone(bundle)
-        total = sum(store.menu_prices[m] for m in bundle["menus"])
+        self.assertEqual(bundle["menus"], [item, partner])
+        total = store.menu_prices[item] + store.menu_prices[partner]
         self.assertEqual(bundle["original_won"], total)
         expected = int(round(total * 0.9 / 100)) * 100
         self.assertEqual(bundle["bundle_won"], expected)
         self.assertEqual(bundle["bundle_won"] % 100, 0)
 
-    def test_discount_allowed_produces_today_only_set(self):
+    def test_bundle_mode_without_chosen_partner_falls_back_to_no_bundle(self):
+        """leftover_bundle_menu 를 안 골랐으면(파트너 없음) 세트를 지어내지 않는다."""
         menu = next(iter(DEFAULT_CTX.store.menu_prices))
-        raw = {"leftover_item": menu, "leftover_portions": 3, "leftover_discount_allowed": True}
+        raw = {"leftover_item": menu, "leftover_portions": 3, "leftover_mode": "bundle"}
+        out = leftover.build_leftover_plan(DEFAULT_CTX, raw, None)
+
+        self.assertIsNone(out["bundle"])
+        self.assertEqual(out["title"], "오늘의 추천")
+
+    def test_bundle_mode_only_includes_the_chosen_partner_menu(self):
+        """세트면 사장님이 고른 메뉴(leftover_bundle_menu) 만 들어가야 한다 — 다른 메뉴가
+        자동으로 들어가면 안 된다."""
+        menu_items = list(DEFAULT_CTX.store.menu_prices.items())
+        item, partner = menu_items[0][0], menu_items[1][0]
+        other_menus = [m for m, _ in menu_items if m not in (item, partner)]
+        raw = {
+            "leftover_item": item, "leftover_portions": 3,
+            "leftover_mode": "bundle", "leftover_bundle_menu": partner,
+        }
         out = leftover.build_leftover_plan(DEFAULT_CTX, raw, None)
 
         self.assertEqual(out["title"], "오늘만 세트")
-        self.assertIn("leftover_post", out["drafts"])
-        self.assertIn("세트", out["drafts"]["leftover_post"])
-        self.assertEqual(out["total_cost_krw"], 0)
+        self.assertEqual(set(out["bundle"]["menus"]), {item, partner})
+        for other in other_menus:
+            self.assertNotIn(other, out["bundle"]["menus"])
+            self.assertNotIn(other, out["drafts"]["leftover_post"])
 
-    def test_discount_not_allowed_produces_today_recommendation(self):
+    def test_discount_only_mode_has_no_bundle(self):
         menu = next(iter(DEFAULT_CTX.store.menu_prices))
-        raw = {"leftover_item": menu, "leftover_portions": 3, "leftover_discount_allowed": False}
+        raw = {"leftover_item": menu, "leftover_portions": 3, "leftover_mode": "discount_only"}
+        out = leftover.build_leftover_plan(DEFAULT_CTX, raw, None)
+
+        self.assertEqual(out["title"], "이 메뉴만 할인")
+        self.assertIsNone(out["bundle"])
+        self.assertNotIn("세트", out["drafts"]["leftover_post"])
+
+    def test_no_discount_mode_produces_today_recommendation(self):
+        menu = next(iter(DEFAULT_CTX.store.menu_prices))
+        raw = {"leftover_item": menu, "leftover_portions": 3, "leftover_mode": "no_discount"}
         out = leftover.build_leftover_plan(DEFAULT_CTX, raw, None)
 
         self.assertEqual(out["title"], "오늘의 추천")
         self.assertIn("오늘의 추천", out["drafts"]["leftover_post"])
         self.assertNotIn("세트", out["drafts"]["leftover_post"])
 
-    def test_leftover_chat_path_through_server_reaches_decision(self):
+    def test_leftover_bundle_menu_options_exclude_the_chosen_item(self):
+        """'어떤 메뉴와 묶을까요?' 보기에는 이미 고른 남은 재료(메뉴) 가 없어야 한다."""
+        menu = next(iter(DEFAULT_CTX.store.menu_prices))
+        state = {"raw": {"leftover_item": menu}, "confirms": {}}
+        options = flow.node_options("leftover_bundle_menu", DEFAULT_CTX, state)
+        labels = [o["label"] for o in options]
+        self.assertNotIn(menu, labels)
+        self.assertTrue(labels)
+
+    def test_leftover_chat_path_bundle_reaches_decision(self):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        client = TestClient(app)
+        data = client.post("/api/marketing-survey/step", json={"state": None, "answer": None}).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "남은 재료 팔기"},
+        ).json()
+        menu_items = list(DEFAULT_CTX.store.menu_prices.items())
+        item, partner = menu_items[0][0], menu_items[1][0]
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": item},
+        ).json()
+        self.assertEqual(data["state"]["node"], "leftover_portions")
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "3"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "leftover_sell_mode")
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "다른 메뉴와 세트"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "leftover_bundle_menu")
+        self.assertNotIn(item, [o["label"] for o in data["options"]])
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": partner},
+        ).json()
+        self.assertTrue(data["done"])
+
+        res = client.post("/api/marketing-survey/plan", json={"state": data["state"]})
+        body = res.json()
+        self.assertEqual(body["title"], "오늘만 세트")
+        self.assertEqual(set(body["bundle"]["menus"]), {item, partner})
+
+    def test_leftover_chat_path_discount_only_reaches_decision(self):
         from fastapi.testclient import TestClient
         from marketing_survey.server import app
 
@@ -963,19 +1033,69 @@ class TestLeftoverFeature(unittest.TestCase):
         data = client.post(
             "/api/marketing-survey/step", json={"state": data["state"], "answer": menu},
         ).json()
-        self.assertEqual(data["state"]["node"], "leftover_portions")
         data = client.post(
             "/api/marketing-survey/step", json={"state": data["state"], "answer": "3"},
         ).json()
-        self.assertEqual(data["state"]["node"], "leftover_discount")
         data = client.post(
-            "/api/marketing-survey/step", json={"state": data["state"], "answer": "예"},
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "이 메뉴만 할인"},
         ).json()
         self.assertTrue(data["done"])
 
         res = client.post("/api/marketing-survey/plan", json={"state": data["state"]})
         body = res.json()
-        self.assertEqual(body["title"], "오늘만 세트")
+        self.assertEqual(body["title"], "이 메뉴만 할인")
+        self.assertIsNone(body["bundle"])
+
+
+class TestCouponCalc(unittest.TestCase):
+    """3. 쿠폰 계산 — calc() 경계값. 예측(주문 수·매출 증가) 없이 지금 조건 숫자만 계산한다."""
+
+    def test_zero_budget_gives_zero_count_and_zero_cost(self):
+        out = coupon_calc.calc(0, 1_000, 10_000, 15_000, 30)
+        self.assertEqual(out["count"], 0)
+        self.assertEqual(out["max_cost_won"], 0)
+        self.assertEqual(out["remaining_won"], 0)
+        self.assertEqual(out["breakeven_orders"], 0)
+
+    def test_zero_discount_does_not_divide_by_zero(self):
+        out = coupon_calc.calc(100_000, 0, 10_000, 15_000, 30)
+        self.assertEqual(out["count"], 0)
+        self.assertEqual(out["max_cost_won"], 0)
+        self.assertEqual(out["discount_pct"], 0)
+
+    def test_budget_not_evenly_divisible_leaves_remainder_in_remaining(self):
+        out = coupon_calc.calc(10_500, 2_000, 10_000, 15_000, 30)
+        self.assertEqual(out["count"], 5)
+        self.assertEqual(out["max_cost_won"], 10_000)
+        self.assertEqual(out["remaining_won"], 500)
+
+    def test_breakeven_orders_uses_profit_per_order_and_ceils(self):
+        out = coupon_calc.calc(100_000, 2_000, 10_000, 15_000, 30)
+        profit_per_order_won = adspend.profit_per_order(15_000, 30)
+        expected = adspend.breakeven_orders(out["max_cost_won"], profit_per_order_won)
+        self.assertEqual(out["breakeven_orders"], expected)
+
+    def test_discount_pct_rounds_from_price(self):
+        out = coupon_calc.calc(100_000, 2_000, 10_000, 15_000, 30)
+        self.assertEqual(out["discount_pct"], 20)
+
+
+class TestCouponCalcAPI(unittest.TestCase):
+    """3. POST /api/marketing-survey/coupon-calc — 슬라이더가 호출하는 바로 그 계산."""
+
+    def test_coupon_calc_endpoint_matches_calc_function(self):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        client = TestClient(app)
+        body = {
+            "budget_won": 100_000, "discount_won": 2_000, "price_won": 10_000,
+            "avg_order_won": 15_000, "margin_pct": 30,
+        }
+        res = client.post("/api/marketing-survey/coupon-calc", json=body)
+        self.assertEqual(res.status_code, 200)
+        expected = coupon_calc.calc(**body)
+        self.assertEqual(res.json(), expected)
 
 
 class TestAdSpendFeature(unittest.TestCase):

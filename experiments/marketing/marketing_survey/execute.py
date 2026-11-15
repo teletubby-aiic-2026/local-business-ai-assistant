@@ -31,6 +31,7 @@ from c6.promo import generate_coupon_promo, generate_review_promo, review_promo_
 from c6.registry import run_card
 from c6.reply import generate_reply_draft
 from marketing_survey import adspend, playbooks
+from marketing_survey.coupon_calc import calc as _coupon_calc
 from marketing_survey.decide import BUSY_TIMING
 from shared.sample_scenario import SAMPLE_CARDS
 
@@ -150,11 +151,19 @@ def build_plan(ctx, strategy, answers, key, model="HCX-005", today=None):
 
     coupon_card = None
     if strategy.discount_won:
-        profit_per_order_won = adspend.profit_per_order(answers.avg_order_won, answers.margin_pct)
+        price_won = ctx.store.menu_prices.get(strategy.menu, 0)
+        figures = _coupon_calc(
+            answers.budget_won, strategy.discount_won, price_won, answers.avg_order_won, answers.margin_pct,
+        )
         coupon_card = {
             "menu": strategy.menu, "discount_won": strategy.discount_won, "count": strategy.count,
             "timing": strategy.timing, "days": COUPON_DAYS,
-            "breakeven_orders": adspend.breakeven_orders(strategy.budget_won, profit_per_order_won),
+            "breakeven_orders": figures["breakeven_orders"],
+            "calc_input": {
+                "budget_won": answers.budget_won, "discount_won": strategy.discount_won,
+                "price_won": price_won, "avg_order_won": answers.avg_order_won,
+                "margin_pct": answers.margin_pct,
+            },
         }
 
     plan["drafts"] = drafts

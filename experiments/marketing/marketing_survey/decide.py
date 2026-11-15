@@ -23,6 +23,7 @@ H_AREA_DROP (상권 저녁 매출 하락)은 "어느 전략을 고를지"가 아
   - 기대 효과(예상 매출 증가 등) 숫자는 여기서도, explain.py 에서도 절대 만들지 않는다.
 """
 
+from marketing_survey.coupon_calc import calc as _coupon_calc
 from marketing_survey.hypotheses import _area_drop_snapshot, build_hypotheses
 from marketing_survey.models import MarketingPlan, Strategy
 
@@ -83,7 +84,7 @@ def build_coupon_strategy(ctx, answers, remaining_budget: int,
     if discount_won <= 0:
         return None, "최대 할인 금액이 0원이라 쿠폰 금액을 정할 수 없어요"
 
-    count = remaining_budget // discount_won
+    count = _coupon_calc(remaining_budget, discount_won, price, answers.avg_order_won, answers.margin_pct)["count"]
     if count <= 0:
         return None, "예산이 할인액보다 적어 쿠폰을 하나도 만들 수 없어요"
 

@@ -65,6 +65,14 @@ def default_menu(store) -> str | None:
     )
 
 
+def match_menu(store, item: str | None) -> str | None:
+    """자유 입력 텍스트(남은 재료 이름)를 가격 있는 메뉴 이름에 맞춘다. 못 찾으면 None."""
+    prices = store.menu_prices
+    if item in prices:
+        return item
+    return next((m for m in prices if item and item in m), None)
+
+
 @dataclass
 class PlaybookStep:
     step_id: str

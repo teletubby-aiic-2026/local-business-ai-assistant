@@ -35,6 +35,7 @@ import re
 from marketing_survey import adspend as _adspend
 from marketing_survey.hypotheses import _area_drop_snapshot
 from marketing_survey.playbooks import default_menu as _default_menu
+from marketing_survey.playbooks import match_menu as _match_menu
 
 DECISION = "DECISION"
 FOLLOW_UP_START = "budget"
@@ -85,14 +86,19 @@ NODES = {
     "leftover_portions": {
         "free_input": {"key": "leftover_portions", "type": "number"},
         "text": "몇 인분 남았나요? 숫자로 답해 주세요.",
-        "next": "leftover_discount",
+        "next": "leftover_sell_mode",
     },
-    "leftover_discount": {
-        "text": "할인 가능한가요?",
+    "leftover_sell_mode": {
+        "text": "어떻게 팔까요?",
         "options": [
-            {"label": "예", "set": {"leftover_discount_allowed": True}, "next": DECISION},
-            {"label": "아니요", "set": {"leftover_discount_allowed": False}, "next": DECISION},
+            {"label": "다른 메뉴와 세트", "next": "leftover_bundle_menu"},
+            {"label": "이 메뉴만 할인", "set": {"leftover_mode": "discount_only"}, "next": DECISION},
+            {"label": "할인 없이 추천 글", "set": {"leftover_mode": "no_discount"}, "next": DECISION},
         ],
+    },
+    "leftover_bundle_menu": {
+        "dynamic_options": True,
+        "text": "어떤 메뉴와 묶을까요?",
     },
     "adspend_apps": {
         "text": "광고를 하고 있는 배달앱을 모두 골라 주세요.",
@@ -289,6 +295,23 @@ def _max_discount_options(ctx, raw: dict) -> list[dict]:
     return options
 
 
+def _leftover_bundle_menu_options(ctx, raw: dict) -> list[dict]:
+    """세트로 묶을 메뉴 보기 — 사장님이 고른 남은 재료(메뉴) 는 뺀다(물어보지 않은 메뉴가
+    자동으로 세트에 들어가는 일이 없도록, 고를 수 있는 보기 자체에서 제외한다)."""
+    store = ctx.store
+    chosen = _match_menu(store, raw.get("leftover_item"))
+    options = []
+    for menu in store.menu_prices:
+        if menu == chosen:
+            continue
+        options.append({
+            "label": menu,
+            "set": {"leftover_bundle_menu": menu, "leftover_mode": "bundle"},
+            "next": DECISION,
+        })
+    return options
+
+
 def _channel_options(ctx) -> list[dict]:
     return [
         {"label": CHANNEL_LABELS.get(c, c), "value": c}
@@ -371,6 +394,8 @@ def node_options(node_id: str, ctx, state: dict) -> list[dict]:
         return _max_discount_options(ctx, state.get("raw", {}))
     if node_id == "channels":
         return _channel_options(ctx)
+    if node_id == "leftover_bundle_menu":
+        return _leftover_bundle_menu_options(ctx, state.get("raw", {}))
     if node_id == "adspend_avg_amount":
         return _adspend_avg_amount_options(ctx)
     if node_id == "coupon_avg_amount":
