@@ -595,6 +595,9 @@ body:has(> .shell > .drawer:not([hidden])) { padding-right: 400px; }
 .drawer-cond .ghost { grid-area: home; min-height: 28px; padding: 2px 8px; color: var(--ink-2); font-size: var(--meta); font-weight: 500;
   text-decoration: underline; text-decoration-color: var(--field-line); text-underline-offset: 3px; }
 .drawer-cond .ghost:hover { background: var(--hover); color: var(--ink); text-decoration-color: currentColor; }
+/* 지금 조건이 우리 가게 기본 조건일 때 (JS 가 .on 과 disabled 를 붙임): 버튼이 아니라 상태 글자처럼 보이게 */
+#assistant-home.on, #assistant-home.on:hover { opacity: 1; cursor: default; background: transparent; color: var(--muted); text-decoration: none; }
+#assistant-home.on::before { content: "✓ "; }
 /* 대화 칸: 이 안에서만 스크롤 (입력줄은 늘 아래에 고정). position 은 JS 스크롤 계산의 기준.
    내려 읽는 동안에는 위쪽에 가는 선 (.scrolled, JS) */
 .drawer-body { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 20px 20px;

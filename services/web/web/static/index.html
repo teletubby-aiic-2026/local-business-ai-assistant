@@ -298,7 +298,7 @@
     <div class="drawer-head">
       <div class="drawer-title">
         <h2 id="assistant-title">AI에게 묻기</h2>
-        <p class="drawer-sub">상권 비서 · 서울시 공개 상권 자료로 답해요</p>
+        <p class="drawer-sub">동네 상권·업종 매출 상담</p>
       </div>
       <button id="assistant-clear" type="button" class="ghost" hidden>대화 지우기</button>
       <button id="assistant-close" type="button" class="ghost" aria-label="AI에게 묻기 닫기">닫기</button>
@@ -306,7 +306,8 @@
     <div id="assistant-cond" class="drawer-cond" hidden>
       <b>분석 조건</b>
       <span id="assistant-cond-text"></span>
-      <!-- 채팅에서 다른 곳을 보고 있어도 우리 가게 조건(장승배기역 4번 · 한식음식점 · 최신 분기)으로 되돌림 (setup?force=1) -->
+      <!-- 채팅에서 다른 곳을 보고 있어도 우리 가게 조건(장승배기역 4번 · 한식음식점 · 최신 분기)으로 되돌림 (setup?force=1).
+           지금 조건이 이미 우리 가게 기본 조건이면 JS 가 '우리 가게 기준 적용 중'으로 바꾸고 누를 수 없게 한다 -->
       <button id="assistant-home" type="button" class="ghost">우리 가게 조건으로</button>
     </div>
     <div id="assistant-scroll" class="drawer-body">
@@ -318,7 +319,8 @@
       </div>
       <div id="assistant-welcome" class="drawer-welcome" hidden>
         <h3>우리 가게 상권, 편하게 물어보세요</h3>
-        <p>서울시 공개 상권 자료로 매출·점포 수·유동인구를 알려 드려요. 숫자마다 근거 번호가 붙고, 누르면 원래 자료를 볼 수 있어요.</p>
+        <p><b>동네 상권·업종 매출 상담</b>이에요. 서울시 공개 상권 자료로 매출·점포 수·유동인구를 알려 드려요. 숫자마다 근거 번호가 붙고, 누르면 원래 자료를 볼 수 있어요.</p>
+        <p>가게 이름·메뉴 같은 기본 정보와 리뷰·답글을 어디서 보는지도 답해요.</p>
         <p class="small muted">상권 통계는 상권·업종 전체의 추정치예요. 우리 가게 매출이 아니에요.</p>
       </div>
       <div id="assistant-log" class="drawer-log" role="log" aria-live="polite" aria-label="대화 기록"></div>

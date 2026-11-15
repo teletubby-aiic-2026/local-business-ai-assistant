@@ -7,10 +7,15 @@
 | GET    | /api/assistant/status           | 상권 비서를 쓸 수 있는지. 항상 200 (ready·off·down·disabled·no_data·error) |
 | POST   | /api/assistant/setup            | 우리 가게(온기한식)의 분석 조건(장승배기역·한식음식점·최신 분기)을 자동으로 맞춘다. 항상 200.
 |        |                                 | 이미 조건이 있으면 그대로 둔다. `?force=1` 이면 다른 곳을 보고 있어도 우리 가게 조건으로 되돌린다 |
-| POST   | /api/assistant/messages         | 질문 1개 → 답, 근거 카드, 선택지 (상권 서비스의 같은 경로) |
+| POST   | /api/assistant/messages         | 질문 1개 → 답, 근거 카드, 선택지 (상권 서비스의 같은 경로).
+|        |                                 | 가게 자체를 묻는 질문(이름·업종·상권·메뉴, 리뷰·답글을 어디서 보는지)은 상권 서비스로 보내지 않고 여기서 답한다 |
 | POST   | /api/assistant/actions          | 선택지 카드를 눌렀을 때 (같은 경로) |
 | GET    | /api/assistant/conversation     | 이 세션의 대화와 분석 조건 (같은 경로) |
 | DELETE | /api/assistant/conversation     | 대화 지우기 (같은 경로) |
+
+상권 서비스의 답을 화면에 넘기기 전에 두 가지를 손본다 (보이는 글자만. 선택지 payload 처럼 상권 서비스로 되돌아가는 값은 그대로)
+- 분기 코드(20262)가 글자에 그대로 들어 있으면 '2026년 2분기'로 바꾼다 (quarter_words).
+- 분석 조건(conditions)에 `is_store_default` 를 더한다: 지금 조건이 우리 가게 기본 조건과 같은지 (서랍의 '우리 가게 조건으로' 버튼이 씀).
 
 상권 서비스가 요구하는 것 (services/market-analysis/app/intake_api.py, assistant/router.py, onboarding.py)
 - 세션 쿠키 `market_onboarding_session` (43자). 대화와 분석 조건이 이 세션에 붙는다. 브라우저의 쿠키를 그대로 넘기고, 상권 서비스가
@@ -42,6 +47,10 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from shared.contracts import StoreProfile
+
+from .sources import load_snapshots, to_store_profile
 
 log = logging.getLogger("web.assistant")
 
@@ -98,6 +107,57 @@ STORE_DEFAULTS: dict[str, SetupDefaults] = {
         business_status="operating",
         label="온기한식 · 장승배기역 · 한식음식점"),
 }
+
+
+# ── 분기 표기 ───────────────────────────────────────────────────────────
+# 상권 서비스의 분기 코드는 '20262'(2026년 2분기)다. 조건에 분기 이름(period_label)이 빠지면 이 코드가 답 문장에 그대로 들어온다
+# ("20262 자료로 볼게요"). 화면에 넘기기 전에 '2026년 2분기'로 바꾼다 (cards.quarter_words 의 '2026Q2' → '2026년 2분기'와 같은 모양).
+# 금액·개수는 건드리지 않는다: 앞뒤에 숫자·영문·쉼표·점이 붙었거나(120262, 20,262, 20262.5) 바로 뒤에 단위가 오면(20262원) 그대로 둔다.
+# 화면(app.js 의 CHAT_QUARTER)도 같은 정규식을 쓴다. 시험이 두 곳의 정규식이 글자 그대로 같은지 확인한다.
+QUARTER_CODE = re.compile(r"[0-9]{4}[1-4]")        # 칸 전체가 분기 코드일 때 (period_label 에 '20262' 가 온 경우)
+QUARTER_IN_TEXT = re.compile(
+    r"(^|[^0-9A-Za-z_,.\-])(20[0-9]{2})(?:Q([1-4])(?![0-9A-Za-z])|([1-4])(?![0-9A-Za-z_\-]|[,.][0-9]"
+    r"|원|건|명|개|곳|호|번|위|배|회|세|살|대|가구|만|억|천|조|년|월|일|시|초|분(?!기)|평|점|%|퍼센트)(?: ?분기)?)")
+
+
+def quarter_words(text: Any) -> Any:
+    """문장 속 분기 코드(20262 · 2026Q2)를 '2026년 2분기'로. 글자가 아니면 그대로 돌려준다."""
+    if not isinstance(text, str) or not text:
+        return text
+    return QUARTER_IN_TEXT.sub(lambda m: f"{m[1]}{m[2]}년 {m[3] or m[4]}분기", text)
+
+
+def period_words(value: Any) -> Any:
+    """분기 칸 하나(period_label): '20262' → '2026년 2분기'. 코드만 있는 칸이 아니면 문장으로 보고 quarter_words."""
+    if isinstance(value, str) and QUARTER_CODE.fullmatch(value.strip()):
+        code = value.strip()
+        return f"{code[:4]}년 {code[4]}분기"
+    return quarter_words(value)
+
+
+def _reworded(item: Any, words: dict[str, Callable[[Any], Any]]) -> Any:
+    """dict 의 정해 둔 칸만 바꾼 사본. 없는 칸은 만들지 않고, dict 가 아니면 그대로 돌려준다."""
+    if not isinstance(item, dict):
+        return item
+    return {key: words[key](value) if key in words else value for key, value in item.items()}
+
+
+def _each(change: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    return lambda items: [change(item) for item in items] if isinstance(items, list) else items
+
+
+def _reply_words(reply: Any) -> Any:
+    """답(reply)의 보이는 글자만. 선택지의 payload 는 상권 서비스로 되돌아가는 값이라 그대로 둔다."""
+    return _reworded(reply, {"text": quarter_words, "notes": _each(quarter_words), "suggestions": _each(quarter_words),
+                             "actions": _each(lambda action: _reworded(action, {"label": quarter_words}))})
+
+
+def _card_words(card: Any) -> Any:
+    """근거 카드의 보이는 글자만 (문장·주의 문장·값 이름·글자 값). 값의 code 와 출처는 그대로 둔다."""
+    def value_words(value: Any) -> Any:
+        label = value.get("label") if isinstance(value, dict) else None
+        return _reworded(value, {"label": quarter_words, "value": period_words if label == "기간" else quarter_words})
+    return _reworded(card, {"text": quarter_words, "warnings": _each(quarter_words), "values": _each(value_words)})
 
 
 # ── 입력 검사 (상권 서비스 assistant/router.py 의 MessageInput·ActionInput 과 같은 규칙) ─────────
@@ -209,6 +269,184 @@ def _upstream_error(status: int, data: Any, path: str) -> MarketError:
     return MarketError("error", detail if status == 503 and detail else MESSAGES["error"])
 
 
+# ── 가게 기본 질문 (상권 서비스로 보내지 않고 여기서 답한다) ─────────────────────────────
+# 서랍은 '동네 상권·업종 매출 상담'이지만 사장님은 "우리 가게 이름 뭐야?", "우리 가게 메뉴 뭐야?", "리뷰 답글은 어디서 봐?"도 묻는다.
+# 상권 서비스는 이런 질문에 분석 조건 문장이나 엉뚱한 상권 숫자로 답한다. 그래서 가게 자체를 묻는 질문만 골라 가게 프로필로 답한다.
+# 고르는 규칙은 보수적이다 (store_question). 상권 자료 단어가 하나라도 섞이면 상권 서비스로 보낸다.
+REPLY_SCHEMA = "assistant-reply-v1"     # 상권 서비스 assistant/flow.py 의 SCHEMA (시험이 같은지 확인)
+STORE_ANSWER = "store_profile"          # 여기서 답한 응답에만 붙는 answered_by 값
+MAX_STORE_QUESTION = 40                 # 공백·기호를 뺀 글자 수. 이보다 긴 글은 단순한 가게 질문으로 보지 않는다
+# 화면 메뉴 이름. static/index.html 의 메뉴 글자와 같아야 한다 (시험이 확인)
+SCREENS = {"reviews": "리뷰 분석", "cards": "추천 카드", "drafts": "승인할 글", "done": "처리 완료", "report": "종합 리포트"}
+BACK_TO_MARKET = ["우리 가게 상권 매출은 어때?", "주변에 같은 업종 점포는 몇 개야?"]     # 답 아래 '이어서 물어보기' (서랍 첫 추천 질문과 같은 문장)
+STORE_NOTE = "가게 이름·업종·메뉴는 저장된 가게 프로필이에요. 상권 통계가 아니에요."
+STORE_DOWN = "가게 정보를 지금 불러오지 못했어요. 잠시 뒤 다시 물어봐 주세요."
+NOT_ON_SCREEN = "이 화면에는 그 정보가 없어요."
+GUIDE_LINE = (f"참고: 리뷰는 화면 메뉴 '{SCREENS['reviews']}', 답글·공지·홍보 글은 '{SCREENS['cards']}' → '{SCREENS['drafts']}', "
+              f"전체 요약은 '{SCREENS['report']}'에서 볼 수 있어요.")
+
+# 하나라도 있으면 상권 질문 (가게 질문과 섞여 있어도 상권 서비스로 보낸다). 상권 서비스가 맡는 자료·의견·입지 비용 낱말
+_MARKET_WORDS = ("상권", "매출", "장사", "벌이", "벌어", "벌었", "버는", "벌고", "수입", "유동", "인구", "점포", "경쟁", "개업", "폐업", "창업",
+                 "평균", "비교", "순위", "주변", "근처", "동네", "다른가게", "분기", "주말", "평일", "요일", "점심", "저녁", "시간대",
+                 "연령", "나이대", "추천", "팔리", "잘팔", "잘나가", "인기", "어때", "어떤가", "어떨까", "잘되", "잘돼", "안되", "안돼",
+                 "될까", "좋", "괜찮", "나쁘", "나빠", "유리", "불리", "전망", "통계", "월세", "임대료", "권리금", "보증금")
+# 가게 정보를 묻는 것이 아니라 일을 시키거나 조언을 구하는 말 → 여기서 답하지 않는다
+_TASK_WORDS = ("써줘", "써주", "써줄", "써달", "만들어", "작성", "짜줘", "짜주", "바꿔", "바꾸", "바꿀", "수정", "고쳐", "고치", "추가",
+               "삭제", "지워", "빼줘", "등록", "지어", "정해", "하면", "할까", "올릴", "올려", "내릴", "내려", "적정", "책정")
+_WONDER = re.compile(r"(?<!니)까(요)?$")      # '뭐 넣을까?', '바꿀까요?'처럼 고민을 묻는 말끝 ('무엇입니까'는 그냥 질문)
+_OURS = re.compile(r"(우리|저희|내|제|울)(가게|매장|식당|집|상호|메뉴)|^(가게|매장|식당|상호|메뉴)")     # '우리 가게…' 또는 '가게…'로 시작
+# 가게 정보는 "그 낱말 + 바로 묻는 말"일 때만 고른다: '이름 뭐야', '이름이 뭐였지', '메뉴 좀 알려줘', 낱말로 끝나는 '우리 가게 메뉴'
+_P = r"(이|가|은|는|을|를|도|의)?(좀)?"
+_Q = r"(뭐|무엇|뭔|뭘|무슨|어떤|어디|어떻게|몇|얼마|알려|말해|보여|있|$)"
+_NAME = re.compile(rf"(이름|상호|상호명|가게명|매장명){_P}{_Q}")
+_INDUSTRY = re.compile(rf"업종{_P}{_Q}|(무슨|어떤)업종|(무슨|어떤|뭐하는)(가게|매장|식당|집)(이야|야|예요|에요|인지|이지|임|이냐|냐|$)")
+_MENU = re.compile(rf"(메뉴|메뉴판|메뉴목록|메뉴종류){_P}{_Q}|(뭐|뭘|무엇을)(팔|파)")
+_PRICE = re.compile(rf"(가격|가격표|값){_P}{_Q}|얼마(야|예요|에요|지|죠|니|임|인지|입니|인가|에팔|에파|씩|$)")
+_AREA = re.compile(rf"(위치|주소){_P}{_Q}|어디(에)?(있|위치)|어디(야|예요|에요|지|죠|니|임|인지|쯤|$)")
+_PROFILE = re.compile(rf"(정보|기본정보|프로필){_P}{_Q}|소개(해|좀|$)")
+# 프로필에 없는 것. 지어내지 않고 '이 화면에는 그 정보가 없어요'라고 답한다
+_NOT_KNOWN = re.compile(rf"(영업시간|운영시간|오픈시간|마감시간|휴무일|휴무|쉬는날|휴일|전화번호|연락처|사장님?(이름|성함)|대표자|대표자명"
+                        rf"|사업자번호|사업자등록번호|직원수|직원|알바|좌석수|좌석|테이블수|테이블|주차장|주차|평수|면적|배달비|최소주문금액|최소주문"
+                        rf"|원산지|칼로리|알레르기|와이파이|예약){_P}{_Q}|몇시|언제(열|닫|쉬|오픈|마감|문)")
+# '상권'은 상권 낱말이지만 "우리 가게 어느 상권이야?", "우리 가게 상권이 뭐야?"는 가게가 속한 상권 이름을 묻는 것이다
+_WHICH_AREA = re.compile(rf"(어느|무슨)상권|상권(이름|명)?{_P}(뭐|무엇|뭔|어디)(야|예요|에요|지|죠|니|임|인지|냐|였|더라|$)")
+# 화면 위치를 묻는 질문: 화면에 있는 것(리뷰·답글·공지…) + 어디서 보는지
+_SCREEN_WORDS = ("리뷰", "후기", "답글", "댓글", "공지", "홍보", "쿠폰", "리포트", "보고서", "응대점수", "불만", "초안", "승인",
+                 "추천카드", "처리완료")
+_WHERE = re.compile(r"어디(에서|서|에|로)?(봐|보|볼|확인|찾|있|달|쓰|써|관리|승인|들어|눌|해|가면|가야)|어디로가|어디(야|예요|에요|지|죠|니|임|인지|더라)"
+                    r"|어떻게(봐|보|볼|확인|찾|들어가)|(보|확인하|찾으|들어가)려면|(보|확인하)고싶|(볼|확인할|찾을)수있|보여(줘|줄|주)"
+                    r"|(보는|확인하는|찾는)(곳|법|방법|데)|위치")
+_NOT_WHERE = ("맛집", "써줘", "써주", "써줄", "써달", "만들어", "작성해", "짜줘", "짜주")      # 글을 써 달라는 말·다른 가게 찾기는 화면 위치 질문이 아니다
+# 우리 가게의 메뉴별 매출: 리뷰 분석에도 상권 자료에도 없다. 상권 범위 낱말이 없을 때만 '없어요'라고 답한다
+_MENU_SALES = re.compile(r"메뉴(별|마다|당)[가-힣]{0,6}(매출|판매|팔)|(매출|판매량)[가-힣]{0,4}메뉴(별|마다)|(많이|잘)(팔리|팔린|나가)[가-힣]{0,3}메뉴")
+_SCOPE_WORDS = ("상권", "동네", "주변", "근처", "업종", "평균", "다른", "서울", "전체", "지역")
+
+
+def store_question(text: str) -> str | None:
+    """가게 자체를 묻는 질문이면 그 종류를, 아니면(상권 질문·모르는 말) None 을 돌려준다. None 이면 상권 서비스로 보낸다.
+
+    종류: where(화면 위치) · name · industry · area · menu · price · profile(기본 정보) · unknown(프로필에 없는 것) · menu_sales(메뉴별 매출)
+    순서
+      ① 우리 가게 메뉴별 매출 (상권 범위 낱말이 없을 때만)
+      ② 상권 낱말(_MARKET_WORDS)이 하나라도 있으면 상권 서비스. 하나뿐인 낱말이 '상권'이고 가게의 상권 이름을 묻는 모양일 때만 area
+      ③ 화면 위치: 화면에 있는 것(리뷰·답글·공지…) + 어디서 보는지
+      ④ 가게 정보: '우리 가게…'·'가게…'로 시작하고, 낱말 바로 뒤에 묻는 말이 올 때만. 일을 시키는 말(써줘·바꿔…)과 고민을 묻는 말(…할까?)은 뺀다
+    공백·기호를 뺀 글자가 40자를 넘는 글은 여기서 답하지 않는다.
+    """
+    c = re.sub(r"[^0-9a-z가-힣]", "", (text or "").lower())
+    if not c or len(c) > MAX_STORE_QUESTION:
+        return None
+
+    def has(words: tuple[str, ...]) -> bool:
+        return any(word in c for word in words)
+
+    ours, task = bool(_OURS.search(c)), has(_TASK_WORDS) or bool(_WONDER.search(c))
+    if ours and _MENU_SALES.search(c) and not has(_SCOPE_WORDS):
+        return "menu_sales"
+    market = [word for word in _MARKET_WORDS if word in c]
+    if market:
+        return "area" if market == ["상권"] and ours and not task and _WHICH_AREA.search(c) else None
+    if has(_SCREEN_WORDS) and _WHERE.search(c) and not has(_NOT_WHERE):
+        return "where"
+    if not ours or task:
+        return None
+    for kind, pattern in (("unknown", _NOT_KNOWN), ("menu", _MENU), ("price", _PRICE), ("name", _NAME),
+                          ("industry", _INDUSTRY), ("area", _AREA), ("profile", _PROFILE)):
+        if pattern.search(c):
+            return "price" if kind == "menu" and _PRICE.search(c) else kind
+    return None
+
+
+def _ieyo(word: str) -> str:
+    """'한식음식점' 뒤에는 '이에요', '카페' 뒤에는 '예요' (마지막 한글 글자의 받침으로 고른다)."""
+    last = next((ch for ch in reversed(word) if "가" <= ch <= "힣"), None)
+    return "예요" if last is not None and (ord(last) - 0xAC00) % 28 == 0 else "이에요"
+
+
+def _store_reply(lines: list[str], kind: str, turn: str, *, notes: tuple[str, ...] = ()) -> dict:
+    """상권 서비스가 messages 에 주는 것과 같은 칸 (assistant/flow.py 의 _finish. debug 는 원래 화면에 오지 않는다).
+    conditions 는 싣지 않는다: 가게 질문은 분석 조건을 바꾸지 않으니 화면의 조건 줄이 그대로 남는다."""
+    return {"schema_version": REPLY_SCHEMA,
+            "reply": {"text": "\n".join(lines), "kind": kind, "cited": [], "actions": [], "notes": list(notes),
+                      "suggestions": list(BACK_TO_MARKET)},
+            "model_used": False, "cards": [], "topics": [],
+            "classification": {"domain": "store", "turn_type": turn, "topics": [], "needs_user_choice": False,
+                               "needs_model": False, "analyzer": "web_proxy"},
+            "pending": None, "answered_by": STORE_ANSWER}
+
+
+def _where_answer(text: str) -> dict:
+    c = re.sub(r"\s", "", text)
+    drafts = (f"초안은 화면 메뉴 '{SCREENS['cards']}'에서 카드를 고르면 '{SCREENS['drafts']}'에 나와요. "
+              f"승인한 글은 '{SCREENS['done']}'에 모여요.")
+    if "답글" in c or "댓글" in c:
+        first = "리뷰 답글 " + drafts
+    elif "공지" in c:
+        first = "공지 " + drafts
+    elif "홍보" in c or "쿠폰" in c:
+        first = "홍보 글 " + drafts
+    elif "초안" in c or "승인" in c or "추천카드" in c or "처리완료" in c:
+        first = "글 " + drafts
+    elif "리포트" in c or "보고서" in c or "응대점수" in c:
+        first = f"응대 점수와 월간 보고서는 화면 메뉴 '{SCREENS['report']}'에 있어요."
+    else:
+        first = f"리뷰와 불만 묶음은 화면 메뉴 '{SCREENS['reviews']}'에서 볼 수 있어요."
+    return _store_reply([first,
+                         f"- 리뷰·불만 묶음: '{SCREENS['reviews']}'",
+                         f"- 답글·공지·홍보 글 초안: '{SCREENS['cards']}' → '{SCREENS['drafts']}'",
+                         f"- 승인한 글: '{SCREENS['done']}'",
+                         f"- 응대 점수·월간 보고서: '{SCREENS['report']}'",
+                         "참고: 이 채팅은 동네 상권·업종 매출 상담이라 리뷰 내용은 여기서 답하지 않아요."], "store_guide", "where")
+
+
+def store_answer(kind: str, text: str, store: StoreProfile | None) -> dict:
+    """가게 질문의 답. 프로필에 있는 값만 쓴다 (없는 것은 '이 화면에는 그 정보가 없어요'). store 가 None 이면 프로필을 못 읽은 것."""
+    if kind == "where":
+        return _where_answer(text)
+    if store is None:
+        return _store_reply([STORE_DOWN, GUIDE_LINE], "store_unavailable", kind)
+    menu = list(store.menu)
+    prices = store.menu_prices or {}
+    if kind == "price":
+        # "우리 가게 김치찌개 얼마야?"처럼 메뉴 값을 물을 때만 가격표로 답한다. 메뉴가 아닌 것의 값은 프로필에 없다
+        c = re.sub(r"\s", "", text)
+        if not ("메뉴" in c or "가격표" in c or any(name.replace(" ", "") in c or name.split()[0] in c for name in menu)):
+            kind = "unknown"
+    facts = {"name": f"- 이름: {store.name}", "industry": f"- 업종: {store.business_type_name}",
+             "area": f"- 상권: {store.area_name}" if store.area_name else None,
+             "menu": f"- 메뉴: {', '.join(menu)}" if menu else None}
+
+    def rest(*skip: str) -> list[str]:
+        return [line for key, line in facts.items() if key not in skip and line]
+
+    def menu_lines(with_price: bool = True) -> list[str]:
+        return [f"- {name} {prices[name]:,}원" if with_price and isinstance(prices.get(name), int) else f"- {name}" for name in menu]
+
+    if kind == "name":
+        lines = [f"우리 가게 이름은 '{store.name}'{_ieyo(store.name)}.", *rest("name")]
+    elif kind == "industry":
+        lines = [f"우리 가게 업종은 {store.business_type_name}{_ieyo(store.business_type_name)}.", *rest("industry")]
+    elif kind == "area":
+        where = f"우리 가게는 {store.area_name} 상권에 있어요." if store.area_name else "우리 가게 상권 정보는 이 화면에 없어요."
+        lines = [("정확한 주소는 이 화면에 없어요. " if "주소" in text else "") + where, *rest("area")]
+    elif kind in ("menu", "price", "menu_sales"):
+        if not menu:
+            lines = ["메뉴 정보는 이 화면에 없어요.", *rest("menu")]
+        elif kind == "menu_sales":
+            lines = ["이 화면에는 메뉴별 매출·판매량 정보가 없어요. 우리 가게 메뉴는 아래와 같아요.", *menu_lines(False),
+                     "참고: 상권·업종 전체의 추정매출은 '우리 가게 상권 매출은 어때?'처럼 물어보면 알려 드려요."]
+            return _store_reply(lines, "store_profile", kind, notes=(STORE_NOTE,))
+        elif kind == "price" and not any(isinstance(prices.get(name), int) for name in menu):
+            lines = ["메뉴 가격은 이 화면에 없어요. 우리 가게 메뉴는 아래와 같아요.", *menu_lines(False)]
+        else:
+            lines = [f"우리 가게 메뉴는 {len(menu)}가지예요.", *menu_lines()]
+    elif kind == "unknown":
+        lines = [f"{NOT_ON_SCREEN} 지금 아는 가게 정보는 아래와 같아요.", *rest()]
+    else:      # profile
+        lines = ["우리 가게 기본 정보예요.", *rest()]
+    return _store_reply([*lines, GUIDE_LINE], "store_profile", kind, notes=(STORE_NOTE,))
+
+
 # ── 프록시 ─────────────────────────────────────────────────────────────
 class AssistantProxy:
     def __init__(self, client: MarketClient | None, *, store_id: str = "store_ongi", config_error: str | None = None):
@@ -216,6 +454,10 @@ class AssistantProxy:
         self.config_error = config_error     # 주소 설정이 틀렸을 때의 안내 (off 가 아니라 error 로 보인다)
         self.defaults = STORE_DEFAULTS.get(store_id)
         self.slots = threading.BoundedSemaphore(MAX_CONCURRENT)
+        # setup 이 실제로 맞춘 우리 가게 조건 (상권 코드, 업종 코드, 분기). 정해 둔 분기·상권이 자료에 없어 다른 것으로 맞췄을 때도
+        # '우리 가게 기본 조건'을 알아보려고 기억한다. 자료가 같으면 모든 방문자에게 같은 값이라 서버에 하나만 둔다
+        self.home: tuple[str, str, str] | None = None
+        self.read_store: Callable[[], StoreProfile] | None = None      # 가게 프로필을 읽는 함수 (attach_store 가 넣는다)
 
     @classmethod
     def from_settings(cls, settings) -> "AssistantProxy":
@@ -234,6 +476,50 @@ class AssistantProxy:
     def close(self) -> None:
         if self.market is not None:
             self.market.close()
+
+    def attach_store(self, demo) -> None:
+        """가게 기본 질문에 답할 때 가게 프로필을 읽을 곳을 붙인다 (create_app 이 부른다).
+        Demo 가 ③ 생성에 쓰는 것과 같은 값이다: 리뷰 분석 서비스의 가게 정보 + 상권 지표 파일의 상권 이름.
+        질문이 올 때마다 가게 정보만 새로 읽는다 (리뷰·분석은 읽지 않는다)."""
+        def read() -> StoreProfile:
+            snapshots = load_snapshots(demo.s.snapshot_path)
+            return to_store_profile(demo.source.store(demo.s.store_id), snapshots[0].area_name if snapshots else None)
+        self.read_store = read
+
+    def _store_profile(self) -> StoreProfile | None:
+        """가게 프로필. 리뷰 분석 서비스가 꺼져 있거나 값이 이상하면 None (서랍에는 '불러오지 못했어요'로 답한다)."""
+        if self.read_store is None:
+            return None
+        try:
+            return self.read_store()
+        except Exception as exc:
+            log.warning("가게 프로필을 읽지 못함 (%s)", exc.__class__.__name__)
+            return None
+
+    # 화면에 넘기기 전에 ------------------------------------------------------
+    def _is_home(self, conditions: dict) -> bool | None:
+        """지금 조건이 우리 가게 기본 조건과 같은지 (상권·업종·분기 코드로 비교). 기본 조건이 없는 가게이거나 코드가 없으면 None(모름)."""
+        key = tuple(conditions.get(name) for name in ("area_code", "industry_code", "period"))
+        if self.defaults is None or not all(isinstance(value, str) and value for value in key):
+            return None
+        wanted = (self.defaults.area_code, self.defaults.industry_code, self.defaults.period)
+        return key == wanted or key == self.home
+
+    def _conditions(self, conditions: Any) -> Any:
+        """분석 조건: 분기 이름을 '2026년 2분기' 모양으로 맞추고(이름이 없으면 코드로 만든다) is_store_default 를 더한다."""
+        if not isinstance(conditions, dict):
+            return conditions
+        out = dict(conditions)
+        label = conditions.get("period_label") or conditions.get("period")
+        if isinstance(label, str) and label:
+            out["period_label"] = period_words(label)
+        out["is_store_default"] = self._is_home(conditions)
+        return out
+
+    def _present(self, data: Any) -> Any:
+        """상권 서비스 응답(답·대화·조건)의 보이는 글자를 손본 사본. 모르는 칸과 상권 서비스로 되돌아가는 값은 그대로 둔다."""
+        return _reworded(data, {"reply": _reply_words, "cards": _each(_card_words), "conditions": self._conditions,
+                                "turns": _each(self._present)})
 
     # 상태 ----------------------------------------------------------------
     def _unavailable(self) -> MarketError | None:
@@ -277,9 +563,8 @@ class AssistantProxy:
                 exc = MarketError("error", MESSAGES["error"])
             return self._setup_result("unavailable", exc.state, exc.message, None), session["token"]
 
-    @staticmethod
-    def _setup_result(status: str, state: str, message: str | None, conditions: dict | None) -> dict:
-        return {"status": status, "state": state, "message": message, "conditions": conditions}
+    def _setup_result(self, status: str, state: str, message: str | None, conditions: dict | None) -> dict:
+        return {"status": status, "state": state, "message": message, "conditions": self._conditions(conditions)}
 
     def _setup(self, session: dict, force: bool = False) -> tuple[dict, str | None]:
         market, wanted = self.market, self.defaults
@@ -329,6 +614,7 @@ class AssistantProxy:
         call("POST", "/api/onboarding/analysis-selection", {
             "area_code": chosen["area_code"], "period": period, "expected_revision": fresh.get("revision"),
             "expected_catalog_version": options["catalog_version"]})
+        self.home = (chosen["area_code"], wanted.industry_code, period)      # 방금 맞춘 것이 이 자료에서의 우리 가게 기본 조건
         return self._setup_result("ok", "ready", None, conditions()), session["token"]
 
     # 질문·선택지·대화 -----------------------------------------------------------
@@ -337,7 +623,17 @@ class AssistantProxy:
         if problem is not None:
             raise problem
         up = self.market.request(method, path, token, body)
-        return up.data, up.token or token
+        return self._present(up.data), up.token or token
+
+    def message(self, token: str | None, body: dict) -> tuple[Any, str | None]:
+        """질문 1개. 가게 자체를 묻는 질문은 여기서 답하고(상권 서비스를 부르지 않는다) 나머지는 상권 서비스로 넘긴다."""
+        problem = self._unavailable()
+        if problem is not None:
+            raise problem
+        kind = store_question(body.get("text") or "")
+        if kind is None:
+            return self.forward("POST", "/api/assistant/messages", token, body)
+        return store_answer(kind, body["text"], None if kind == "where" else self._store_profile()), token
 
 
 def _pick_area(candidates: list[dict], wanted: SetupDefaults) -> dict | None:
@@ -423,8 +719,7 @@ def create_assistant_router(proxy: AssistantProxy) -> APIRouter:
 
     @router.post("/messages")
     def messages(body: MessageIn, request: Request):
-        return guarded(request, lambda token: proxy.forward("POST", "/api/assistant/messages", token,
-                                                            body.model_dump(exclude_none=True)))
+        return guarded(request, lambda token: proxy.message(token, body.model_dump(exclude_none=True)))
 
     @router.post("/actions")
     def actions(body: ActionIn, request: Request):
