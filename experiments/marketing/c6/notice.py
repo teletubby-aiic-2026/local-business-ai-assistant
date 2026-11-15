@@ -52,6 +52,23 @@ def _drop_leading_time_phrase(sentence: str) -> str:
             return s[len(phrase):].lstrip()
     return s
 
+
+def _dedupe_start_label_line(body: str, start_label: str) -> str:
+    """AI 가 쓴 본문에도 "{start_label} 앞으로/다음부터/이제부터 ..."처럼 시점 표현이 겹치는 줄이
+    있으면 지운다(코드가 붙이는 fallback 문장은 _drop_leading_time_phrase 를 이미 직접 쓴다)."""
+    if not body or not start_label:
+        return body
+    out_lines = []
+    for ln in body.splitlines():
+        stripped = ln.strip()
+        if stripped.startswith(start_label):
+            rest = stripped[len(start_label):].lstrip()
+            new_rest = _drop_leading_time_phrase(rest)
+            if new_rest != rest:
+                stripped = f"{start_label} {new_rest}" if new_rest else start_label
+        out_lines.append(stripped if stripped else ln)
+    return "\n".join(out_lines)
+
 SYSTEM_TMPL = """\
 당신은 {store_name} 사장님입니다. 반복되는 손님 불만에 대해 "모든 손님에게 알리는 공지" 본문 4문장만 쓰세요.
 제목·시작 인사·마무리 인사는 쓰지 마세요. 코드가 따로 붙입니다. JSON이 아니라 문장 그대로 답해도 됩니다.
@@ -190,6 +207,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
             # AI 가 쓴 본문(body)만 본다 — 코드가 붙이는 제목·시작·마무리 줄은 대상이 아니다.
             # 사전(STIFF_WORDS)에 있는 단어만 걸리고, 합니다체 자체는 딱딱함으로 보지 않는다.
             "no_stiff_words": not checks.has_stiff_words(body),
+            "no_broken_ending": checks.no_broken_ending(text),
             "no_overpromise": not checks.has_overpromise(text),
             "no_claimed_action": not checks.has_claimed_action(text),
             "has_apology": checks.has_apology(body),
@@ -221,6 +239,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
     total_won += resp.get("won", 0)
     raw = resp.get("content", "")
     body = parsing.extract_body(raw)  # JSON이든 평문이든 본문을 절대 버리지 않는다
+    body = _dedupe_start_label_line(body, start_label)
 
     text, check_results, failed = _check(body)
 
@@ -244,7 +263,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         body2 = parsing.extract_body(raw)
         rewrites += 1
         if body2:
-            body = body2
+            body = _dedupe_start_label_line(body2, start_label)
         text, check_results, failed = _check(body)
 
     # 딱딱한 표현이 남으면 본문에만 사전대로 단어를 바꾼다 (추가 호출 없음)

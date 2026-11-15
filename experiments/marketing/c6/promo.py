@@ -112,6 +112,7 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
         result = {
             "no_bad_number": not checks.has_number_not_in(text, allowed_numbers),
             "no_personal_info": not checks.personal_info(text),
+            "no_broken_ending": checks.no_broken_ending(text),
             "no_coupon_invented": not checks.coupon_invented(text),
             "no_stiff_words": not checks.has_stiff_words(text),
             "no_fewshot_copy": not checks.fewshot_copied(text, store.menu, review_texts),

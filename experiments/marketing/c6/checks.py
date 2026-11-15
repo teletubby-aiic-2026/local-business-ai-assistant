@@ -26,6 +26,7 @@ _AI_EMPATHY_FORBIDDEN = re.compile(
     r"챙[기겨길]|대조|요청사항|앞으로|다음부터|다음에[는도]?\s*(?:꼭|잘)"
     r"|(?:드릴게요?|드리겠습니다|드리겠어요)[.!?]?(?=\s|$)"
 )
+_BROKEN_ENDING = re.compile(r"[어아]해\s?주|해해|주세주세요")
 _FORMAL_END = re.compile(r"(합니다|습니다|됩니다|입니다|바랍니다|드립니다)[.!?]?\s*$")
 _INFORMAL_END = re.compile(r"(해요|게요|어요|아요|예요|죠)[.!?]?\s*$")
 _STYLE_SUFFIX = {"haeyo": "요", "hamnida": "니다", "mixed": "요"}
@@ -153,6 +154,14 @@ def has_apology(text: str) -> bool:
         return False
     sentences = _SENT_SPLIT.split(text.strip())
     return bool(_APOLOGY.search(" ".join(sentences[:2])))
+
+
+def no_broken_ending(text: str) -> bool:
+    """'적어해주세요'·'어해주'·'아해주'·'해해'·'주세주세요'처럼 동사 뒤에 '해'가 잘못 붙거나
+    어미가 겹친 깨진 형태가 없으면 True(공지·답글·쿠폰 공용)."""
+    if not text:
+        return True
+    return not bool(_BROKEN_ENDING.search(text))
 
 
 def ai_part_only_empathy(text: str) -> bool:
@@ -324,6 +333,7 @@ def fix_hints(failed: list[str], formal: bool = False) -> list[str]:
         "no_fewshot_copy": "예시 문구의 단어를 그대로 베끼지 말고, 같은 단어를 가까이서 반복하지 말아 주세요.",
         "no_unknown_menu": "메뉴에 있는 음식 이름만 써 주세요.",
         "no_markdown": "마크다운 기호(**, #, ` 등) 없이 일반 문장으로 써 주세요.",
+        "no_broken_ending": "'적어해주세요'처럼 깨진 어미 대신 '적어 주세요'처럼 띄어 쓰는 바른 형태로 써 주세요.",
     }
     if formal:
         mapping["no_stiff_words"] = "사전에 있는 딱딱한 표현을 더 자연스러운 표현으로 바꿔 주세요(합니다체는 유지)."

@@ -305,6 +305,51 @@ class TestNoticeFallbackTemplateMock(unittest.TestCase):
         self.assertIn("공깃밥, 수저와 젓가락, 계란말이", notice_draft.text)
 
 
+class TestNoticeAiOverlapMock(unittest.TestCase):
+    """fallback 템플릿뿐 아니라, AI 가 직접 쓴 공지 본문도 "오늘부터" 뒤에 "앞으로"/"다음부터"/
+    "이제부터"가 겹치면 코드가 지운다(c6.notice._dedupe_start_label_line)."""
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_ai_body_with_overlapping_time_phrase_is_deduped(self):
+        card = next(c for c in CTX.cards if c.kind == "complaint")
+        overlapping_body = (
+            "최근 공깃밥, 수저와 젓가락, 계란말이가 빠진 상태로 배달된 일이 있었습니다.\n"
+            "불편을 드려 죄송합니다.\n"
+            "오늘부터 앞으로 포장 마감 전에 주문서와 한 번 더 대조하겠습니다.\n"
+            "이외에도 필요한 게 있으면 요청사항에 적어 주세요."
+        )
+
+        def _overlap(key, system, messages, model="HCX-005", **kw):
+            return _ok(overlapping_body)
+
+        with patch("clova.call", side_effect=_overlap):
+            result = run_card(CTX, card, "fake-key", chosen_measures=[MEASURES[0]])
+
+        notice_draft = next(d for d in result.drafts if d.generator == "prevention_notice")
+        # AI 가 쓴 문장을 그대로 살려 썼다(코드 템플릿으로 바뀌지 않았다)
+        self.assertFalse(notice_draft.checks["used_fallback"], notice_draft.checks)
+        for dup in ("오늘부터 앞으로", "오늘부터 다음부터", "오늘부터 이제부터"):
+            self.assertNotIn(dup, notice_draft.text, notice_draft.text)
+        self.assertIn("오늘부터 포장 마감 전에", notice_draft.text)
+
+
+class TestBrokenEndingMock(unittest.TestCase):
+    """checks.no_broken_ending: '적어해주세요'처럼 동사 뒤에 '해'가 잘못 붙은 깨진 어미를 잡는다."""
+
+    def test_broken_ending_detected(self):
+        self.assertFalse(checks.no_broken_ending("요청사항에 적어해주세요."))
+        for bad in ("어해주", "아해주", "해해", "주세주세요"):
+            self.assertFalse(checks.no_broken_ending(bad), bad)
+
+    def test_normal_ending_passes(self):
+        self.assertTrue(checks.no_broken_ending("요청사항에 적어 주세요."))
+        self.assertTrue(checks.no_broken_ending(""))
+
+    def test_fix_hints_suggests_spaced_form(self):
+        hints = checks.fix_hints(["no_broken_ending"])
+        self.assertIn("적어 주세요", hints[0])
+
+
 class TestJoinItemGroupsMock(unittest.TestCase):
     """common.korean.join_item_groups: 묶음 안은 와/과, 묶음끼리는 쉼표. 답글·공지 템플릿·
     AI 프롬프트에 넘기는 품목 문자열이 모두 이 함수 하나로 만들어진다."""
