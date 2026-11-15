@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import date
 
 from c6.promo import generate_review_promo, review_promo_fallback_text
-from marketing_survey.execute import PROMO_CARD
+from marketing_survey.execute import _card_by_kind
 from marketing_survey.flow import _round_to_step
 from marketing_survey.playbooks import PlaybookStep, _channel_where, _date_label, match_menu
 
@@ -36,7 +36,7 @@ def bundle_price(store, item: str, partner: str) -> dict:
 def _base_text(ctx, item: str | None, key, model) -> str:
     if key is None:
         return review_promo_fallback_text(ctx.store, item)
-    result = generate_review_promo(ctx, PROMO_CARD, key, model=model, menu=item)
+    result = generate_review_promo(ctx, _card_by_kind(ctx, "promo"), key, model=model, menu=item)
     draft = next((d for d in result.drafts if d.generator == "review_promo"), None)
     return draft.text if draft else ""
 

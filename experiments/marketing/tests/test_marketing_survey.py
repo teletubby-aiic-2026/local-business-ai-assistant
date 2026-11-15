@@ -18,9 +18,10 @@ from marketing_survey import (
 from marketing_survey.decide import build_follow_up_strategy, decide
 from marketing_survey.execute import build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
+from marketing_survey.hypotheses import build_hypotheses, window_label
 from marketing_survey.models import SurveyAnswers
 from marketing_survey.survey import answers_from_raw
-from shared.contracts import ReviewRecord
+from shared.contracts import AnalysisSnapshot, RecommendationCard, ReviewRecord, StoreProfile, ToneProfile
 from shared.sample_scenario import (
     SAMPLE_CARDS, SAMPLE_REVIEWS, SAMPLE_SNAPSHOTS, SAMPLE_STORE, SAMPLE_TONE,
 )
@@ -57,6 +58,70 @@ def _store_only_ctx():
     return build_context(
         store=SAMPLE_STORE, reviews=list(SAMPLE_REVIEWS), tone=SAMPLE_TONE,
         cards=list(SAMPLE_CARDS), snapshots=[],
+        owner_replies=OWNER_REPLIES, policies=POLICIES,
+    )
+
+
+#  "가게를 바꿔도 돌아가는지" 검증용 — 온기한식/제육볶음 정식과 전혀 무관한 합성 가게 1개.
+#  실제 store_basak·store_mongle 데이터는 shared/ 에도 아직 없어(이 파일 안에서만 쓰는) 가상 가게다.
+SECOND_STORE = StoreProfile(
+    store_id="store_test2",
+    name="둘째가게 (가상)",
+    business_type="cafe",
+    business_type_name="카페",
+    channels=["baemin", "naver_place"],
+    menu=["딸기라떼", "아메리카노", "크루아상"],
+    menu_prices={"딸기라떼": 6000, "아메리카노": 4500, "크루아상": 4000},
+)
+
+SECOND_TONE = ToneProfile(
+    tone_id="tone_test2", store_id=SECOND_STORE.store_id,
+    style_description="친근한 반말 섞인 말투",
+    example_sentences=["오늘도 맛있게 즐겨주세요!"],
+)
+
+SECOND_REVIEWS = [
+    ReviewRecord(
+        review_id="rv_test2_001", store_id=SECOND_STORE.store_id,
+        text="포장에 수저가 빠진 적 있어요", created_at="2026-10-01T12:00:00+09:00",
+        rating=3, sentiment="negative", negative_topics=["missing_item"], topics=["missing_item"],
+    ),
+    ReviewRecord(
+        review_id="rv_test2_002", store_id=SECOND_STORE.store_id,
+        text="이번에도 수저가 또 빠졌어요", created_at="2026-10-10T12:00:00+09:00",
+        rating=3, sentiment="negative", negative_topics=["missing_item"], topics=["missing_item"],
+    ),
+]
+
+# metric_name 에 '저녁'이 아니라 '점심'을 넣어, 코드가 특정 시간대 낱말에 안 묶여 있는지 본다.
+SECOND_SNAPSHOTS = [
+    AnalysisSnapshot(
+        snapshot_id="snap_test2_001", area_name="테스트 상권",
+        metric_name="점심 시간대 추정매출 (전년 동기 대비 변화율)",
+        value=-12.5, unit="%", basis_quarter="2026Q2", is_estimate=True, source="테스트",
+    ),
+]
+
+# card_id 를 card_sample_a/b 와 다르게 둬서, 카드 찾기가 고정 id 가 아니라 kind 로 되는지 본다.
+SECOND_CARDS = [
+    RecommendationCard(
+        card_id="card_test2_complaint", store_id=SECOND_STORE.store_id, kind="complaint",
+        reason_text="포장 누락이 반복됐어요", review_ids=[r.review_id for r in SECOND_REVIEWS],
+    ),
+    RecommendationCard(
+        card_id="card_test2_promo", store_id=SECOND_STORE.store_id, kind="promo",
+        reason_text="쿠폰 홍보용 카드", snapshot_ids=[s.snapshot_id for s in SECOND_SNAPSHOTS],
+    ),
+]
+
+
+def _second_store_ctx(reviews=None, cards=None, snapshots=None):
+    return build_context(
+        store=SECOND_STORE,
+        reviews=list(SECOND_REVIEWS) if reviews is None else reviews,
+        tone=SECOND_TONE,
+        cards=list(SECOND_CARDS) if cards is None else cards,
+        snapshots=list(SECOND_SNAPSHOTS) if snapshots is None else snapshots,
         owner_replies=OWNER_REPLIES, policies=POLICIES,
     )
 
@@ -568,7 +633,7 @@ class TestDiscountThreadedToPromo(unittest.TestCase):
 
     def test_discount_won_and_menu_are_passed_through(self):
         from unittest.mock import patch
-        from marketing_survey.execute import PROMO_CARD
+        from marketing_survey.execute import _card_by_kind
 
         answers = SurveyAnswers(
             budget_won=200_000, goal="재주문", discount_menu="된장찌개", max_discount_won=3_000,
@@ -587,7 +652,7 @@ class TestDiscountThreadedToPromo(unittest.TestCase):
 
         self.assertIn(f"{expected_discount:,}원", draft.text)
         self.assertIn("된장찌개", draft.text)
-        self.assertEqual(PROMO_CARD.card_id, "card_sample_b")
+        self.assertEqual(_card_by_kind(DEFAULT_CTX, "promo").card_id, "card_sample_b")
 
 
 class TestVirtualStoreScenarios(unittest.TestCase):
@@ -1693,6 +1758,160 @@ class TestIdeasPerGoal(unittest.TestCase):
         ).json()
         self.assertFalse(answered["need_answer"])
         self.assertTrue(answered["skip"])
+
+
+class TestStoreAgnostic(unittest.TestCase):
+    """가게를 바꿔도(둘째가게) 코드가 계산하는 값·문구가 돌아가는지 — 온기한식/제육볶음 정식이
+    안 섞이고, 시간대 낱말('저녁')에도 안 묶이는지 확인한다.
+
+    둘째가게는 이 파일 안에서만 쓰는 가상 StoreProfile 이다 — 실제 store_basak·store_mongle
+    데이터는 shared/ 에 없어(그 가게들의 StoreProfile 자체가 아직 없음) 쓸 수 없었다."""
+
+    def test_window_label_extracts_time_word_from_metric_name(self):
+        self.assertEqual(window_label("점심 시간대 추정매출 (전년 동기 대비 변화율)"), "점심")
+        self.assertEqual(window_label("저녁 시간대 추정매출 (전년 동기 대비 변화율)"), "저녁")
+
+    def test_window_label_falls_back_to_전체_without_time_word_or_metric(self):
+        self.assertEqual(window_label("월간 매출"), "전체")
+        self.assertEqual(window_label(None), "전체")
+
+    def test_area_drop_hypothesis_uses_second_store_window_word(self):
+        ctx = _second_store_ctx(reviews=[], cards=[])
+        hyps = build_hypotheses(ctx, SurveyAnswers(goal="새 손님"))
+        area = next(h for h in hyps if h.id == "H_AREA_DROP")
+        self.assertIn("점심", area.title)
+        self.assertIn("점심", area.question)
+        self.assertNotIn("저녁", area.title)
+        self.assertNotIn("저녁", area.question)
+
+    def test_area_question_text_uses_second_store_window_word(self):
+        ctx = _second_store_ctx(reviews=[], cards=[])
+        text = flow._area_question_text(ctx)
+        self.assertIn("점심", text)
+        self.assertNotIn("저녁", text)
+
+    def test_area_question_text_falls_back_without_snapshot(self):
+        ctx = _second_store_ctx(reviews=[], cards=[], snapshots=[])
+        text = flow._area_question_text(ctx)
+        self.assertIn("전체", text)
+        self.assertNotIn("저녁", text)
+
+    def test_decide_uses_second_store_menu_and_no_ongi_leftovers(self):
+        answers = SurveyAnswers(
+            budget_won=100_000, goal="재주문", discount_menu="딸기라떼", max_discount_won=2_000,
+        )
+        ctx = _second_store_ctx(reviews=[], cards=[], snapshots=[])
+        plan = decide(ctx, answers, confirms={})
+        strat = plan.strategies[0]
+        self.assertEqual(strat.menu, "딸기라떼")
+        blob = strat.title + strat.reason
+        self.assertNotIn("온기한식", blob)
+        self.assertNotIn("제육볶음", blob)
+
+    def test_coupon_calc_uses_second_store_price(self):
+        price = SECOND_STORE.menu_prices["딸기라떼"]
+        figures = coupon_calc.calc(100_000, 500, price, 7_000, 60)
+        self.assertGreater(figures["count"], 0)
+        self.assertEqual(figures["max_cost_won"], figures["count"] * 500)
+
+    def test_leftover_bundle_price_uses_second_store_menu_prices(self):
+        bundle = leftover.bundle_price(SECOND_STORE, "딸기라떼", "크루아상")
+        expected_original = SECOND_STORE.menu_prices["딸기라떼"] + SECOND_STORE.menu_prices["크루아상"]
+        self.assertEqual(bundle["original_won"], expected_original)
+        self.assertNotIn("제육볶음", str(bundle))
+
+    def test_playbook_title_and_measure_have_no_ongi_leftovers(self):
+        answers = SurveyAnswers(
+            budget_won=100_000, goal="재주문", discount_menu="딸기라떼", max_discount_won=2_000,
+        )
+        ctx = _second_store_ctx(reviews=[], cards=[], snapshots=[])
+        plan = decide(ctx, answers, confirms={})
+        strat = plan.strategies[0]
+        out = playbooks.build_playbook(ctx, strat, answers, today=date(2026, 11, 15))
+        blob = out["title"] + out["measure"] + " ".join(s["what"] for s in out["steps"])
+        self.assertNotIn("온기한식", blob)
+        self.assertNotIn("제육볶음", blob)
+
+    def test_card_by_kind_resolves_by_kind_not_fixed_card_id(self):
+        from marketing_survey.execute import _card_by_kind
+
+        ctx = _second_store_ctx()
+        self.assertEqual(_card_by_kind(ctx, "complaint").card_id, "card_test2_complaint")
+        self.assertEqual(_card_by_kind(ctx, "promo").card_id, "card_test2_promo")
+
+    def test_demo_mode_generation_fails_loud_instead_of_leaking_ongi_replay_text(self):
+        """둘째가게의 카드 id 는 c6/replay 저장본에 없다 — 조용히 '온기한식' 저장본 글을 대신
+        돌려주지 않고 바로 에러가 나야 한다(CLOVA 실행 없음, key=None)."""
+        ctx = _second_store_ctx()
+        answers = SurveyAnswers(
+            budget_won=100_000, goal="재주문", discount_menu="딸기라떼", max_discount_won=2_000,
+        )
+        plan = decide(ctx, answers, confirms={})
+        strat = plan.strategies[0]
+        with self.assertRaises(RuntimeError):
+            execute_strategy(ctx, strat, None)
+
+
+class TestStoreRegistry(unittest.TestCase):
+    """marketing_survey.stores — ?store= 로 가게를 고르는 레지스트리."""
+
+    def test_default_store_is_available(self):
+        from marketing_survey import stores
+
+        listed = {s["store_id"]: s for s in stores.list_stores()}
+        self.assertTrue(listed[stores.DEFAULT_STORE_ID]["available"])
+        self.assertIsNotNone(stores.get_ctx(stores.DEFAULT_STORE_ID))
+
+    def test_known_other_stores_are_listed_but_not_available(self):
+        """scripts/pull_team_data.py 가 아는 store_basak·store_mongle — 데이터가 없어 고를 수 없다."""
+        from marketing_survey import stores
+
+        listed = {s["store_id"]: s for s in stores.list_stores()}
+        for store_id in ("store_basak", "store_mongle"):
+            self.assertIn(store_id, listed)
+            self.assertFalse(listed[store_id]["available"])
+        self.assertIsNone(stores.get_ctx("store_basak"))
+        self.assertIsNone(stores.get_ctx("store_mongle"))
+
+
+class TestServerStoreParam(unittest.TestCase):
+    """server.py 의 ?store=store_id — 기본은 store_ongi, 데이터 없는 가게는 404."""
+
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        cls.client = TestClient(app)
+
+    def test_meta_defaults_to_store_ongi(self):
+        res = self.client.get("/api/marketing-survey/meta")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["store_id"], "store_ongi")
+
+    def test_stores_endpoint_lists_availability(self):
+        res = self.client.get("/api/marketing-survey/stores")
+        self.assertEqual(res.status_code, 200, res.text)
+        listed = {s["store_id"]: s["available"] for s in res.json()["stores"]}
+        self.assertEqual(listed["store_ongi"], True)
+        self.assertEqual(listed["store_basak"], False)
+
+    def test_unavailable_store_returns_404_on_step(self):
+        res = self.client.post(
+            "/api/marketing-survey/step",
+            json={"state": None, "answer": None},
+            params={"store": "store_basak"},
+        )
+        self.assertEqual(res.status_code, 404)
+
+    def test_step_works_with_explicit_default_store_param(self):
+        res = self.client.post(
+            "/api/marketing-survey/step",
+            json={"state": None, "answer": None},
+            params={"store": "store_ongi"},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["state"]["node"], "start")
 
 
 if __name__ == "__main__":

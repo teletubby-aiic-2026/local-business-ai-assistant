@@ -33,10 +33,6 @@ from c6.reply import generate_reply_draft
 from marketing_survey import adspend, ideas as _ideas, playbooks
 from marketing_survey.coupon_calc import calc as _coupon_calc
 from marketing_survey.decide import BUSY_TIMING
-from shared.sample_scenario import SAMPLE_CARDS
-
-NOTICE_CARD = next(c for c in SAMPLE_CARDS if c.card_id == "card_sample_a")
-PROMO_CARD = next(c for c in SAMPLE_CARDS if c.card_id == "card_sample_b")
 
 _COUPON_GENERATOR_TYPES = {"leftover_deal", "reorder_coupon", "offpeak_coupon"}
 COUPON_DAYS = 14  # c6.promo.generate_coupon_promo 의 coupon_days 기본값과 같다(명시적으로 둠)
@@ -50,6 +46,15 @@ NOTICE_CHOSEN_MEASURES = [MEASURES[0]]
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 BAEMIN_INTRO_LIMIT = 40
 _BAEMIN_INTRO_FALLBACK_TMPL = "{menu}, 정성껏 만들어 따뜻하게 보내드립니다."
+
+
+def _card_by_kind(ctx, kind: str):
+    """ctx.cards 에서 kind(complaint/promo)로 카드를 찾는다 — card_id 를 박지 않아 가게가
+    바뀌어도(ctx.cards 가 바뀌어도) 그대로 쓸 수 있다."""
+    card = next((c for c in ctx.cards if c.kind == kind), None)
+    if card is None:
+        raise ValueError(f"이 가게엔 kind={kind} 카드가 없어요")
+    return card
 
 
 def _baemin_intro_line(text: str, menu: str | None, limit: int = BAEMIN_INTRO_LIMIT) -> str:
@@ -70,42 +75,45 @@ LATE_NOTICE_TEMPLATE = (
 
 
 def _run_notice(ctx, key, model):
+    notice_card = _card_by_kind(ctx, "complaint")
     if key is None:
         # key 가 없으면 run_card 가 chosen_measures 를 쓰지 않고 저장본을 그대로 재생하지만,
         # 생성 경로(else)와 똑같이 M1을 넘겨 둔다 — 저장본이 chosen_measures 를 쓰게 바뀌어도
         # 조용히 달라지지 않도록.
-        result = run_card(ctx, NOTICE_CARD, None, chosen_measures=NOTICE_CHOSEN_MEASURES)
+        result = run_card(ctx, notice_card, None, chosen_measures=NOTICE_CHOSEN_MEASURES)
     else:
         result = generate_prevention_notice(
-            ctx, NOTICE_CARD, key, model=model, chosen_measures=NOTICE_CHOSEN_MEASURES,
+            ctx, notice_card, key, model=model, chosen_measures=NOTICE_CHOSEN_MEASURES,
         )
     draft = next((d for d in result.drafts if d.generator == "prevention_notice"), None)
     return result, draft
 
 
 def _run_reply(ctx, key, model):
+    notice_card = _card_by_kind(ctx, "complaint")
     if key is None:
         # reply_draft 는 chosen_measures 를 쓰지 않지만(c6.reply 참고), run_card 호출 모양은
         # _run_notice 와 똑같이 맞춰 둔다.
-        result = run_card(ctx, NOTICE_CARD, None, chosen_measures=NOTICE_CHOSEN_MEASURES)
+        result = run_card(ctx, notice_card, None, chosen_measures=NOTICE_CHOSEN_MEASURES)
     else:
-        result = generate_reply_draft(ctx, NOTICE_CARD, key, model=model)
+        result = generate_reply_draft(ctx, notice_card, key, model=model)
     draft = next((d for d in result.drafts if d.generator == "reply_draft"), None)
     return result, draft
 
 
 def _run_review_promo(ctx, strategy, key, model):
+    promo_card = _card_by_kind(ctx, "promo")
     if key is None:
         # review_promo 는 아직 저장본(c6/replay)이 없어, 다른 생성기처럼 run_card 재생 대신
         # AI 없이도 늘 점검을 통과하는 코드 템플릿(review_promo_fallback_text)을 그대로 쓴다.
         text = review_promo_fallback_text(ctx.store, strategy.menu or None)
         draft = DraftOutput(
-            draft_id=f"d_demo_{PROMO_CARD.card_id}", card_id=PROMO_CARD.card_id,
+            draft_id=f"d_demo_{promo_card.card_id}", card_id=promo_card.card_id,
             store_id=ctx.store.store_id, generator="review_promo", text=text,
             data_origin=ctx.store.data_origin,
         )
         return None, draft
-    result = generate_review_promo(ctx, PROMO_CARD, key, model=model, menu=strategy.menu or None)
+    result = generate_review_promo(ctx, promo_card, key, model=model, menu=strategy.menu or None)
     draft = next((d for d in result.drafts if d.generator == "review_promo"), None)
     return result, draft
 
@@ -114,7 +122,8 @@ def _review_promo_text(ctx, menu, key, model):
     """review_promo 생성기를 메뉴 이름만으로 바로 돌린다(기본 할 일 — Strategy 객체가 없어도 된다)."""
     if key is None:
         return review_promo_fallback_text(ctx.store, menu or None)
-    result = generate_review_promo(ctx, PROMO_CARD, key, model=model, menu=menu or None)
+    promo_card = _card_by_kind(ctx, "promo")
+    result = generate_review_promo(ctx, promo_card, key, model=model, menu=menu or None)
     draft = next((d for d in result.drafts if d.generator == "review_promo"), None)
     return draft.text if draft else None
 
@@ -234,15 +243,16 @@ def _idea_entry(idea, ctx, answers):
 
 
 def _run_coupon(ctx, strategy, key, model):
+    promo_card = _card_by_kind(ctx, "promo")
     if key is None:
-        result = run_card(ctx, PROMO_CARD, None)
+        result = run_card(ctx, promo_card, None)
     else:
         # "상권 하락 시간대 우선"은 구체적인 시간대가 아니라, c6 쪽이 상권 지표(snapshot)에서
         # 정확한 시간대("저녁 5~9시 주문 시" 등)를 자동으로 뽑으라는 뜻이라 None(자동)으로 둔다.
         # "한가한 시간대"만 명시적으로 덮어쓴다 — 수용력이 빠듯할 때 상권 신호보다 우선하기 위해서다.
         time_window = BUSY_TIMING if strategy.timing == BUSY_TIMING else None
         result = generate_coupon_promo(
-            ctx, PROMO_CARD, key, model=model,
+            ctx, promo_card, key, model=model,
             coupon_menu=strategy.menu or None,
             coupon_discount=strategy.discount_won or 1000,
             coupon_days=COUPON_DAYS,

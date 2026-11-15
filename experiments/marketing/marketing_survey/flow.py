@@ -33,7 +33,7 @@ follow_up(재주문 쿠폰 질문)은 FOLLOW_UP_START("budget")에서 같은 체
 import re
 
 from marketing_survey import adspend as _adspend
-from marketing_survey.hypotheses import _area_drop_snapshot
+from marketing_survey.hypotheses import _area_drop_snapshot, window_label
 from marketing_survey.playbooks import default_menu as _default_menu
 from marketing_survey.playbooks import match_menu as _match_menu
 
@@ -283,16 +283,17 @@ NODES = {
 
 def _area_question_text(ctx) -> str:
     snap = _area_drop_snapshot(list(ctx.snapshots))
+    window = window_label(snap.metric_name if snap else None)
     if snap is None:
-        return "이 상권 저녁 시간대 매출 자료가 아직 없어요. 가게 저녁 주문은 줄었다고 느끼시나요?"
+        return f"이 상권 {window} 시간대 매출 자료가 아직 없어요. 가게 {window} 주문은 줄었다고 느끼시나요?"
     if snap.value is None:
         return (
-            "이 상권 저녁 시간대 매출 변화율은 아직 수치가 확정되지 않았어요"
-            f"(추정, {snap.basis_label}). 가게 저녁 주문도 줄었나요?"
+            f"이 상권 {window} 시간대 매출 변화율은 아직 수치가 확정되지 않았어요"
+            f"(추정, {snap.basis_label}). 가게 {window} 주문도 줄었나요?"
         )
     return (
-        f"이 상권 저녁 시간대 매출이 {snap.value:g}% 줄었어요(추정, {snap.basis_label}). "
-        "가게 저녁 주문도 줄었나요?"
+        f"이 상권 {window} 시간대 매출이 {snap.value:g}% 줄었어요(추정, {snap.basis_label}). "
+        f"가게 {window} 주문도 줄었나요?"
     )
 
 

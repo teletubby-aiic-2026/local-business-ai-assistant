@@ -9,14 +9,17 @@ const restartBtn = document.getElementById("restart-btn");
 
 let state = null;
 let editedTexts = {};
+let selectedStore = "store_ongi";
+let storeList = [];
 
-/* 11/3 "마케팅 비서" 시안(build.py)의 아이콘 — 꼭 쓰는 것만 가져온다 */
+/* 11/3 "마케팅 비서" 시안의 아이콘 — 꼭 쓰는 것만 가져온다 */
 const ICON_PATHS = {
   spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
   home: '<path d="M3 9l9-6 9 6v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21V12h6v9"/>',
   cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   ticket: '<path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4z"/>',
   check: '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
 };
 
 function icon(name, size = 16) {
@@ -24,16 +27,18 @@ function icon(name, size = 16) {
     `stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[name]}</svg>`;
 }
 
-/* 전략 종류 -> 카드 머리말 아이콘·색(초록/주황). fix_first 는 운영 조치가 먼저라 주황(o)으로 구분한다 */
-function tagForStrategy(type) {
-  if (type === "fix_first") return { name: "check", cls: "o" };
-  if (["leftover_deal", "reorder_coupon", "offpeak_coupon"].includes(type)) return { name: "ticket", cls: "g" };
-  if (type === "review_promo") return { name: "cal", cls: "g" };
-  return { name: "home", cls: "g" };
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+function scrollToRow(row) {
+  row.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 async function postJSON(url, body) {
-  const res = await fetch(url, {
+  const res = await fetch(`${url}?store=${encodeURIComponent(selectedStore)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -43,6 +48,57 @@ async function postJSON(url, body) {
     throw new Error(err.detail || "요청에 실패했어요.");
   }
   return res.json();
+}
+
+/* 머리의 가게 알약 — 데이터가 있는 가게(available=true)만 고를 수 있다. 없는 가게는
+   "데모 데이터 없음"으로 보여만 주고 누를 수 없게(disabled) 한다. */
+function renderStorePicker(list) {
+  storeList = list;
+  const current = list.find((s) => s.store_id === selectedStore) || list[0];
+  if (!current) return;
+  storeNameEl.innerHTML = `
+    <span>예시 가게</span>
+    <div class="store-picker">
+      <button class="pill" id="store-pill" aria-haspopup="listbox" aria-expanded="false"></button>
+      <div class="store-menu" id="store-menu" hidden role="listbox"></div>
+    </div>
+  `;
+  const pillBtn = storeNameEl.querySelector("#store-pill");
+  const menu = storeNameEl.querySelector("#store-menu");
+  pillBtn.textContent = current.name;
+
+  menu.innerHTML = list.map((s) => `
+    <button class="store-menu-item" data-id="${escapeHtml(s.store_id)}" role="option" ${s.available ? "" : "disabled"}>
+      <span>${escapeHtml(s.name)}</span>
+      ${s.available ? "" : '<span class="store-menu-note">데모 데이터 없음</span>'}
+    </button>
+  `).join("");
+
+  const closeMenu = () => {
+    menu.hidden = true;
+    pillBtn.setAttribute("aria-expanded", "false");
+  };
+  pillBtn.onclick = (e) => {
+    e.stopPropagation();
+    const willOpen = menu.hidden;
+    menu.hidden = !willOpen;
+    pillBtn.setAttribute("aria-expanded", String(willOpen));
+  };
+  menu.querySelectorAll(".store-menu-item").forEach((btn) => {
+    if (btn.disabled) return;
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      if (btn.dataset.id === selectedStore) {
+        closeMenu();
+        return;
+      }
+      selectedStore = btn.dataset.id;
+      closeMenu();
+      renderStorePicker(storeList);
+      start();
+    };
+  });
+  document.addEventListener("click", closeMenu, { once: true });
 }
 
 /* 서버 호출 중(제안 생성 등)에는 말풍선 + 점 3개 애니메이션을 보여 주고, 끝나면 지운다.
@@ -57,9 +113,10 @@ function addLoadingBubble() {
   const row = document.createElement("div");
   row.className = "row bot";
   row.innerHTML = `<div class="icon">${icon("spark", 16)}</div>` +
-    `<div class="bubble bot loading">제안을 만들고 있어요<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>`;
+    `<div class="bubble-col"><div class="bubble bot loading" aria-live="polite">제안을 만들고 있어요` +
+    `<span class="dots"><span>.</span><span>.</span><span>.</span></span></div></div>`;
   chatEl.appendChild(row);
-  chatEl.scrollTop = chatEl.scrollHeight;
+  scrollToRow(row);
   return row;
 }
 
@@ -67,7 +124,8 @@ function showRetryPrompt(onRetry) {
   clearOptions();
   const row = document.createElement("div");
   row.className = "row bot";
-  row.innerHTML = `<div class="icon">${icon("spark", 16)}</div><div class="bubble bot">잠시 후 다시 눌러 주세요</div>`;
+  row.innerHTML = `<div class="icon">${icon("spark", 16)}</div>` +
+    `<div class="bubble-col"><div class="bubble bot">잠시 후 다시 눌러 주세요</div></div>`;
   chatEl.appendChild(row);
 
   const btn = document.createElement("button");
@@ -79,25 +137,39 @@ function showRetryPrompt(onRetry) {
     onRetry();
   };
   optionsEl.appendChild(btn);
-  chatEl.scrollTop = chatEl.scrollHeight;
+  scrollToRow(row);
 }
 
-function addBotBubble(text) {
+function addBotBubble(text, hint) {
   const row = document.createElement("div");
   row.className = "row bot";
-  row.innerHTML = `<div class="icon">${icon("spark", 16)}</div><div class="bubble bot"></div>`;
-  row.querySelector(".bubble").textContent = text;
+  const col = document.createElement("div");
+  col.className = "bubble-col";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble bot";
+  bubble.textContent = text;
+  col.appendChild(bubble);
+  if (hint) {
+    const hintEl = document.createElement("div");
+    hintEl.className = "bubble-hint";
+    hintEl.textContent = hint;
+    col.appendChild(hintEl);
+  }
+  row.innerHTML = `<div class="icon">${icon("spark", 16)}</div>`;
+  row.appendChild(col);
   chatEl.appendChild(row);
-  chatEl.scrollTop = chatEl.scrollHeight;
+  scrollToRow(row);
 }
 
 function addUserBubble(text) {
   const row = document.createElement("div");
   row.className = "row user";
-  row.innerHTML = `<div class="bubble user"></div>`;
-  row.querySelector(".bubble").textContent = text;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble user";
+  bubble.textContent = text;
+  row.appendChild(bubble);
   chatEl.appendChild(row);
-  chatEl.scrollTop = chatEl.scrollHeight;
+  scrollToRow(row);
 }
 
 function clearOptions() {
@@ -108,9 +180,13 @@ function renderOptions(options, multi) {
   clearOptions();
   if (multi) {
     const selected = new Set();
+    const next = document.createElement("button");
+    next.className = "next-btn";
+    next.textContent = "다음";
+    next.disabled = true;
     options.forEach((opt) => {
       const btn = document.createElement("button");
-      btn.className = "opt-btn";
+      btn.className = "opt-btn toggle";
       btn.textContent = opt.label;
       btn.onclick = () => {
         if (selected.has(opt.value)) {
@@ -120,15 +196,13 @@ function renderOptions(options, multi) {
           selected.add(opt.value);
           btn.classList.add("selected");
         }
+        next.disabled = selected.size === 0;
       };
       optionsEl.appendChild(btn);
     });
-    const next = document.createElement("button");
-    next.className = "next-btn";
-    next.textContent = "다음";
     next.onclick = () => {
       const chosenLabels = options.filter((o) => selected.has(o.value)).map((o) => o.label);
-      handleAnswer(Array.from(selected), chosenLabels.length ? chosenLabels.join(", ") : "(선택 안 함)");
+      handleAnswer(Array.from(selected), chosenLabels.join(", "));
     };
     optionsEl.appendChild(next);
     return;
@@ -137,20 +211,98 @@ function renderOptions(options, multi) {
     const btn = document.createElement("button");
     btn.className = "opt-btn";
     btn.textContent = opt.label;
-    btn.onclick = () => handleAnswer(opt.label, opt.label);
+    btn.onclick = () => {
+      optionsEl.querySelectorAll(".opt-btn").forEach((b) => {
+        b.disabled = true;
+        b.classList.remove("selected");
+      });
+      btn.classList.add("selected");
+      handleAnswer(opt.label, opt.label);
+    };
     optionsEl.appendChild(btn);
   });
 }
 
-/* free_input 노드(숫자/텍스트 직접 입력) — 버튼 대신 입력칸 + [보내기]를 보인다.
-   suggest_menu 로 보기 버튼도 같이 오면 renderPrompt 가 버튼 먼저 그리고 이 입력칸을 이어 붙인다. */
-function renderInput(spec) {
+/* 숫자 입력 키 -> 단위 표시(서버 응답 필드가 아니라 화면 표시만을 위한 추정 매핑). */
+const KEY_UNIT = {
+  leftover_portions: "인분",
+  _adspend_spend_entry: "원",
+  _adspend_orders_entry: "건",
+  adspend_avg_amount_won: "원",
+  coupon_issued: "장",
+  coupon_used: "장",
+  coupon_discount_won: "원",
+  coupon_avg_order_won: "원",
+  survey_avg_order_won: "원",
+};
+
+function renderNumberInput(spec) {
+  const unit = KEY_UNIT[spec.key] || "";
+  const row = document.createElement("div");
+  row.className = "input-row";
+
+  const wrap = document.createElement("div");
+  wrap.className = "number-input-wrap";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.inputMode = "numeric";
+  input.placeholder = "숫자로 답해 주세요";
+  wrap.appendChild(input);
+  if (unit) {
+    const unitEl = document.createElement("span");
+    unitEl.className = "unit";
+    unitEl.textContent = unit;
+    wrap.appendChild(unitEl);
+  }
+  row.appendChild(wrap);
+
+  const btn = document.createElement("button");
+  btn.className = "next-btn";
+  btn.textContent = "보내기";
+  row.appendChild(btn);
+
+  const errEl = document.createElement("div");
+  errEl.className = "input-error";
+  errEl.style.display = "none";
+
+  input.addEventListener("input", () => {
+    const digits = input.value.replace(/[^0-9]/g, "");
+    input.value = digits ? Number(digits).toLocaleString("ko-KR") : "";
+  });
+
+  const submit = () => {
+    const digits = input.value.replace(/[^0-9]/g, "");
+    if (!digits) {
+      errEl.textContent = "숫자를 입력해 주세요";
+      errEl.style.display = "block";
+      return;
+    }
+    handleAnswer(digits, `${Number(digits).toLocaleString("ko-KR")}${unit}`);
+  };
+  btn.onclick = submit;
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submit();
+  });
+
+  optionsEl.appendChild(row);
+  if (spec.skip) {
+    const skipBtn = document.createElement("button");
+    skipBtn.className = "opt-btn";
+    skipBtn.textContent = "건너뛰기";
+    skipBtn.onclick = () => handleAnswer("", "건너뛰기");
+    optionsEl.appendChild(skipBtn);
+  }
+  optionsEl.appendChild(errEl);
+  input.focus();
+}
+
+function renderTextInput() {
   const row = document.createElement("div");
   row.className = "input-row";
   const input = document.createElement("input");
   input.className = "text-input";
-  input.type = spec.type === "number" ? "number" : "text";
-  input.placeholder = spec.type === "number" ? "숫자로 답해 주세요" : "답을 입력해 주세요";
+  input.type = "text";
+  input.placeholder = "답을 입력해 주세요";
   const btn = document.createElement("button");
   btn.className = "next-btn";
   btn.textContent = "보내기";
@@ -166,14 +318,60 @@ function renderInput(spec) {
   row.appendChild(input);
   row.appendChild(btn);
   optionsEl.appendChild(row);
-  if (spec.skip) {
-    const skipBtn = document.createElement("button");
-    skipBtn.className = "opt-btn";
-    skipBtn.textContent = "건너뛰기";
-    skipBtn.onclick = () => handleAnswer("", "건너뛰기");
-    optionsEl.appendChild(skipBtn);
-  }
   input.focus();
+}
+
+/* 가게 이야기 등 자유 입력 — 여러 줄 칸 + 글자 수 + [보내기][건너뛰기]. */
+function renderFreeformArea() {
+  const wrap = document.createElement("div");
+  wrap.className = "textarea-wrap";
+  const area = document.createElement("textarea");
+  area.className = "freeform-area";
+  area.placeholder = "답을 입력해 주세요";
+
+  const meta = document.createElement("div");
+  meta.className = "freeform-meta";
+  const count = document.createElement("span");
+  count.className = "freeform-count";
+  count.textContent = "0자";
+  const actions = document.createElement("div");
+  actions.className = "freeform-actions";
+  const skipBtn = document.createElement("button");
+  skipBtn.className = "opt-btn";
+  skipBtn.textContent = "건너뛰기";
+  const sendBtn = document.createElement("button");
+  sendBtn.className = "next-btn";
+  sendBtn.textContent = "보내기";
+  actions.appendChild(skipBtn);
+  actions.appendChild(sendBtn);
+  meta.appendChild(count);
+  meta.appendChild(actions);
+
+  wrap.appendChild(area);
+  wrap.appendChild(meta);
+
+  area.addEventListener("input", () => {
+    count.textContent = `${area.value.length}자`;
+  });
+  sendBtn.onclick = () => {
+    const value = area.value.trim();
+    if (!value) return;
+    handleAnswer(value, value);
+  };
+  skipBtn.onclick = () => handleAnswer("", "건너뛰기");
+
+  optionsEl.appendChild(wrap);
+  area.focus();
+}
+
+function renderInput(spec) {
+  if (spec.type === "number") {
+    renderNumberInput(spec);
+  } else if (spec.skip) {
+    renderFreeformArea();
+  } else {
+    renderTextInput();
+  }
 }
 
 function renderExample(text) {
@@ -219,7 +417,7 @@ async function runStep(answer) {
   if (data.done) {
     await showDecision();
   } else {
-    data.bot_messages.forEach(addBotBubble);
+    data.bot_messages.forEach((t) => addBotBubble(t));
     renderPrompt(data);
   }
 }
@@ -232,26 +430,127 @@ function roundToStep(value, step) {
   return Math.round(value / step) * step;
 }
 
+/* ---------- 판정 배지 ---------- */
+
+const VERDICT_BADGE = {
+  "손해 광고": { cls: "bad", label: "손해 광고" },
+  "주의": { cls: "warn", label: "주의" },
+  "괜찮음": { cls: "good", label: "괜찮음" },
+};
+
+function worstAdspendVerdict(table) {
+  const rank = { "괜찮음": 0, "주의": 1, "손해 광고": 2 };
+  const judged = table.filter((r) => r.verdict);
+  if (!judged.length) return null;
+  return judged.reduce((a, b) => (rank[b.verdict] > rank[a.verdict] ? b : a)).verdict;
+}
+
+/* 결과 카드 머리의 판정 배지 — 서버가 이미 준 판정(verdict/usage_rate/strategy_type)만 보고 가른다. */
+function badgeFor(data) {
+  if (data.table) {
+    const worst = worstAdspendVerdict(data.table);
+    return worst ? VERDICT_BADGE[worst] : null;
+  }
+  if (data.strategy_type === "fix_first") {
+    return { cls: "bad", label: "먼저 고치기" };
+  }
+  if (data.usage_rate !== undefined) {
+    const rate = data.usage_rate;
+    if (rate == null) return { cls: "bad", label: "점검 필요" };
+    if (rate < 0.2) return { cls: "warn", label: "주의" };
+    if (rate <= 0.5) return { cls: "good", label: "같은 조건 유지" };
+    return { cls: "warn", label: "할인 큼" };
+  }
+  return { cls: "info", label: "정보" };
+}
+
+function buildBadgeEl(info) {
+  const el = document.createElement("span");
+  el.className = `badge ${info.cls}`;
+  el.textContent = info.label;
+  return el;
+}
+
+function updateBadgeEl(el, info) {
+  if (!el) return;
+  el.className = `badge ${info.cls}`;
+  el.textContent = info.label;
+}
+
+function addApprovedBadge(head) {
+  const el = document.createElement("span");
+  el.className = "badge good";
+  el.textContent = "승인됨";
+  head.appendChild(el);
+}
+
+/* ---------- 숫자 타일 / 왜 이렇게 판단했나요 ---------- */
+
+function buildTiles(data) {
+  if (data.table) {
+    const flagged = data.table.filter((r) => r.verdict && r.verdict !== "괜찮음");
+    const tiles = [
+      { n: `${data.table.length}개`, l: "점검한 채널" },
+      { n: `${flagged.length}개`, l: "주의·손해 채널" },
+    ];
+    if (data.profit_per_order_won != null) {
+      tiles.push({ n: fmtWon(data.profit_per_order_won), l: "건당 이익(추정)" });
+    }
+    return tiles;
+  }
+  if (data.usage_rate !== undefined) {
+    const tiles = [];
+    if (data.usage_rate != null) tiles.push({ n: `${Math.round(data.usage_rate * 100)}%`, l: "쿠폰 사용률" });
+    if (data.issued != null && data.used != null) tiles.push({ n: `${data.issued}장 / ${data.used}장`, l: "발급 / 사용" });
+    if (data.total_discount_cost_won != null) tiles.push({ n: fmtWon(data.total_discount_cost_won), l: "총 할인 비용" });
+    if (data.breakeven_orders != null) tiles.push({ n: `${data.breakeven_orders}건`, l: "본전 주문 수" });
+    return tiles;
+  }
+  if (data.coupon_card) {
+    const c = data.coupon_card;
+    const tiles = [{ n: fmtWon(c.discount_won), l: "할인액" }];
+    if (c.count) tiles.push({ n: `${c.count}장`, l: "발급 수량" });
+    if (c.breakeven_orders != null) tiles.push({ n: `${c.breakeven_orders}건`, l: "본전 주문 수" });
+    return tiles;
+  }
+  return [];
+}
+
+function buildWhyBox(data) {
+  const text = data.summary || (data.steps && data.steps.length === 1 ? data.steps[0].tip : null);
+  if (!text) return null;
+  const box = document.createElement("div");
+  box.className = "why-box";
+  box.innerHTML = `<div class="why-label">왜 이렇게 판단했나요</div><div>${escapeHtml(text)}</div>` +
+    `<div class="why-source">사장님 답변과 가게 데이터 기준</div>`;
+  return box;
+}
+
+/* ---------- 쿠폰 슬라이더 / 쿠폰 카드 ---------- */
+
 /* 쿠폰 계산 슬라이더 — 월 예산·할인액 2개, 움직일 때마다 150ms 디바운스로 /coupon-calc 를 불러
    계산 결과(장수·최대 비용·본전 주문 수)를 그려 준다. 계산은 전부 서버(coupon_calc.calc), 이 함수는
-   화면만 그린다. */
-function buildCouponCalcPanel(coupon, state) {
+   화면만 그린다. onFigures 는 할인율이 바뀔 때마다 결과를 상위(판정 배지)에 알리는 선택적 콜백이다. */
+function buildCouponCalcPanel(coupon, state, onFigures) {
   const input = coupon.calc_input;
   const price = input.price_won || 0;
   const minDiscount = Math.max(100, roundToStep(price * 0.05, 100));
   const maxDiscount = Math.max(minDiscount, roundToStep(price * 0.3, 100));
   const startDiscount = Math.min(Math.max(input.discount_won, minDiscount), maxDiscount);
+  const maxBudget = 300000;
 
   const panel = document.createElement("div");
   panel.className = "coupon-calc";
   panel.innerHTML = `
     <div class="slider-row">
       <label>월 예산 <span class="slider-val" data-k="budget">${fmtWon(input.budget_won)}</span></label>
-      <input type="range" min="0" max="300000" step="10000" value="${input.budget_won}" data-k="budget">
+      <input type="range" min="0" max="${maxBudget}" step="10000" value="${input.budget_won}" data-k="budget" aria-label="월 예산">
+      <div class="slider-minmax"><span>0원</span><span>${fmtWon(maxBudget)}</span></div>
     </div>
     <div class="slider-row">
       <label>할인액 <span class="slider-val" data-k="discount">${fmtWon(startDiscount)}</span></label>
-      <input type="range" min="${minDiscount}" max="${maxDiscount}" step="100" value="${startDiscount}" data-k="discount">
+      <input type="range" min="${minDiscount}" max="${maxDiscount}" step="100" value="${startDiscount}" data-k="discount" aria-label="할인액">
+      <div class="slider-minmax"><span>${fmtWon(minDiscount)}</span><span>${fmtWon(maxDiscount)}</span></div>
     </div>
     <div class="budget-bar"><div class="budget-bar-fill"></div></div>
     <div class="budget-bar-label"></div>
@@ -280,6 +579,7 @@ function buildCouponCalcPanel(coupon, state) {
     panel.querySelector('[data-t="breakeven"]').textContent =
       fig.breakeven_orders != null ? `${fig.breakeven_orders}건` : "-";
     panel.querySelector(".calc-warn").style.display = fig.discount_pct > 20 ? "block" : "none";
+    if (onFigures) onFigures(fig);
   }
 
   async function recalc() {
@@ -320,7 +620,7 @@ function buildCouponCalcPanel(coupon, state) {
   return panel;
 }
 
-function buildCouponCard(coupon, state) {
+function buildCouponCard(coupon, state, onFigures) {
   const box = document.createElement("div");
   box.className = "coupon-card";
   const rows = [
@@ -329,55 +629,88 @@ function buildCouponCard(coupon, state) {
     ["시간대", coupon.timing || null],
     ["유효기간", `발급일 포함 ${coupon.days}일`],
   ].filter(([, v]) => v != null && v !== "-");
-  const kvHtml = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join("");
+  const kvHtml = rows.map(([k, v]) => `<span>${escapeHtml(k)}</span><span>${escapeHtml(String(v))}</span>`).join("");
   box.innerHTML = `
     <div class="cap">쿠폰 이름</div>
-    <div class="title">${coupon.menu || "대표 메뉴"} ${fmtWon(coupon.discount_won)} 할인</div>
-    <div class="kv">${kvHtml}</div>
+    <div class="title">${escapeHtml(coupon.menu || "대표 메뉴")} ${fmtWon(coupon.discount_won)} 할인</div>
+    <div class="coupon-kv">${kvHtml}</div>
   `;
   if (coupon.breakeven_orders != null) {
     const tile = document.createElement("div");
-    tile.className = "basis";
+    tile.className = "note-line";
     tile.textContent = `본전이 되려면 ${coupon.breakeven_orders}건이 필요해요`;
     box.appendChild(tile);
   }
   if (coupon.calc_input) {
-    box.appendChild(buildCouponCalcPanel(coupon, state));
+    box.appendChild(buildCouponCalcPanel(coupon, state, onFigures));
   }
   return box;
 }
 
-/* 글 상자 하나(모든 기능이 공통으로 쓴다) — [고치기]를 누르면 textarea + [저장][취소]로 바뀐다.
-   저장하면 editedTexts[key] 에 고친 글을 들고 있다가 [승인] 때 approve 요청에 실어 보낸다.
-   서버가 edit_failed 를 돌려주면(개인정보·보상 약속) 빨간 안내를 보여준다. */
+/* ---------- 글 상자(모든 기능 공통) ---------- */
+
+/* [고치기]를 누르면 textarea + [저장][취소]로 바뀐다. 저장하면 editedTexts[key] 에 고친 글을 들고
+   있다가 [승인] 때 approve 요청에 실어 보낸다. 서버가 edit_failed 를 돌려주면(개인정보·보상 약속)
+   빨간 안내를 보여준다. [복사]는 클립보드에 쓰고 1.5초간 "복사됨"으로 바뀐다. */
 function buildDraftBox(key, text) {
   const wrap = document.createElement("div");
   wrap.className = "draft-wrap";
+  wrap.dataset.key = key;
+
+  const head = document.createElement("div");
+  head.className = "draft-head";
+
+  const badge = document.createElement("span");
+  badge.className = "draft-badge";
+  badge.textContent = "고친 글";
+  badge.style.display = editedTexts[key] ? "inline-flex" : "none";
+
+  const btns = document.createElement("div");
+  btns.className = "draft-head-btns";
+  const editBtn = document.createElement("button");
+  editBtn.className = "icon-btn";
+  editBtn.textContent = "고치기";
+  editBtn.setAttribute("aria-label", "글 고치기");
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "icon-btn";
+  copyBtn.textContent = "복사";
+  copyBtn.setAttribute("aria-label", "글 복사하기");
+  btns.appendChild(editBtn);
+  btns.appendChild(copyBtn);
+
+  head.appendChild(badge);
+  head.appendChild(btns);
 
   const box = document.createElement("div");
   box.className = "draft-box";
-  box.textContent = text;
-
-  const editBtn = document.createElement("button");
-  editBtn.className = "edit-btn";
-  editBtn.textContent = "고치기";
+  box.textContent = editedTexts[key] ?? text;
 
   const errBox = document.createElement("div");
   errBox.className = "warn-box";
   errBox.style.display = "none";
 
-  const head = document.createElement("div");
-  head.className = "draft-head";
-  head.appendChild(editBtn);
-
   wrap.appendChild(head);
   wrap.appendChild(box);
   wrap.appendChild(errBox);
 
-  wrap.dataset.key = key;
   wrap.showEditError = (reasons) => {
     errBox.textContent = reasons.join(", ");
     errBox.style.display = reasons.length ? "block" : "none";
+  };
+
+  copyBtn.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(editedTexts[key] ?? text);
+      const original = copyBtn.textContent;
+      copyBtn.textContent = "복사됨";
+      copyBtn.disabled = true;
+      setTimeout(() => {
+        copyBtn.textContent = original;
+        copyBtn.disabled = false;
+      }, 1500);
+    } catch (e) {
+      /* 클립보드 권한이 없으면 조용히 무시 */
+    }
   };
 
   editBtn.onclick = () => {
@@ -398,7 +731,7 @@ function buildDraftBox(key, text) {
     actionsRow.appendChild(cancelBtn);
 
     box.replaceWith(textarea);
-    head.appendChild(actionsRow);
+    wrap.insertBefore(actionsRow, errBox);
     editBtn.style.display = "none";
 
     saveBtn.onclick = () => {
@@ -407,6 +740,7 @@ function buildDraftBox(key, text) {
       textarea.replaceWith(box);
       actionsRow.remove();
       editBtn.style.display = "";
+      badge.style.display = "inline-flex";
       errBox.style.display = "none";
     };
     cancelBtn.onclick = () => {
@@ -419,94 +753,117 @@ function buildDraftBox(key, text) {
   return wrap;
 }
 
-function buildStepCard(step, index, draftText) {
-  const el = document.createElement("div");
-  el.className = "step-card";
-  const whereHtml = step.where && step.where !== "-" ? ` <span class="where-text">· ${step.where}</span>` : "";
-  el.innerHTML = `
-    <div class="step-head">${index + 1}. ${step.what}</div>
-    <div class="step-meta">${step.when}${whereHtml}</div>
-  `;
-  if (draftText) {
-    el.appendChild(buildDraftBox(step.step_id, draftText));
+/* ---------- 할 일 목록 ---------- */
 
-    const copyBtn = document.createElement("button");
-    copyBtn.className = "btn-secondary";
-    copyBtn.textContent = "복사하기";
-    copyBtn.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(editedTexts[step.step_id] ?? draftText);
-      } catch (e) {
-        /* 클립보드 권한이 없으면 조용히 무시 */
-      }
-    };
-    el.appendChild(copyBtn);
+function buildTodoHeader(data) {
+  if (!data.steps || !data.steps.length) return null;
+  const costPart = data.total_cost_krw ? ` · 추정 비용 ${fmtWon(data.total_cost_krw)}` : "";
+  const head = document.createElement("div");
+  head.className = "todo-head";
+  head.textContent = `이번 주 할 일 ${data.steps.length}개 · 약 ${data.total_minutes}분${costPart}`;
+  return head;
+}
+
+function buildTodoItem(step, index, draftText) {
+  const item = document.createElement("div");
+  item.className = "todo-item";
+  const costHtml = step.cost_krw ? `<span class="todo-cost">${fmtWon(step.cost_krw)}</span>` : "";
+  item.innerHTML = `
+    <div class="todo-item-top">
+      <div class="todo-num">${index + 1}</div>
+      <div class="todo-title">${escapeHtml(step.what)}</div>
+      <div class="todo-meta">
+        <span class="todo-when">${escapeHtml(step.when)}</span>
+        <span class="todo-minutes">${step.minutes}분</span>
+        ${costHtml}
+      </div>
+    </div>
+  `;
+  if (step.where && step.where !== "-") {
+    const where = document.createElement("div");
+    where.className = "todo-where";
+    where.textContent = step.where;
+    item.appendChild(where);
   }
-  if (step.cost_krw) {
-    const cost = document.createElement("div");
-    cost.className = "basis";
-    cost.textContent = `비용(추정): ${fmtWon(step.cost_krw)}`;
-    el.appendChild(cost);
+  if (draftText) {
+    item.appendChild(buildDraftBox(step.step_id, draftText));
   }
   if (step.tip) {
     const tip = document.createElement("div");
-    tip.className = "basis";
+    tip.className = "todo-tip";
     tip.textContent = `체크: ${step.tip}`;
-    el.appendChild(tip);
+    item.appendChild(tip);
   }
-  return el;
+  return item;
 }
 
-/* 광고비 점검 전용 — 채널별 표(광고비·주문 수·건당 광고비·건당 이익·판정 배지) */
-function buildAdspendTable(data) {
-  const box = document.createElement("div");
-
-  if (data.summary) {
-    const summary = document.createElement("div");
-    summary.className = "why-box";
-    summary.textContent = data.summary;
-    box.appendChild(summary);
-  }
-
+/* 광고비 점검처럼 steps 가 없고 단순 문자열 할 일(todos)만 오는 경우 — 같은 할 일 모양을 재사용한다. */
+function buildPlainTodoSection(todos, note) {
+  if (!todos || !todos.length) return null;
   const wrap = document.createElement("div");
-  wrap.className = "kv";
-  wrap.style.gridTemplateColumns = "repeat(5, 1fr)";
-  const headers = ["채널", "광고비", "주문 수", "건당 광고비", "판정"];
-  headers.forEach((h) => {
-    const span = document.createElement("span");
-    span.style.fontWeight = "700";
-    span.textContent = h;
-    wrap.appendChild(span);
-  });
-  data.table.forEach((r) => {
-    wrap.appendChild(Object.assign(document.createElement("span"), { textContent: r.label }));
-    wrap.appendChild(Object.assign(document.createElement("span"), { textContent: fmtWon(r.spend_won) }));
-    wrap.appendChild(Object.assign(document.createElement("span"), { textContent: `${r.orders}건` }));
-    wrap.appendChild(Object.assign(document.createElement("span"), {
-      textContent: r.cost_per_order_won == null ? "-" : fmtWon(r.cost_per_order_won),
-    }));
-    wrap.appendChild(Object.assign(document.createElement("span"), { textContent: r.verdict || "-" }));
-  });
-  box.appendChild(wrap);
+  wrap.style.display = "flex";
+  wrap.style.flexDirection = "column";
+  wrap.style.gap = "10px";
 
-  const note = document.createElement("div");
-  note.className = "basis";
-  note.textContent = `건당 이익(추정): ${fmtWon(data.profit_per_order_won)} ` +
-    `(평균 주문 금액 ${fmtWon(data.avg_order_won)} x 남는 비율 ${data.margin_pct}%)`;
-  box.appendChild(note);
+  const head = document.createElement("div");
+  head.className = "todo-head";
+  head.textContent = `할 일 ${todos.length}개`;
+  wrap.appendChild(head);
 
-  if (data.todos && data.todos.length) {
-    const todos = document.createElement("div");
-    todos.className = "basis";
-    todos.textContent = `할 일: ${data.todos.join(", ")}` + (data.todo_note ? ` (${data.todo_note})` : "");
-    box.appendChild(todos);
+  const list = document.createElement("div");
+  list.className = "todo-list";
+  todos.forEach((t, i) => {
+    const item = document.createElement("div");
+    item.className = "todo-item";
+    item.innerHTML = `<div class="todo-item-top"><div class="todo-num">${i + 1}</div>` +
+      `<div class="todo-title">${escapeHtml(t)}</div></div>`;
+    list.appendChild(item);
+  });
+  wrap.appendChild(list);
+
+  if (note) {
+    const noteEl = document.createElement("div");
+    noteEl.className = "note-line";
+    noteEl.textContent = note;
+    wrap.appendChild(noteEl);
   }
+  return wrap;
+}
 
+/* ---------- 광고비 점검 — 표 + 채널별 가로 막대 ---------- */
+
+function buildAdspendVisual(data) {
+  const box = document.createElement("div");
+  box.style.display = "flex";
+  box.style.flexDirection = "column";
+  box.style.gap = "14px";
+
+  const scrollWrap = document.createElement("div");
+  scrollWrap.className = "table-scroll";
+  const table = document.createElement("table");
+  table.className = "ad-table";
+  const headers = ["앱", "광고비", "주문", "건당 광고비", "건당 이익", "판정"];
+  table.innerHTML = `<thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>`;
+  const tbody = document.createElement("tbody");
+  data.table.forEach((r) => {
+    const badge = r.verdict ? VERDICT_BADGE[r.verdict] : null;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(r.label)}</td>
+      <td class="num">${fmtWon(r.spend_won)}</td>
+      <td class="num">${r.orders}건</td>
+      <td class="num">${r.cost_per_order_won == null ? "-" : fmtWon(r.cost_per_order_won)}</td>
+      <td class="num">${fmtWon(r.profit_per_order_won)}</td>
+      <td>${badge ? `<span class="badge ${badge.cls}">${escapeHtml(badge.label)}</span>` : "-"}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  scrollWrap.appendChild(table);
+  box.appendChild(scrollWrap);
   box.appendChild(buildAdspendBars(data.table));
   return box;
 }
-
-const VERDICT_CLASS = { "손해 광고": "bad", "주의": "warn", "괜찮음": "good" };
 
 /* 채널별 가로 막대 2개(건당 광고비 / 건당 이익), 같은 눈금 — 슬라이더 없음, 서버 값만 그린다. */
 function buildAdspendBars(rows) {
@@ -517,11 +874,11 @@ function buildAdspendBars(rows) {
   const scale = Math.max(...judged.flatMap((r) => [r.cost_per_order_won, r.profit_per_order_won]), 1);
 
   judged.forEach((r) => {
-    const cls = VERDICT_CLASS[r.verdict] || "good";
+    const cls = (VERDICT_BADGE[r.verdict] || {}).cls || "good";
     const row = document.createElement("div");
     row.className = "adspend-bar-row";
     row.innerHTML = `
-      <div class="adspend-bar-label">${r.label}</div>
+      <div class="adspend-bar-label">${escapeHtml(r.label)}</div>
       <div class="adspend-bar-pair">
         <div class="adspend-bar-track">
           <div class="adspend-bar-fill ${cls}" style="width:${(r.cost_per_order_won / scale) * 100}%"></div>
@@ -540,14 +897,15 @@ function buildAdspendBars(rows) {
   return box;
 }
 
-/* "AI 추천 아이디어" 상자 — 정보 파랑 배지 + 제목·왜·할 일·(글). 아이디어는 목표 하나에만
-   배정되어 있어 [다른 아이디어 보기]도 그 목표 안에서만 순환한다(서버 /next-idea, 무작위 아님).
-   질문이 필요한 아이디어(custom_option·weekly_side·neighbor_cross)는 바로 글을 보여주지 않고
-   [이 아이디어 해 보기]를 눌렀을 때만 질문을 잇는다(/idea-try) — "아니요"처럼 조건이 안 맞으면
-   (skip=true) 자동으로 다음 아이디어로 넘어간다. */
+/* ---------- AI 추천 아이디어 ---------- */
+
+/* 아이디어는 목표 하나에만 배정되어 있어 [다른 아이디어 보기]도 그 목표 안에서만 순환한다
+   (서버 /next-idea, 무작위 아님). 질문이 필요한 아이디어(custom_option·weekly_side·neighbor_cross)는
+   바로 글을 보여주지 않고 [이 아이디어 해 보기]를 눌렀을 때만 질문을 잇는다(/idea-try) —
+   "아니요"처럼 조건이 안 맞으면(skip=true) 자동으로 다음 아이디어로 넘어간다. */
 function buildIdeaBox(idea, index) {
   const box = document.createElement("div");
-  box.className = "step-card idea-box";
+  box.className = "idea-box";
   const nextBtn = document.createElement("button");
   nextBtn.className = "btn-secondary";
   nextBtn.textContent = "다른 아이디어 보기";
@@ -567,12 +925,13 @@ function buildIdeaBox(idea, index) {
   function askQuestion(idea, questionType, afterRow) {
     const row = document.createElement("div");
     row.className = "input-row";
+    row.style.margin = "0";
     const submit = async (answer) => {
       row.remove();
       const r = await postJSON(`${API}/idea-try`, { state, idea_id: idea.id, index, answer });
       if (r.skip) {
         const note = document.createElement("div");
-        note.className = "basis";
+        note.className = "note-line";
         note.textContent = "이 아이디어는 지금은 건너뛸게요.";
         box.appendChild(note);
         await goToNext();
@@ -603,10 +962,15 @@ function buildIdeaBox(idea, index) {
   }
 
   function render(idea) {
-    box.innerHTML = `<div class="tag b"><i>${icon("spark", 14)}</i>AI 추천 아이디어</div>
-      <div class="step-head">${idea.title}</div>
-      <div class="step-meta">${idea.why}</div>` +
-      idea.todos.map((t) => `<div class="step-meta">· ${t}</div>`).join("");
+    box.innerHTML = `<div class="idea-head"><span class="idea-badge">${icon("spark", 12)}AI 추천 아이디어</span></div>` +
+      `<div class="idea-title">${escapeHtml(idea.title)}</div>` +
+      `<div class="idea-why">${escapeHtml(idea.why)}</div>` +
+      (idea.todos.length
+        ? `<div class="idea-todos">${idea.todos.map((t) => `<div>· ${escapeHtml(t)}</div>`).join("")}</div>`
+        : "");
+
+    const actions = document.createElement("div");
+    actions.className = "idea-actions";
 
     if (idea.id === "story_link") {
       const linkBtn = document.createElement("button");
@@ -619,7 +983,7 @@ function buildIdeaBox(idea, index) {
         addBotBubble(r.bot_messages[0]);
         renderPrompt(r);
       };
-      box.appendChild(linkBtn);
+      actions.appendChild(linkBtn);
     } else if (idea.needs_question) {
       const tryBtn = document.createElement("button");
       tryBtn.className = "btn-secondary";
@@ -627,16 +991,17 @@ function buildIdeaBox(idea, index) {
       tryBtn.onclick = () => {
         tryBtn.remove();
         const q = document.createElement("div");
-        q.className = "example-line";
+        q.className = "idea-why";
         q.textContent = idea.question;
         box.appendChild(q);
         askQuestion(idea, idea.question_type, box);
       };
-      box.appendChild(tryBtn);
+      actions.appendChild(tryBtn);
     } else if (idea.draft) {
       box.appendChild(buildDraftBox(`idea_${idea.id}`, idea.draft));
     }
-    box.appendChild(nextBtn);
+    actions.appendChild(nextBtn);
+    box.appendChild(actions);
   }
   render(idea);
 
@@ -647,6 +1012,49 @@ function buildIdeaBox(idea, index) {
   };
   return box;
 }
+
+/* ---------- 개선 인증 소식(데모) ---------- */
+
+/* 공지 기준일 앞뒤 14일의 같은 불만 리뷰 수를 서버(코드)가 세어 "이전 N건 -> 이후 M건" 타일을
+   보여준다. 줄었을 때만 소식 글을 만든다. */
+function renderNoticeFollowupDemo() {
+  const row = document.createElement("div");
+  row.className = "row bot";
+  row.innerHTML = `<div class="icon">${icon("spark", 16)}</div>`;
+  chatEl.appendChild(row);
+
+  const btn = document.createElement("button");
+  btn.className = "opt-btn";
+  btn.textContent = "2주 뒤 확인해 보기";
+  btn.onclick = async () => {
+    btn.disabled = true;
+    let f;
+    try {
+      f = await postJSON(`${API}/notice-followup`, { state });
+    } catch (e) {
+      btn.disabled = false;
+      return;
+    }
+    const box = document.createElement("div");
+    box.className = "info-card";
+    box.innerHTML = `<div class="info-card-title">공지 전후 불만 리뷰 수</div>
+      <div class="note-line">이전 ${f.window_days}일 ${f.before}건 → 이후 ${f.window_days}일 ${f.after}건 (${escapeHtml(f.basis)})</div>`;
+    if (f.improved && f.text) {
+      box.appendChild(buildDraftBox("notice_followup", f.text));
+    } else if (f.todo) {
+      const tip = document.createElement("div");
+      tip.className = "note-line";
+      tip.textContent = f.todo;
+      box.appendChild(tip);
+    }
+    row.appendChild(box);
+    btn.remove();
+  };
+  optionsEl.appendChild(btn);
+  scrollToRow(row);
+}
+
+/* ---------- 결과 카드 ---------- */
 
 async function showDecision() {
   setOptionsDisabled(true);
@@ -662,20 +1070,51 @@ async function showDecision() {
   loadingRow.remove();
   clearOptions();
   editedTexts = {};
-  const tag = tagForStrategy(data.strategy_type || "");
+  renderResultCard(data);
+}
 
+/* 사장님용 "진단 보고서" 카드 — 머리(제목+판정) → 요약 → 숫자 타일 → 왜 판단했나요 → 시각 요소
+   → 할 일 → AI 추천 아이디어 → 쿠폰 카드 → 측정 줄 → 승인/다시 쓰기. 값이 없는 부분은 통째로 숨긴다. */
+function renderResultCard(data) {
   const row = document.createElement("div");
   row.className = "row bot";
   const card = document.createElement("div");
-  card.className = "card";
+  card.className = "result-card";
 
-  const costLine = data.total_cost_krw
-    ? ` · 예상 비용(추정) 합계 ${fmtWon(data.total_cost_krw)}`
-    : "";
-  const subLine = (data.steps.length || data.total_minutes)
-    ? `<div class="sub">이번 주 할 일 ${data.steps.length}개 · 총 약 ${data.total_minutes}분${costLine}</div>`
-    : "";
-  card.innerHTML = `<div class="tag ${tag.cls}"><i>${icon(tag.name, 14)}</i>${data.title}</div>${subLine}`;
+  const head = document.createElement("div");
+  head.className = "card-head";
+  head.innerHTML = `<div class="head-icon">${icon("spark", 14)}</div>` +
+    `<div class="head-title">${escapeHtml(data.title)}</div>`;
+  const badgeInfo = badgeFor(data);
+  let badgeEl = null;
+  if (badgeInfo) {
+    badgeEl = buildBadgeEl(badgeInfo);
+    head.appendChild(badgeEl);
+  }
+  card.appendChild(head);
+
+  if (data.summary) {
+    const summary = document.createElement("div");
+    summary.className = "card-summary";
+    summary.textContent = data.summary;
+    card.appendChild(summary);
+  }
+
+  const tiles = buildTiles(data);
+  if (tiles.length) {
+    const tileBox = document.createElement("div");
+    tileBox.className = "stat-tiles";
+    tiles.forEach((t) => {
+      const tile = document.createElement("div");
+      tile.className = "stat-tile";
+      tile.innerHTML = `<div class="n">${escapeHtml(t.n)}</div><div class="l">${escapeHtml(t.l)}</div>`;
+      tileBox.appendChild(tile);
+    });
+    card.appendChild(tileBox);
+  }
+
+  const why = buildWhyBox(data);
+  if (why) card.appendChild(why);
 
   if (data.over_budget) {
     const warn = document.createElement("div");
@@ -684,36 +1123,41 @@ async function showDecision() {
     card.appendChild(warn);
   }
 
-  if (data.table) {
-    card.appendChild(buildAdspendTable(data));
+  if (data.table && data.table.length) {
+    card.appendChild(buildAdspendVisual(data));
   }
 
-  data.steps.forEach((step, i) => {
-    card.appendChild(buildStepCard(step, i, data.drafts[step.step_id]));
-  });
-
-  const hasPreventionNotice = data.steps.some((s) => s.generator === "prevention_notice");
+  const todoHead = buildTodoHeader(data);
+  if (todoHead) {
+    card.appendChild(todoHead);
+    const list = document.createElement("div");
+    list.className = "todo-list";
+    data.steps.forEach((step, i) => {
+      list.appendChild(buildTodoItem(step, i, data.drafts[step.step_id]));
+    });
+    card.appendChild(list);
+  }
+  const plainTodos = buildPlainTodoSection(data.todos, data.todo_note);
+  if (plainTodos) card.appendChild(plainTodos);
 
   if (data.bundle) {
     const tile = document.createElement("div");
-    tile.className = "basis";
+    tile.className = "note-line";
     tile.textContent = `원래 합계 ${fmtWon(data.bundle.original_won)} → 세트 가격 ${fmtWon(data.bundle.bundle_won)}`;
     card.appendChild(tile);
   }
-
   if (data.discount_tile) {
     const tile = document.createElement("div");
-    tile.className = "basis";
-    tile.textContent =
-      `원래 가격 ${fmtWon(data.discount_tile.original_won)} → 할인 가격 ${fmtWon(data.discount_tile.sale_won)}`;
+    tile.className = "note-line";
+    tile.textContent = `원래 가격 ${fmtWon(data.discount_tile.original_won)} → 할인 가격 ${fmtWon(data.discount_tile.sale_won)}`;
     card.appendChild(tile);
   }
 
   if (data.basic_todos && data.basic_todos.length) {
     const box = document.createElement("div");
-    box.className = "step-card";
-    box.innerHTML = `<div class="step-head">기본 할 일</div>` +
-      data.basic_todos.map((t) => `<div class="step-meta">· ${t.title}</div>`).join("");
+    box.className = "info-card";
+    box.innerHTML = `<div class="info-card-title">기본 할 일</div>` +
+      data.basic_todos.map((t) => `<div class="note-line">· ${escapeHtml(t.title)}</div>`).join("");
     data.basic_todos.forEach((t, i) => {
       if (t.draft) box.appendChild(buildDraftBox(`basic_todo_${i}`, t.draft));
     });
@@ -722,22 +1166,26 @@ async function showDecision() {
 
   if (data.idea) card.appendChild(buildIdeaBox(data.idea, data.idea_index ?? 0));
 
-  if (data.coupon_card) card.appendChild(buildCouponCard(data.coupon_card, state));
+  if (data.coupon_card) {
+    const onFigures = (badgeInfo && badgeInfo.cls === "info")
+      ? (fig) => updateBadgeEl(badgeEl, fig.discount_pct > 20 ? { cls: "warn", label: "할인 큼" } : { cls: "info", label: "정보" })
+      : null;
+    card.appendChild(buildCouponCard(data.coupon_card, state, onFigures));
+  }
 
-  if (data.breakeven_orders != null) {
+  if (data.breakeven_orders != null && !data.coupon_card) {
     const tile = document.createElement("div");
-    tile.className = "basis";
+    tile.className = "note-line";
     tile.textContent = `본전이 되려면 ${data.breakeven_orders}건이 필요해요`;
     card.appendChild(tile);
   }
 
   if (data.next_condition) {
     const cond = document.createElement("div");
-    cond.className = "step-card";
-    cond.style.borderStyle = "dashed";
+    cond.className = "info-card dashed";
     const d = data.next_condition;
-    cond.innerHTML = `<div class="step-head">다음 쿠폰 조건</div>
-      <div class="step-meta">할인액 ${fmtWon(d.discount_won)} · ${d.note}</div>`;
+    cond.innerHTML = `<div class="info-card-title">다음 쿠폰 조건</div>` +
+      `<div class="note-line">할인액 ${fmtWon(d.discount_won)} · ${escapeHtml(d.note)}</div>`;
     const genBtn = document.createElement("button");
     genBtn.className = "btn-secondary";
     genBtn.textContent = "이 조건으로 쿠폰 글 만들기";
@@ -746,7 +1194,7 @@ async function showDecision() {
       try {
         const g = await postJSON(`${API}/generate`, { state });
         if (g.text) cond.appendChild(buildDraftBox("next_coupon", g.text));
-        if (g.coupon) cond.appendChild(buildCouponCard(g.coupon));
+        if (g.coupon) cond.appendChild(buildCouponCard(g.coupon, state));
       } catch (e) {
         /* 실패하면 버튼을 다시 눌러 볼 수 있게 둔다 */
       }
@@ -758,24 +1206,51 @@ async function showDecision() {
 
   if (data.demo) {
     const tagEl = document.createElement("div");
-    tagEl.className = "basis";
+    tagEl.className = "note-line";
     tagEl.textContent = "저장된 예시(CLOVA_API_KEY 없음)";
     card.appendChild(tagEl);
   }
 
-  const measure = document.createElement("div");
-  measure.className = "why-box";
-  measure.textContent = data.measure;
-  card.appendChild(measure);
+  if (data.measure) {
+    const measure = document.createElement("div");
+    measure.className = "measure-line";
+    measure.innerHTML = `${icon("clock", 14)}<span>${escapeHtml(data.measure)}</span>`;
+    card.appendChild(measure);
+  }
 
   const actions = document.createElement("div");
-  actions.className = "draft-actions";
-  actions.innerHTML = `<button class="btn-primary" data-act="approve">승인</button>`;
+  actions.className = "card-actions";
+  const approveBtn = document.createElement("button");
+  approveBtn.className = "btn-primary";
+  approveBtn.textContent = "승인";
+  const rewriteBtn = document.createElement("button");
+  rewriteBtn.className = "btn-secondary";
+  rewriteBtn.textContent = "다시 쓰기";
+  actions.appendChild(approveBtn);
+  actions.appendChild(rewriteBtn);
   card.appendChild(actions);
 
   row.innerHTML = `<div class="icon">${icon("spark", 16)}</div>`;
   row.appendChild(card);
   chatEl.appendChild(row);
+
+  /* 같은 state(=같은 설문 답)로 /plan 을 다시 불러 글을 새로 받는다 — 새 API 를 만들지 않는다. */
+  rewriteBtn.onclick = async () => {
+    actions.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    const loadingRow = addLoadingBubble();
+    let fresh;
+    try {
+      fresh = await postJSON(`${API}/plan`, { state });
+    } catch (e) {
+      loadingRow.remove();
+      actions.querySelectorAll("button").forEach((b) => (b.disabled = false));
+      showRetryPrompt(() => rewriteBtn.onclick());
+      return;
+    }
+    loadingRow.remove();
+    editedTexts = {};
+    renderResultCard(fresh);
+  };
 
   let approved = false;
   const approveClick = async () => {
@@ -804,55 +1279,19 @@ async function showDecision() {
     }
     loadingRow.remove();
     state = a.state;
+    addApprovedBadge(head);
     if (a.follow_up) {
-      a.bot_messages.forEach(addBotBubble);
+      a.bot_messages.forEach((t) => addBotBubble(t));
       renderPrompt(a);
     } else {
       addBotBubble("여기까지 도와드릴게요. 감사합니다!");
+      const hasPreventionNotice = data.steps.some((s) => s.generator === "prevention_notice");
       if (hasPreventionNotice) renderNoticeFollowupDemo();
     }
   };
-  actions.querySelector('[data-act="approve"]').onclick = approveClick;
+  approveBtn.onclick = approveClick;
 
-  /* 개선 인증 소식(데모) — 공지 기준일 앞뒤 14일의 같은 불만 리뷰 수를 서버(코드)가 세어
-     "이전 N건 -> 이후 M건" 타일을 보여준다. 줄었을 때만 소식 글을 만든다. */
-  function renderNoticeFollowupDemo() {
-    const row = document.createElement("div");
-    row.className = "row bot";
-    row.innerHTML = `<div class="icon">${icon("spark", 16)}</div>`;
-    chatEl.appendChild(row);
-
-    const btn = document.createElement("button");
-    btn.className = "opt-btn";
-    btn.textContent = "2주 뒤 확인해 보기";
-    btn.onclick = async () => {
-      btn.disabled = true;
-      let f;
-      try {
-        f = await postJSON(`${API}/notice-followup`, { state });
-      } catch (e) {
-        btn.disabled = false;
-        return;
-      }
-      const box = document.createElement("div");
-      box.className = "step-card";
-      box.innerHTML = `<div class="step-head">공지 전후 불만 리뷰 수</div>
-        <div class="step-meta">이전 ${f.window_days}일 ${f.before}건 → 이후 ${f.window_days}일 ${f.after}건 (${f.basis})</div>`;
-      if (f.improved && f.text) {
-        box.appendChild(buildDraftBox("notice_followup", f.text));
-      } else if (f.todo) {
-        const tip = document.createElement("div");
-        tip.className = "basis";
-        tip.textContent = f.todo;
-        box.appendChild(tip);
-      }
-      row.appendChild(box);
-      btn.remove();
-    };
-    optionsEl.appendChild(btn);
-  }
-
-  chatEl.scrollTop = chatEl.scrollHeight;
+  scrollToRow(row);
 }
 
 async function start() {
@@ -869,7 +1308,7 @@ async function start() {
   }
   loadingRow.remove();
   state = data.state;
-  data.bot_messages.forEach(addBotBubble);
+  data.bot_messages.forEach((t) => addBotBubble(t));
   addSubtitleLine("고친 만큼, 남는 만큼만 홍보해요");
   renderPrompt(data);
 }
@@ -883,11 +1322,9 @@ function addSubtitleLine(text) {
 
 restartBtn.onclick = () => start();
 
-fetch(`${API}/meta`)
+fetch(`${API}/stores`)
   .then((r) => r.json())
-  .then((m) => {
-    storeNameEl.innerHTML = `예시 가게 <span class="pill">${m.store_name}</span>`;
-  })
+  .then((d) => renderStorePicker(d.stores))
   .catch(() => {});
 
 start();
