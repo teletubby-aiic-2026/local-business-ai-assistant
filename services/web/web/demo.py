@@ -13,6 +13,7 @@ from typing import Any
 
 from shared.answer_check import check_answer, feedback
 from shared.contracts import LABELS_KO, AnalysisSnapshot, StoreProfile, quarter_label
+from shared.contracts import CARD_GENERATORS   # 카드 종류 → 그 카드가 만드는 글 종류 (개별 다시 만들기의 입력 검사)
 from shared.storage import MemoryStore, StorageError, clean_visitor_id
 
 from .cards import (REASON_OK, CardPlan, apply_writer, model_reason_failed, normalize_citations, plan_cards,
@@ -20,6 +21,7 @@ from .cards import (REASON_OK, CardPlan, apply_writer, model_reason_failed, norm
 from .generate import (DEFAULT_MEASURES, GenerateError, adapt_seed, add_pasted_replies, c6_available,
                        ensure_marketing_on_path, load_pasted_examples, load_seed, measure_catalog, pasted_reply_targets,
                        pick_measures, run_live, run_live_pasted_replies, seed_pasted_replies, summarize)
+from .generate import pick_seed_draft, reply_order, run_live_one   # 개별 다시 만들기 (11/16)
 from .settings import Settings
 from .sources import ReviewSource, SourceError, is_dev_fake, load_snapshots, to_review_records, to_store_profile
 
@@ -285,18 +287,25 @@ class Demo:
         return (resp.get("content") or "").strip()
 
     # ── ③ ───────────────────────────────────────────────────────────
-    def run(self, card_id: str, measures: list[str] | None = None, visitor: str | None = None) -> dict:
-        """measures: 사장님이 고른 재발 방지 조치 id. None 이면 카드의 기본값 (불만 카드만 씀)."""
+    def run(self, card_id: str, measures: list[str] | None = None, visitor: str | None = None,
+            generator: str | None = None, review_id: str | None = None, reply_texts: list[str] | None = None) -> dict:
+        """measures: 사장님이 고른 재발 방지 조치 id. None 이면 카드의 기본값 (불만 카드만 씀).
+        generator: 있으면 그 종류의 글 한 건만 다시 만든다 (개별 다시 만들기, _run_one). 없으면 예전 그대로 카드 전체."""
         st = self._state(visitor)
         plan = next((p for p in self._plans(st) if p.card.card_id == card_id), None)
         if plan is None:
             raise DemoError(f"카드 {card_id} 가 지금 화면의 카드가 아니에요. 새로 고침 하세요.", status=404)
+        if generator is not None:
+            made = self._run_one(st, plan, generator, review_id, measures, reply_texts)
+            self._remember_drafts(card_id, made)
+            return made
         card = plan.card
         if self.s.mode == "mock":
             result = adapt_seed(self.seed[card.kind], card) if card.kind in self.seed else None
             if result is None:
                 raise DemoError("이 카드에 맞는 저장본이 없어요 (붙여넣기로 묶음이 바뀌었을 수 있어요). "
                                 "키가 있으면 APP_MODE=live 로 생성하세요.", status=404)
+            self._mock_measures(result, plan, measures)
             pasted = self._pasted_targets(st, card)
             if pasted:
                 drafts, skipped = seed_pasted_replies(self.pasted_examples, card, pasted)
@@ -325,6 +334,76 @@ class Demo:
                 raise DemoError("글을 만들다가 문제가 생겼어요. 잠시 뒤 다시 눌러 주세요.", status=502) from None
         made = summarize(result)
         self._remember_drafts(card_id, made)
+        return made
+
+    def _mock_measures(self, result: dict, plan: CardPlan, measures: list[str] | None) -> None:
+        """mock: 사장님이 고른 조치를 응답(chosen_measures)에 싣는다. 화면이 '오늘부터 실천할 수칙'으로 보여 준다 (초안·완료 화면).
+        저장 예시 글은 고른 조치와 상관없이 그대로다. 그래서 화면은 mock 에서 '글에 반영'이라고 말하지 않는다 (app.js renderDraft·renderDone).
+        조치 상자가 없는 카드는 건드리지 않는다 (저장 예시 값 그대로). 모르는 id 는 예전처럼 오류 없이 뺀다 (mock 은 measures 를 검사하지 않는다)."""
+        options = {o["id"]: o for o in plan.measures.get("options") or []}
+        if plan.card.kind != "complaint" or not options:
+            return
+        ids = plan.measures.get("default", []) if measures is None else measures
+        result["chosen_measures"] = [dict(options[i]) for i in dict.fromkeys(ids) if i in options]
+
+    # ── ③ 개별 다시 만들기 ───────────────────────────────────────────
+    def _run_one(self, st: dict, plan: CardPlan, generator: str, review_id: str | None,
+                 measures: list[str] | None, reply_texts: list[str] | None) -> dict:
+        """카드의 글 한 건만 다시 만든다 (초안 상자의 '다시 만들기'). 다른 글은 만들지도 건드리지도 않는다.
+        응답은 전체 실행과 같은 모양인데 drafts 에 그 한 건만 있고, partial=True 와 regenerated={generator, review_id, pasted} 가 붙는다.
+        답글은 카드 묶음 리뷰의 것인지 붙여넣은 리뷰의 것인지 가려, 각각 전체 실행 때와 같은 조건으로 만든다."""
+        card = plan.card
+        if generator not in CARD_GENERATORS.get(card.kind, ()):
+            raise DemoError(f"이 카드에서 만드는 글이 아니에요: {generator}", status=400)
+        if generator != "reply_draft":
+            review_id = None
+        elif not review_id:
+            raise DemoError("어느 리뷰의 답글을 다시 만들지(review_id) 알려 주세요.", status=400)
+        not_target = "그 리뷰는 이 카드에서 답글을 만드는 리뷰가 아니에요. 새로 고침 하세요."
+        pasted = False
+        if self.s.mode == "mock":
+            result = adapt_seed(self.seed[card.kind], card) if card.kind in self.seed else None
+            if result is None:
+                raise DemoError("이 카드에 맞는 저장본이 없어요 (붙여넣기로 묶음이 바뀌었을 수 있어요). "
+                                "키가 있으면 APP_MODE=live 로 생성하세요.", status=404)
+            self._mock_measures(result, plan, measures)
+            draft = pick_seed_draft(result, generator, review_id)
+            result["drafts"] = [draft] if draft else []
+            if draft is None and generator != "reply_draft":
+                raise DemoError("저장 예시에 이 글이 없어요. 키가 있으면 APP_MODE=live 로 생성하세요.", status=404)
+            if draft is None:   # 묶음 리뷰의 답글이 아니면 붙여넣은 리뷰의 답글 (같은 글의 저장 예시가 있을 때만)
+                target = [r for r in self._pasted_targets(st, card) if r.review_id == review_id]
+                if not target:
+                    raise DemoError(not_target, status=404)
+                drafts, skipped = seed_pasted_replies(self.pasted_examples, card, target)
+                if not drafts:
+                    raise DemoError(f"이 리뷰의 답글은 지금 다시 만들 수 없어요 ({skipped[0]['reason']})", status=404)
+                add_pasted_replies(result, drafts, [], note="붙여넣은 리뷰 답글은 같은 글로 미리 만든 저장 예시")
+                pasted = True
+        else:
+            store, reviews = self._contract_inputs(st)
+            review, index = None, 0
+            if generator == "reply_draft":
+                found = reply_order(card, reviews, review_id)
+                if found is None:
+                    raise DemoError(not_target, status=404)
+                review, index, pasted = found
+            ids = plan.measures.get("default", []) if measures is None else measures
+            try:
+                chosen = pick_measures(ids) if card.kind == "complaint" else []
+                result = run_live_one(card, generator, store=store, reviews=reviews, snapshots=st["snapshots"],
+                                      key=self.s.clova_key, model=self.s.model, chosen_measures=chosen, review=review,
+                                      index=index, reply_texts=[t[:2000] for t in reply_texts or [] if isinstance(t, str)])
+            except GenerateError as exc:
+                raise DemoError(str(exc)) from None
+            except Exception as exc:   # 전체 실행과 같다: 500 대신 화면 알림 띠로 보이게 한다
+                log.exception("글 한 건을 다시 만들다가 예상 못한 오류 (%s)", exc.__class__.__name__)
+                raise DemoError("글을 만들다가 문제가 생겼어요. 잠시 뒤 다시 눌러 주세요.", status=502) from None
+            if pasted:
+                result["pasted_reply_review_ids"], result["pasted_reply_skipped"] = [review_id], []
+        made = summarize(result)
+        made["partial"] = True
+        made["regenerated"] = {"generator": generator, "review_id": review_id, "pasted": pasted}
         return made
 
     def _pasted_targets(self, st: dict, card) -> list:
@@ -445,6 +524,25 @@ class Demo:
             waiting = [p[1] for p in self._pending if p[0] == visitor_id]
         held = {e["draft_id"] for e in waiting}
         return [r for r in rows if r["draft_id"] not in held] + waiting
+
+    def clear_approvals(self, visitor: str | None = None) -> int:
+        """이 방문자의 승인 기록을 모두 지운다 (완료 화면의 '처음부터 다시'). 지운 건수를 돌려준다.
+        다른 방문자의 기록은 건드리지 않는다. DB 에 아직 못 써서 이 서버가 들고 있던 것(_pending)도 같이 버린다.
+        메모리 방식의 approvals.jsonl 은 덧붙이기만 하는 기록 파일이라 그대로 두고, 답글 승인 때 리뷰 분석 서비스에
+        남긴 '답글 달았음' 기록도 여기서 지우지 않는다."""
+        visitor_id = clean_visitor_id(visitor)
+        if self._pending:
+            self._flush_pending()   # 밀린 것이 DB 에 들어가 있어야 아래에서 같이 지워지고 건수도 맞는다
+        with self._flush_lock:      # 지우는 사이에 다른 요청이 밀린 기록을 다시 써넣지 못하게 한다
+            try:
+                deleted = self.storage.approvals.clear(self.s.store_id, visitor_id)
+            except Exception as exc:   # DB 에 닿지 못함 등. 지운 것이 없으니 들고 있던 것도 그대로 둔다
+                log.warning("승인 기록을 지우지 못했어요 (%s)", exc.__class__.__name__)
+                raise DemoError("승인 기록을 지우지 못했어요. 잠시 뒤 다시 눌러 주세요.", status=503) from None
+            with self._lock:
+                held = {p[1]["draft_id"] for p in self._pending if p[0] == visitor_id}
+                self._pending = [p for p in self._pending if p[0] != visitor_id]
+        return deleted + len(held)
 
     @property
     def approvals(self) -> list[dict]:

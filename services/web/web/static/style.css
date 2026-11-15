@@ -263,6 +263,9 @@ details[open] > summary { margin-bottom: 8px; }
 .progress { display: flex; align-items: center; gap: 12px; margin: 8px 0 14px; font-size: .875rem; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .progress .track { flex: 1; height: 4px; border-radius: 999px; background: var(--chip); overflow: hidden; }
 .progress .track i { display: block; height: 100%; border-radius: 999px; background: var(--brand); } /* 진행 표시: 같은 값을 왼쪽 글자로도 보임 */
+.progress .ghost { flex: 0 0 auto; min-height: 32px; padding: 3px 12px; border-color: var(--line-strong); font-size: var(--meta); color: var(--ink-2); white-space: nowrap; } /* 카드 전체 다시 만들기 (보조) */
+.draft-note { margin: 10px 0 0; } .draft-note:empty { display: none; }   /* 다시 만들기 안내 한 줄 (내용이 있을 때만) */
+.progress + .draft-note { margin: -6px 0 14px; }
 .draft-list { list-style: none; padding: 0; margin: 0 0 24px; display: flex; flex-wrap: wrap; gap: 6px; }
 .draft-list button { min-height: 34px; padding: 4px 12px; font-size: .875rem; gap: 6px; }
 .draft-list button[aria-current="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); font-weight: 600; }
@@ -298,6 +301,11 @@ details[open] > summary { margin-bottom: 8px; }
 .log { margin: 12px 0 0; }
 .log li { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .log li:last-child { border-bottom: 0; padding-bottom: 0; }
+.done-rules ul { margin: 0 0 10px; padding-left: 20px; } .done-rules li + li { margin-top: 4px; } .done-rules p { margin: 0; }   /* 오늘부터 실천할 수칙 */
+.done-actions { margin-top: 20px; }   /* 주 버튼 '홈으로' + 보조 '처음부터 다시'를 나란히 (좁으면 아래로) */
+.done-actions .big { flex: 1 1 160px; width: auto; margin-top: 0; }
+.done-actions .ghost { min-height: 52px; border-color: var(--line-strong); color: var(--ink-2); }
+.done-hint { margin: 10px 0 0; }
 
 /* ── 리뷰 분석: 탭 3개 (요약 · 불만 묶음 · 리뷰 붙여넣기) ───────────────── */
 .an-tabs { margin-bottom: 20px; }
