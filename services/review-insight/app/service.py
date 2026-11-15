@@ -8,7 +8,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app import storage
+from app import records, storage
 from app.classify import Classifier
 from app.cluster import build_insight
 from app.models import CHANNELS, Review, ReviewInsight
@@ -20,6 +20,10 @@ RUNTIME = ROOT / "data" / "runtime"                         # 붙여넣은 리�
 DEFAULT_STORE = "store_ongi"                                 # 발표 시나리오 가게
 KST = timezone(timedelta(hours=9))
 MAX_TEXT = 1000
+# 리뷰가 어디서 들어왔나. 계약(shared/contracts.py)의 input_method 는 sample·paste 뿐이라 저장은 모두 "paste" 로 하고,
+# 이 값은 records 의 source 칸에 따로 둔다 (계약이 바뀌면 input_method 로 옮길 수 있음, docs/handoff.md)
+SOURCES = ("paste", "capture", "app", "memo")
+REVIEW_STATUSES = ("new", "analyzed", "drafted", "replied", "skipped")   # shared/contracts.py 와 같은 값의 사본
 _lock = threading.Lock()
 
 # 방문자 id: 공개 주소를 여러 사람이 열 때 붙여넣은 리뷰를 사람별로 나누는 값 (비서 화면 서버가 쿠키로 만들어 넘김).
@@ -124,7 +128,17 @@ def scenario_now(store_id: str, n: int = 1) -> datetime:
 
 def add_pasted(text: str, rating: int | None = None, channel: str | None = None, now: datetime | None = None,
                store_id: str = DEFAULT_STORE, visitor_id: str | None = None) -> Review:
-    """S2: 사장님이 붙여넣은 리뷰 한 건. 저장·모델 전송 전에 전화번호·이메일·링크를 가립니다."""
+    """S2: 사장님이 붙여넣은 리뷰 한 건 (예전 이름. add_review(source="paste") 와 같음)."""
+    return add_review(text, rating, channel, now, store_id=store_id, visitor_id=visitor_id)
+
+
+def add_review(text: str, rating: int | None = None, channel: str | None = None, now: datetime | None = None,
+               store_id: str = DEFAULT_STORE, visitor_id: str | None = None, *, source: str = "paste",
+               received_at: datetime | None = None) -> Review:
+    """리뷰 한 건 저장 (붙여넣기·캡처 확인·가상 배달앱·매장 메모). 저장·모델 전송 전에 전화번호·이메일·링크를 가립니다.
+    created_at 은 분석용 시나리오 시각(scenario_now), received_at 은 실제로 받은 시각 (기한·새 리뷰 조회용)."""
+    if source not in SOURCES:
+        raise ValueError(f"입력 방식은 {', '.join(SOURCES)} 중 하나여야 합니다")
     text = (text or "").strip()
     if not 1 <= len(text) <= MAX_TEXT:
         raise ValueError(f"리뷰 글은 1~{MAX_TEXT}자여야 합니다")
@@ -147,13 +161,16 @@ def add_pasted(text: str, rating: int | None = None, channel: str | None = None,
     if db is not None:
         _dir(store_id)
         with storage.guarded():      # 번호(n)는 DB 가 (가게, 방문자)마다 겹치지 않게 정해 준다
-            return Review.from_dict(db.reviews.add(store_id, visitor, lambda n: build(n).to_dict()))
-    with _lock:
-        rows = pasted_reviews(store_id, visitor)
-        n = max([int(r.review_id.split("_")[-1]) for r in rows] or [0]) + 1
-        review = build(n)
-        rows.append(review)
-        _save_pasted(store_id, rows, visitor)
+            review = Review.from_dict(db.reviews.add(store_id, visitor, lambda n: build(n).to_dict()))
+    else:
+        with _lock:
+            rows = pasted_reviews(store_id, visitor)
+            n = max([int(r.review_id.split("_")[-1]) for r in rows] or [0]) + 1
+            review = build(n)
+            rows.append(review)
+            _save_pasted(store_id, rows, visitor)
+    received = (received_at or datetime.now(KST)).astimezone(KST).isoformat(timespec="seconds")
+    records.update(store_id, visitor, review.review_id, {"source": source, "received_at": received})
     return review
 
 
@@ -163,10 +180,13 @@ def clear_pasted(store_id: str = DEFAULT_STORE, visitor_id: str | None = None) -
         _dir(store_id)
         visitor = clean_visitor(visitor_id)
         with storage.guarded():
-            return db.reviews.clear(store_id, visitor)
+            n = db.reviews.clear(store_id, visitor)
+        records.clear(store_id, visitor)          # 상태·답글 기록도 같이 지움 (데모 다시 하기)
+        return n
     with _lock:
         n = len(pasted_reviews(store_id, visitor_id))
         _save_pasted(store_id, [], visitor_id)
+        records.clear(store_id, visitor_id)
     return n
 
 
@@ -174,3 +194,103 @@ def analyze(classifier: Classifier, store_id: str = DEFAULT_STORE, visitor_id: s
             end: datetime | None = None) -> ReviewInsight:
     reviews = all_reviews(store_id, visitor_id)
     return build_insight(store_id, reviews, classifier.classify(reviews), end=end)
+
+
+# ── 새 기록(어디서 들어왔나·받은 시각·상태·답글)을 붙인 리뷰 ──
+def parse_time(value: str | datetime | None, field: str = "시각") -> datetime | None:
+    """ISO 8601 → 한국 시간. 시간대가 없으면 한국 시간으로 본다. 잘못된 값은 ValueError."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        t = value
+    else:
+        try:
+            t = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError(f"{field}은 ISO 8601 형식이어야 합니다 (예: 2026-11-14T19:00:00+09:00)") from None
+    return (t if t.tzinfo else t.replace(tzinfo=KST)).astimezone(KST)
+
+
+def decorate(review: Review, meta: dict | None) -> dict:
+    """리뷰 dict + source·received_at·reply. 상태는 기록이 있으면 기록 값. 계약 칸(input_method 등)은 그대로."""
+    meta = meta or {}
+    d = review.to_dict()
+    d["source"] = meta.get("source") or ("sample" if review.input_method == "sample" else "paste")
+    d["received_at"] = meta.get("received_at")
+    d["reply"] = meta.get("reply")
+    if meta.get("status"):
+        d["status"] = meta["status"]
+    return d
+
+
+def decorated_reviews(store_id: str = DEFAULT_STORE, visitor_id: str | None = None) -> list[dict]:
+    meta = records.load(store_id, visitor_id)
+    return [decorate(r, meta.get(r.review_id)) for r in all_reviews(store_id, visitor_id)]
+
+
+def list_reviews(store_id: str = DEFAULT_STORE, visitor_id: str | None = None, *, since: str | None = None,
+                 source: str | None = None) -> list[dict]:
+    """since 를 주면 그 시각 뒤에 실제로 받은 리뷰만 (받은 순서). 합성 리뷰는 받은 시각이 없어 빠진다.
+    since 가 없으면 지금처럼 작성 시각이 늦은 것부터."""
+    if source is not None and source not in SOURCES + ("sample",):
+        raise ValueError(f"source 는 sample, {', '.join(SOURCES)} 중 하나여야 합니다")
+    rows = decorated_reviews(store_id, visitor_id)
+    if source is not None:
+        rows = [r for r in rows if r["source"] == source]
+    if since is None:
+        return sorted(rows, key=lambda r: r["created_at"], reverse=True)
+    after = parse_time(since, "since")
+    rows = [r for r in rows if r["received_at"] and parse_time(r["received_at"]) > after]
+    return sorted(rows, key=lambda r: r["received_at"])
+
+
+def set_status(store_id: str, visitor_id: str | None, review_id: str, status: str, *, reply_text: str | None = None,
+               at: str | datetime | None = None) -> dict:
+    """답글 승인·건너뜀 등 상태 기록. replied 에 글을 주면 답글로 저장해 리뷰 조회 응답에 함께 돌려준다."""
+    if status not in REVIEW_STATUSES:
+        raise ValueError(f"상태는 {', '.join(REVIEW_STATUSES)} 중 하나여야 합니다")
+    review = next((r for r in all_reviews(store_id, visitor_id) if r.review_id == review_id), None)
+    if review is None:
+        raise LookupError(review_id)
+    when = parse_time(at, "at") or datetime.now(KST)
+    stamp = when.isoformat(timespec="seconds")
+    fields: dict = {"status": status, "status_at": stamp}
+    if reply_text is not None:
+        reply_text = reply_text.strip()
+        if not 1 <= len(reply_text) <= MAX_TEXT:
+            raise ValueError(f"답글은 1~{MAX_TEXT}자여야 합니다")
+        if status != "replied":
+            raise ValueError("답글 글은 status 가 replied 일 때만 보낼 수 있습니다")
+        fields["reply"] = {"text": reply_text, "replied_at": stamp}
+    row = records.update(store_id, visitor_id, review_id, fields, {"status": status, "at": stamp})
+    return decorate(review, row)
+
+
+class Timeline:
+    """응대 기한·점수·보고서를 여러 시각으로 계산할 때 쓰는 재료 (리뷰·기록·분류를 한 번만 읽는다).
+    분류는 저장할 때(POST /reviews) 이미 끝나 저장본(캐시)에 있으므로 보통 모델을 다시 부르지 않는다."""
+
+    def __init__(self, classifier: Classifier, store_id: str = DEFAULT_STORE, visitor_id: str | None = None):
+        from app import response
+        self.store_id, self.policy = store_id, response.policy()
+        self.reviews = all_reviews(store_id, visitor_id)
+        meta = records.load(store_id, visitor_id)
+        self.rows = [decorate(r, meta.get(r.review_id)) | {"history": (meta.get(r.review_id) or {}).get("history") or []}
+                     for r in self.reviews]
+        self.classes = classifier.classify(self.reviews)
+        self.negative = {c.review_id: c.negative_topics for c in self.classes}
+
+    def arrival(self, row: dict) -> datetime:
+        """실제로 받은 시각. 합성 샘플은 받은 시각이 없어 작성 시각(시나리오 시각)을 쓴다 (보고서 날짜 나누기용)."""
+        return parse_time(row["received_at"] or row["created_at"])
+
+    def insight_at(self, now: datetime):
+        present = {row["review_id"] for row in self.rows if not row["received_at"] or parse_time(row["received_at"]) <= now}
+        reviews = [r for r in self.reviews if r.review_id in present]
+        return build_insight(self.store_id, reviews, [c for c in self.classes if c.review_id in present]) if reviews else None
+
+    def at(self, now: datetime) -> dict:
+        from app import response
+        insight = self.insight_at(now)
+        groups = [g.to_dict() for g in insight.groups] if insight else []
+        return response.evaluate(self.rows, self.negative, groups, now, self.policy)
