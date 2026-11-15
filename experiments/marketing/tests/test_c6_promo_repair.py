@@ -80,6 +80,7 @@ class TestCustomerQuote(unittest.TestCase):
                      "제육볶음이 맛있다며 밥 한 공기 더 시키게 된다는 손님들을 위해 준비했습니다.",
                      "맛있다는 손님들이 많아 오늘도 준비했습니다.",
                      "많은 분들이 양이 많다고 극찬하신 메뉴입니다.",
+                     "많은 분들이 맛있다고 인정해주신 만큼 자신 있게 권해드립니다.",     # 11/15 실시간 홍보글
                      "손님들이 '양이 넉넉하다'고 해 주셨습니다."):
             with self.subTest(text=text):
                 self.assertTrue(checks.quotes_customer_speech(text))
