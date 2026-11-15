@@ -90,7 +90,7 @@ reviews = json.load(open("services/review-insight/data/synthetic/store_ongi/revi
 | POST | `/api/review-insight/reviews/{review_id}/status` | `{status, reply_text?, at?}` 상태·시각·답글 기록 (`new`·`analyzed`·`drafted`·`replied`·`skipped`) |
 | GET | `/api/review-insight/response?store_id=` | 답글 대기 불만별 `due_at`·남은 시간, 응대 점수(0~100)와 이유 목록. 규칙으로만 계산 |
 | GET | `/api/review-insight/report/daily?store_id=&date=` | 일일 요약: 리뷰·불만 수, 기한 안 답글, 점수 변동과 이유, 내일 먼저 할 일 1개 |
-| GET | `/api/review-insight/report/monthly?store_id=&month=` | 월간 보고서: 날마다 점수, 반복 불만별 건수·재발 여부, 다음 달 개선 제안 (최대 3개) |
+| GET | `/api/review-insight/report/monthly?store_id=&month=` | 월간 보고서: 날마다 점수, 반복 불만별 건수·재발 여부, 다음 달 개선 제안 (최대 3개). 일일·월간 모두 `praise`(손님 칭찬 요약: 별점 4~5점·긍정 리뷰 수, 칭찬 주제 상위, 인기 메뉴 TOP 3, 대표 칭찬 한 줄. 코드 집계, `docs/handoff.md` 2-6) |
 | GET | `/api/review-insight/report/monthly/print?month=` | 월간 보고서 인쇄용 A4 (개선 제안은 체크 칸 할 일 목록). 브라우저 인쇄 → PDF |
 
 확인 화면(`http://127.0.0.1:8020/`)에 **캡처 입력 · 응대 기한·점수 · 보고서** 탭을 시안으로 붙였습니다 (통합 화면에는 넣지 않음).
