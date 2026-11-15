@@ -483,3 +483,31 @@ class SettingsAndAddress(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SavingAReviewWaitsForTheLiveClassifier(unittest.TestCase):
+    """리뷰 저장은 리뷰 분석이 그 자리에서 HCX 로 분류해 10초를 넘을 수 있다 (11/15 실시간 23.8초 → 저장은 됐는데 화면은 503).
+    저장 요청만 길게 기다리고, 다른 조회는 10초 그대로."""
+
+    def setUp(self):
+        self.seen = []
+
+        def handler(request: httpx.Request):
+            self.seen.append((request.method, request.url.path, request.extensions.get("timeout", {}).get("read")))
+            if request.method == "POST":
+                return httpx.Response(201, json={"review": {"review_id": "rv_ongi_paste_001"}, "classification": None})
+            return httpx.Response(200, json={"items": [], "count": 0})
+
+        self.client = httpx.Client(base_url="http://review.test", transport=httpx.MockTransport(handler), timeout=10.0)
+
+    def test_paste_waits_longer_than_other_calls(self):
+        src = ReviewSource("http://review.test", client=self.client, paste_timeout=45.0).for_visitor("v1")
+        src.paste("store_ongi", "공깃밥이 빠졌어요", 2, source="capture")
+        src.reviews("store_ongi")
+        self.assertEqual([(m, t) for m, _, t in self.seen], [("POST", 45.0), ("GET", 10.0)])
+
+    def test_setting_reaches_the_review_source(self):
+        from unittest.mock import patch
+        for raw, want in (("60", 60.0), ("", 45.0), ("abc", 45.0)):
+            with self.subTest(raw=raw), patch.dict("os.environ", {"REVIEW_PASTE_TIMEOUT_SEC": raw}):
+                self.assertEqual(Settings.from_env().review_paste_timeout, want)

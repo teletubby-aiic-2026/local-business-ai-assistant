@@ -33,6 +33,7 @@ class Settings:
     store_id: str = "store_ongi"
     review_url: str = "http://127.0.0.1:8020"
     review_token: str = ""
+    review_paste_timeout: float = 45.0   # 리뷰 저장을 기다리는 최대 시간(초). 리뷰 분석이 저장하며 HCX 로 분류함 (20초 + 다시 1번)
     snapshot_path: Path = REPO_ROOT / "data" / "scenario" / "snapshot_2026Q2.json"
     marketing_dir: Path = REPO_ROOT / "experiments" / "marketing"
     runtime_dir: Path = WEB_DIR / "data" / "runtime"
@@ -68,6 +69,7 @@ class Settings:
             store_id=env("DEMO_STORE_ID", "store_ongi"),
             review_url=env("REVIEW_INSIGHT_URL", "http://127.0.0.1:8020").rstrip("/"),
             review_token=env("REVIEW_INSIGHT_TOKEN", "").strip(),
+            review_paste_timeout=_seconds(env("REVIEW_PASTE_TIMEOUT_SEC", ""), 45.0),
             snapshot_path=Path(env("SNAPSHOT_PATH", str(cls.snapshot_path))),
             marketing_dir=Path(env("MARKETING_DIR", str(cls.marketing_dir))),
             runtime_dir=Path(env("WEB_RUNTIME_DIR", str(cls.runtime_dir))),

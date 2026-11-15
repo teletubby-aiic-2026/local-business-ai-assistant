@@ -50,7 +50,8 @@ class Demo:
         """storage: 승인 기록·카드 이유·보고서를 둘 곳 (shared.storage). 안 주면 서버 메모리.
         서버는 create_app 이 환경 변수(DB_HOST)를 보고 정해서 넘긴다. 직접 만든 Demo 가 환경 변수에 끌려가 DB 에 붙지 않게 여기서는 읽지 않는다."""
         self.s = settings
-        self.source = source if source is not None else ReviewSource(settings.review_url, settings.review_token)
+        self.source = source if source is not None else ReviewSource(settings.review_url, settings.review_token,
+                                                                            paste_timeout=settings.review_paste_timeout)
         self.c6 = c6_available(settings.marketing_dir)
         self.seed = load_seed(settings.marketing_dir)
         self.pasted_examples = load_pasted_examples(settings.marketing_dir)   # mock: 붙여넣은 리뷰 답글 저장 예시
