@@ -136,6 +136,14 @@ GET /api/review-insight/reviews?store_id=store_ongi&since=2026-11-14T19:00:00%2B
 - 일일: `review_count`, `complaint_count`, `by_source`, `replied_on_time`, `replied_late`, `pending_count`, `score_start`→`score_end`, `changes`(점수가 바뀐 이유, 합이 변동과 같음), `todo`(내일 먼저 할 일 1개), `summary`.
 - 월간 인쇄: `GET /report/monthly/print?month=` → A4 HTML (숫자 카드 4개, 점수 그래프, 점수가 바뀐 이유, 반복 불만 표, **체크 칸이 있는 개선 할 일**). 프록시 허용 목록에 들어 있음.
 - 월간: `score_trend`(날마다 점수), `repeated_issues`(묶음별 전체·이번 달 건수, 답글 수, 상태 `recurred_after_reply`·`no_recurrence`·`replied_watching`·`no_reply`), `suggestions`(최대 3개, 원인을 단정하지 않음).
+- **손님 칭찬 요약 `praise` (11/16, 일일·월간 둘 다)**: 그 기간 리뷰만 코드로 센 값입니다 (`method: "code"`, 모델 호출 없음. 분류는 `Timeline`이 이미 읽어 둔 것).
+  `review_count`, `high_rating_count`(별점 4~5점), `positive_count`(긍정 분류), `praise_count`·`praise_basis`(칭찬 리뷰 수와 기준 `sentiment`·`rating`·`null`),
+  `top_topics`(칭찬 주제 상위 5개: `topic`, `topic_name`, `count`), `top_menus`(인기 메뉴 TOP 3: `menu`, `count`), `quote`(대표 칭찬 한 줄: `text`, `review_id`, `rating` 또는 `null`).
+  - 칭찬 리뷰와 메뉴 언급 수는 저장소 루트의 `shared/praise.py`로 셉니다 (추천 카드 ⓑ·쿠폰 메뉴 고르기와 같은 기준). 메뉴 이름은 `store.json`의 `menu`.
+    서버(systemd)는 `PYTHONPATH=/opt/ic26`로 `shared/`를 찾고, 저장소 안에서 띄우면 루트를 찾아 붙입니다. **이 폴더만 있는 환경(Dockerfile 이미지)에는 `shared/`가 없어 `praise`가 `null`** 입니다 (보고서의 다른 칸은 그대로).
+  - 대표 칭찬 한 줄: 가장 많이 언급된 메뉴를 말한 칭찬 리뷰 → 가린 자리(`[가림]`) 없는 글 → 별점 높은 것 → 최근 것. 80자를 넘으면 그 메뉴를 말한 문장 하나만.
+    글은 보고서를 만들 때 `mask_pii`를 한 번 더 거칩니다 (합성 샘플·예전 저장본은 가림을 거치지 않았을 수 있음).
+  - 월간 인쇄 페이지에도 '손님 칭찬 요약' 네 줄이 들어갑니다 (`html.escape`).
 
 ### 2-7. 가게 정보 (11/15 추가) `GET·PUT·DELETE /profile`, `POST·DELETE /profile/notices`, `POST·DELETE /profile/answers`, `POST /profile/menu/capture`
 
