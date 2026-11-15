@@ -1,0 +1,125 @@
+{
+ "store_id": "store_mongle",
+ "data_origin": "synthetic",
+ "_note": "가상 가게의 응대용 가게 정보 예시 (합성). 실제 가게 정보가 아님",
+ "basic": {
+  "hours": {
+   "mon": "09:00-22:00",
+   "tue": "09:00-22:00",
+   "wed": "09:00-22:00",
+   "thu": "09:00-22:00",
+   "fri": "09:00-22:00",
+   "sat": "09:00-22:00",
+   "sun": "09:00-22:00"
+  },
+  "break_time": null,
+  "last_order": "21:30",
+  "holidays": "연중무휴",
+  "address": "서울 마포구 (가상 주소)",
+  "parking": "건물 지하 주차장 1시간 무료 (영수증 확인)",
+  "phone": null
+ },
+ "order": {
+  "delivery_area": "가게 반경 1.5km",
+  "min_order": 10000,
+  "takeout": true,
+  "group_order": "음료 20잔 이상은 하루 전에 주문해 주세요"
+ },
+ "menu": [
+  {
+   "name": "아메리카노",
+   "price": 4000,
+   "ingredients": [
+    "원두"
+   ],
+   "spicy": 0,
+   "allergens": [],
+   "recommended": false,
+   "sold_out": false
+  },
+  {
+   "name": "바닐라라떼",
+   "price": 5000,
+   "ingredients": [
+    "원두",
+    "우유",
+    "바닐라 시럽"
+   ],
+   "spicy": 0,
+   "allergens": [
+    "우유"
+   ],
+   "recommended": true,
+   "sold_out": false
+  },
+  {
+   "name": "딸기 케이크",
+   "price": 6500,
+   "ingredients": [
+    "딸기",
+    "생크림",
+    "밀가루",
+    "달걀"
+   ],
+   "spicy": 0,
+   "allergens": [
+    "우유",
+    "밀",
+    "달걀"
+   ],
+   "recommended": true,
+   "sold_out": false
+  },
+  {
+   "name": "소금빵",
+   "price": 3500,
+   "ingredients": [
+    "밀가루",
+    "버터",
+    "소금"
+   ],
+   "spicy": 0,
+   "allergens": [
+    "밀",
+    "우유"
+   ],
+   "recommended": false,
+   "sold_out": false
+  },
+  {
+   "name": "크로플",
+   "price": 5500,
+   "ingredients": [
+    "크루아상 반죽",
+    "버터",
+    "시럽"
+   ],
+   "spicy": 0,
+   "allergens": [
+    "밀",
+    "우유",
+    "달걀"
+   ],
+   "recommended": false,
+   "sold_out": false
+  }
+ ],
+ "policy": {
+  "remake": "음료에 문제가 있으면 다시 만들어 드려요",
+  "refund": null,
+  "reservation": null,
+  "pets": "반려동물 동반 가능해요 (테라스 자리)",
+  "extra": []
+ },
+ "reply": {
+  "tone": "friendly",
+  "sign_off": "몽글카페 드림",
+  "peak_hours": "12-14",
+  "sla_minutes": 30
+ },
+ "foreign": {
+  "languages": []
+ },
+ "notices": [],
+ "answers": []
+}

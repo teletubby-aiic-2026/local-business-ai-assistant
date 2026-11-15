@@ -92,7 +92,8 @@ def test_without_visitor_id_it_is_the_old_shared_behavior_and_file(client, tmp_p
 def test_visitor_files_stay_inside_the_runtime_folder(client, tmp_path):
     paste(client, "글", VISITOR_A)
     files = sorted(p.relative_to(tmp_path).as_posix() for p in (tmp_path / "runtime").rglob("*") if p.is_file())
-    assert files == [f"runtime/visitors/{VISITOR_A}/pasted_store_ongi.json"]
+    assert files == [f"runtime/visitors/{VISITOR_A}/pasted_store_ongi.json",
+                     f"runtime/visitors/{VISITOR_A}/records_store_ongi.json"]      # 받은 시각·상태 기록 (app/records.py)
 
 
 BAD_IDS = ["../x", "..", "a/b", "a\\b", "a.b", "a b", "x" * 65, "abc%0A", "%2e%2e%2f", "한글", "a;b", "~"]

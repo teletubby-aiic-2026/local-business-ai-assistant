@@ -70,6 +70,43 @@
   .bar-t { height:8px; background:var(--chip); border-radius:4px; overflow:hidden; } .bar-t i { display:block; height:100%; background:var(--neg); }
   .quotes { font-size:13px; color:var(--sub); margin:0; padding-left:16px; }
   .err { color:var(--neg); margin-top:8px; }
+  /* 캡처·응대·보고서 탭 (확인용 시안. 통합 화면에는 넣지 않음) */
+  .note { background:#fff8e6; border:1px solid #f0d9a8; color:#6b4500; border-radius:10px; padding:8px 12px; font-size:var(--meta); margin:0 0 12px; }
+  .cand { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-top:10px; }
+  .cand textarea { min-height:60px; }
+  .flag { font-size:var(--meta); padding:1px 8px; border-radius:6px; background:var(--chip); margin-left:6px; }
+  .flag.dup { background:var(--neg-bg); color:var(--neg); }
+  .score { display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+  .score-n { font-size:52px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; }
+  .reasons { list-style:none; padding:0; margin:0; display:grid; gap:6px; }
+  .reasons li { display:flex; gap:10px; align-items:baseline; font-size:14px; }
+  .delta { min-width:42px; text-align:right; font-weight:800; font-variant-numeric:tabular-nums; }
+  .delta.neg { color:var(--neg); } .delta.pos { color:var(--pos); }
+  .timer { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-top:10px; }
+  .timer.over { border-color:var(--neg); box-shadow:inset 4px 0 0 var(--neg); }
+  .clock { font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .clock.over { color:var(--neg); } .clock.paused { color:var(--warn); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; } th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--sub); font-weight:600; font-size:var(--meta); }
+  input[type=date], input[type=month], input[type=file] { font:inherit; padding:6px 10px; border:1px solid var(--field-line); border-radius:8px; background:#fff; }
+  @media (max-width:760px) { .grid2 { grid-template-columns:1fr; } }
+  /* 받은함·가게 정보 */
+  .filters { display:flex; gap:6px; flex-wrap:wrap; }
+  .filters button[aria-pressed="true"] { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .item { border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-top:10px; background:#fff; }
+  .item.owner { border-color:var(--neg); box-shadow:inset 4px 0 0 var(--neg); }
+  .item.done { opacity:.72; }
+  .b { display:inline-block; font-size:12px; font-weight:700; padding:1px 8px; border-radius:6px; background:var(--chip); margin-right:4px; }
+  .b.red { background:var(--neg-bg); color:var(--neg); } .b.green { background:var(--pos-bg, #e8f5ee); color:var(--pos); } .b.warn { background:#fff3dc; color:#8a5300; }
+  .meta { font-size:var(--meta); color:var(--sub); }
+  .reply { background:var(--chip); border-radius:8px; padding:8px 10px; margin-top:8px; font-size:14px; }
+  .form-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px; }
+  .form-grid label { display:block; font-size:var(--meta); color:var(--sub); margin-bottom:3px; }
+  .form-grid input, .form-grid select, .menu-table input, .menu-table select { width:100%; font:inherit; padding:6px 8px; border:1px solid var(--field-line); border-radius:8px; background:#fff; }
+  .menu-table td { padding:4px; vertical-align:middle; } .menu-table input[type=checkbox] { width:auto; }
+  .setup { border-radius:10px; padding:10px 14px; margin-bottom:12px; font-weight:600; }
+  .setup.ok { background:#e8f5ee; color:#0a6b43; } .setup.todo { background:var(--neg-bg); color:var(--neg); }
   @media (max-width:760px) {
     .store { order:3; flex-basis:100%; padding-left:0; border-left:0; }
     .card { padding:16px; }
@@ -89,6 +126,11 @@
       <a href="#/summary" data-route="summary">요약</a>
       <a href="#/issues" data-route="issues">불만 묶음</a>
       <a href="#/paste" data-route="paste">리뷰 붙여넣기</a>
+      <a href="#/capture" data-route="capture">캡처 입력</a>
+      <a href="#/response" data-route="response">응대 기한·점수</a>
+      <a href="#/report" data-route="report">보고서</a>
+      <a href="#/inbox" data-route="inbox">응대 받은함</a>
+      <a href="#/profile" data-route="profile">가게 정보</a>
     </div>
   </nav>
 </header>
@@ -140,6 +182,105 @@
     </div>
     <div id="result"></div>
   </section>
+
+  <!-- 캡처 입력: 올리기 → HCX-005 가 옮겨 적은 후보 → 사장님 확인·수정 → 저장(POST /reviews, source=capture) -->
+  <section data-view="capture" hidden>
+    <div class="page-head"><h1 tabindex="-1">캡처로 리뷰 넣기</h1><p class="sub">배달앱 리뷰 화면 캡처 1장 (png·jpg·webp). 이미지는 저장하지 않고, 읽은 글은 확인한 뒤에만 저장합니다.</p></div>
+    <p class="note">확인용 시안입니다. 통합 화면에는 넣지 않았어요. AI가 글을 잘못 읽거나 빠뜨릴 수 있으니 저장 전에 꼭 원문과 비교해 주세요.</p>
+    <div class="card">
+      <div class="row" style="margin-top:0">
+        <label for="capFile" class="sr">캡처 이미지</label>
+        <input id="capFile" type="file" accept="image/png,image/jpeg,image/webp">
+        <button class="primary" id="capRead">글자 읽기</button>
+      </div>
+      <div id="capInfo" class="sub" style="margin-top:8px"></div>
+    </div>
+    <div id="capList"></div>
+  </section>
+
+  <!-- 응대 기한·점수: GET /response, 답글 완료는 POST /reviews/{id}/status -->
+  <section data-view="response" hidden>
+    <div class="page-head"><h1 tabindex="-1">응대 기한과 점수</h1><p class="sub" id="respLine">불만 리뷰가 들어오면 30분 안에 답글. 피크타임에는 타이머가 멈춥니다.</p></div>
+    <p class="note">확인용 시안입니다. 아래 '가상 배달앱 손님 리뷰'는 시연용 입력이며 실제 배달앱과 연결되지 않았습니다.</p>
+    <div class="grid2">
+      <div class="card" style="margin-top:0">
+        <h2>리뷰 응대 점수</h2>
+        <div class="score"><span class="score-n" id="scoreN">–</span><span class="sub" id="scoreSub"></span></div>
+        <h2 style="margin-top:16px">점수가 바뀐 이유</h2>
+        <ul class="reasons" id="reasons"></ul>
+      </div>
+      <div class="card" style="margin-top:0">
+        <h2>가상 배달앱 손님 리뷰 (시연용)</h2>
+        <label for="appText" class="sr">손님 리뷰</label>
+        <textarea id="appText" maxlength="1000">반찬이 또 빠져 있었어요. 확인 좀 해 주세요</textarea>
+        <div class="row"><select id="appRating"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option></select>
+          <button class="primary" id="appSend">손님이 리뷰 등록</button></div>
+        <div class="sub" id="appInfo" style="margin-top:6px">source=app 으로 저장되고, 받은 시각부터 기한이 시작됩니다.</div>
+      </div>
+    </div>
+    <div class="card"><h2>답글 기다리는 불만 <span class="sub" id="pendCount"></span></h2><div id="pending"></div></div>
+  </section>
+
+  <!-- 보고서: GET /report/daily, /report/monthly. 숫자·문장 모두 코드(틀 문장) -->
+  <section data-view="report" hidden>
+    <div class="page-head"><h1 tabindex="-1">일일 요약 · 월간 보고서</h1><p class="sub">숫자는 코드가 계산하고, 문장은 정해 둔 틀에 숫자만 넣습니다 (AI 문장 아님).</p></div>
+    <p class="note">확인용 시안입니다. 합성 리뷰는 작성 날짜(10/13~11/8), 새 리뷰는 실제로 받은 날짜로 셉니다.</p>
+    <div class="card">
+      <div class="row" style="margin-top:0"><h2 style="margin:0">일일 요약</h2><label for="day" class="sr">날짜</label><input id="day" type="date"><button id="dayGo">보기</button></div>
+      <div id="daily" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <div class="row" style="margin-top:0"><h2 style="margin:0">월간 보고서</h2><label for="mon" class="sr">달</label><input id="mon" type="month"><button id="monGo">보기</button><button class="primary" id="monPrint">인쇄 / PDF로 저장</button></div>
+      <iframe id="monFrame" title="월간 보고서 인쇄본" style="position:absolute;width:0;height:0;border:0"></iframe>
+      <div id="monthly" style="margin-top:12px"></div>
+    </div>
+  </section>
+  <!-- 응대 받은함: GET /inbox, 문의 답장 POST /inquiries/{id}/status, 초안 POST /inquiries/{id}/draft, 약속 장부 GET /promises -->
+  <section data-view="inbox" hidden>
+    <div class="page-head"><h1 tabindex="-1">응대 받은함</h1><p class="sub">리뷰와 손님 문의를 한곳에서. 알레르기·위생·환불·직원 문의는 AI가 답하지 않고 맨 위에 올립니다.</p></div>
+    <p class="note">확인용 시안입니다. 통합 화면에서는 화면 서버가 /api/care/* 로 같은 기능을 불러옵니다. <a id="pageLink" target="_blank" rel="noopener">손님 문의 페이지 열기 ↗</a></p>
+    <dl class="stats" id="inboxStats"></dl>
+    <div class="grid2" style="grid-template-columns:2fr 1fr">
+      <div class="card" style="margin-top:0">
+        <div class="filters" id="filters">
+          <button data-f="open" aria-pressed="true">처리할 것</button><button data-f="owner">사장님 확인 필수</button>
+          <button data-f="inquiry">문의</button><button data-f="complaint">불만</button><button data-f="all">전체</button>
+        </div>
+        <div id="inboxList"></div>
+      </div>
+      <div class="card" style="margin-top:0"><h2>약속 장부</h2><p class="sub" style="margin-top:0">답글·답장에 한 약속과, 그 뒤 같은 불만이 다시 왔는지.</p><div id="promiseList"></div></div>
+    </div>
+  </section>
+
+  <!-- 가게 정보: GET/PUT /profile, 공지 POST/DELETE /profile/notices, 배운 답, 메뉴판 사진 POST /profile/menu/capture -->
+  <section data-view="profile" hidden>
+    <div class="page-head"><h1 tabindex="-1">가게 정보</h1><p class="sub">처음 한 번 입력하고, 바뀔 때만 고칩니다. 문의 자동 답변과 답변 초안의 근거가 됩니다.</p></div>
+    <p class="note">확인용 시안입니다. 값은 가상 가게의 합성 예시예요. 위치·업종은 상권 서비스 설정을 그대로 씁니다.</p>
+    <div id="setup"></div>
+    <div class="card"><h2>임시 공지 <span class="sub">끝나는 날이 지나면 저절로 빠져요</span></h2><div id="notices"></div>
+      <div class="row"><select id="ntKind"><option value="closed">임시휴무</option><option value="sold_out">품절</option><option value="hours">시간 변경</option><option value="other">기타</option></select>
+        <input id="ntText" placeholder="손님에게 보일 글 (예: 11/20 임시휴무)" style="flex:2;padding:6px 10px;border:1px solid var(--field-line);border-radius:8px;font:inherit">
+        <input id="ntExtra" placeholder="품절 메뉴 또는 시간 12:00-18:00" style="flex:1;padding:6px 10px;border:1px solid var(--field-line);border-radius:8px;font:inherit">
+        <input id="ntStart" type="date"><input id="ntEnd" type="date"><button class="primary" id="ntAdd">공지 추가</button></div>
+      <div class="sub" id="ntMsg"></div></div>
+    <div class="card"><h2>기본 정보</h2><div class="form-grid" id="basicForm"></div><div class="row"><button class="primary" data-save="basic">기본 정보 저장</button><span class="sub" data-msg="basic"></span></div></div>
+    <div class="card"><h2>메뉴 <span class="sub">알레르기 칸은 사장님이 확인한 재료만 적어 주세요</span></h2>
+      <div class="row" style="margin-top:0"><label for="menuFile" class="sr">메뉴판 사진</label><input id="menuFile" type="file" accept="image/png,image/jpeg,image/webp"><button id="menuRead">메뉴판 사진으로 채우기</button><span class="sub" id="menuMsg"></span></div>
+      <div style="overflow-x:auto"><table class="menu-table"><thead><tr><th>이름</th><th>가격(원)</th><th>맵기</th><th>재료 (쉼표)</th><th>알레르기 (쉼표)</th><th>추천</th><th>품절</th><th></th></tr></thead><tbody id="menuRows"></tbody></table></div>
+      <div class="row"><button id="menuAdd">메뉴 한 줄 추가</button><button class="primary" data-save="menu">메뉴 저장</button><span class="sub" data-msg="menu"></span></div></div>
+    <div class="grid2">
+      <div class="card"><h2>주문·정책</h2><div class="form-grid" id="policyForm"></div><div class="row"><button class="primary" data-save="policy">주문·정책 저장</button><span class="sub" data-msg="policy"></span></div></div>
+      <div class="card"><h2>응대 방식</h2><div class="form-grid" id="replyForm"></div><div class="row"><button class="primary" data-save="reply">응대 방식 저장</button><span class="sub" data-msg="reply"></span></div></div>
+    </div>
+    <div class="card"><h2>외국인 메뉴판 <span class="sub">가게 정보의 메뉴로 만들고, 인쇄하거나 PDF로 저장해요</span></h2>
+      <div class="row" style="margin-top:0"><label for="fmLang" class="sr">언어</label><select id="fmLang"><option value="en">English</option><option value="ja">日本語</option><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="vi">Tiếng Việt</option><option value="th">ไทย</option><option value="id">Bahasa Indonesia</option><option value="fr">Français</option><option value="es">Español</option><option value="ru">Русский</option><option value="de">Deutsch</option><option value="it">Italiano</option></select>
+        <button id="fmGo">미리보기</button><button class="primary" id="fmPrint">인쇄 / PDF로 저장</button><span class="sub" id="fmMsg"></span></div>
+      <div id="fmChecks"></div>
+      <div id="fmEdit"></div>
+      <iframe id="fmFrame" title="외국인 메뉴판 미리보기" style="width:100%;height:560px;border:1px solid var(--line);border-radius:10px;margin-top:10px;background:#fff"></iframe>
+    </div>
+    <div class="card"><h2>배운 답 <span class="sub">문의에 직접 답하며 "저장"한 것. 다음 비슷한 문의에 자동으로 씁니다</span></h2><div id="answers"></div></div>
+  </section>
 </main>
 <script>
 const NAMES = { texture:'식감', taste:'맛', portion:'양', price:'가격', delivery_time:'배달 시간', temperature:'음식 온도', packaging:'포장 상태', missing_item:'포장 누락', service:'응대', hygiene:'위생', menu:'메뉴 구성', atmosphere:'매장 환경', wait_time:'매장 대기' };
@@ -154,13 +295,17 @@ let STORE = '';
 let LOAD_SEQ = 0;   // 늦게 끝난 예전 불러오기가 새 결과를 덮지 않게
 const q = () => 'store_id=' + encodeURIComponent(STORE);
 // 화면은 주소 해시로: #/summary #/issues #/paste
-const ROUTES = ['summary', 'issues', 'paste'];
+const ROUTES = ['summary', 'issues', 'paste', 'capture', 'response', 'report', 'inbox', 'profile'];
 function route() {
   const r = (location.hash.match(/^#\/(\w+)/) || [])[1];
   const name = ROUTES.includes(r) ? r : 'summary';
   document.querySelectorAll('[data-view]').forEach(v => (v.hidden = v.dataset.view !== name));
   document.querySelectorAll('.menu a').forEach(a => a.dataset.route === name ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   const h = document.querySelector(`[data-view="${name}"] h1`); if (h) h.focus({ preventScroll: true });
+  if (STORE && name === 'response') loadResponse();
+  if (STORE && name === 'report') { loadDaily(); loadMonthly(); }
+  if (STORE && name === 'inbox') loadInbox();
+  if (STORE && name === 'profile') { loadProfile(); loadForeign(); }
 }
 // 서버가 접근 토큰을 요구하면(APP_ACCESS_TOKEN) 한 번 입력받아 이 브라우저에만 기억
 let TOKEN = '';
@@ -248,6 +393,10 @@ async function load() {
     $('period').textContent = `${ins.period_start} ~ ${ins.period_end} · 같은 불만 2건 이상이면 묶음, 3건 이상이면 반복`;
     renderSummary(ins);
     renderIssues(ins);
+    if (location.hash.startsWith('#/response')) loadResponse();
+    if (location.hash.startsWith('#/report')) { loadDaily(); loadMonthly(); }
+    if (location.hash.startsWith('#/inbox')) loadInbox();
+    if (location.hash.startsWith('#/profile')) { loadProfile(); loadForeign(); }
   } catch (e) {
     if (seq === LOAD_SEQ) $('storeLine').innerHTML = `<span class="err">${esc(e.message)}</span>`;
   }
@@ -272,6 +421,311 @@ $('tokenSave').onclick = () => {
   try { localStorage.setItem('reviewInsightToken', TOKEN); } catch (e) {}
   $('tokenRow').hidden = true; STORE = ''; load();
 };
+// ── 캡처 입력 ──
+let CANDS = [];
+$('capRead').onclick = async () => {
+  const f = $('capFile').files[0];
+  if (!f) { $('capInfo').textContent = '이미지를 골라 주세요.'; return; }
+  $('capRead').disabled = true; $('capInfo').textContent = '읽는 중… (긴 캡처는 조각마다 한 번씩 읽어 시간이 더 걸려요)'; $('capList').innerHTML = '';
+  try {
+    const fd = new FormData(); fd.append('file', f); fd.append('store_id', STORE);
+    const r = await fetch('/api/review-insight/reviews/capture', { method: 'POST', body: fd, headers: { 'X-Access-Token': TOKEN } });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || r.status);
+    CANDS = d.candidates;
+    $('capInfo').innerHTML = `후보 ${d.count}건 · ${d.demo ? '<b style="color:var(--warn)">예시 결과 (demo)</b>' : esc(d.engine)} · 조각 ${d.pieces}개`
+      + d.warnings.map(w => `<div class="warn">${esc(w)}</div>`).join('');
+    renderCands();
+  } catch (e) { $('capInfo').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  $('capRead').disabled = false;
+};
+function renderCands() {
+  $('capList').innerHTML = CANDS.length ? `<div class="card">${CANDS.map((c, i) => `<div class="cand">
+      <label class="row" style="margin:0 0 6px"><input type="checkbox" data-pick="${i}" ${c.duplicate ? '' : 'checked'}> 후보 ${i + 1}
+        ${c.pii_masked ? '<span class="flag">개인정보 가림</span>' : ''}${c.duplicate ? '<span class="flag dup">이미 저장된 리뷰와 같음</span>' : ''}</label>
+      <textarea data-text="${i}" maxlength="1000">${esc(c.text)}</textarea>
+      <div class="row"><span class="meta">별점 (AI가 별 아이콘을 세어 틀릴 수 있어요. 확인해 주세요)</span><select data-rating="${i}"><option value="">별점 모름</option>${[5, 4, 3, 2, 1].map(n => `<option ${c.rating === n ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+    </div>`).join('')}
+    <div class="row"><button class="primary" id="capSave">고른 후보 저장하고 분류</button><span class="sub" id="capSaved"></span></div></div>` : '';
+  if ($('capSave')) $('capSave').onclick = saveCands;
+}
+async function saveCands() {
+  const picks = [...document.querySelectorAll('[data-pick]')].filter(x => x.checked).map(x => +x.dataset.pick);
+  let ok = 0;
+  for (const i of picks) {
+    const text = document.querySelector(`[data-text="${i}"]`).value.trim();
+    const rating = document.querySelector(`[data-rating="${i}"]`).value;
+    if (!text) continue;
+    try { await api('/reviews', { method: 'POST', body: JSON.stringify({ store_id: STORE, text, rating: rating ? +rating : null, source: 'capture' }) }); ok++; }
+    catch (e) { $('capSaved').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  }
+  $('capSaved').textContent = `${ok}건 저장했어요. 불만 묶음과 응대 기한에 바로 반영됩니다.`;
+  load();
+}
+
+// ── 응대 기한·점수 ──
+let PEND = [], RESP_TIMER = null;
+const mmss = s => { const a = Math.abs(s); const h = Math.floor(a / 3600), m = Math.floor(a % 3600 / 60), x = a % 60;
+  return (s < 0 ? '-' : '') + (h ? h + ':' : '') + String(m).padStart(h ? 2 : 1, '0') + ':' + String(x).padStart(2, '0'); };
+async function loadResponse() {
+  try {
+    const d = await api('/response?' + q());
+    $('scoreN').textContent = d.score;
+    $('scoreSub').innerHTML = `최근 ${d.policy.window_days}일 · 기한 ${d.policy.sla_minutes}분 · 피크 ${esc(d.policy.peak_hours.join(', ') || '없음')}`
+      + `<br>${d.peak_now ? '<b style="color:var(--warn)">지금은 피크타임 · 타이머 멈춤</b>' : '지금은 피크타임 아님'}`
+      + `<br>지난 합성 리뷰 중 답글 안 단 불만 ${d.untimed_unanswered}건 (기한 없음)`;
+    $('reasons').innerHTML = d.reasons.length ? d.reasons.map(x => `<li><span class="delta ${x.delta < 0 ? 'neg' : 'pos'}">${x.delta > 0 ? '+' : ''}${x.delta}</span><span>${esc(x.message)}</span></li>`).join('')
+      : '<li class="sub">아직 점수가 바뀐 일이 없어요.</li>';
+    PEND = d.pending.map(p => ({ ...p, dueMs: Date.parse(p.due_at) }));
+    $('pendCount').textContent = PEND.length ? `${PEND.length}건 · 기한 넘김 ${d.overdue_count}건` : '';
+    renderPending(d.peak_now);
+  } catch (e) { $('respLine').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+function renderPending(peak) {
+  $('pending').innerHTML = PEND.length ? PEND.map(p => `<div class="timer" data-id="${esc(p.review_id)}">
+      <div class="row" style="margin:0;justify-content:space-between"><span><b>${esc(p.topic_names.join('·'))}</b> <span class="sub">${esc(p.source)} · 받은 시각 ${esc(p.received_at.slice(11, 16))} · 기한 ${esc(p.due_at.slice(11, 16))}</span></span>
+        <span class="clock" data-clock="${esc(p.review_id)}"></span></div>
+      <div style="margin:6px 0">“${esc(p.text)}”</div>
+      <label class="sr" for="rp_${esc(p.review_id)}">답글</label><textarea id="rp_${esc(p.review_id)}" style="min-height:54px">불편을 드려 죄송합니다. 다음 주문부터 포장 단계에서 한 번 더 확인하겠습니다.</textarea>
+      <div class="row"><button class="primary" data-reply="${esc(p.review_id)}">답글 완료</button><button data-skip="${esc(p.review_id)}">건너뛰기</button></div></div>`).join('')
+    : '<div class="sub">답글을 기다리는 새 불만이 없어요. 오른쪽 위에서 손님 리뷰를 보내 보세요.</div>';
+  tick(peak);
+  clearInterval(RESP_TIMER);
+  RESP_TIMER = setInterval(() => { if (location.hash.startsWith('#/response')) tick(peak); }, 1000);
+}
+function tick(peak) {
+  for (const p of PEND) {
+    const el = document.querySelector(`[data-clock="${CSS.escape(p.review_id)}"]`); if (!el) continue;
+    const left = Math.round((p.dueMs - Date.now()) / 1000);
+    el.textContent = left < 0 ? `${mmss(left)} 넘김` : (peak ? `${mmss(left)} (멈춤)` : `남은 시간 ${mmss(left)}`);
+    el.className = 'clock' + (left < 0 ? ' over' : peak ? ' paused' : '');
+    el.closest('.timer').classList.toggle('over', left < 0);
+  }
+}
+$('pending').onclick = async e => {
+  const id = e.target.dataset.reply || e.target.dataset.skip; if (!id) return;
+  const body = e.target.dataset.reply ? { status: 'replied', reply_text: $('rp_' + id).value.trim() || null, store_id: STORE } : { status: 'skipped', store_id: STORE };
+  try { await api(`/reviews/${encodeURIComponent(id)}/status`, { method: 'POST', body: JSON.stringify(body) }); loadResponse(); }
+  catch (err) { $('pendCount').innerHTML = `<span class="err">${esc(err.message)}</span>`; }
+};
+$('appSend').onclick = async () => {
+  const text = $('appText').value.trim(); if (!text) return;
+  $('appSend').disabled = true;
+  try {
+    const d = await api('/reviews', { method: 'POST', body: JSON.stringify({ store_id: STORE, text, rating: +$('appRating').value, source: 'app' }) });
+    $('appInfo').textContent = `${d.review.review_id} 등록 · ${d.classification?.negative_topics?.length ? '불만으로 분류 → 타이머 시작' : '불만이 아니라 타이머 없음'}`;
+    loadResponse(); load();
+  } catch (e) { $('appInfo').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  $('appSend').disabled = false;
+};
+
+// ── 보고서 ──
+const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+$('day').value = today; $('mon').value = today.slice(0, 7);
+const stat = (label, n, unit = '건', sub = '') => `<div class="stat-card"><dt>${label}</dt><dd><span class="stat-n">${n}</span><span class="stat-unit">${unit}</span><span class="stat-sub">${sub}</span></dd></div>`;
+const changeList = l => l.length ? `<ul class="reasons">${l.map(x => `<li><span class="delta ${x.delta < 0 ? 'neg' : 'pos'}">${x.delta > 0 ? '+' : ''}${x.delta}</span><span>${esc(x.message)}</span></li>`).join('')}</ul>` : '<div class="sub">점수 변동 없음</div>';
+async function loadDaily() {
+  try {
+    const d = await api(`/report/daily?${q()}&date=${$('day').value}`);
+    const sign = d.score_change > 0 ? '+' + d.score_change : d.score_change;
+    $('daily').innerHTML = `<p class="brief">${esc(d.summary)}</p>
+      <dl class="stats">${stat('리뷰 · 불만', `${d.review_count} · ${d.complaint_count}`, '건', Object.entries(d.by_source).map(([k, v]) => `${k} ${v}`).join(' · '))}
+        ${stat('기한 안 답글', d.replied_on_time, '건', `늦은 답글 ${d.replied_late}건 · 대기 ${d.pending_count}건`)}
+        ${stat('점수', d.score_end, '점', `${d.score_start} → ${d.score_end} (${sign})`)}</dl>
+      <div class="grid2"><div><h2>점수가 바뀐 이유</h2>${changeList(d.changes)}</div>
+        <div><h2>내일 먼저 할 일</h2><p style="margin:0;font-weight:600">${esc(d.todo.text)}</p></div></div>`;
+  } catch (e) { $('daily').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+function spark(trend) {
+  if (!trend.length) return '';
+  const W = 600, H = 120, P = 24, min = Math.min(...trend.map(t => t.score), 80), max = 100;
+  const x = i => P + (W - 2 * P) * (trend.length === 1 ? 0.5 : i / (trend.length - 1));
+  const y = v => H - P - (H - 2 * P) * (v - min) / Math.max(1, max - min);
+  const pts = trend.map((t, i) => `${x(i).toFixed(1)},${y(t.score).toFixed(1)}`).join(' ');
+  const last = trend[trend.length - 1];
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="날마다 점수">
+    <line x1="${P}" x2="${W - P}" y1="${y(100)}" y2="${y(100)}" stroke="var(--line)"/><text x="${P}" y="${y(100) - 4}" font-size="11" fill="var(--sub)">100</text>
+    <polyline points="${pts}" fill="none" stroke="var(--acc)" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="${x(trend.length - 1)}" cy="${y(last.score)}" r="4" fill="var(--acc)"/>
+    <text x="${x(trend.length - 1) - 4}" y="${y(last.score) - 8}" font-size="12" font-weight="700" text-anchor="end" fill="var(--ink)">${last.score}점</text>
+    <text x="${P}" y="${H - 4}" font-size="11" fill="var(--sub)">${trend[0].date.slice(5)}</text><text x="${W - P}" y="${H - 4}" font-size="11" text-anchor="end" fill="var(--sub)">${last.date.slice(5)}</text></svg>`;
+}
+const STATE = { recurred_after_reply: '답글 뒤 재발', no_recurrence: '답글 뒤 7일 재발 없음', replied_watching: '답글 단 뒤 지켜보는 중', no_reply: '답글 없음' };
+async function loadMonthly() {
+  try {
+    const m = await api(`/report/monthly?${q()}&month=${$('mon').value}`);
+    $('monthly').innerHTML = `<div class="sub">${esc(m.month)} · ${esc(m.until.slice(0, 10))}까지 · 리뷰 ${m.review_count}건 · 불만 ${m.complaint_count}건 · 점수 ${m.score_start} → ${m.score_end}</div>
+      ${spark(m.score_trend)}
+      <h2 style="margin-top:12px">반복 불만</h2>
+      ${m.repeated_issues.length ? `<table><thead><tr><th>불만</th><th>전체</th><th>이번 달</th><th>답글</th><th>상태</th></tr></thead><tbody>${m.repeated_issues.map(i => `<tr><td>${esc(i.topic_name)}${i.is_repeated ? '<span class="badge">반복</span>' : ''}</td><td>${i.review_count}</td><td>${i.count_this_month}</td><td>${i.replied_count}</td><td>${esc(STATE[i.state] || i.state)}${i.recurred_after_reply ? ` (${i.recurred_after_reply}건)` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="sub">반복 불만이 없어요.</div>'}
+      <h2 style="margin-top:14px">다음 달 개선 제안</h2><ol style="margin:0;padding-left:20px">${m.suggestions.map(s => `<li>${esc(s.text)}</li>`).join('')}</ol>`;
+  } catch (e) { $('monthly').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+$('dayGo').onclick = loadDaily; $('monGo').onclick = loadMonthly;
+$('monPrint').onclick = async () => {
+  try {
+    const r = await fetch(`/api/review-insight/report/monthly/print?${q()}&month=${$('mon').value}`, { headers: { 'X-Access-Token': TOKEN } });
+    if (!r.ok) throw new Error((await r.json()).error?.message || r.status);
+    const f = $('monFrame'); f.srcdoc = await r.text(); f.onload = () => f.contentWindow.print();
+  } catch (e) { $('monthly').insertAdjacentHTML('afterbegin', `<p class="err">${esc(e.message)}</p>`); }
+};
+
+// ── 응대 받은함 ──
+const INTENT = { complaint: '불만', reservation: '예약 요청', question: '질문', praise: '칭찬', other: '기타' };
+const OWNER = { allergy: '알레르기', hygiene: '위생', refund: '환불·보상', staff: '직원 응대' };
+const SRC = { sample: '합성 리뷰', paste: '붙여넣기', capture: '캡처', app: '가상 배달앱', memo: '매장 메모', page: '문의 페이지' };
+let FILTER = 'open';
+$('filters').onclick = e => { const f = e.target.dataset.f; if (!f) return; FILTER = f;
+  document.querySelectorAll('#filters button').forEach(b => b.setAttribute('aria-pressed', b.dataset.f === f)); loadInbox(); };
+function left(sec) { if (sec == null) return ''; const m = Math.round(Math.abs(sec) / 60);
+  const t = m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`; return sec < 0 ? `<span class="b red">${t} 넘김</span>` : `<span class="b warn">남은 ${t}</span>`; }
+async function loadInbox() {
+  $('pageLink').href = '/s/' + encodeURIComponent(STORE);
+  const p = new URLSearchParams({ store_id: STORE, limit: '40' });
+  if (FILTER === 'open') p.set('open', 'true'); if (FILTER === 'owner') p.set('needs_owner', 'true');
+  if (FILTER === 'inquiry') p.set('kind', 'inquiry'); if (FILTER === 'complaint') p.set('intent', 'complaint');
+  try {
+    const [d, pr] = await Promise.all([api('/inbox?' + p), api('/promises?' + q())]);
+    const s = d.summary;
+    $('inboxStats').innerHTML = stat('처리할 것', s.open, '건', `기한 넘김 ${s.overdue}건`) + stat('사장님 확인 필수', s.needs_owner_open, '건', '알레르기·위생·환불·직원')
+      + stat('문의 자동 답변', s.auto_answered, '건', `문의 ${s.by_kind.inquiry}건 중`) + stat('리뷰', s.by_kind.review, '건', '합성 + 새로 들어온 것');
+    $('inboxList').innerHTML = d.items.length ? d.items.map(itemHtml).join('') : '<p class="sub">해당하는 항목이 없어요.</p>';
+    $('promiseList').innerHTML = pr.items.length ? pr.items.map(x => `<div class="item"><span class="b ${x.state === 'broken' ? 'red' : x.state === 'kept' ? 'green' : 'warn'}">${{ broken: '약속 뒤 재발', kept: '지킴', watching: '지켜보는 중', check: '확인 필요' }[x.state]}</span>
+        <span class="meta">${esc(x.topic_names.join('·') || '문의')} · ${esc(x.made_at.slice(5, 16).replace('T', ' '))}</span><div style="margin-top:4px">“${esc(x.promises.join(' '))}”</div><div class="meta">${esc(x.message)}</div></div>`).join('')
+      : '<p class="sub">답글에 약속이 들어가면 여기에 쌓여요. 예: "포장할 때 한 번 더 확인하겠습니다"</p>';
+  } catch (e) { $('inboxList').innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+function itemHtml(x) {
+  const owner = x.needs_owner.map(f => `<span class="b red">사장님 확인 · ${OWNER[f]}</span>`).join('');
+  const head = `<span class="b">${x.kind === 'inquiry' ? '문의' : '리뷰'}</span><span class="b ${x.intent === 'complaint' ? 'red' : ''}">${INTENT[x.intent]}</span>${owner}${x.open ? left(x.remaining_seconds) : ''}
+    <span class="meta">${esc(SRC[x.source] || x.source)} · ${esc((x.received_at || x.created_at).slice(5, 16).replace('T', ' '))}${x.rating ? ' · ★' + x.rating : ''}${x.topic_names.length ? ' · ' + esc(x.topic_names.join('·')) : ''}</span>`;
+  const reply = x.reply ? `<div class="reply"><b>${x.reply.by === 'auto' ? '가게 정보로 자동 답변' : '사장님 답'}</b> · ${esc(x.reply.text)}</div>` : '';
+  const why = x.open && x.forward_reason ? `<div class="meta" style="margin-top:4px">${esc(x.forward_reason)}</div>` : '';
+  const act = x.kind === 'inquiry' && x.open ? `<label class="sr" for="ans_${x.item_id}">답장</label><textarea id="ans_${x.item_id}" style="min-height:60px;margin-top:8px" placeholder="답장을 쓰거나 '초안 받기'를 눌러 주세요"></textarea>
+      <div class="row"><button data-draft="${x.item_id}">초안 받기</button><label class="meta"><input type="checkbox" id="learn_${x.item_id}"> 이 답을 가게 정보에 저장</label>
+      <button class="primary" data-send="${x.item_id}">답장 보내기</button><button data-skip2="${x.item_id}">건너뛰기</button></div><div class="meta" id="dm_${x.item_id}"></div>`
+    : (x.kind === 'review' && x.open ? '<div class="meta" style="margin-top:6px">리뷰 답글은 비서 화면의 글 만들기에서 쓰고, 승인하면 기록돼요 (응대 기한·점수 탭에서도 처리 가능).</div>' : '');
+  return `<div class="item ${x.open && x.needs_owner.length ? 'owner' : ''} ${x.open ? '' : 'done'}">${head}<div style="margin-top:6px">${esc(x.text)}</div>${why}${reply}${act}</div>`;
+}
+$('inboxList').onclick = async e => {
+  const t = e.target;
+  if (t.dataset.draft) {
+    const id = t.dataset.draft; $('dm_' + id).textContent = '초안 만드는 중…';
+    try { const d = await api(`/inquiries/${encodeURIComponent(id)}/draft?` + q(), { method: 'POST' }); $('ans_' + id).value = d.draft;
+      $('dm_' + id).textContent = `${d.method === 'hcx' ? 'HCX-005 초안 · 코드 검사 통과' : '틀 문장' + (d.demo ? ' (키 없음, demo)' : ' (모델 답이 검사를 못 넘음)')}${d.checks.length ? ' · ' + d.checks.join(', ') : ''} · 근거 ${d.facts.length}줄`; }
+    catch (err) { $('dm_' + id).textContent = err.message; }
+  }
+  if (t.dataset.send || t.dataset.skip2) {
+    const id = t.dataset.send || t.dataset.skip2;
+    const body = t.dataset.send ? { store_id: STORE, status: 'replied', reply_text: $('ans_' + id).value.trim(), learn: $('learn_' + id).checked } : { store_id: STORE, status: 'skipped' };
+    if (t.dataset.send && !body.reply_text) { $('dm_' + id).textContent = '답장을 써 주세요.'; return; }
+    try { await api(`/inquiries/${encodeURIComponent(id)}/status`, { method: 'POST', body: JSON.stringify(body) }); loadInbox(); }
+    catch (err) { $('dm_' + id).textContent = err.message; }
+  }
+};
+
+// ── 가게 정보 ──
+let PROFILE = null;
+const DAYS = [['mon', '월'], ['tue', '화'], ['wed', '수'], ['thu', '목'], ['fri', '금'], ['sat', '토'], ['sun', '일']];
+const field = (id, label, value, ph = '') => `<div><label for="${id}">${label}</label><input id="${id}" value="${esc(value ?? '')}" placeholder="${esc(ph)}"></div>`;
+async function loadProfile() {
+  try { PROFILE = await api('/profile?' + q()); renderProfile(); } catch (e) { $('setup').innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+function renderProfile() {
+  const p = PROFILE, st = p.setup;
+  $('setup').innerHTML = st.done ? `<div class="setup ok">처음 설정 완료 · 오늘(${esc(p.today.day)}) ${esc(p.today.hours || '영업시간 미등록')}${p.today.sold_out.length ? ' · 품절 ' + esc(p.today.sold_out.join(', ')) : ''}${st.later.length ? `<span class="sub" style="font-weight:400"> · 나중에 채우면 좋은 것: ${esc(st.later.join(', '))}</span>` : ''}</div>`
+    : `<div class="setup todo">처음 설정이 남았어요: ${esc(st.missing.map(m => m.label).join(', '))}</div>`;
+  $('notices').innerHTML = p.notices.length ? p.notices.map(n => { const on = p.active_notices.some(a => a.id === n.id), past = n.end < p.today.date;
+    return `<div class="row" style="margin-top:6px"><span class="b ${on ? 'warn' : past ? '' : 'green'}">${on ? '지금 보임' : past ? '끝남' : '예정'}</span><span>${esc(n.text)}</span><span class="meta">${esc(n.start)} ~ ${esc(n.end)}</span><button data-rmn="${n.id}">지우기</button></div>`; }).join('') : '<p class="sub">공지가 없어요.</p>';
+  const b = p.basic;
+  $('basicForm').innerHTML = DAYS.map(([k, n]) => field('h_' + k, n + '요일', b.hours[k], '11:00-21:00 또는 휴무')).join('')
+    + field('b_break', '브레이크타임', b.break_time, '15:00-17:00') + field('b_last', '마지막 주문', b.last_order, '20:30') + field('b_hol', '쉬는 날', b.holidays)
+    + field('b_park', '주차', b.parking) + field('b_addr', '주소', b.address);
+  $('menuRows').innerHTML = p.menu.map(menuRow).join('');
+  const o = p.order, pol = p.policy;
+  $('policyForm').innerHTML = field('o_area', '배달 지역', o.delivery_area) + field('o_min', '최소 주문(원)', o.min_order)
+    + `<div><label for="o_take">포장</label><select id="o_take"><option value="">모름</option><option value="true" ${o.takeout === true ? 'selected' : ''}>가능</option><option value="false" ${o.takeout === false ? 'selected' : ''}>안 함</option></select></div>`
+    + field('o_group', '단체 주문', o.group_order) + field('p_remake', '다시 만들어 주는 기준', pol.remake) + field('p_refund', '환불 기준 (비우면 환불을 약속하지 않음)', pol.refund)
+    + field('p_resv', '예약', pol.reservation) + field('p_pets', '반려동물', pol.pets);
+  const r = p.reply;
+  $('replyForm').innerHTML = `<div><label for="r_tone">말투</label><select id="r_tone"><option value="polite" ${r.tone === 'polite' ? 'selected' : ''}>정중하게</option><option value="friendly" ${r.tone === 'friendly' ? 'selected' : ''}>친근하게</option></select></div>`
+    + field('r_sign', '끝인사', r.sign_off) + field('r_peak', '피크 시간', r.peak_hours, '11-14,17-21') + field('r_sla', '답장 기한(분)', r.sla_minutes);
+  $('answers').innerHTML = p.answers.length ? p.answers.map(a => `<div class="item"><b>Q.</b> ${esc(a.question)}<div><b>A.</b> ${esc(a.answer)}</div><div class="row" style="margin-top:4px"><span class="meta">${esc((a.saved_at || '').slice(0, 16).replace('T', ' '))}</span><button data-rma="${a.id}">지우기</button></div></div>`).join('')
+    : '<p class="sub">아직 없어요. 받은함에서 문의에 답할 때 "이 답을 가게 정보에 저장"을 고르면 생겨요.</p>';
+}
+const menuRow = m => `<tr><td><input value="${esc(m.name)}" data-k="name"></td><td><input value="${esc(m.price ?? '')}" data-k="price" inputmode="numeric" style="width:90px"></td>
+  <td><select data-k="spicy">${[0, 1, 2, 3].map(n => `<option value="${n}" ${m.spicy === n ? 'selected' : ''}>${['안 매움', '조금', '보통', '많이'][n]}</option>`).join('')}</select></td>
+  <td><input value="${esc((m.ingredients || []).join(', '))}" data-k="ingredients"></td><td><input value="${esc((m.allergens || []).join(', '))}" data-k="allergens"></td>
+  <td><input type="checkbox" data-k="recommended" ${m.recommended ? 'checked' : ''}></td><td><input type="checkbox" data-k="sold_out" ${m.sold_out ? 'checked' : ''}></td><td><button data-rmrow>삭제</button></td></tr>`;
+$('menuRows').onclick = e => { if (e.target.dataset.rmrow !== undefined) e.target.closest('tr').remove(); };
+$('menuAdd').onclick = () => $('menuRows').insertAdjacentHTML('beforeend', menuRow({ name: '', price: null, spicy: 0, ingredients: [], allergens: [] }));
+const val = id => { const v = $(id).value.trim(); return v === '' ? null : v; };
+const list = s => s.split(',').map(x => x.trim()).filter(Boolean);
+function collect(section) {
+  if (section === 'basic') return { hours: Object.fromEntries(DAYS.map(([k]) => [k, val('h_' + k)])), break_time: val('b_break'), last_order: val('b_last'),
+    holidays: val('b_hol'), parking: val('b_park'), address: val('b_addr'), phone: PROFILE.basic.phone };
+  if (section === 'menu') return [...$('menuRows').querySelectorAll('tr')].map(tr => { const g = k => tr.querySelector(`[data-k="${k}"]`);
+    return { name: g('name').value.trim(), price: g('price').value.trim() === '' ? null : Number(g('price').value.replace(/[^0-9]/g, '')), spicy: Number(g('spicy').value),
+      ingredients: list(g('ingredients').value), allergens: list(g('allergens').value), recommended: g('recommended').checked, sold_out: g('sold_out').checked }; }).filter(m => m.name);
+  if (section === 'policy') return { order: { delivery_area: val('o_area'), min_order: val('o_min') == null ? null : Number(val('o_min').replace(/[^0-9]/g, '')),
+    takeout: $('o_take').value === '' ? null : $('o_take').value === 'true', group_order: val('o_group') },
+    policy: { ...PROFILE.policy, remake: val('p_remake'), refund: val('p_refund'), reservation: val('p_resv'), pets: val('p_pets') } };
+  if (section === 'reply') return { tone: $('r_tone').value, sign_off: val('r_sign'), peak_hours: val('r_peak'), sla_minutes: Number(val('r_sla') || 30) };
+}
+document.querySelector('[data-view="profile"]').addEventListener('click', async e => {
+  const t = e.target, sec = t.dataset.save;
+  if (sec) {
+    const c = collect(sec), changes = sec === 'policy' ? c : { [sec]: c }, msg = document.querySelector(`[data-msg="${sec}"]`);
+    try { PROFILE = await api('/profile', { method: 'PUT', body: JSON.stringify({ store_id: STORE, changes }) }); renderProfile(); document.querySelector(`[data-msg="${sec}"]`).textContent = '저장했어요.'; }
+    catch (err) { msg.innerHTML = `<span class="err">${esc(err.message)}</span>`; }
+  }
+  if (t.dataset.rmn) { await api(`/profile/notices/${t.dataset.rmn}?` + q(), { method: 'DELETE' }); loadProfile(); }
+  if (t.dataset.rma) { await api(`/profile/answers/${t.dataset.rma}?` + q(), { method: 'DELETE' }); loadProfile(); }
+});
+$('ntStart').value = today; $('ntEnd').value = today;
+$('ntAdd').onclick = async () => {
+  const kind = $('ntKind').value, extra = $('ntExtra').value.trim();
+  const body = { store_id: STORE, kind, text: $('ntText').value.trim(), start: $('ntStart').value, end: $('ntEnd').value,
+    ...(kind === 'sold_out' ? { menu: extra } : {}), ...(kind === 'hours' ? { hours: extra } : {}) };
+  try { await api('/profile/notices', { method: 'POST', body: JSON.stringify(body) }); $('ntText').value = ''; $('ntExtra').value = ''; $('ntMsg').textContent = '추가했어요.'; loadProfile(); }
+  catch (e) { $('ntMsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+};
+$('menuRead').onclick = async () => {
+  const f = $('menuFile').files[0]; if (!f) { $('menuMsg').textContent = '사진을 골라 주세요.'; return; }
+  $('menuMsg').textContent = '읽는 중…';
+  try { const fd = new FormData(); fd.append('file', f); fd.append('store_id', STORE);
+    const r = await fetch('/api/review-insight/profile/menu/capture', { method: 'POST', body: fd, headers: { 'X-Access-Token': TOKEN } }); const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || r.status);
+    const fresh = d.candidates.filter(c => !c.exists);
+    fresh.forEach(c => $('menuRows').insertAdjacentHTML('beforeend', menuRow({ name: c.name, price: c.price, spicy: 0, ingredients: [], allergens: [] })));
+    $('menuMsg').textContent = `${d.count}개 읽음${d.demo ? ' (예시 결과, demo)' : ''} · 새 메뉴 ${fresh.length}개를 표에 넣었어요. 확인 뒤 '메뉴 저장'을 눌러 주세요`;
+  } catch (e) { $('menuMsg').textContent = e.message; }
+};
+
+// ── 외국인 메뉴판 ──
+async function loadForeign() {
+  const lang = $('fmLang').value;
+  $('fmMsg').textContent = '만드는 중…';
+  try {
+    const m = await api(`/menu/foreign?${q()}&lang=${encodeURIComponent(lang)}`);
+    const r = await fetch(`/api/review-insight/menu/foreign/print?${q()}&lang=${encodeURIComponent(lang)}`, { headers: { 'X-Access-Token': TOKEN } });
+    $('fmFrame').srcdoc = await r.text();
+    $('fmMsg').textContent = `메뉴 ${m.items.length}개 · ${m.fallback_en ? 'Papago 키가 없어 영어로 대신 표시' : m.demo ? '예시 번역 (Papago 키 없음, 확인한 사전만 씀)' : (m.dictionary ? 'Papago 번역 + 확인한 사전' : 'Papago 번역 (사전 없는 언어, 원어민 확인 권장)')}`;
+    $('fmChecks').innerHTML = m.checks.length ? `<div class="note" style="margin-top:10px"><b>인쇄 전에 확인할 것 ${m.checks.length}개</b><ul style="margin:4px 0 0;padding-left:18px">${m.checks.map(c => `<li>${esc(c.menu)}: ${esc(c.text)}</li>`).join('')}</ul></div>` : '';
+    $('fmEdit').innerHTML = `<details style="margin-top:8px"><summary class="sub">번역 이름 고치기</summary><table class="menu-table">${m.items.map(it => `<tr><td style="white-space:nowrap">${esc(it.ko)}</td><td><input data-ov="${esc(it.ko)}" value="${esc(it.name)}" placeholder="${esc(it.roman)}"></td><td class="meta">${it.name_source === 'owner' ? '사장님이 고침' : it.name_source === 'dictionary' ? '확인한 사전' : it.name_source === 'papago' ? 'Papago' + (it.name_back ? ' · 다시 한국어로: ' + esc(it.name_back) : '') : '번역 없음'}</td></tr>`).join('')}</table><button id="fmSave" style="margin-top:6px">고친 이름 저장</button></details>`;
+    $('fmSave').onclick = saveOverrides;
+  } catch (e) { $('fmMsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+async function saveOverrides() {
+  const lang = $('fmLang').value, cur = PROFILE.foreign || { languages: [], overrides: {} };
+  const ov = { ...(cur.overrides || {}) }; ov[lang] = { ...(ov[lang] || {}) };
+  document.querySelectorAll('[data-ov]').forEach(i => { const v = i.value.trim(); if (v) ov[lang][i.dataset.ov] = { ...(ov[lang][i.dataset.ov] || {}), name: v }; });
+  try { PROFILE = await api('/profile', { method: 'PUT', body: JSON.stringify({ store_id: STORE, changes: { foreign: { languages: cur.languages || [], overrides: ov } } }) }); loadForeign(); }
+  catch (e) { $('fmMsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+$('fmGo').onclick = loadForeign; $('fmLang').onchange = loadForeign;
+$('fmPrint').onclick = () => { const f = $('fmFrame'); if (!f.srcdoc) { loadForeign().then(() => setTimeout(() => f.contentWindow.print(), 300)); return; } f.contentWindow.print(); };
+
 window.addEventListener('hashchange', route);
 route();
 load();

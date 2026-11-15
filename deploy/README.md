@@ -227,6 +227,7 @@ bash ic26-<새 커밋>/deploy/smoke_test.sh
 - 바뀌는 것: `/opt/ic26`의 코드, `REVISION`, 서비스 파일, requirements(바뀐 것만 설치). 서비스는 다시 시작됩니다(몇 초간 응답 없음).
 - 바뀌지 않는 것: `/etc/ic26/env`, `/opt/ic26/.venv`, 쓰기 폴더 안의 내용(붙여넣은 리뷰, 로그, 승인 기록, 상권 DB). 단 `services/review-insight/data/replay/classify.json`처럼 저장소에 있는 파일은 저장소 내용으로 덮입니다.
 - 코드만 바뀌었으면 `--skip-pip`으로 빠르게 할 수 있습니다. requirements가 바뀐 갱신(예: DB 코드가 처음 들어온 묶음은 `psycopg`가 더해짐)에는 붙이지 않습니다.
+- **PR #49(리뷰 캡처·응대 점수·보고서)와 비서 화면 연결(`feat/connect-care-ui`)이 처음 들어가는 갱신은 `--skip-pip` 없이 돌립니다.** 리뷰 분석 서비스가 `pillow`와 `python-multipart`를 새로 씁니다. `python-multipart`가 없으면 리뷰 분석 서비스(`ic26-review`)가 **아예 켜지지 않고**, 비서 화면의 브리핑·카드·리뷰 분석도 모두 `503`이 됩니다. 갱신 뒤 `curl -s http://127.0.0.1:8020/api/health`와 `curl -s http://127.0.0.1:8000/api/care/status`(`"state":"ready"`)를 봅니다.
 - `db/schema.sql`에 새 표가 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다.
 - 환경 파일 틀에 새 변수가 생기면 스크립트가 빠진 변수 이름을 알려 줍니다. 편집기로 줄을 추가합니다.
 - 단계 15(Auto Scaling) 뒤에는 그룹 서버를 직접 고치지 않습니다(체크리스트 단계 13-A).
@@ -248,6 +249,7 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 - 두 설정 모두 `/healthz`는 Nginx가 직접 `ok`(200)로 답하고, `/docs`, `/redoc`, `/openapi.json`은 404입니다.
 - **대기 시간 120초**: Nginx의 `proxy_read_timeout 120s`(`proxy_send_timeout`도 120초)입니다. 글 생성이 14초를 넘을 때가 있습니다.
   **콘솔에서 사람이: 공개 ALB(`ic26-web-alb1`)와 내부 ALB(`ic26-was-alb1`)의 유휴 시간 제한(idle timeout)도 120초로 맞춥니다.** 둘 중 하나라도 짧으면 글 생성 중에 연결이 끊깁니다. 설정 화면의 위치와 이름은 확인하지 못했습니다. WAS의 keep-alive는 130초로 이미 로드 밸런서보다 길게 해 두었습니다(`ic26-was.service`).
+- **업로드 상한**: 두 설정 모두 기본 상한(1MB)은 그대로 두고, 리뷰 캡처 업로드 경로(`location = /api/care/reviews/capture`) 하나만 `client_max_body_size 12m`입니다(화면 서버 프록시 12MB, 리뷰 분석 서비스 10MB와 맞춤). 휴대폰 캡처는 1MB를 넘는 일이 많아 이 줄이 없으면 Nginx에서 413이 납니다. 손님용 문의 페이지(`/s/`)와 `/api/care/public/`은 따로 열지 않았습니다. 화면 서버가 `CARE_PUBLIC=1`일 때만 답하고 기본은 404입니다(보안 검토 전까지 닫아 둠). 다만 1단계 설정은 `/` 아래를 모두 WAS로 넘기므로, `CARE_PUBLIC=1`을 켜면 그 순간 밖에 열립니다.
 - 2단계의 화면 파일 배치: `services/web/web/static/`의 **내용**(`index.html`, `style.css`, `app.js`, 하위 폴더 없음)을 `/var/www/ic26/`에 그대로 둡니다. `index.html`이 `/static/style.css`, `/static/app.js`를 부르고, `location /static/ { alias /var/www/ic26/; }`가 그 주소를 이 폴더로 이어 줍니다. `app.js`는 데이터를 `/api/…`로만 부르므로 `/api/`만 WAS로 넘깁니다. 화면 파일을 바꾸면 같은 명령을 다시 돌립니다(`--static-src`로 새 폴더).
 - 확인:
 
@@ -259,10 +261,10 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
   ```
 - `ic26-web-img1`을 만들 때 비울 비밀 값은 없습니다. 이미지로 만든 `ic26-web2`에서는 `--lb` 주소가 같으면 따로 할 일이 없습니다.
 
-## 10. 상권 서비스 자리 (월요일)
+## 10. 상권 서비스와 서랍의 상권 채팅
 
 - 상권 코드(`services/market-analysis`)는 11/14에 `main`에 들어와(PR #12, #18, #13) 묶음에 들어 있습니다. `install_was.sh`가 그 requirements(`pyproj`, `pyshp` 등)도 함께 설치합니다.
-- 서비스는 `ic26-market.service` 파일만 `/etc/systemd/system/`에 넣고 enable 하지 않습니다. 비서 화면이 상권 서비스를 아직 부르지 않기 때문입니다(월요일에 연결). 켤 때:
+- 서비스는 `ic26-market.service` 파일만 `/etc/systemd/system/`에 넣고 enable 하지 않습니다. 켜면 비서 화면의 오른쪽 "AI에게 묻기" 서랍이 상권 채팅이 됩니다(비서 화면 서버가 `127.0.0.1:8766`을 대신 불러 줌, `docs/api/contract.md` 1.10절). 켜지 않아도 비서 화면은 그대로 돌고, 서랍 안에만 "상권 서비스에 연결하지 못했어요"가 보입니다. 켤 때:
 
   ```bash
   sudo systemctl enable --now ic26-market
@@ -272,7 +274,17 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 - **비서 화면 서버가 상권 서비스를 부를 때는 `Host: 127.0.0.1:8766`으로 부르고, 방문자의 쿠키를 넘겨야 합니다.** 상권 서비스는 바깥 주소 이름(로드 밸런서 도메인 등)으로 오는 요청을 막습니다(Host가 `127.0.0.1` 또는 `localhost`가 아니면 400, Origin도 `127.0.0.1:8766`만 허용). `APP_PUBLIC_ORIGIN`은 `/etc/ic26/env`에 적지 않습니다.
 - 상권 대화 기록은 서버 안의 SQLite 파일(`/var/lib/ic26/market/onboarding.sqlite3`)에 남습니다. WAS가 2대이면 서버마다 따로입니다(로드 밸런서가 같은 방문자를 다른 서버로 보내면 기록이 보이지 않을 수 있음). 이미지를 만들기 전에 `prepare_image.sh`가 이 폴더를 비웁니다.
 - 키는 `CLOVA_STUDIO_API_KEY`(가운데 밑줄이 하나 더 있는 이름), 챗봇을 켜는 값은 `ASSISTANT_ENABLED=1`, 하루 호출 한도는 `ASSISTANT_MODEL_DAILY_LIMIT=2000`입니다.
+- **서랍 상태 안내** (서랍 안에서만 보이고 다른 화면은 영향이 없음): 꺼져 있으면 "상권 서비스에 연결하지 못했어요", `ASSISTANT_ENABLED`가 없으면 "챗봇이 꺼져 있어요", 공식 자료가 없으면 "공식 상권 자료가 아직 준비되지 않았어요". 서랍을 처음 열면 우리 가게(온기한식: 장승배기역 · 한식음식점 · 장승배기역 4번 상권 · 최신 분기) 분석 조건이 자동으로 맞춰집니다.
+- **`ASSISTANT_PLANNER=off`로 둡니다**(환경 파일 틀에 들어 있음). 계획기가 켜져 있으면 HCX가 질문에 없는 기간("2022년 2분기")을 지어내 "자료가 없어요"로 답하는 일이 잦았습니다. 끄면 질문은 규칙으로 분류하고 답 문장만 HCX가 씁니다. 상권 파트가 계획기를 고치면 이 줄을 지웁니다.
+- 서버를 두 대 쓰면 상권 대화 기록(SQLite)이 서버마다 따로라서, 로드 밸런서가 방문자를 다른 서버로 보내면 대화가 이어지지 않습니다(분석 조건은 서랍을 다시 열 때 자동으로 다시 맞춰짐). 같은 방문자를 같은 서버로 보내는 설정(고정 세션)이 있으면 켜는 쪽이 낫습니다.
 - 상권 브랜치의 README는 공식 자료(`data/`)를 git에 올리지 않는다고 적고 있습니다. 서버에서 자료가 필요한지 월요일에 코드를 보고 확인합니다. `install_was.sh`는 `/opt/ic26/services/market-analysis/data/`를 갱신할 때 지우지 않습니다.
+
+## 10-1. 고객응대(캡처 입력·응대 점수·종합 리포트)
+
+- 비서 화면 서버가 리뷰 분석 서비스(`127.0.0.1:8020`)의 고객응대 API를 `/api/care/*`로 대신 불러 줍니다(`services/web/web/care_proxy.py`, `docs/api/contract.md` 1.11절). 열어 둔 것은 캡처 읽기, 리뷰 상태 기록, 응대 점수, 일일·월간 보고서(인쇄용 포함)뿐입니다. 가게 정보·문의·받은함 등은 404입니다.
+- 설정은 비워 두면 됩니다. 이 서버에서 끄려면 `CARE_URL=off`, 캡처를 기다리는 시간은 `CARE_TIMEOUT_SEC`(기본 100초, 로드 밸런서 120초보다 짧게). `env.example` 참고.
+- 리뷰 분석 서비스가 꺼져 있어도 비서 화면의 다른 칸은 그대로이고, 캡처 칸과 종합 리포트의 응대 칸에만 "연결하지 못했어요"가 보입니다. 사장님이 리뷰 답글을 승인하면 서버가 리뷰 분석 서비스에 '답글 달았음'을 따로 기록합니다(2초 안에 안 되면 버리고 로그만 남김, 승인은 그대로 성공).
+- 응대 기록(답글·상태)은 지금 DB를 써도 리뷰 분석 서비스의 파일(`services/review-insight/data/runtime/…`)에 남습니다. **WAS가 2대이면 서버마다 따로**라서 응대 점수가 서버마다 다르게 보일 수 있습니다. 시연은 WAS 1대로 합니다(리뷰 분석 모듈 `docs/handoff.md` 7·8절).
 
 ## 11. 문제가 생기면
 
@@ -283,6 +295,8 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 | 화면 `/api/health`에 "HCX 키가 없어요" | `CLOVA_API_KEY`가 비어 있음. 문구는 개발 PC 기준이라 `~/.config/teletubby-aiic/env`로 나오지만 서버에서는 `/etc/ic26/env`입니다 |
 | 화면은 뜨는데 글 생성만 실패 | NAT 경로, 키, HCX 호출 한도. 서버에서 `curl -sI https://clovastudio.stream.ntruss.com` 로 나가는 길을 확인 |
 | 답글 생성이 "Permission denied … results" | `experiments/marketing/results`가 `ic26` 소유가 아님. `install_was.sh`를 다시 돌림 |
+| 캡처를 올리면 413 | Nginx 설정이 이 묶음의 것인지(캡처 경로만 `client_max_body_size 12m`). `install_web.sh`를 다시 돌림 |
+| `ic26-review`가 안 뜸, `python-multipart` 오류 | 갱신을 `--skip-pip`로 돌렸음. `--skip-pip` 없이 `install_was.sh`를 다시 돌림 |
 | 502/504 | 로드 밸런서 유휴 시간 120초, WAS 상태, `nginx -t`, 내부 로드 밸런서 주소가 바뀌었는지(`reload`) |
 | `install_was.sh`가 `systemd 로 돌고 있지 않습니다` | 컨테이너에서 돌릴 때만. `--no-systemd` |
 | `nginx -t` 실패, `host not found in upstream` | `--lb` 주소를 서버에서 풀 수 있는지 `getent hosts <주소>` |

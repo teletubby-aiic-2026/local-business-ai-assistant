@@ -6,7 +6,12 @@ from typing import Any
 
 _VALID_GENERATORS = ("reply_draft", "prevention_notice", "coupon_promo", "review_promo")
 _VALID_STATUSES = ("draft", "edited", "approved")
+_VALID_STANCES = ("apology", "explain")   # c6.stance.STANCES 와 같아야 한다 (시험이 확인)
 _VALID_STYLES = ("haeyo", "hamnida", "mixed")
+
+# AI(HCX) 호출이 제한 시간 초과·한도 초과 등으로 끝내 실패했을 때 사장님께 알리는 문구. 화면에는 '확인 필요'로 보인다.
+CALL_FAILED_NOTE = "AI 호출이 실패해 기본 문장으로 채웠어요. 사장님이 내용에 맞게 고쳐 주세요."
+CALL_FAILED_NOTE_NO_TEXT = "AI 호출이 실패해 AI가 쓰는 글을 만들지 못했어요. 잠시 뒤 다시 만들거나 직접 써 주세요."
 
 
 @dataclass
@@ -27,6 +32,9 @@ class DraftOutput:
     model: str | None = None
     elapsed_ms: int = 0
     data_origin: str = "synthetic"
+    # 답글 태도 (reply_draft 전용, 그 외는 None): "apology" 사과 답글 | "explain" 사과 없이 사실·원칙을 설명 (c6.stance)
+    stance: str | None = None
+    stance_reasons: list[str] = field(default_factory=list)   # 태도를 그렇게 정한 근거 (사장님 확인용)
     style: str | None = None  # 답글 말투: haeyo/hamnida/mixed (reply_draft 전용, 그 외는 None)
 
     def __post_init__(self) -> None:
@@ -45,6 +53,11 @@ class DraftOutput:
             raise ValueError(
                 f"DraftOutput.status는 {_VALID_STATUSES} 중 하나여야 합니다"
                 f" (받은 값: {self.status!r})"
+            )
+        if self.stance is not None and self.stance not in _VALID_STANCES:
+            raise ValueError(
+                f"DraftOutput.stance는 {_VALID_STANCES} 중 하나거나 None이어야 합니다"
+                f" (받은 값: {self.stance!r})"
             )
         if self.style is not None and self.style not in _VALID_STYLES:
             raise ValueError(
@@ -70,6 +83,8 @@ class DraftOutput:
             "model": self.model,
             "elapsed_ms": self.elapsed_ms,
             "data_origin": self.data_origin,
+            "stance": self.stance,
+            "stance_reasons": list(self.stance_reasons),
             "style": self.style,
         }
 

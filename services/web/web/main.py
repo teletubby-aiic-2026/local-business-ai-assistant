@@ -11,6 +11,11 @@
 | GET    | /api/approvals                | ④ 처리 완료 기록 |
 | POST   | /api/reviews                  | S2 직접 붙여넣기 (#14 로 전달) |
 | DELETE | /api/reviews/pasted           | 붙여넣은 리뷰 지우기 (데모 다시 하기) |
+| *      | /api/assistant/*              | 서랍의 상권 채팅. 상권 서비스(ic26-market)를 대신 불러 줌 (assistant_proxy.py) |
+| *      | /api/care/*                   | 캡처 입력·응대 점수·보고서. 리뷰 분석 서비스의 고객응대 API 를 대신 불러 줌 (care_proxy.py) |
+
+리뷰 답글을 승인하면(④) 리뷰 분석 서비스에 '답글 달았음'을 따로 기록한다 (care_proxy.mark_replied_later, 승인 응답은 기다리지 않음).
+캡처 후보 저장은 붙여넣기와 같은 POST /api/reviews 에 source="capture" 를 붙여 보낸다.
 
 방문자 구분: 쿠키 `visitor_id`(없으면 서버가 새로 만들어 응답에 실음. HttpOnly, SameSite=Lax). 이 값으로 승인 기록과
 붙여넣은 리뷰를 방문자별로 나눈다. 합성 리뷰와 카드 추천 이유 문장은 모두에게 같다. 화면(JS)은 쿠키를 다룰 필요가 없다.
@@ -18,22 +23,29 @@
 """
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from shared.storage import new_visitor_id, open_store, visitor_from_cookie
 
+from .assistant_proxy import AssistantProxy, create_assistant_router, validation_error_response
+from .care_proxy import CareProxy, create_care_routers
 from .demo import Demo, DemoError
 from .settings import Settings
 
 STATIC = Path(__file__).resolve().parent / "static"
 VISITOR_COOKIE = "visitor_id"
 VISITOR_COOKIE_SECONDS = 60 * 60 * 24 * 30   # 30일
+log = logging.getLogger("web.main")
 
 
 class ApproveIn(BaseModel):
@@ -41,6 +53,9 @@ class ApproveIn(BaseModel):
     original: str | None = None      # 생성된 원문
     card_id: str | None = Field(default=None, max_length=100)   # 선택: 어느 카드의 초안인지 (안 보내면 서버가 ③ 에서 기억한 값)
     kind: str | None = Field(default=None, max_length=40)       # 선택: 초안 종류 (reply_draft 등)
+    # 선택: 답글이 가리키는 리뷰 id. 이 서버가 ③ 에서 기억한 값이 먼저이고, 다른 서버가 만든 초안일 때만 쓴다.
+    # 형식이 틀려도 승인은 실패시키지 않고 무시한다 (그래서 여기서 검사하지 않음, demo.reply_target 이 검사)
+    review_id: str | None = None
 
 
 class RunIn(BaseModel):
@@ -51,19 +66,26 @@ class PasteIn(BaseModel):
     text: str = Field(min_length=1, max_length=1000)   # 리뷰 분석 서버(review-insight MAX_TEXT)·입력칸(maxlength)과 같은 1000자
     rating: int | None = Field(default=None, ge=1, le=5)
     channel: str | None = None
+    source: Literal["paste", "capture"] | None = None   # capture = 캡처 후보를 사장님이 확인·수정해 저장 (분석에는 붙여넣기와 똑같이 들어감)
 
 
-def create_app(demo: Demo | None = None) -> FastAPI:
+def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None, care: CareProxy | None = None) -> FastAPI:
     # 저장 위치는 여기서만 환경 변수로 정한다 (DB_HOST 가 있으면 PostgreSQL, 없으면 메모리·파일)
     demo = demo or Demo(Settings.from_env(), storage=open_store(app_name="ic26-web"))
+    assistant = assistant or AssistantProxy.from_settings(demo.s)   # 시험에서는 가짜 상권 서비스를 넣은 것을 줄 수 있다
+    care = care or CareProxy.from_settings(demo.s)                  # 고객응대 프록시 (시험에서는 가짜 리뷰 분석 서비스)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         yield
         getattr(demo.storage, "close", lambda: None)()      # 서버를 끌 때 DB 연결 풀을 닫는다 (메모리 저장소는 할 일 없음)
+        assistant.close()
+        care.close()
 
     app = FastAPI(title="텔레토비 AI 비서 — 한 화면", docs_url="/docs", redoc_url=None, lifespan=lifespan)
     app.state.demo = demo
+    app.state.assistant = assistant
+    app.state.care = care
 
     @app.middleware("http")
     async def _visitor(request: Request, call_next):
@@ -80,6 +102,12 @@ def create_app(demo: Demo | None = None) -> FastAPI:
     @app.exception_handler(DemoError)
     async def _demo_error(_: Request, exc: DemoError):
         return JSONResponse(status_code=exc.status, content={"error": {"message": str(exc)}})
+
+    @app.exception_handler(RequestValidationError)
+    async def _invalid(request: Request, exc: RequestValidationError):
+        if request.url.path.startswith("/api/assistant/"):     # 서랍이 읽는 오류 모양. 다른 경로의 422 는 예전 그대로
+            return validation_error_response(exc)
+        return await request_validation_exception_handler(request, exc)
 
     @app.get("/api/health")
     def health():
@@ -103,8 +131,16 @@ def create_app(demo: Demo | None = None) -> FastAPI:
 
     @app.post("/api/drafts/{draft_id}/approve")
     def approve(draft_id: str, body: ApproveIn, request: Request):
-        return demo.approve(draft_id, body.text, body.original, visitor=request.state.visitor_id,
-                            card_id=body.card_id, kind=body.kind)
+        entry = demo.approve(draft_id, body.text, body.original, visitor=request.state.visitor_id,
+                             card_id=body.card_id, kind=body.kind)
+        # 리뷰 답글이면 리뷰 분석 서비스에 '답글 달았음'을 기록 (응대 기한·점수가 이 기록으로 계산됨). 따로 보내고 기다리지 않는다
+        try:
+            target = demo.reply_target(draft_id, body.kind, body.review_id)
+            if target and entry.get("text"):
+                care.mark_replied_later(request.state.visitor_id, target, entry["text"], entry.get("approved_at"))
+        except Exception as exc:     # 승인 자체는 끝났다. 기록을 못 보내도 승인을 실패시키지 않는다
+            log.warning("답글 승인 기록을 보내지 못했어요 (%s)", exc.__class__.__name__)
+        return entry
 
     @app.get("/api/approvals")
     def approvals(request: Request):
@@ -112,11 +148,15 @@ def create_app(demo: Demo | None = None) -> FastAPI:
 
     @app.post("/api/reviews", status_code=201)
     def paste(body: PasteIn, request: Request):
-        return demo.paste(body.text, body.rating, body.channel, visitor=request.state.visitor_id)
+        return demo.paste(body.text, body.rating, body.channel, visitor=request.state.visitor_id, source=body.source or "paste")
 
     @app.delete("/api/reviews/pasted")
     def reset_pasted(request: Request):
         return demo.reset_pasted(request.state.visitor_id)
+
+    app.include_router(create_assistant_router(assistant))
+    for router in create_care_routers(care):   # 손님용 문의 페이지는 CARE_PUBLIC=1 일 때만 들어 있다
+        app.include_router(router)
 
     @app.get("/")
     def page():

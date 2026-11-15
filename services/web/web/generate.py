@@ -7,6 +7,7 @@
   실제 AI 결과가 아니다.
 
 C6 코드는 고치지 않는다. CardResult·DraftOutput 은 c6.output 을 그대로 쓴다(최소 변경, shared 이동은 보류).
+붙여넣은 불만 리뷰가 카드 ⓐ 묶음에 들지 않으면 그 답글도 함께 만든다 (pasted_reply_targets 이하, 11/14).
 """
 from __future__ import annotations
 
@@ -127,6 +128,85 @@ def run_live(card: RecommendationCard, *, store: StoreProfile, reviews: list[Rev
     result = run_card(ctx, card, key, model=model, chosen_measures=chosen_measures).to_dict()
     result["source"] = "live"
     result["needs_input"] = list(ctx.needs_input)
+    return result
+
+
+# ── 붙여넣은 불만 리뷰의 답글 (11/14) ─────────────────────────────────
+# 카드 ⓐ 는 가장 큰 반복 묶음만 답글 대상으로 삼아서, 사장님이 붙여넣은 리뷰가 그 묶음에 들지 않으면(예: 무리한 요청을
+# 거절해 남은 억울한 별점은 '응대'로 분류됨) 답글이 만들어지지 않았다. 카드 ⓐ 를 만들 때 이런 붙여넣은 불만 리뷰의
+# 답글을 같이 만들어 drafts 뒤에 붙인다. 카드의 근거(review_ids)·공지 입력은 그대로다.
+# 답글 태도(사과 / 사과 없이 사실 설명)는 C6(c6.stance)가 리뷰마다 정한다.
+PASTED_EXAMPLES_RELATIVE = Path("c6") / "replay" / "pasted_reply_examples.json"
+PASTED_REPLY_MAX = 3   # 한 번에 답글을 만드는 붙여넣은 리뷰 수 (최근 것부터)
+
+
+def pasted_reply_targets(card: RecommendationCard, reviews: list[ReviewRecord],
+                         limit: int = PASTED_REPLY_MAX) -> list[ReviewRecord]:
+    """카드 근거에 없는 붙여넣은 불만 리뷰 (불만 분류이거나 별점 2점 이하). 순서는 받은 그대로(리뷰 목록은 최신순)."""
+    found = []
+    for r in reviews:
+        if r.input_method != "paste" or r.review_id in card.review_ids:
+            continue
+        if r.sentiment in ("negative", "mixed") or r.negative_topics or (r.rating is not None and r.rating <= 2):
+            found.append(r)
+    return found[:limit]
+
+
+def load_pasted_examples(marketing_dir: Path) -> list[dict]:
+    """mock 용 저장 예시: 같은 글의 붙여넣은 리뷰에만 보여 주는 답글 (HCX-005 실시간 결과를 저장한 것). 없으면 빈 목록."""
+    path = Path(marketing_dir) / PASTED_EXAMPLES_RELATIVE
+    if not path.exists():
+        return []
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _same_text(a: str, b: str) -> bool:
+    return " ".join((a or "").split()) == " ".join((b or "").split())
+
+
+def seed_pasted_replies(examples: list[dict], card: RecommendationCard,
+                        targets: list[ReviewRecord]) -> tuple[list[dict], list[dict]]:
+    """mock: 글이 똑같은 저장 예시가 있는 리뷰만 그 답글을 쓴다 (다른 리뷰에 다른 리뷰의 답글을 붙이지 않는다).
+    돌려주는 값: (답글 목록, 못 만든 리뷰 [{review_id, reason}])."""
+    drafts, skipped = [], []
+    for review in targets:
+        example = next((e for e in examples if _same_text(e.get("review_text", ""), review.text)), None)
+        if example is None:
+            skipped.append({"review_id": review.review_id, "reason": "같은 글의 저장 예시가 없음 (실시간 실행에서 만들어요)"})
+            continue
+        draft = copy.deepcopy(example["draft"])
+        draft["draft_id"] = f"{draft['draft_id']}_{review.review_id.rsplit('_', 1)[-1]}"
+        draft["card_id"] = card.card_id
+        draft["target_review_id"] = review.review_id
+        draft["evidence_ids"] = [f"F_{review.review_id}"] + [e for e in draft.get("evidence_ids", []) if not e.startswith("F_")]
+        drafts.append(draft)
+    return drafts, skipped
+
+
+def run_live_pasted_replies(card: RecommendationCard, targets: list[ReviewRecord], *, store: StoreProfile,
+                            reviews: list[ReviewRecord], snapshots: list[AnalysisSnapshot], key: str, model: str) -> dict:
+    """live: 붙여넣은 리뷰마다 C6 답글을 만든다 (재발 방지 조치는 넣지 않음 — 카드 ⓐ 묶음의 조치라서)."""
+    from c6.reply import generate_reply_draft
+
+    sub = RecommendationCard(card_id=card.card_id, store_id=card.store_id, kind="complaint",
+                             reason_text=card.reason_text, review_ids=[r.review_id for r in targets])
+    ctx = _context(store, reviews, card, snapshots)
+    return generate_reply_draft(ctx, sub, key, model=model, chosen_measures=None).to_dict()
+
+
+def add_pasted_replies(result: dict, drafts: list[dict], skipped: list[dict], *, won: float = 0.0,
+                       note: str | None = None) -> dict:
+    """카드 결과 뒤에 붙여넣은 리뷰 답글을 붙이고, 어느 리뷰에 붙였는지·못 붙였는지를 새 칸에 적는다."""
+    result["drafts"] = list(result.get("drafts", [])) + drafts
+    result["pasted_reply_review_ids"] = [d["target_review_id"] for d in drafts]
+    result["pasted_reply_skipped"] = skipped
+    if won:
+        result["won"] = round(float(result.get("won") or 0) + won, 4)
+    parts = [p for p in (result.get("source_note"), note) if p]
+    if skipped:
+        parts.append(f"붙여넣은 불만 리뷰 {len(skipped)}건은 답글을 만들지 않았어요 ({skipped[0]['reason']})")
+    if parts:
+        result["source_note"] = " · ".join(parts)
     return result
 
 

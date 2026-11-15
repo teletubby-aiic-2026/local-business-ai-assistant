@@ -32,7 +32,9 @@ from c6.measures import (
     COMPONENT_ITEMS,
 )
 from c6.style import assemble, detect_register
-from c6.output import DraftOutput, CardResult
+from c6.output import CALL_FAILED_NOTE, DraftOutput, CardResult
+from c6.reply_explain import process_explain_review
+from c6.stance import APOLOGY, EXPLAIN, judge_review
 from common.korean import display_name, josa, join_item_groups
 
 _MAX_REWRITES = 2  # 공감 부분을 이만큼 다시 써도 점검을 못 넘으면 코드 템플릿으로 바꿔 넣는다
@@ -191,6 +193,15 @@ def _missing_items(review_text, menu_names):
     return [m.group(1)] if m else []
 
 
+def fallback_apology(review, menu_names, register="해요체"):
+    """AI 호출이 끝내 실패했을 때 쓰는 기본 사과 문장 (코드가 쓴다. 빠진 메뉴가 있으면 이름을 넣는다).
+    AI 가 쓰는 공감·사과 자리에 들어가고, 조치(M1)·요청사항(P1)·인사·끝인사는 코드가 그대로 붙인다.
+    register: 해요체 | 합니다체 (c6.measures.REPLY_AI_REGISTER)."""
+    items = _missing_items(review.text, menu_names)
+    sorry = "죄송합니다." if register == "합니다체" else "죄송해요."
+    return f"{join_item_groups([items])} 건으로 불편을 드려 정말 {sorry}" if items else f"불편을 드려 정말 {sorry}"
+
+
 def _fact_line(review, menu_names):
     missing = _missing_items(review.text, menu_names)
     parts = [f"F_{review.review_id}.missing={join_item_groups([missing]) if missing else '없음'}"]
@@ -218,6 +229,7 @@ def _run_checks(text, review, menu_names, allowed_numbers, policies,
         "no_invented_measure": not checks.has_invented_measure(text, _EFFECTIVE_MEASURES),
         "chosen_measure_included": checks.chosen_measure_included(text, _EFFECTIVE_MEASURES),
         "missing_mentioned": any(m in text for m in missing) if missing else True,
+        "apology_expressed": checks.has_apology_anywhere(text),
         "no_bad_promise": not checks.promises_not_in_policy(text, policies),
         "no_bad_number": not checks.has_number_not_in(text, allowed_numbers),
         "no_personal_info": not checks.personal_info(text),
@@ -245,6 +257,34 @@ def _fallback_sentence(review, menu_names, register, idx):
     return variants[idx % len(variants)].format(item=item, particle=particle)
 
 
+# 다시 쓰기를 다 써도 남은 실패가 이것뿐이면 템플릿으로 통째 덮지 않고 코드가 AI 글의 그 부분만 고친다 (_repair_ai_part).
+_REPAIRABLE = frozenset({"style_match", "apology_expressed"})
+
+
+def _apology_addon(ai_part, register):
+    """사과만 빠진 AI 글 끝에 붙이는 짧은 사과 한 문장 (말투별). AI 글에 이미 '정말'이 있으면 겹치지 않게 '진심으로'."""
+    word = "진심으로" if "정말" in (ai_part or "") else "정말"
+    return f"{word} 죄송합니다." if register == "합니다체" else f"{word} 죄송해요."
+
+
+def _repair_ai_part(ai_part, failed, style, register):
+    """다시 쓰기 뒤에도 남은 실패가 사과 말투·사과 빠짐뿐일 때, AI 가 쓴 공감 문장을 살리고 그 부분만 고친 글을 돌려준다.
+    (a) style_match: 끝 사과 어미만 말투가 다르면 어미만 바꾼다('죄송합니다' → '죄송해요', 합니다체는 반대).
+        사과가 아닌 문장의 말투가 다르면 고치지 않는다(원래 글을 그대로 돌려줘 템플릿으로 간다).
+    (b) apology_expressed: 사과만 빠졌으면 말투에 맞는 짧은 사과 한 문장을 덧붙인다(_apology_addon).
+    고칠 수 없으면 ai_part 를 그대로 돌려준다. 고친 글을 쓸지는 호출부가 점검을 다시 돌려 정한다."""
+    if not ai_part or not failed or not set(failed) <= _REPAIRABLE:
+        return ai_part
+    fixed = ai_part
+    if "style_match" in failed:
+        fixed = checks.fix_apology_ending(fixed, style)
+        if not checks.style_match(fixed, style):
+            return ai_part
+    if "apology_expressed" in failed:
+        fixed = f"{fixed.rstrip()} {_apology_addon(fixed, register)}"
+    return fixed
+
+
 def _process_review(review, *, idx, card_id, store, store_display, menu_names, allowed_numbers,
                      policies, forbidden_phrases, valid_ids, key, model, fixed_style):
     style = fixed_style if fixed_style else REPLY_STYLES[idx % len(REPLY_STYLES)]
@@ -259,6 +299,18 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
     measure_line = measure_variants[idx % len(measure_variants)]
     request_line = request_variants[idx % len(request_variants)]
 
+    # 답글 태도 (c6.stance): 가게 과실이 아닌 '요청 거절' 리뷰로 확실할 때만 사과 없이 설명하는 답글(reply_explain)로 간다.
+    # 그 밖에는 아래의 사과 답글 그대로. 설명 답글의 AI 부분·원칙 문장은 늘 해요체라, 합니다체 인사와 만나면 '섞어서'가 된다.
+    decision = judge_review(review)
+    if decision.stance == EXPLAIN:
+        draft, won = process_explain_review(
+            review, decision, card_id=card_id, store=store, menu_names=menu_names, allowed_numbers=allowed_numbers,
+            policies=policies, forbidden_phrases=forbidden_phrases, opening=opening, closing=closing,
+            valid_ids=valid_ids, key=key, model=model, log_raw=_log_raw)
+        draft.style = "haeyo" if style in ("haeyo", "mixed") else "mixed"
+        # AI 부분(None)을 돌려주지 않아 답글끼리 비슷함 비교·다시 쓰기에서 빠진다 (사과 답글 프롬프트로 다시 쓰면 안 됨)
+        return draft, won, None, None, None, None
+
     system = SYSTEM_TMPL.format(
         store_name=store_display, register=ai_register, fewshot=REPLY_FEWSHOT[ai_register],
         fact_line=_fact_line(review, menu_names),
@@ -267,12 +319,14 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
 
     won = 0.0
     rewrites = 0
+    call_errors = 0
 
     def _call(content):
-        nonlocal won
+        nonlocal won, call_errors
         resp = clova.call(key, system, [{"role": "user", "content": content}],
                            model=model, max_tokens=200, temperature=0.5)
         won += resp.get("won", 0)
+        call_errors += bool(resp.get("error"))
         raw = resp.get("content", "")
         _log_raw(raw, review.review_id)
         return parsing.extract_body(raw)  # JSON이든 평문이든 본문을 절대 버리지 않는다
@@ -295,28 +349,52 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
         return text_, evidence_, chk_, failed_
 
     ai_body = _call(user_line)
+    needs = []
+    if call_errors and not ai_body:   # 호출이 끝내 실패해 AI 본문이 없다 → 코드가 쓴 기본 사과 문장으로 채우고 사장님께 알린다
+        ai_body = fallback_apology(review, menu_names, ai_register)
+        needs.append(CALL_FAILED_NOTE)
     text, evidence, chk, failed = _check(ai_body)
+    last_ai_body = "" if needs else ai_body   # HCX 가 마지막으로 쓴 공감·사과 — 최종 글이 이와 다르면 코드가 고친 것
 
-    while failed and ai_body and rewrites < _MAX_REWRITES:
-        hints = checks.fix_hints(failed)
+    rewrite_call_failed = False
+    while failed and ai_body and not needs and rewrites < _MAX_REWRITES:   # 호출 실패로 채운 글은 다시 쓰지 않는다
+        hints = checks.fix_hints(failed, register=ai_register)   # 목표 말투와 사과 예시를 같이 적는다 (사과↔말투 핑퐁 방지)
+        errors_before = call_errors
         ai_body2 = _call(user_line + "\n\n수정 지시:\n" + "\n".join(f"- {h}" for h in hints))
+        if call_errors > errors_before:   # 다시 쓰기 호출이 끝내 실패 → 더 부르지 않고 AI 글을 그대로 둔다 (점검 실패로 보임)
+            rewrite_call_failed = True
+            break
         rewrites += 1
         if ai_body2:
             ai_body = ai_body2
+            last_ai_body = ai_body2
         text, evidence, chk, failed = _check(ai_body)
 
     # 딱딱한 표현이 남으면 AI 가 쓴 공감·사과 부분에만 사전대로 단어를 바꾼다 (추가 호출 없음)
     if failed and not chk.get("no_stiff_words", True):
-        ai_body = checks.fix_stiff_words(ai_body)
+        ai_body = checks.fix_stiff_words(ai_body, formal=ai_register == "합니다체")   # 합니다체 답글엔 합니다체 치환
         text, evidence, chk, failed = _check(ai_body)
+
+    # 남은 실패가 사과 말투·사과 빠짐뿐이면 코드가 그 부분만 고친다 (추가 호출 없음, _repair_ai_part).
+    # 고친 글이 점검을 전부 넘을 때만 쓰고, 아니면 아래 템플릿으로 간다.
+    if failed and not needs and not rewrite_call_failed:
+        repaired = _repair_ai_part(ai_body, failed, style, ai_register)
+        if repaired != ai_body:
+            r_text, r_evidence, r_chk, r_failed = _check(repaired)
+            if not r_failed:
+                ai_body, text, evidence, chk, failed = repaired, r_text, r_evidence, r_chk, r_failed
+    # 최종 글이 HCX 가 마지막으로 쓴 글과 다르면(사전 치환·사과 어미·사과 한 문장) 코드가 고친 것 → checks.ai_part_repaired
+    ai_part_repaired = bool(not needs and not failed and ai_body != last_ai_body)
 
     # 그래도(총 1 + _MAX_REWRITES 번 시도) 점검을 못 넘으면 코드 템플릿으로 바꿔 넣고 통과 처리한다.
     # needs_input 에는 남기지 않는다 — 대체 문장은 늘 점검을 통과하므로 사람이 볼 필요가 없다.
-    used_fallback = bool(failed)
+    # 다시 쓰기 호출이 실패한 경우는 템플릿으로 덮지 않는다 — 사장님이 점검 실패를 보고 직접 고치게 한다
+    used_fallback = bool(failed) and not rewrite_call_failed
     if used_fallback:
         ai_body = _fallback_sentence(review, menu_names, ai_register, idx)
         text, evidence, chk, failed = _check(ai_body)
     chk["used_fallback"] = used_fallback
+    chk["ai_part_repaired"] = ai_part_repaired
 
     draft = DraftOutput(
         draft_id=f"d_{uuid.uuid4().hex[:8]}",
@@ -327,10 +405,13 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
         text=text,
         evidence_ids=evidence,
         checks=chk,
-        failed_reasons=checks.fix_hints(failed) if failed else [],
+        failed_reasons=checks.fix_hints(failed, register=ai_register) if failed else [],
         rewrites=rewrites,
+        needs_input=needs,
         model=model,
         data_origin=store.data_origin,
+        stance=APOLOGY,
+        stance_reasons=list(decision.reasons),
         style=style,
     )
     # not_too_similar(답글끼리 너무 겹치는지)는 다른 답글들이 다 끝나야 알 수 있어 여기선 못 본다.
@@ -410,14 +491,15 @@ def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None, 
             return False
         stripped_i = _strip_items(text, item_sets[i])
         for j, other in enumerate(ai_parts):
-            if j == i or not other or drafts[j].checks.get("used_fallback"):
+            if j == i or not other or drafts[j].checks.get("used_fallback") or CALL_FAILED_NOTE in drafts[j].needs_input:
                 continue
             if checks.too_similar(stripped_i, _strip_items(other, item_sets[j])):
                 return True
         return False
 
     for i, d in enumerate(drafts):
-        if d.checks.get("used_fallback"):
+        # 템플릿(used_fallback)과 호출 실패로 채운 기본 문장은 비슷해도 된다 (사장님이 어차피 고친다)
+        if d.checks.get("used_fallback") or CALL_FAILED_NOTE in d.needs_input:
             d.checks["not_too_similar"] = True
             continue
         similar = _similar_to_others(i, ai_parts[i])
@@ -439,6 +521,7 @@ def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None, 
                 if not new_failed:
                     ai_parts[i] = new_body
                     new_chk["used_fallback"] = False
+                    new_chk["ai_part_repaired"] = False   # 새로 쓴 AI 글이 그대로 점검을 넘었다
                     d.text, d.evidence_ids, d.checks = new_text, new_evidence, new_chk
                     d.rewrites += 1
                     similar = _similar_to_others(i, ai_parts[i])
