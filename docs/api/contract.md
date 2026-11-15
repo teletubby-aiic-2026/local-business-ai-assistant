@@ -5,6 +5,8 @@
 > 응답 예시는 그 직전 커밋 `28aed61`에서 뽑았습니다. 그 뒤 main에서 바뀐 것은 붙여넣기 글자 수 제한(4000 → 1000자)과 그 시험 1건뿐이고, 화면 파일 세 개는 같습니다.
 > 이 문서는 코드를 읽고 실제 응답을 뽑아서 썼습니다. 코드는 바꾸지 않았습니다.
 > **11/15 덧붙임 (`feat/connect-care-ui`)**: 고객응대 프록시 `/api/care/*`(1.11절), 리뷰 붙여넣기 탭의 '캡처로 넣기', 왼쪽 메뉴 '종합 리포트'(`#/report`)가 생겼습니다. 1.6(승인)·1.8(붙여넣기)에 선택 칸이 하나씩 늘었고, 2부의 id 표·개수·시험 표를 지금 코드에 맞춰 고쳤습니다.
+>
+> **11/16 덧붙임 (`feat/uxp-e-report`)**: 일일·월간 보고서 응답에 `praise` 칸(손님 칭찬 요약, 코드 집계)이 생겼고(1.11절), 종합 리포트에 '손님 칭찬 요약' 칸과 '전체 리포트 PDF 저장' 버튼, 인쇄 전용 CSS가 생겼습니다 (2.2·2.3·2.4·2.6절).
 
 ## 요약
 
@@ -1471,6 +1473,38 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 
 **`report/daily`** 화면이 쓰는 칸: `summary`, `review_count`, `complaint_count`, `replied_on_time`, `replied_late`, `score_start`→`score_end`, `score_change`, `changes[]`(`delta`, `message`), `todo.text`, `by_source`, `pending_count`, `overdue_count`. **`report/monthly`**: `month`, `review_count`, `complaint_count`, `score_start`→`score_end`, `late_count`, `score_trend[]`(`date`, `score`, 화면이 SVG 선 그래프로), `repeated_issues[]`(`topic_name`, `review_count`, `count_this_month`, `replied_count`, `recurred_after_reply`, `state`, `main_time_band`, `is_repeated`), `suggestions[].text`, `changes[]`. 숫자는 리뷰 분석 서비스가 규칙으로 계산하고 문장은 틀 문장입니다 (`summary_method: "template"`, AI 문장 아님).
 
+**`praise` 칸 (11/16, 손님 칭찬 요약)**: `report/daily`와 `report/monthly` 응답에 둘 다 들어 있습니다. 그 보고서 기간(그날·그 달)에 들어온 리뷰만 **코드로** 센 값이고 모델을 부르지 않습니다 (`method: "code"`). 프록시는 이 칸을 그대로 넘깁니다. 화면의 '손님 칭찬 요약' 칸은 **월간 응답의 `praise`** 로만 그립니다 (요청을 더하지 않음).
+
+```json
+"praise": {
+  "review_count": 18, "high_rating_count": 10, "positive_count": 10,
+  "praise_count": 10, "praise_basis": "sentiment",
+  "top_topics": [{"topic": "taste", "topic_name": "맛", "count": 5}, {"topic": "packaging", "topic_name": "포장 상태", "count": 2},
+                 {"topic": "service", "topic_name": "응대", "count": 2}, {"topic": "menu", "topic_name": "메뉴 구성", "count": 1},
+                 {"topic": "atmosphere", "topic_name": "매장 환경", "count": 1}],
+  "top_menus": [{"menu": "순두부찌개", "count": 1}, {"menu": "불고기 덮밥", "count": 1}],
+  "quote": {"text": "순두부찌개 얼큰하고 맛있어요", "review_id": "rv_ongi_039", "rating": 4},
+  "method": "code"
+}
+```
+
+(시험용 실행, 합성 리뷰만 있는 2026년 11월. 10월은 22건 중 별점 4~5점 16건·긍정 16건, 인기 메뉴는 제육볶음 정식·된장찌개·김치찌개 1건씩)
+
+| 칸 | 뜻 | 화면 |
+|---|---|---|
+| `review_count` | 그 기간 리뷰 수 (보고서의 `review_count`와 같음) | 아래 작은 글씨 "이 달 리뷰 n건을 코드로 셌어요" |
+| `high_rating_count` · `positive_count` | 별점 4~5점 리뷰 수 · 감정 분류가 긍정인 리뷰 수 | 숫자 두 칸 |
+| `praise_count` · `praise_basis` | 칭찬 리뷰 수와 기준. `"sentiment"` = 긍정으로 분류된 리뷰, `"rating"` = 긍정 분류가 하나도 없어 별점 4점 이상이면서 불만이 없는 리뷰, 칭찬 리뷰가 없으면 `null` | "칭찬 리뷰 n건에서 골랐어요" (`rating`이면 기준 안내) |
+| `top_topics[]` | 칭찬으로 걸린 주제별 리뷰 수 상위 5개 (`topic`, `topic_name`, `count`). 많은 순, 같으면 주제 사전 순서. 리뷰 분석 '칭찬 키워드'와 같은 셈법 | 칩 |
+| `top_menus[]` | 인기 메뉴 TOP 3 (`menu`, `count`): 가게 메뉴 이름이 **칭찬 리뷰**에 나온 수. 언급이 없는 메뉴는 빠지고, 같은 수면 메뉴판 순서 | 순위 목록 |
+| `quote` | 대표 칭찬 한 줄 (`text`, `review_id`, `rating`). 칭찬 리뷰가 없으면 `null` | 인용. 없으면 "아직 칭찬 리뷰가 없어요" |
+
+- 칭찬 리뷰와 메뉴 언급 수의 기준은 저장소 루트의 `shared/praise.py`입니다 (`praise_reviews`, `top_praised_menus`). 추천 카드 ⓑ·쿠폰 메뉴 고르기와 같은 코드라 기준이 같습니다. 다만 **기간은 다릅니다**: 여기는 그 보고서의 날·달입니다.
+- **대표 칭찬 한 줄 고르는 규칙** (코드, `services/review-insight/app/report.py`의 `_quote`): ① 가장 많이 언급된 메뉴(`top_menus[0]`)를 말한 칭찬 리뷰가 있으면 그 안에서, 없으면 칭찬 리뷰 전체에서 ② 개인정보를 가린 자리(`[가림]`)가 없는 글 → 별점 높은 것 → 최근에 받은 것 ③ 80자를 넘으면 그 메뉴를 말한 문장 하나만(그래도 넘으면 잘라서 `…`).
+- **개인정보**: `quote.text`는 보고서를 만들 때 가림(`mask_pii`: 전화번호·이메일·링크·긴 숫자)을 **한 번 더** 거친 글입니다. 붙여넣기·캡처 리뷰는 저장할 때 이미 가리지만, 합성 샘플과 예전 저장본은 가림을 거치지 않았을 수 있어서입니다. 이름 같은 것은 이 가림이 찾지 못합니다.
+- 숫자가 0이어도 칸은 같습니다 (빈 목록, `quote: null`). 리뷰 분석 서비스를 그 폴더만 떼어 띄운 환경(Dockerfile 이미지처럼 `shared/`가 없는 곳)에서는 `praise` 자체가 `null`이고, 화면은 그 칸에 안내만 보입니다.
+- 인쇄용 페이지(`report/monthly/print`)에도 같은 숫자로 '손님 칭찬 요약' 네 줄이 들어갑니다 (글자는 `html.escape`).
+
 **오류 모양**
 
 ```json
@@ -1509,9 +1543,9 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 
 ### 2.2 `id` 목록
 
-(11/15 `feat/connect-care-ui` 기준으로 다시 셈. 서랍·캡처·종합 리포트 id 포함) `app.js`가 찾는 id는 **114개**입니다. `$("…")`로 글자 그대로 적힌 99개, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`), 종합 리포트의 `RP_STATE` 표로 찾는 5개(`rp-daily-state`·`rp-score-state`·`rp-month-state`·`rp-market-state`·`rp-mkt-state`)를 합한 수입니다. 그중 `approvals`, `restart`, `rp-approvals`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 111개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 112개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
+(11/16 `feat/uxp-e-report` 기준으로 다시 셈. 서랍·캡처·종합 리포트 id 포함) `app.js`가 찾는 id는 **122개**입니다. `$("…")`로 글자 그대로 적힌 106개, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`), 종합 리포트의 `RP_STATE` 표로 찾는 6개(`rp-daily-state`·`rp-score-state`·`rp-praise-state`·`rp-month-state`·`rp-market-state`·`rp-mkt-state`)를 합한 수입니다. 그중 `approvals`, `restart`, `rp-approvals`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 119개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 120개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
 
-`index.html`에는 id가 121개 있습니다. 112개를 뺀 나머지 9개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`)로만 씁니다 (표의 마지막 묶음).
+`index.html`에는 id가 131개 있습니다. 120개를 뺀 나머지 11개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`)이나 자리 표시로만 씁니다 (표의 마지막 묶음).
 
 **상단 바와 알림**
 
@@ -1630,8 +1664,11 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | id | 한 줄 설명 |
 |---|---|
 | `rp-reload` | '다시 불러오기' (세 응대 칸을 다시 부름) |
+| `rp-pdf` · `rp-pdf-msg` | '전체 리포트 PDF 저장' 버튼 (누르면 `window.print()`, 불러오는 중이면 끝날 때까지 `disabled`) · 그 옆 안내(`role="status"`) |
+| `rp-print-store` · `rp-print-meta` · `rp-print-note` | 인쇄 전용 머리글(`#rp-print-head`) 안의 가게 이름 · "출력한 날 · 기간" 한 줄 · 시험용 실행 안내. 인쇄 직전에 JS가 채움. 화면에서는 숨김 |
 | `rp-daily-state` · `rp-daily` · `rp-daily-date` | 오늘 요약 칸의 상태 안내(`role="status"`, 오류면 `bad` 클래스) · 내용 · 날짜 |
 | `rp-score-state` · `rp-score` | 응대 점수 칸의 상태 안내 · 내용 (큰 숫자, 이유, 답글 기다리는 불만과 남은 시간, 지난 불만) |
+| `rp-praise-state` · `rp-praise` · `rp-praise-period` | 손님 칭찬 요약 칸(11/16)의 상태 안내 · 내용 (별점 4~5점·긍정 리뷰 수, 칭찬 주제 칩, 인기 메뉴 TOP 3, 대표 칭찬 한 줄) · 집계 기간. 월간 응답의 `praise`로 그림 |
 | `rp-month-state` · `rp-month` | 월간 보고서 칸의 상태 안내 · 내용 (숫자, SVG 그래프, 반복 불만 표, 제안) |
 | `rp-month-prev` · `rp-month-label` · `rp-month-next` | 이전 달 · 보고 있는 달 · 다음 달 (이번 달이면 다음 달 `disabled`, 1년 전까지) |
 | `rp-print` | '인쇄용 보기' 링크 (`/api/care/report/monthly/print?month=YYYY-MM`, 새 탭) |
@@ -1670,7 +1707,8 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `todo-title` | '오늘 할 일' 패널 제목. 패널의 `aria-labelledby`가 가리킴 |
 | `assistant-title` | 서랍 제목. 서랍의 `aria-labelledby`가 가리킴 |
 | `cap-title` | 캡처 칸 제목 (`#cap`의 `aria-labelledby`) |
-| `rp-daily-title` · `rp-score-title` · `rp-month-title` · `rp-market-title` · `rp-mkt-title` | 종합 리포트 다섯 칸의 제목 (칸마다 `aria-labelledby`) |
+| `rp-daily-title` · `rp-score-title` · `rp-praise-title` · `rp-month-title` · `rp-market-title` · `rp-mkt-title` | 종합 리포트 여섯 칸의 제목 (칸마다 `aria-labelledby`) |
+| `rp-print-head` | 인쇄 전용 머리글 상자 (화면에서는 `display: none`, 인쇄 CSS가 보이게 함. `hidden` 속성을 달면 인쇄에서도 안 보임) |
 
 **`app.js`가 만들어 넣는 id (찾지는 않음)**: `card-(카드 id)`, `draft-(글 id)`, `text-(글 id)`, 캡처 후보의 `cap-text-(번호)`·`cap-rate-(번호)`(라벨 `for`가 가리킴). 편집 칸(`textarea`)의 `id`가 `text-(글 id)`이고 `<label for>`가 이를 가리킵니다. 이 규칙을 바꾸면 라벨과 편집 칸의 연결이 끊어집니다.
 
@@ -1694,6 +1732,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `#cap-list [data-cap-pick]`, `.cap-item` 안의 `[data-cap-text]`·`[data-cap-rate]`·`[data-cap-msg]`·`.cap-saved` | 캡처 후보 고르기·저장 | JS가 그린 후보 `li.cap-item` |
 | `[data-view="report"]` 안의 `[data-rp-ask]` | 상권 요약의 'AI에게 묻기로 상권 더 보기' → 서랍 | JS가 그린 버튼 |
 | `#rp-score [data-clock]` | 남은 시간을 1초마다 다시 씀 | JS가 그린 `span.rp-clock` |
+| `[data-view="report"] details` | 인쇄 직전에 접힌 칸을 펼치고(`data-rp-opened`) 인쇄가 끝나면 다시 접음 | 리포트 화면 안의 `<details>` |
 
 **(2) `data-*` 속성**
 
@@ -1726,6 +1765,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `class="dot ok"` / `"dot warn"` | `#dot-care`, `#dot-mkt` (`className`을 통째로 바꿈) | `.dot.ok`, `.dot.warn` |
 | `st`·`bad` 클래스 켜고 끄기 | `#an-status` | `.st`, `.bad` |
 | `<html data-theme="light">` | 주소에 `?theme=light`가 있을 때 | `:root:not([data-theme="light"])` 안의 다크 색 |
+| `<html class="rp-view">` | 종합 리포트 화면이 보이는 동안 (`rpMark`: `loadReport`·`rpStop`·인쇄 직전에 맞춤) | 인쇄 CSS의 모든 리포트 규칙 `html.rp-view …` (11/16) |
 | `--top-h` (CSS 변수) | JS가 `<html>`에 상단 바 높이를 넣음 | `.side`, `.drawer`의 `top`·`height` |
 
 **(4) JS가 DOM에서 다시 읽는 글자**: `#hero-problem`, `#stat-market`, `#no-card-b`의 글자와 `#staff li`의 구조입니다. 이 요소의 글자 모양을 바꿔도 되지만, 안에 다른 태그나 장식 글자를 섞으면 '오늘 할 일' 부제에 그대로 섞여 나옵니다.
@@ -1738,6 +1778,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 |---|---|
 | `[hidden] { display: none !important; }` | `display`를 주는 다른 규칙이 `hidden`을 이기면 숨겨야 할 것이 보임 |
 | `.card .reason { white-space: pre-line; }` | 카드 ⓑ 이유 문장의 줄바꿈(`\n`)을 살림 |
+| `@media print` 덩어리 ('종합 리포트 인쇄', 리포트 스타일 바로 뒤)와 `.rp-print-head { display: none; }` | '전체 리포트 PDF 저장'의 종이 모양. 아래 "종합 리포트 인쇄" 참고 |
 
 **(7) JS가 HTML 문자열로 만드는 클래스.** 스타일은 자유롭게 바꿔도 되지만, **이름을 바꾸려면 `app.js` 안의 문자열도 같이 바꿔야** 합니다. 괄호 안은 JS가 상황에 따라 붙이는 상태 클래스입니다.
 
@@ -1751,9 +1792,20 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | 완료 | `log`, `plain`, `big`, `panel`, `more` |
 | 리뷰 분석 | `kw-row`, `kw-title`, `kw-chip`(+`pos`·`neg`), `box`, `n`, `arrow`, `group`(+`repeated`·`new`), `group-head`, `badge`(+`rep`·`ok`), `an-note`, `an-bands`, `topic-bars`, `quote`, `an-joined`, `panel`, `panel-head` |
 | 캡처로 넣기 | `cap-item`(+`dup`·`saved`), `cap-item-head`, `cap-check`, `cap-saved`, `cap-item-foot`, `cap-item-msg`, `cap-sec`, `badge`(+`warn`·`ok`), `sr` · 상태 클래스 `busy`(`#cap-status`), `drop`(`#cap`) |
-| 종합 리포트 | `rp-summary`, `rp-nums`, `rp-line`, `rp-delta`(+`neg`·`pos`), `rp-reasons`, `rp-todo`, `rp-todo-label`, `rp-score-top`, `rp-big`, `rp-big-n`, `rp-big-unit`, `rp-peak`, `rp-h3`, `rp-pending`, `rp-p`(+`over`), `rp-p-main`, `rp-p-text`, `rp-clock`(+`over`·`soon`·`paused`), `rp-untimed`, `rp-chart`, `rp-trend`, `rp-gl`, `rp-ax`, `rp-now`, `rp-line`, `rp-pt`, `rp-table-wrap`, `rp-table`, `num`, `rp-sugg`, `rp-store`, `rp-snaps`, `rp-snap-v`(+`neg`), `rp-snap-t`, `rp-ask`, `rp-mkt-title`, `rp-mkt-reason`, `rp-mkt-st`, `rp-mkt-none` · 상태 클래스 `bad`(`#rp-*-state`) |
+| 종합 리포트 | `rp-summary`, `rp-nums`, `rp-line`, `rp-delta`(+`neg`·`pos`), `rp-reasons`, `rp-todo`, `rp-todo-label`, `rp-score-top`, `rp-big`, `rp-big-n`, `rp-big-unit`, `rp-peak`, `rp-h3`, `rp-pending`, `rp-p`(+`over`), `rp-p-main`, `rp-p-text`, `rp-clock`(+`over`·`soon`·`paused`), `rp-untimed`, `rp-chart`, `rp-trend`, `rp-gl`, `rp-ax`, `rp-now`, `rp-line`, `rp-pt`, `rp-table-wrap`, `rp-table`, `num`, `rp-sugg`, `rp-store`, `rp-snaps`, `rp-snap-v`(+`neg`), `rp-snap-t`, `rp-ask`, `rp-mkt-title`, `rp-mkt-reason`, `rp-mkt-st`, `rp-mkt-none`, 손님 칭찬 요약의 `rp-praise-body`, `rp-praise-topics`, `kw-chip pos`, `rp-menus`, `rp-rank`, `rp-menu-n`, `rp-quote`, `rp-quote-none`, `rp-screen`(인쇄에서 빼는 화면용 문구) · 상태 클래스 `bad`(`#rp-*-state`) |
 | 준비 중 자리 | `later`, `later-title`, `later-badge`, `view`, `narrow`, `page-head`, `eyebrow`, `badge` |
 | 어디서나 | `small`, `muted`, `sr`(화면에는 안 보이고 읽기 프로그램에만 읽힘), `long`(375px 메뉴에서 숨김) |
+
+**(8) 종합 리포트 인쇄 (11/16, '전체 리포트 PDF 저장')**
+
+`#rp-pdf`를 누르면 `window.print()`로 브라우저 인쇄 창이 열리고, 거기서 'PDF로 저장'을 고르면 PDF가 됩니다. 서버에 새로 묻지 않고 지금 화면에 그려진 여섯 칸(오늘 요약 · 응대 점수 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약)이 그대로 나옵니다. 예전 월간 인쇄 링크(`#rp-print`, 서버가 만드는 A4 한 장)는 그대로 있습니다.
+
+- **언제 먹나**: 인쇄 규칙은 `style.css`의 '종합 리포트 인쇄' 덩어리(`@media print`, 리포트 스타일 바로 뒤) 하나에 있고, `@page`만 빼면 **모든 선택자가 `html.rp-view`로 시작**합니다. `rp-view`는 리포트 화면이 보이는 동안만 JS(`rpMark`)가 달아 둡니다. 그래서 다른 화면(`#/today` 등)에서 인쇄하면 `@page`(A4 세로, 여백 13·12·14mm)만 먹고 나머지는 예전 그대로입니다.
+- **무엇을 숨기나**: "리포트 화면도 아니고, 리포트 화면을 품지도 않고, 그 안에 들어 있지도 않은 요소"를 모두 숨깁니다 (`:not([data-view="report"]):not([data-view="report"] *):not(:has([data-view="report"]))`). 왼쪽 메뉴·상단 바·알림 띠·서랍·바닥처럼 **이름을 몰라도** 숨겨지므로, 뼈대에 새 요소(메뉴 접기 버튼, 오버레이 배경 등)를 더해도 인쇄 CSS를 고칠 필요가 없습니다. `:has()`를 못 쓰는 브라우저는 `@supports not selector(:has(*))` 덩어리가 지금 뼈대(`body > .shell > main > 화면`)를 따라 숨깁니다. **이 뼈대를 바꾸면 그 대체 덩어리도 같이 고쳐야 합니다.** 리포트 안에서는 버튼, 화면용 제목 줄(`.page-head`), 월간 인쇄 링크, 다른 화면으로 가는 링크, `rp-screen` 문구를 숨깁니다.
+- **종이 모양**: 색 토큰을 라이트 값으로 다시 정해 다크여도 흰 바탕에 검은 글자입니다 (`html:root.rp-view`. 다크에서 바뀌는 토큰을 모두 다시 적음 → 토큰을 늘리면 여기도). 여섯 칸은 한 줄기로 쌓이고 칸은 쪽 사이에서 잘리지 않습니다 (`break-inside: avoid`). 칩·표 머리·그래프 색은 '배경 그래픽'을 꺼도 찍힙니다 (`print-color-adjust: exact`). 상권 요약의 '원본' 링크는 주소를 글자로 덧붙입니다.
+- **머리글** (`#rp-print-head`): 가게 이름 · "종합 리포트" · 출력한 날 · 기간(오늘 요약 날짜, 손님 칭찬 요약·월간 보고서의 달, 응대 점수 최근 28일). 시험용 실행이면 화면 맨 위 띠의 안내(`health.mode_notice`, "실제 AI 결과 아님")도 적습니다 (인쇄에서는 그 띠가 빠지므로). 인쇄 직전에 JS(`rpPrintPrep`)가 채우고, 접힌 `<details>`를 펼쳤다가 인쇄 뒤에 다시 접습니다 (`rpPrintDone`). 점수 추이 그래프도 인쇄 직전에 넓은 화면 폭(860)으로 다시 그렸다가 되돌립니다. 그래서 휴대전화처럼 좁은 창에서 인쇄해도 같은 모양·같은 쪽 수로 나옵니다. 브라우저 메뉴(Ctrl+P)로 인쇄해도 `beforeprint`·`afterprint`에서 같은 일을 합니다.
+- **불러오는 중**: 아직 불러오는 칸이 있으면 버튼을 잠그고 최대 20초 기다렸다가 인쇄 창을 엽니다. 기다리는 동안 다른 화면으로 가면 인쇄하지 않습니다.
+- 확인한 것: Chrome(headless)의 PDF, 창 폭 1440px·390px, 라이트·다크. 합성 자료만 있을 때 A4 2쪽(1쪽: 오늘 요약·응대 점수·손님 칭찬 요약, 2쪽: 월간 보고서·상권 요약·마케팅 요약)이고, 내용이 늘면 칸 단위로 다음 쪽에 넘어갑니다. Safari·Firefox의 인쇄는 확인하지 못했습니다.
 
 ### 2.4 시험이 직접 확인하는 것
 
@@ -1785,6 +1837,7 @@ const on = new Set(m.default || []);
 - `test_assistant_drawer_static.py`: 서랍 id(`assistant-`), `/api/assistant/*`만, `drawerApi`만, 90초 끊기, 한글 입력 중 Enter 막기, 첫 추천 질문 4개.
 - `test_care_ui_static.py` (17건): 캡처 칸 id는 `cap`, 리포트 id는 `rp-`로 시작하고 JS가 찾는 것은 모두 HTML에 있음. 두 화면은 `careApi`로만 `/api/care/*`·`/api/reviews`·`/api/approvals`를 부르고 전역 `api()`·`showAlert`·`#alert`를 쓰지 않음. `accept`의 세 형식, 10MB, 이미 있는 리뷰는 처음에 고르지 않음, `source: "capture"`, 예시 결과·`warnings`·별점 확인 문구, 메뉴 자리(리뷰 분석 다음)와 `ROUTES`의 `"report"`, 인쇄 링크(`target="_blank"`, `rel="noopener"`), 남은 시간(`due_at`)·멈춤·지난 불만, 월간 표의 칸 7개와 SVG 그래프, **종합 리포트 덩어리가 `/api/cards`·`/api/briefing`·`/run`·`/api/assistant`·`refresh(`를 부르지 않음**(열어도 AI를 새로 부르지 않음), 외부 스크립트 없음.
 - `test_care_proxy.py` (29건, 화면 파일은 읽지 않음): 1.11절의 허용 목록·덮어쓰기·손님용 경로·상태·413·500 없음·막히지 않음, 1.6의 답글 승인 기록, 1.8의 `source`.
+- `test_report_praise_print_static.py` (16건, 11/16): 손님 칭찬 요약 칸의 자리(응대 점수 다음·월간 보고서 앞)와 id(`rp-`), 월간 응답의 `praise`로만 그리고 `careApi` 호출이 네 개 그대로인지, 서버 글에 `esc()`, `#rp-pdf`와 `window.print()` 한 곳, `#rp-print` 유지, 인쇄 CSS(`@page` A4 · 모든 규칙이 `html.rp-view` 아래 · 리포트만 보이게 하는 규칙과 `:has` 대체 · 다크에서 바뀌는 색 토큰을 모두 다시 정함 · `break-inside: avoid` · `print-color-adjust: exact`), 프록시가 `praise`를 그대로 넘김.
 
 **조심할 점**
 
@@ -1808,7 +1861,7 @@ const on = new Set(m.default || []);
 | `#/draft` | `draft` | 승인할 글 | 초안 보기·고치기·승인 | `index.html`의 껍데기 + JS가 채움 |
 | `#/done` | `done` | 처리 완료 | 승인 결과, 처음으로 | `index.html`의 껍데기 + JS가 채움 |
 | `#/analysis` | `analysis` | 리뷰 분석 | 탭 3개 (요약·불만 묶음·리뷰 붙여넣기) | `index.html` |
-| `#/report` | `report` | 종합 리포트 | 오늘 요약 · 응대 점수 · 월간 보고서 · 상권 요약 · 마케팅 요약 (11/15) | `index.html` |
+| `#/report` | `report` | 종합 리포트 | 오늘 요약 · 응대 점수 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약 (11/15, 칭찬 요약·PDF 저장은 11/16) | `index.html` |
 | `#/market` | `market` | 상권 (준비 중) | 빈 자리 | `app.js`의 `LATER`가 만듦 |
 
 - 알 수 없는 해시, 해시가 없는 주소는 `#/today`로 봅니다 (`currentRoute()`가 `ROUTES`에 없는 이름을 홈으로 돌림).
@@ -1837,8 +1890,9 @@ const on = new Set(m.default || []);
 | 캡처로 넣기 '캡처 읽기' | `POST /api/care/reviews/capture` (multipart, 최대 110초 기다림) | 후보 목록 (저장하지 않음). 오류는 `#cap-error`에만 |
 | '선택한 리뷰 저장' | 고른 후보마다 `POST /api/reviews` `{text, rating, source: "capture"}` → 하나라도 저장되면 `briefing`, `cards`, `insight` 다시 | 후보마다 "저장함" 또는 그 후보 아래 오류, 홈·카드·분석 갱신 |
 | 초안의 '승인' (리뷰 답글) | 위 승인 + 본문에 `kind`·`review_id` | 서버가 리뷰 분석 서비스에 '답글 달았음' 기록 (1.6, 화면은 기다리지 않음) |
-| `#/report` 열기·'다시 불러오기' | `GET /api/care/report/daily`, `/api/care/response`, `/api/care/report/monthly` (따로따로), `GET /api/approvals` | 칸마다 그림. 한 칸이 실패해도 다른 칸은 그대로. 상권·마케팅 요약은 이미 받은 `briefing`·`cards`로만 (새로 부르지 않음, AI 호출 없음). 화면에 있는 동안 1분마다 `response`만 다시 |
-| 월간 '이전 달'·'다음 달' | `GET /api/care/report/monthly?month=YYYY-MM` | 월간 칸, '인쇄용 보기' 주소도 그 달로 |
+| `#/report` 열기·'다시 불러오기' | `GET /api/care/report/daily`, `/api/care/response`, `/api/care/report/monthly` (따로따로), `GET /api/approvals` | 칸마다 그림. 한 칸이 실패해도 다른 칸은 그대로. 손님 칭찬 요약은 월간 응답의 `praise`로 (요청을 더하지 않음). 상권·마케팅 요약은 이미 받은 `briefing`·`cards`로만 (새로 부르지 않음, AI 호출 없음). 화면에 있는 동안 1분마다 `response`만 다시 |
+| 월간 '이전 달'·'다음 달' | `GET /api/care/report/monthly?month=YYYY-MM` | 월간 칸과 손님 칭찬 요약 칸(같은 응답의 `praise`), '인쇄용 보기' 주소도 그 달로 |
+| '전체 리포트 PDF 저장' | (없음. 불러오는 중이면 끝나기를 기다림) | 인쇄 머리글을 채우고 접힌 칸을 펼친 뒤 `window.print()`. 인쇄 모양은 2.3 (8) |
 
 - 다시 불러온 카드의 id·근거가 이전과 다르면(`refresh()`), 화면에 있던 만든 글·승인 표시·고친 내용을 모두 버립니다.
 - 모든 진행 상태(만든 글, 승인 표시, 고친 글)는 **브라우저 메모리**(`state` 객체)에만 있습니다. 새로고침하면 사라집니다 (3.1).

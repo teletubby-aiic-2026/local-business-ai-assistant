@@ -800,12 +800,14 @@ async function capSave() {
 }
 
 // ── 종합 리포트 (#/report) ────────────────────────────────────────────
-// 칸 다섯 개를 따로 그린다: 오늘 요약(/api/care/report/daily) · 응대 점수(/api/care/response) · 월간 보고서(/api/care/report/monthly)
+// 칸 여섯 개를 따로 그린다: 오늘 요약(/api/care/report/daily) · 응대 점수(/api/care/response) · 손님 칭찬 요약 · 월간 보고서(/api/care/report/monthly)
 // · 상권 요약 · 마케팅 요약. 상권·마케팅은 처음 화면을 열 때 이미 받은 브리핑·추천 카드(state)와 /api/approvals 로만 만든다.
+// 손님 칭찬 요약은 월간 보고서 응답의 praise 칸으로 그린다 (요청을 더하지 않음). '전체 리포트 PDF 저장'은 이 여섯 칸을 브라우저 인쇄로 내보낸다.
 // 이 화면을 열어도 AI(HCX)를 새로 부르지 않는다 (/api/cards·/api/briefing·글 만들기·서랍을 부르지 않음). 한 칸이 실패해도 다른 칸은 그대로.
 // 남은 시간: 서버의 due_at 으로 1초마다 센다 (서버와 브라우저 시계 차이는 응답의 remaining_seconds 로 맞춤). 피크 중이면 '멈춤'.
-const rp = { month: null, maxMonth: null, loading: null, loadedAt: 0, clocks: [], peak: false, tick: null, poll: null };
-const RP_STATE = { daily: "rp-daily-state", score: "rp-score-state", month: "rp-month-state", market: "rp-market-state", mkt: "rp-mkt-state" };
+const rp = { month: null, maxMonth: null, loading: null, loadedAt: 0, clocks: [], peak: false, tick: null, poll: null,
+  day: null, until: null, trend: null, mktBusy: 0 };   // day·until: 인쇄 머리글의 기간 · trend: 인쇄 폭으로 다시 그릴 점수 추이 · mktBusy: 마케팅 요약을 불러오는 중인 수
+const RP_STATE = { daily: "rp-daily-state", score: "rp-score-state", praise: "rp-praise-state", month: "rp-month-state", market: "rp-market-state", mkt: "rp-mkt-state" };
 const RP_ISSUE_STATE = { recurred_after_reply: "답글 뒤 재발", no_recurrence: "답글 뒤 7일 재발 없음", replied_watching: "답글 달고 지켜보는 중", no_reply: "답글 없음" };
 const signed = (n) => (Number(n) > 0 ? `+${n}` : String(n ?? 0));
 const rpDelta = (n) => `<span class="rp-delta ${Number(n) < 0 ? "neg" : Number(n) > 0 ? "pos" : ""}">${esc(signed(n))}</span>`;
@@ -823,7 +825,7 @@ function rpState(name, msg, bad = false) {
   el.textContent = msg || "";
   el.classList.toggle("bad", bad);
 }
-function rpStop() { clearInterval(rp.tick); clearInterval(rp.poll); rp.tick = rp.poll = null; }
+function rpStop() { clearInterval(rp.tick); clearInterval(rp.poll); rp.tick = rp.poll = null; rpMark(); }
 // 남은 시간 1초 시계 + 1분마다 점수 다시 부르기 (화면을 보고 있을 때만). restart 면 새로 맞춘다
 function rpTimers(restart = false) {
   if (restart) rpStop();
@@ -832,8 +834,10 @@ function rpTimers(restart = false) {
 }
 // force: '다시 불러오기'. 처음 열 때 route() 가 두 번 불려도(시작 직후·브리핑을 받은 뒤) 고객응대 칸은 한 번만 부른다
 function loadReport(force = false) {
+  rpMark();
   rpMarket();
-  rpMarketing();
+  rp.mktBusy += 1;
+  rpMarketing().finally(() => { rp.mktBusy -= 1; });
   if (rp.loading) return rp.loading;
   if (!force && Date.now() - rp.loadedAt < 3000) { rpTimers(); return Promise.resolve(); }   // 방금 불렀으면 시계만 다시 돌린다
   rp.loading = Promise.all([rpDaily(), rpScore(), rpMonth(rp.month)]).finally(() => { rp.loading = null; rp.loadedAt = Date.now(); });
@@ -845,6 +849,7 @@ async function rpDaily() {
   try {
     const d = await careApi("/api/care/report/daily");
     const src = Object.entries(d.by_source || {}).map(([k, n]) => `${SOURCE_KO[k] || k} ${n}`).join(" · ");
+    rp.day = d.date || null;
     $("rp-daily-date").textContent = d.date ? `${d.date}${d.until ? ` · ${String(d.until).slice(11, 16)}까지` : ""}` : "";
     $("rp-daily").innerHTML = `
       <p class="rp-summary">${esc(d.summary)}</p>
@@ -917,11 +922,11 @@ async function rpScore(quiet = false) {
 }
 
 // 날마다 점수 선 그래프 (외부 라이브러리 없이 SVG). 색은 CSS(.rp-line 등)가 정해 라이트·다크를 따른다
-function rpTrend(trend) {
+function rpTrend(trend, width) {
   const pts = (Array.isArray(trend) ? trend : []).filter((t) => Number.isFinite(Number(t?.score)));
   if (!pts.length) return '<p class="small muted">점수 기록이 없어요.</p>';
-  // 그림 폭 = 칸의 실제 폭 (좁은 화면에서 글자가 같이 줄어들어 안 보이지 않게). 칸이 숨어 있으면 600
-  const W = Math.round(Math.min(860, Math.max(280, $("rp-month").clientWidth || 600))), H = 170, L = 36, R = 16, T = 18, B = 26;
+  // 그림 폭 = 칸의 실제 폭 (좁은 화면에서 글자가 같이 줄어들어 안 보이지 않게). 칸이 숨어 있으면 600. width 를 주면 그 폭 (인쇄할 때 종이 폭)
+  const W = Math.round(Math.min(860, Math.max(280, width || $("rp-month").clientWidth || 600))), H = 170, L = 36, R = 16, T = 18, B = 26;
   const v = pts.map((t) => Number(t.score));
   const lo = Math.min(80, ...v), last = v.length - 1;
   const x = (i) => L + (W - L - R) * (pts.length === 1 ? 0.5 : i / last);
@@ -941,9 +946,13 @@ function rpTrend(trend) {
 }
 async function rpMonth(month) {
   rpState("month", "불러오는 중…");
+  rpState("praise", "불러오는 중…");
   try {
     const m = await careApi("/api/care/report/monthly" + (month ? `?month=${encodeURIComponent(month)}` : ""));
     rp.month = m.month;
+    rp.until = m.until || null;
+    rp.trend = m.score_trend;
+    rpPraise(m);
     if (!month || !rp.maxMonth) rp.maxMonth = rp.maxMonth && rp.maxMonth > m.month ? rp.maxMonth : m.month;   // 달 없이 부른 값 = 서버의 이번 달
     const issues = Array.isArray(m.repeated_issues) ? m.repeated_issues : [];
     $("rp-month").innerHTML = `
@@ -969,8 +978,10 @@ async function rpMonth(month) {
     rpState("month", "");
   } catch (e) {
     if (month) rp.month = month;
+    rp.until = rp.trend = null;
     $("rp-month").innerHTML = "";
     rpState("month", e.message, true);
+    rpPraise(null, e.message);
   } finally {
     $("rp-month-label").textContent = monthKo(rp.month);
     $("rp-print").href = "/api/care/report/monthly/print" + (rp.month ? `?month=${encodeURIComponent(rp.month)}` : "");
@@ -982,6 +993,41 @@ async function rpMoveMonth(step, button) {
   if (!rp.month) return;
   await rpMonth(shiftMonth(rp.month, step));
   if (button.disabled && document.activeElement === button) $(step < 0 ? "rp-month-next" : "rp-month-prev").focus();   // 끝에 닿아 막힌 버튼의 포커스를 옆으로
+}
+// 손님 칭찬 요약 (11/16): 월간 보고서 응답의 praise 칸으로만 그린다 (요청을 더하지 않음). 집계 기간 = 월간 보고서에서 고른 달.
+// 숫자·주제·메뉴·대표 한 줄은 리뷰 분석 서비스가 코드로 센 값 그대로다 (모델 호출 없음). 대표 한 줄은 서비스가 개인정보를 가린 글만 보낸다.
+function rpPraise(m, error) {
+  const p = m?.praise;
+  $("rp-praise-period").textContent = m ? `${monthKo(m.month)}${m.until ? ` · ${dateKo(m.until)}까지` : ""}` : "";
+  if (!p) {
+    $("rp-praise").innerHTML = "";
+    rpState("praise", error || "이 서버의 리뷰 분석 서비스는 아직 손님 칭찬 요약을 보내지 않아요.", !!error);
+    return;
+  }
+  const topics = Array.isArray(p.top_topics) ? p.top_topics : [], menus = Array.isArray(p.top_menus) ? p.top_menus : [];
+  $("rp-praise").innerHTML = `
+    <div class="rp-praise-body">
+      <div>
+        <dl class="rp-nums">
+          <div><dt>별점 4~5점</dt><dd>${esc(p.high_rating_count ?? 0)}건</dd></div>
+          <div><dt>긍정 리뷰</dt><dd>${esc(p.positive_count ?? 0)}건</dd></div>
+        </dl>
+        <h3 class="rp-h3">칭찬 주제 상위</h3>
+        <ul class="plain rp-praise-topics">${topics.map((t) => `<li class="kw-chip pos">${esc(t.topic_name)} <b>${esc(t.count)}</b></li>`).join("")
+          || '<li class="small muted">칭찬으로 분류된 주제가 아직 없어요.</li>'}</ul>
+      </div>
+      <div>
+        <h3 class="rp-h3">인기 메뉴 TOP 3 <span class="small muted">· 칭찬 리뷰에 이름이 나온 수</span></h3>
+        <ol class="plain rp-menus">${menus.map((x, i) => `<li><span class="rp-rank">${i + 1}</span><b>${esc(x.menu)}</b><span class="rp-menu-n">${esc(x.count)}건</span></li>`).join("")
+          || '<li class="small muted">칭찬 리뷰에 나온 메뉴가 아직 없어요.</li>'}</ol>
+        <h3 class="rp-h3">대표 칭찬 한 줄</h3>
+        ${p.quote ? `<blockquote class="rp-quote"><p>“${esc(p.quote.text)}”</p><footer class="small muted">${p.quote.rating ? `별점 ${esc(p.quote.rating)}점 리뷰` : "별점 없는 리뷰"} · 개인정보를 가린 글</footer></blockquote>`
+          : '<p class="small muted rp-quote-none">아직 칭찬 리뷰가 없어요.</p>'}
+      </div>
+    </div>
+    <p class="small muted">이 달 리뷰 ${esc(p.review_count ?? 0)}건을 코드로 셌어요 (모델 호출 없음). 인기 메뉴와 대표 한 줄은 칭찬 리뷰 ${esc(p.praise_count ?? 0)}건에서 골랐어요.${
+      p.praise_basis === "rating" ? " 긍정으로 분류된 리뷰가 없어서, 별점 4점 이상이고 불만이 없는 리뷰를 칭찬 리뷰로 봤어요." : ""}<span class="rp-screen"> 달은 월간 보고서에서 바꿔요.</span></p>`;
+  rpState("praise", "");
 }
 
 // 상권 요약: 브리핑의 상권 지표 (홈 '상권 저녁 매출' 칸과 같은 자료). 서버를 다시 부르지 않는다
@@ -1034,6 +1080,53 @@ async function rpMarketing() {
     const el = $("rp-approvals");
     if (el) el.textContent = `서버에 남은 승인 기록 ${(a.items || []).length}건 (답글·공지·홍보글 합계, 이 방문자 기준)`;
   } catch (e) { const el = $("rp-approvals"); if (el) el.textContent = `승인 기록을 불러오지 못했어요: ${e.message}`; }
+}
+
+// 전체 리포트 PDF 저장 (11/16): 브라우저 인쇄 창을 연다 (거기서 'PDF로 저장'). 서버에 새로 묻지 않고, 지금 그려진 여섯 칸이 그대로 나온다.
+// 인쇄 모양은 style.css 의 '종합 리포트 인쇄' 덩어리가 정하고, 그 덩어리는 <html class="rp-view"> 일 때만(리포트 화면이 보일 때만) 먹는다.
+const RP_PDF_WAIT_MS = 20000;   // 아직 불러오는 칸이 있으면 여기까지 기다렸다가 인쇄 창을 연다
+const RP_PDF_HINT = "인쇄 창이 열리면 ‘PDF로 저장’을 골라 주세요.";
+const RP_PRINT_W = 860;   // 인쇄할 때 점수 추이 그래프를 그리는 폭 (넓은 화면과 같은 값). 창이 좁아도(휴대전화) 종이에서는 같은 모양·같은 쪽 수로 나오게
+// route() 가 화면을 바꿀 때마다 loadReport() 나 rpStop() 을 부르므로, 두 곳에서 부르면 표시가 늘 지금 화면과 맞는다
+function rpMark() { document.documentElement.classList.toggle("rp-view", currentRoute() === "report"); }
+const rpReady = () => state.booted && !rp.loading && !rp.mktBusy;
+// 인쇄 직전: 머리글(가게 이름 · 출력한 날 · 기간)을 채우고 접힌 칸(details)을 펼친다. 인쇄가 끝나면 rpPrintDone 이 다시 접는다.
+// 시험용 실행이면 화면 맨 위 띠의 안내(실제 AI 결과 아님)를 머리글에도 적는다 (인쇄에서는 그 띠가 빠지므로)
+function rpTrendWidth(width) {   // 점수 추이 그래프를 그 폭으로 다시 그린다 (폭을 안 주면 화면 폭)
+  const svg = document.querySelector("#rp-month .rp-trend");
+  if (svg && rp.trend) svg.outerHTML = rpTrend(rp.trend, width);
+}
+function rpPrintPrep() {
+  rpMark();
+  rpTrendWidth(RP_PRINT_W);
+  const now = new Date(), two = (n) => String(n).padStart(2, "0");
+  $("rp-print-store").textContent = state.briefing?.store?.name || "";
+  $("rp-print-meta").textContent = [
+    `출력한 날 ${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`,
+    rp.day ? `오늘 요약 ${rp.day}` : "",
+    rp.month ? `손님 칭찬 요약·월간 보고서 ${monthKo(rp.month)}${rp.until ? ` (${dateKo(rp.until)}까지)` : ""}` : "",
+    "응대 점수 최근 28일",
+  ].filter(Boolean).join(" · ");
+  $("rp-print-note").textContent = state.health?.mode_notice || "";
+  document.querySelectorAll('[data-view="report"] details:not([open])').forEach((d) => { d.open = true; d.dataset.rpOpened = "1"; });
+}
+function rpPrintDone() {
+  document.querySelectorAll('[data-view="report"] details[data-rp-opened]').forEach((d) => { d.open = false; delete d.dataset.rpOpened; });
+  rpTrendWidth();
+}
+async function rpPdf() {
+  const button = $("rp-pdf"), msg = $("rp-pdf-msg");
+  if (!rpReady()) {   // 아직 불러오는 칸이 있으면 끝날 때까지 기다린다 (그동안 버튼을 잠근다)
+    button.disabled = true;
+    msg.textContent = "리포트를 다 불러오면 인쇄 창을 열어요…";
+    const until = Date.now() + RP_PDF_WAIT_MS;
+    while (!rpReady() && Date.now() < until) await new Promise((done) => setTimeout(done, 150));
+    button.disabled = false;
+    msg.textContent = RP_PDF_HINT;
+    if (currentRoute() !== "report") return;   // 기다리는 동안 다른 화면으로 갔으면 인쇄하지 않는다
+  }
+  rpPrintPrep();
+  window.print();
 }
 
 // ── 준비 중 자리: LATER 목록으로 왼쪽 메뉴 링크와 빈 화면을 만든다 ─────────────
@@ -1601,6 +1694,10 @@ $("cap").addEventListener("drop", (e) => { e.preventDefault(); $("cap").classLis
 $("rp-reload").addEventListener("click", () => loadReport(true));
 $("rp-month-prev").addEventListener("click", (e) => rpMoveMonth(-1, e.currentTarget));
 $("rp-month-next").addEventListener("click", (e) => rpMoveMonth(1, e.currentTarget));
+$("rp-pdf").addEventListener("click", rpPdf);
+// 브라우저 메뉴(Ctrl+P)로 인쇄해도 같은 머리글·펼친 칸으로 나오게
+window.addEventListener("beforeprint", () => { if (currentRoute() === "report") rpPrintPrep(); else rpMark(); });
+window.addEventListener("afterprint", rpPrintDone);
 document.querySelector('[data-view="report"]').addEventListener("click", (e) => {
   const b = e.target.closest("[data-rp-ask]");
   if (b) toggleAssistant(true, b);
