@@ -119,7 +119,7 @@ def norm_a(a):
 
 # ── 실행 ─────────────────────────────────────────────────────
 def main():
-    key = config.get_api_key()
+    key = config.get_api_key() or input("CLOVA Studio API 키: ").strip()
     results = []
     for i, case in enumerate(CASES, 1):
         notice, gold = case["공지"], case["정답"]

@@ -152,7 +152,7 @@ def main():
     if mode == "--mock":
         results, ok, total = run_mock()
     else:
-        key = config.get_api_key()
+        key = config.get_api_key() or input("CLOVA Studio API 키: ").strip()
         results, ok, total = run_live(key)
 
     md = build_md(results, ok, total, mode)

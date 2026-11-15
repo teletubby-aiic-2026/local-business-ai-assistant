@@ -39,6 +39,8 @@ def one_review_ctx():
 
 
 NO_APOLOGY = "주문하신 공깃밥이 빠진 건 저희가 확인해 볼게요. 소중한 리뷰 감사해요."
+# PR #36 부터 AI 는 공감·사과 부분만 쓴다 (조치·요청사항·감사 인사는 코드가 붙임) → 다시 쓴 글도 그 모양
+APOLOGY_ONLY = "공깃밥이 빠진 채로 가서 정말 죄송해요."
 WITH_APOLOGY = "주문하신 공깃밥이 빠져서 정말 죄송해요. 앞으로 더 꼼꼼히 챙겨 볼게요. 소중한 리뷰 감사해요."
 
 
@@ -56,8 +58,8 @@ class TestApologyAnywhere(unittest.TestCase):
                 self.assertFalse(checks.has_apology_anywhere(text))
 
     def test_has_apology_meaning_is_unchanged(self):
-        """첫 문장 사과(has_apology)는 그대로이고 재발 방지 공지에만 쓴다. 새 점검은 글 어디든 본다."""
-        text = "주문 확인해 볼게요. 정말 죄송해요."
+        """공지 점검 has_apology 는 앞부분만 본다 (PR #36 에서 '첫 문장' → '처음 두 문장'). 새 점검은 글 어디든 본다."""
+        text = "주문 확인해 볼게요. 꼼꼼히 살펴볼게요. 정말 죄송해요."
         self.assertFalse(checks.has_apology(text))
         self.assertTrue(checks.has_apology_anywhere(text))
 
@@ -73,7 +75,7 @@ class TestApologyInReply(unittest.TestCase):
 
         def fake(key, system, messages, **kw):
             prompts.append(messages[0]["content"])
-            return {"content": WITH_APOLOGY if "수정 지시" in messages[0]["content"] else NO_APOLOGY, "won": 0.01}
+            return {"content": APOLOGY_ONLY if "수정 지시" in messages[0]["content"] else NO_APOLOGY, "won": 0.01}
 
         with patch("clova.call", side_effect=fake):
             d = generate_reply_draft(ctx, card, "k").drafts[0]
@@ -85,13 +87,17 @@ class TestApologyInReply(unittest.TestCase):
         self.assertEqual(d.failed_reasons, [])
         self.assertIn("죄송", d.text)
 
-    def test_reply_that_stays_without_apology_is_a_failed_check(self):
+    def test_reply_that_stays_without_apology_still_ends_with_an_apology(self):
+        """끝까지 사과 없는 AI 글은 내보내지 않는다. PR #36 부터는 다시 쓰기 2번 뒤 코드 템플릿(사과 포함)으로 바뀐다."""
         ctx, card, _ = one_review_ctx()
-        with patch("clova.call", side_effect=lambda *a, **k: {"content": NO_APOLOGY}):
+        with patch("clova.call", side_effect=lambda *a, **k: {"content": NO_APOLOGY}) as call:
             d = generate_reply_draft(ctx, card, "k").drafts[0]
-        self.assertFalse(d.checks["apology_expressed"])
-        self.assertEqual(len(d.failed_reasons), 1)
-        self.assertIn("죄송", d.failed_reasons[0])          # 화면에 '점검 실패'와 고칠 점으로 보인다
+        self.assertEqual(call.call_count, 3)                 # 처음 1번 + 다시 쓰기 2번
+        self.assertTrue(d.checks["used_fallback"])
+        self.assertTrue(d.checks["apology_expressed"])
+        self.assertIn("죄송", d.text)
+        self.assertNotIn("확인해 볼게요", d.text)             # 사과 없는 AI 글은 남지 않는다
+        self.assertEqual(d.failed_reasons, [])
 
     def test_reply_with_apology_anywhere_passes(self):
         ctx, card, _ = one_review_ctx()
@@ -129,7 +135,11 @@ class TestCallFailure(unittest.TestCase):
         self.assertTrue(checks.has_apology_anywhere(text))
 
     def test_fallback_apology_without_a_known_item(self):
-        text = fallback_apology(SAMPLE_REVIEWS[0], MENU)       # 메뉴 이름이 없는 리뷰
+        review = ReviewRecord(review_id="rv_t_002", store_id=SAMPLE_STORE.store_id, text="배달이 너무 늦게 왔어요",
+                              created_at="2026-11-14T19:00:00+09:00", rating=2, input_method="paste", sentiment="negative",
+                              topics=["delivery_time"], negative_topics=["delivery_time"])
+        self.assertEqual(_missing_items(review.text, MENU), [])   # 빠진 품목이 없는 리뷰
+        text = fallback_apology(review, MENU)
         self.assertTrue(checks.has_apology_anywhere(text))
         self.assertNotIn("건으로", text)
 

@@ -50,7 +50,10 @@ CARD_KIND_NAMES = {"complaint": "불만 카드", "promo": "홍보 카드"}
 
 # C6 가 '다시 쓰기 사유'에서 뺀 점검 (c6/reply.py _RETRY_EXEMPT, notice.py retry_exempt, promo.py retry_exempt).
 # checks 에는 False 로 남아도 failed_reasons(= 화면의 '점검 실패')에는 들어가지 않는다.
-RETRY_EXEMPT = frozenset({"length_ok", "uses_opening", "uses_closing"})
+# used_fallback 은 참고용 정보 필드라 같이 뺀다 (False=기본값=대체 문장 안 씀, "실패"가 아니다.
+# c6/reply.py 의 chk["used_fallback"] 참고). not_too_similar 도 참고용이다 — 한 번 다시 써도
+# 비슷하면 실패로 세지 않는다(c6/reply.py generate_reply_draft 참고).
+RETRY_EXEMPT = frozenset({"length_ok", "uses_opening", "uses_closing", "used_fallback", "not_too_similar"})
 UNKNOWN_CHECK = "(점검 이름 없음)"   # failed_reasons 는 있는데 checks 에서 이름을 찾지 못한 경우
 
 

@@ -6,15 +6,16 @@
     "basis_label": null,
     "drafts": [
       {
-        "draft_id": "d_d368820d",
+        "draft_id": "d_b39b789e",
         "card_id": "card_sample_a",
         "store_id": "store_ongi",
         "generator": "reply_draft",
         "target_review_id": "rv_ongi_001",
-        "text": "안녕하세요 고객님 :) 공깃밥 추가로 보내드렸어요. 포장 마감 전 주문서를 다시 한번 확인하는 절차를 도입해서 이런 일이 다시 없도록 주의하겠습니다. 소중한 의견 감사합니다. 온기한식 드림",
+        "text": "안녕하세요 고객님 :) 공깃밥 추가하셨는데 빠져 있었다니 정말 죄송해요. 앞으로는 포장 마감 전에 주문서와 한 번 더 맞춰 보고 보내드릴게요. 다음 주문 때 요청사항에 적어 주시면 꼭 챙겨 드릴게요. 온기한식 드림",
         "evidence_ids": [
           "F_rv_ongi_001",
-          "M1"
+          "M1",
+          "P1"
         ],
         "checks": {
           "evidence_valid": true,
@@ -24,13 +25,104 @@
           "no_bad_promise": true,
           "no_bad_number": true,
           "no_personal_info": true,
+          "no_broken_ending": true,
           "length_ok": false,
-          "no_stiff_words": true,
           "no_overpromise": true,
+          "no_claimed_action": true,
           "uses_opening": true,
           "uses_closing": true,
           "no_forbidden_phrase": true,
+          "no_stiff_words": true,
+          "ai_part_only_empathy": true,
+          "style_match": true,
+          "used_fallback": false,
           "not_too_similar": true
+        },
+        "failed_reasons": [],
+        "rewrites": 2,
+        "needs_input": [],
+        "status": "draft",
+        "edited_text": null,
+        "model": "HCX-005",
+        "elapsed_ms": 4596,
+        "data_origin": "synthetic",
+        "style": "haeyo"
+      },
+      {
+        "draft_id": "d_66ce6794",
+        "card_id": "card_sample_a",
+        "store_id": "store_ongi",
+        "generator": "reply_draft",
+        "target_review_id": "rv_ongi_002",
+        "text": "안녕하세요 고객님 :) 수저와 젓가락이 빠졌다니 정말 속상하시겠어요. 포장 마감 전에 주문서랑 한 번 더 대조해서 빠지는 게 없도록 할게요. 꼭 필요한 게 있으면 요청사항에 남겨 주세요, 잊지 않고 챙길게요. 온기한식 드림",
+        "evidence_ids": [
+          "F_rv_ongi_002",
+          "M1",
+          "P1"
+        ],
+        "checks": {
+          "evidence_valid": true,
+          "no_invented_measure": true,
+          "chosen_measure_included": true,
+          "missing_mentioned": true,
+          "no_bad_promise": true,
+          "no_bad_number": true,
+          "no_personal_info": true,
+          "no_broken_ending": true,
+          "length_ok": true,
+          "no_overpromise": true,
+          "no_claimed_action": true,
+          "uses_opening": true,
+          "uses_closing": true,
+          "no_forbidden_phrase": true,
+          "no_stiff_words": true,
+          "ai_part_only_empathy": true,
+          "style_match": true,
+          "used_fallback": false,
+          "not_too_similar": false
+        },
+        "failed_reasons": [],
+        "rewrites": 2,
+        "needs_input": [],
+        "status": "draft",
+        "edited_text": null,
+        "model": "HCX-005",
+        "elapsed_ms": 4596,
+        "data_origin": "synthetic",
+        "style": "haeyo"
+      },
+      {
+        "draft_id": "d_c9720e38",
+        "card_id": "card_sample_a",
+        "store_id": "store_ongi",
+        "generator": "reply_draft",
+        "target_review_id": "rv_ongi_003",
+        "text": "안녕하세요 고객님 :) 계란말이가 빠졌다니 정말 속상하시겠어요. 다음부터는 포장하기 전에 주문서를 한 번 더 확인하고 보내드릴게요. 다음에 주문하실 때 요청사항에 적어 주시면 더 꼼꼼히 챙길게요. 온기한식 드림",
+        "evidence_ids": [
+          "F_rv_ongi_003",
+          "M1",
+          "P1"
+        ],
+        "checks": {
+          "evidence_valid": true,
+          "no_invented_measure": true,
+          "chosen_measure_included": true,
+          "missing_mentioned": true,
+          "no_bad_promise": true,
+          "no_bad_number": true,
+          "no_personal_info": true,
+          "no_broken_ending": true,
+          "length_ok": false,
+          "no_overpromise": true,
+          "no_claimed_action": true,
+          "uses_opening": true,
+          "uses_closing": true,
+          "no_forbidden_phrase": true,
+          "no_stiff_words": true,
+          "ai_part_only_empathy": true,
+          "style_match": true,
+          "used_fallback": false,
+          "not_too_similar": false
         },
         "failed_reasons": [],
         "rewrites": 1,
@@ -38,88 +130,17 @@
         "status": "draft",
         "edited_text": null,
         "model": "HCX-005",
-        "elapsed_ms": 2511,
-        "data_origin": "synthetic"
+        "elapsed_ms": 4596,
+        "data_origin": "synthetic",
+        "style": "haeyo"
       },
       {
-        "draft_id": "d_1ee5ebed",
-        "card_id": "card_sample_a",
-        "store_id": "store_ongi",
-        "generator": "reply_draft",
-        "target_review_id": "rv_ongi_002",
-        "text": "안녕하세요 고객님 :) 주문하신 수저와 젓가락이 빠졌다니 정말 속상하시겠어요. 포장 마감 전 주문서와 대조하여 확인하는 절차를 도입하도록 하겠습니다. 다음번에는 꼼꼼히 챙긴 후 받아보실 수 있도록 최선을 다하겠습니다. 소중한 의견 감사합니다. 온기한식 드림",
-        "evidence_ids": [
-          "F_rv_ongi_002",
-          "M1"
-        ],
-        "checks": {
-          "evidence_valid": true,
-          "no_invented_measure": true,
-          "chosen_measure_included": true,
-          "missing_mentioned": true,
-          "no_bad_promise": true,
-          "no_bad_number": true,
-          "no_personal_info": true,
-          "length_ok": true,
-          "no_stiff_words": true,
-          "no_overpromise": true,
-          "uses_opening": true,
-          "uses_closing": true,
-          "no_forbidden_phrase": true,
-          "not_too_similar": true
-        },
-        "failed_reasons": [],
-        "rewrites": 0,
-        "needs_input": [],
-        "status": "draft",
-        "edited_text": null,
-        "model": "HCX-005",
-        "elapsed_ms": 2511,
-        "data_origin": "synthetic"
-      },
-      {
-        "draft_id": "d_cb6450bc",
-        "card_id": "card_sample_a",
-        "store_id": "store_ongi",
-        "generator": "reply_draft",
-        "target_review_id": "rv_ongi_003",
-        "text": "안녕하세요 고객님 :) 주문하신 계란말이가 빠졌다니 정말 속상하시겠어요. 다음에는 꼭 챙길 수 있도록 포장 마감 전 주문서를 한번 더 꼼꼼히 확인해볼게요. 소중한 의견 감사합니다! 온기한식 드림",
-        "evidence_ids": [
-          "F_rv_ongi_003",
-          "M1"
-        ],
-        "checks": {
-          "evidence_valid": true,
-          "no_invented_measure": true,
-          "chosen_measure_included": true,
-          "missing_mentioned": true,
-          "no_bad_promise": true,
-          "no_bad_number": true,
-          "no_personal_info": true,
-          "length_ok": false,
-          "no_stiff_words": true,
-          "no_overpromise": true,
-          "uses_opening": true,
-          "uses_closing": true,
-          "no_forbidden_phrase": true,
-          "not_too_similar": true
-        },
-        "failed_reasons": [],
-        "rewrites": 0,
-        "needs_input": [],
-        "status": "draft",
-        "edited_text": null,
-        "model": "HCX-005",
-        "elapsed_ms": 2511,
-        "data_origin": "synthetic"
-      },
-      {
-        "draft_id": "d_af7e466a",
+        "draft_id": "d_b320f984",
         "card_id": "card_sample_a",
         "store_id": "store_ongi",
         "generator": "prevention_notice",
         "target_review_id": null,
-        "text": "안녕하세요 고객님 :) 주문이 잘못돼서 속상하셨죠? 진짜 죄송해요. 밥이랑 수저, 계란말이가 빠진 적이 몇 번 있었네요. 앞으론 주문서랑 꼼꼼히 비교해서 이런 실수 없게 할게요. 앞으로 포장 마감 전에 주문서와 한 번 더 대조할게요. 다음엔 요청 사항에 꼭 필요한 거 적어주시면 제가 특별히 더 잘 챙길게요! 온기한식 드림",
+        "text": "[안내] 포장 누락 관련\n온기한식을 찾아 주시는 분들께\n최근 공깃밥, 수저와 젓가락, 계란말이가 빠진 상태로 배달된 일이 있었습니다.\n불편을 드려 죄송합니다.\n오늘부터 포장 마감 전에 주문서와 한 번 더 대조하겠습니다.\n이외에도 필요한 게 있으면 요청사항에 적어 주세요.\n늘 찾아 주셔서 감사합니다. 온기한식 드림",
         "evidence_ids": [
           "F_rv_ongi_001",
           "F_rv_ongi_002",
@@ -134,22 +155,26 @@
           "no_invented_measure": true,
           "not_quote_review": true,
           "no_stiff_words": true,
+          "no_broken_ending": true,
           "no_overpromise": true,
-          "has_apology": false,
-          "uses_opening": true,
-          "uses_closing": true,
-          "no_forbidden_phrase": true
+          "no_claimed_action": true,
+          "has_apology": true,
+          "notice_has_start": true,
+          "notice_not_personal": true,
+          "notice_formal": true,
+          "notice_vs_reply": true,
+          "no_forbidden_phrase": true,
+          "used_fallback": true
         },
-        "failed_reasons": [
-          "첫 문장에 불편을 드려 죄송하다는 사과를 넣어 주세요."
-        ],
-        "rewrites": 1,
+        "failed_reasons": [],
+        "rewrites": 2,
         "needs_input": [],
         "status": "draft",
         "edited_text": null,
         "model": "HCX-005",
-        "elapsed_ms": 4309,
-        "data_origin": "synthetic"
+        "elapsed_ms": 7362,
+        "data_origin": "synthetic",
+        "style": null
       }
     ],
     "chosen_measures": [
@@ -158,22 +183,22 @@
         "text": "포장 마감 전 주문서 대조"
       }
     ],
-    "elapsed_ms": 6821,
-    "won": 24.94
+    "elapsed_ms": 11958,
+    "won": 54.04
   },
   {
     "card_id": "card_sample_b",
     "kind": "promo",
-    "reason_text": "이 상권의 저녁 시간대 추정매출이 전년 동기 대비 -X% 줄었습니다. (기준: 2026 2분기 · 추정 · 출처 서울시, 수치 확정 전)",
+    "reason_text": "이 상권의 저녁 시간대 추정매출이 전년 동기 대비 -19.31% 줄었습니다. (기준: 2026 2분기 · 추정 · 출처 서울시)",
     "basis_label": "기준: 2026 2분기 · 추정 · 출처 서울시",
     "drafts": [
       {
-        "draft_id": "d_9018bf15",
+        "draft_id": "d_a1bc0bc4",
         "card_id": "card_sample_b",
         "store_id": "store_ongi",
         "generator": "coupon_promo",
         "target_review_id": null,
-        "text": "저녁 메뉴 아직 못 정했다면 이거 어때요? 손님들 사이에서 인기 폭발 중인 제육볶음이랑 언제 먹어도 맛있는 된장찌개를 준비했거든요. 밥 두 공기도 거뜬히 비우게 만드는 맛이라니까요!\n🎟 제육볶음 정식 1,000원 할인 쿠폰 · 받은 날 포함 14일",
+        "text": "제육볶음 정식은 저희 식당의 대표 메뉴입니다. 고소한 참깨와 향긋한 파채를 곁들여 더욱 풍성한 맛을 느끼실 수 있습니다. 많은 분들께 사랑받고 있는 이 메뉴를 집에서 편하게 즐겨보시기 바랍니다.\n🎟 제육볶음 정식 1,000원 할인 쿠폰 · 받은 날 포함 14일 · 저녁 5~9시 주문 시",
         "evidence_ids": [
           "snap_sample_01",
           "coupon:제육볶음 정식"
@@ -181,31 +206,36 @@
         "checks": {
           "no_bad_number": true,
           "no_personal_info": true,
+          "no_broken_ending": true,
           "no_coupon_invented": true,
           "no_stiff_words": true,
           "no_fewshot_copy": true,
           "no_bad_promise": true,
-          "no_unknown_menu": false,
+          "no_unknown_menu": true,
+          "only_coupon_menu": true,
+          "not_quote_review": true,
+          "no_customer_quote": true,
           "no_markdown": true,
+          "no_exaggeration": true,
+          "no_store_circumstance": true,
+          "promo_formal": true,
           "length_ok": true,
-          "no_forbidden_phrase": true
+          "no_forbidden_phrase": true,
+          "used_fallback": false
         },
-        "failed_reasons": [
-          "메뉴에 있는 음식 이름만 써 주세요."
-        ],
-        "rewrites": 1,
-        "needs_input": [
-          "사장님 확인 필요"
-        ],
+        "failed_reasons": [],
+        "rewrites": 2,
+        "needs_input": [],
         "status": "draft",
         "edited_text": null,
         "model": "HCX-005",
-        "elapsed_ms": 4614,
-        "data_origin": "synthetic"
+        "elapsed_ms": 6656,
+        "data_origin": "synthetic",
+        "style": null
       }
     ],
     "chosen_measures": [],
-    "elapsed_ms": 4614,
-    "won": 12.51
+    "elapsed_ms": 6657,
+    "won": 21.08
   }
 ]

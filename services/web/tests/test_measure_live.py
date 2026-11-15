@@ -190,11 +190,13 @@ class MockTwoRounds(unittest.TestCase):
                                           ("/api/cards/card_ongi_b/run", None)] * 2)
 
     def test_totals_by_kind_and_status(self):
+        # mock 저장본(c6/replay/c6_cache_best.json)은 PR #36 에서 새로 만든 것 — 10개 모두 점검 통과.
+        # 실패·확인 필요를 세는 규칙은 위 단위 시험(failed_check_names·needs_check_names·status_of)이 본다.
         self.assertEqual(self.summary["counts"], {
-            "답글": {PASS: 4, CHECK: 2, FAIL: 0, "합계": 6},
-            "재발 방지 공지": {PASS: 0, CHECK: 0, FAIL: 2, "합계": 2},
-            "홍보글": {PASS: 0, CHECK: 0, FAIL: 2, "합계": 2}})
-        self.assertEqual(self.summary["total"], {PASS: 4, CHECK: 2, FAIL: 4, "합계": 10})
+            "답글": {PASS: 6, CHECK: 0, FAIL: 0, "합계": 6},
+            "재발 방지 공지": {PASS: 2, CHECK: 0, FAIL: 0, "합계": 2},
+            "홍보글": {PASS: 2, CHECK: 0, FAIL: 0, "합계": 2}})
+        self.assertEqual(self.summary["total"], {PASS: 10, CHECK: 0, FAIL: 0, "합계": 10})
         self.assertEqual(list(self.summary["counts"]), ["답글", "재발 방지 공지", "홍보글"])
         self.assertEqual(self.summary["call_failures"], [])
 
@@ -204,9 +206,8 @@ class MockTwoRounds(unittest.TestCase):
         self.assertEqual(flagged, self.summary["total"][CHECK] + self.summary["total"][FAIL])
 
     def test_which_checks_caught_them(self):
-        self.assertEqual(self.summary["failed_checks"], {"재발 방지 공지": {"has_apology": 2}, "홍보글": {"no_unknown_menu": 2}})
-        self.assertEqual(self.summary["needs_checks"], {"답글": {"c7_flags/이미 한 조치처럼 말함": 2},
-                                                       "홍보글": {"needs_input/사장님 확인 필요": 2}})
+        self.assertEqual(self.summary["failed_checks"], {})     # PR #36 저장본은 모두 통과
+        self.assertEqual(self.summary["needs_checks"], {})
 
     def test_timings_are_recorded_per_call(self):
         self.assertEqual(len(self.summary["cards_seconds"]["values"]), 2)
@@ -230,11 +231,11 @@ class MockTwoRounds(unittest.TestCase):
     def test_korean_report(self):
         text = ml.format_report(self.result)
         for part in ("실시간이 아님", "종류", "통과", "확인 필요", "실패", "합계", "답글", "재발 방지 공지", "홍보글", "전체",
-                     "호출 실패: 0건", "걸린 점검(실패): 재발 방지 공지 has_apology 2 · 홍보글 no_unknown_menu 2",
+                     "호출 실패: 0건", "걸린 점검(실패): 없음", "걸린 점검(확인 필요): 없음",
                      "/api/cards 걸린 시간(초): ", "중앙값", "카드 실행 걸린 시간(초): 불만 카드 중앙값", "홍보 카드 중앙값"):
             self.assertIn(part, text)
         row = next(line for line in text.splitlines() if line.startswith("답글"))
-        self.assertEqual(row.split()[-4:], ["4", "2", "0", "6"])
+        self.assertEqual(row.split()[-4:], ["6", "0", "0", "6"])
 
 
 # ── 호출 실패는 세고 계속한다 ─────────────────────────────────────────
@@ -256,9 +257,9 @@ class CallFailures(unittest.TestCase):
         self.assertEqual(errors[2], "시간 초과 (120초)")
         self.assertEqual(errors[3], "시간 초과 (120초)")
         # 성공한 호출만 센다: 2라운드 불만 카드(답글 3 + 공지 1) + 3라운드 홍보 카드(홍보글 1)
-        self.assertEqual(s["counts"], {"답글": {PASS: 2, CHECK: 1, FAIL: 0, "합계": 3},
-                                       "재발 방지 공지": {PASS: 0, CHECK: 0, FAIL: 1, "합계": 1},
-                                       "홍보글": {PASS: 0, CHECK: 0, FAIL: 1, "합계": 1}})
+        self.assertEqual(s["counts"], {"답글": {PASS: 3, CHECK: 0, FAIL: 0, "합계": 3},
+                                       "재발 방지 공지": {PASS: 1, CHECK: 0, FAIL: 0, "합계": 1},
+                                       "홍보글": {PASS: 1, CHECK: 0, FAIL: 0, "합계": 1}})
         self.assertEqual(len(s["cards_seconds"]["values"]), 1)       # 성공한 목록 호출은 2라운드 하나
         self.assertEqual(len(result["rounds"]), 3)
         self.assertIn("호출 실패: 5건", ml.format_report(result))

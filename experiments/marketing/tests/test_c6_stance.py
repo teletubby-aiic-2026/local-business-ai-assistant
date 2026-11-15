@@ -204,9 +204,9 @@ class TestExplainCheckRules(unittest.TestCase):
         self.assertEqual(res["no_bad_promise"], not checks.promises_not_in_policy(text, POLICIES))
 
     def test_has_apology_meaning_unchanged(self):
-        """has_apology 는 여전히 '첫 문장에 죄송'만 본다 (공지 점검에 그대로 씀)."""
+        """has_apology 는 공지 점검용으로 앞부분만 본다 (PR #36 에서 '첫 문장' → '처음 두 문장')."""
         self.assertTrue(checks.has_apology("불편하셨을 텐데 정말 죄송해요. 다음엔 챙길게요."))
-        self.assertFalse(checks.has_apology("아쉬우셨을 것 같아요. 죄송해요."))
+        self.assertFalse(checks.has_apology("아쉬우셨을 것 같아요. 원하시던 대로 못 해 드렸어요. 죄송해요."))
 
     def test_fallback_sentence_passes_every_explain_check(self):
         for name, text in UNFAIR.items():
@@ -301,8 +301,10 @@ class TestGenerateByStance(unittest.TestCase):
         self.assertEqual(d.stance, APOLOGY)
         self.assertEqual(set(d.checks) - set(OPTIONAL_CHECKS), set(APOLOGY_CHECKS))
         self.assertEqual(d.needs_input, [])
-        self.assertIn("리뷰에서 빠진 품목을 구체적으로 짚어 사과", seen[0])
-        self.assertIn(SYSTEM_TMPL.split("## 규칙")[1].split("## 사실")[0].strip()[:60], seen[0])   # 원래 규칙 그대로
+        self.assertIn("리뷰에서 빠진 품목을 구체적으로 짚어 공감·사과", seen[0])   # PR #36: AI 는 공감·사과만
+        rules = SYSTEM_TMPL.split("## 규칙")[1].split("## 사실")[0]
+        fixed_rules = [ln for ln in rules.splitlines() if ln.strip() and "{" not in ln]   # {register} 같은 자리표시자 없는 규칙 줄
+        self.assertTrue(fixed_rules and all(ln in seen[0] for ln in fixed_rules))           # 사과 답글의 원래 규칙 그대로
 
     def test_mixed_card_gets_one_draft_per_stance(self):
         reviews = [SAMPLE_REVIEWS[0], _review(UNFAIR["free_extra"], rid="rv_ongi_paste_002")]
