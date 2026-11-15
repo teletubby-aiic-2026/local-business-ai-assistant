@@ -51,7 +51,8 @@ EXPLAIN_CHECKS = (
     "no_personal_info", "length_ok", "no_stiff_words", "no_overpromise", "uses_opening", "uses_closing",
 )
 CHECKS_BY_STANCE = {APOLOGY: APOLOGY_CHECKS, EXPLAIN: EXPLAIN_CHECKS}
-OPTIONAL_CHECKS = ("no_forbidden_phrase", "not_too_similar", "used_fallback")   # used_fallback: 코드 템플릿을 썼는지 (참고용 표시)
+# used_fallback: 코드 템플릿을 썼는지, ai_part_repaired: AI 글의 사과 어미를 바꾸거나 사과 한 문장을 덧붙였는지 (둘 다 참고용 표시)
+OPTIONAL_CHECKS = ("no_forbidden_phrase", "not_too_similar", "used_fallback", "ai_part_repaired")
 
 # explain 답글에 붙이는 사장님 확인 안내 (화면에서는 '확인 필요'로 보인다)
 EXPLAIN_NEEDS_INPUT = ("사실 확인: 가게 잘못이 아니라 메뉴·원칙 밖 요청을 거절해 남은 리뷰로 보고, 사과 없이 사실·원칙을 "

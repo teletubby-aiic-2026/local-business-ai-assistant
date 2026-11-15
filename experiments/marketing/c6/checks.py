@@ -358,9 +358,32 @@ def quotes_review(text: str, reviews) -> bool:
     return False
 
 
-def fix_hints(failed: list[str], formal: bool = False) -> list[str]:
+# 답글의 AI 공감·사과 부분이 맞출 말투(c6.measures.REPLY_AI_REGISTER)별 힌트. 말투를 적지 않으면
+# apology_expressed 힌트("죄송하다는 사과")가 '죄송합니다'를 불러와 해요체 답글의 style_match 가 걸리고,
+# 다시 '~요'로 고치면 사과가 빠지는 핑퐁이 난다(11/15 실시간 측정: 다시 쓰기 2번을 다 쓰고 템플릿으로 감).
+_REGISTER_HINTS = {
+    "해요체": {
+        "style_match": "해요체로만 써 주세요. 모든 문장을 '~요'로 끝내 주세요(예: '정말 죄송해요'). "
+                       "'죄송합니다'·'사과드립니다'처럼 '~습니다/~니다'로 끝내지 마세요.",
+        "apology_expressed": "가게 잘못일 수 있는 불만이에요. 글 안에 해요체 사과를 한 번 넣어 주세요(예: '정말 죄송해요'). "
+                             "'죄송합니다'처럼 '~니다'로 끝내지 마세요.",
+        "has_apology": "처음 두 문장 안에 해요체 사과를 넣어 주세요(예: '정말 죄송해요').",
+    },
+    "합니다체": {
+        "style_match": "합니다체로만 써 주세요. 모든 문장을 '~습니다/~니다'로 끝내 주세요(예: '정말 죄송합니다'). "
+                       "'죄송해요'처럼 '~요'로 끝내지 마세요.",
+        "apology_expressed": "가게 잘못일 수 있는 불만이에요. 글 안에 합니다체 사과를 한 번 넣어 주세요(예: '정말 죄송합니다'). "
+                             "'죄송해요'처럼 '~요'로 끝내지 마세요.",
+        "has_apology": "처음 두 문장 안에 합니다체 사과를 넣어 주세요(예: '정말 죄송합니다').",
+    },
+}
+
+
+def fix_hints(failed: list[str], formal: bool = False, register: str | None = None) -> list[str]:
     """failed 점검 이름 -> 고치는 법 한 줄. formal=True(공지)면 no_stiff_words 힌트에 '구어체'를
-    쓰지 않는다 — 공지는 합니다체가 기본이라 '구어체로 바꿔 주세요'가 합니다체 요구와 반대로 들린다."""
+    쓰지 않는다 — 공지는 합니다체가 기본이라 '구어체로 바꿔 주세요'가 합니다체 요구와 반대로 들린다.
+    register('해요체'|'합니다체', 답글 AI 부분의 목표 말투)를 주면 style_match·apology_expressed·has_apology
+    힌트에 그 말투와 사과 예시를 적는다(_REGISTER_HINTS). 주지 않으면 예전 문구 그대로다."""
     mapping = {
         "has_number_not_in": "메뉴판에 있는 가격만 써 주세요.",
         "no_bad_number": "메뉴판에 있는 가격만 써 주세요.",
@@ -414,7 +437,36 @@ def fix_hints(failed: list[str], formal: bool = False) -> list[str]:
     }
     if formal:
         mapping["no_stiff_words"] = "사전에 있는 딱딱한 표현을 더 자연스러운 표현으로 바꿔 주세요(합니다체는 유지)."
+    mapping.update(_REGISTER_HINTS.get(register, {}))
     return [mapping.get(f, f"{f}을(를) 수정해 주세요.") for f in failed]
+
+
+# 사과 어미를 목표 말투로 바꾸는 표 (문장 끝만 본다). 다시 쓰기를 다 써도 style_match 만 남았을 때 c6.reply 가
+# 쓴다 — '공깃밥이 빠져 정말 죄송합니다.'처럼 공감은 잘 썼는데 사과 어미만 다른 글을 템플릿으로 통째 덮지 않기 위해서다.
+_APOLOGY_ENDING_TO = {
+    "haeyo": ((r"죄송(?:스럽)?습니다|죄송합니다", "죄송해요"), (r"사과\s*드립니다", "사과드려요"),
+              (r"죄송한\s*마음입니다", "죄송한 마음이에요"), (r"미안합니다", "미안해요")),
+    "hamnida": ((r"죄송해요", "죄송합니다"), (r"사과\s*드려요", "사과드립니다"),
+                (r"죄송한\s*마음이에요", "죄송한 마음입니다"), (r"미안해요", "미안합니다")),
+}
+_APOLOGY_ENDING_TO["mixed"] = _APOLOGY_ENDING_TO["haeyo"]   # mixed 는 AI 부분이 해요체 (c6.measures.REPLY_AI_REGISTER)
+
+
+def fix_apology_ending(ai_part: str, style: str) -> str:
+    """문장 끝이 사과 어미('죄송합니다'·'사과드립니다' 등)인 문장만 style(haeyo|hamnida|mixed)의 말투로 바꾼다.
+    사과가 아닌 문장의 어미('속상하셨을 것 같습니다')는 건드리지 않는다 — 그런 글은 style_match 가 그대로 걸린다."""
+    rules = _APOLOGY_ENDING_TO.get(style)
+    if not rules or not ai_part or not ai_part.strip():
+        return ai_part
+    out = []
+    for sentence in _SENT_SPLIT.split(ai_part.strip()):
+        for pattern, ending in rules:
+            fixed = re.sub(rf"(?:{pattern})(?=[.!?~…]*$)", ending, sentence)
+            if fixed != sentence:
+                sentence = fixed
+                break
+        out.append(sentence)
+    return " ".join(out)
 
 
 # ── 사과 없이 사실을 설명하는 답글(c6.stance EXPLAIN) 전용 점검 ─────────────

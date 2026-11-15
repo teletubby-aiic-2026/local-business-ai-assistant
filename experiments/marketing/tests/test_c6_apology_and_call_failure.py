@@ -80,7 +80,8 @@ class TestApologyInReply(unittest.TestCase):
         with patch("clova.call", side_effect=fake):
             d = generate_reply_draft(ctx, card, "k").drafts[0]
         self.assertEqual(len(prompts), 2)
-        self.assertIn("죄송하다는 사과", prompts[1])        # 고칠 점이 프롬프트에 실린다
+        self.assertIn("사과를 한 번 넣어 주세요", prompts[1])   # 고칠 점이 프롬프트에 실린다
+        self.assertIn("'정말 죄송해요'", prompts[1])          # 11/15: 목표 말투(해요체)의 사과 예시도 같이
         self.assertEqual(d.stance, APOLOGY)
         self.assertEqual(d.rewrites, 1)
         self.assertTrue(d.checks["apology_expressed"])
@@ -88,15 +89,30 @@ class TestApologyInReply(unittest.TestCase):
         self.assertIn("죄송", d.text)
 
     def test_reply_that_stays_without_apology_still_ends_with_an_apology(self):
-        """끝까지 사과 없는 AI 글은 내보내지 않는다. PR #36 부터는 다시 쓰기 2번 뒤 코드 템플릿(사과 포함)으로 바뀐다."""
+        """끝까지 사과 없는 AI 글은 사과 없이 내보내지 않는다. 다시 쓰기 2번 뒤에도 사과만 빠졌으면 11/15부터는
+        템플릿으로 통째 덮지 않고 말투에 맞는 짧은 사과 한 문장을 덧붙인다(c6.reply._repair_ai_part)."""
         ctx, card, _ = one_review_ctx()
         with patch("clova.call", side_effect=lambda *a, **k: {"content": NO_APOLOGY}) as call:
             d = generate_reply_draft(ctx, card, "k").drafts[0]
         self.assertEqual(call.call_count, 3)                 # 처음 1번 + 다시 쓰기 2번
+        self.assertFalse(d.checks["used_fallback"])
+        self.assertTrue(d.checks["ai_part_repaired"])
+        self.assertTrue(d.checks["apology_expressed"])
+        self.assertIn(NO_APOLOGY + " 정말 죄송해요.", d.text)
+        self.assertEqual(d.failed_reasons, [])
+
+    def test_reply_without_apology_and_with_other_faults_goes_to_template(self):
+        """사과 말고 다른 점검도 걸린 글(약속을 씀)은 고치지 않고 예전처럼 코드 템플릿(사과 포함)으로 바뀐다."""
+        ctx, card, _ = one_review_ctx()
+        promise = "공깃밥이 빠졌다니 속상하셨겠어요. 앞으로 꼭 챙길게요."
+        with patch("clova.call", side_effect=lambda *a, **k: {"content": promise}) as call:
+            d = generate_reply_draft(ctx, card, "k").drafts[0]
+        self.assertEqual(call.call_count, 3)
         self.assertTrue(d.checks["used_fallback"])
+        self.assertFalse(d.checks["ai_part_repaired"])
         self.assertTrue(d.checks["apology_expressed"])
         self.assertIn("죄송", d.text)
-        self.assertNotIn("확인해 볼게요", d.text)             # 사과 없는 AI 글은 남지 않는다
+        self.assertNotIn("속상하셨겠어요", d.text)           # 사과 없는 AI 글은 남지 않는다
         self.assertEqual(d.failed_reasons, [])
 
     def test_reply_with_apology_anywhere_passes(self):

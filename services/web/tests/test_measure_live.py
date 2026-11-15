@@ -137,6 +137,23 @@ class StatusRule(unittest.TestCase):
         self.assertNotIn("본문 글", json.dumps(row, ensure_ascii=False))
         self.assertNotIn("text", row)
 
+    def test_passed_drafts_are_split_by_who_wrote_them(self):
+        """'점검 통과'에는 코드 템플릿(used_fallback)도 들어간다 → AI 글 그대로 / 코드 보정 / 템플릿을 따로 센다 (11/15)."""
+        self.assertEqual(ml.draft_origin(draft(checks={"used_fallback": False, "ai_part_repaired": False})), ml.ORIGIN_AI)
+        self.assertEqual(ml.draft_origin(draft(checks={"used_fallback": False, "ai_part_repaired": True})), ml.ORIGIN_REPAIRED)
+        self.assertEqual(ml.draft_origin(draft(checks={"used_fallback": True})), ml.ORIGIN_TEMPLATE)
+        self.assertEqual(ml.draft_origin({}), ml.ORIGIN_AI)
+        # ai_part_repaired=False 는 기본값이라 '실패'가 아니다
+        self.assertEqual(ml.failed_check_names(draft(checks={"ai_part_repaired": False, "used_fallback": False})), [])
+        rows = [ml.describe_draft(d) for d in (
+            draft(checks={"used_fallback": True}), draft(checks={"ai_part_repaired": True}), draft(),
+            draft(failed_reasons=["x"], checks={"style_match": False}), draft(generator="coupon_promo"))]
+        s = ml.summarize_rounds([{"round": 1, "cards_call": {"ok": True, "seconds": 0.1, "error": None},
+                                  "runs": [{"ok": True, "kind": "complaint", "seconds": 1.0, "source": "live", "drafts": rows}]}])
+        self.assertEqual(s["counts"]["답글"][PASS], 3)
+        self.assertEqual(s["passed_by"]["답글"], {ml.ORIGIN_AI: 1, ml.ORIGIN_REPAIRED: 1, ml.ORIGIN_TEMPLATE: 1})
+        self.assertEqual(s["passed_by_total"], {ml.ORIGIN_AI: 2, ml.ORIGIN_REPAIRED: 1, ml.ORIGIN_TEMPLATE: 1})
+
     def test_rules_are_still_the_ones_in_app_js(self):
         """app.js 규칙이 바뀌면 여기서 걸린다 → scripts/measure_live.py 의 draft_status·card_run_body 를 같이 고칠 것."""
         js = re.sub(r"\s+", " ", APP_JS.read_text(encoding="utf-8"))

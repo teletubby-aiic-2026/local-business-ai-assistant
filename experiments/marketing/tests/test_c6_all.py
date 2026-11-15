@@ -172,6 +172,8 @@ def write_report(results, path, mode):
                 # 공지·쿠폰(prevention_notice/coupon_promo)은 AI 가 본문 전체를 쓰므로 본문이 교체된다.
                 replaced = "공감 부분" if d.generator == "reply_draft" else "본문"
                 lines.append(f"- 대체 문장 사용: 예 ({replaced}을 코드 템플릿으로 교체)")
+            if d.checks.get("ai_part_repaired"):
+                lines.append("- 코드 보정: 예 (AI 공감 부분의 사과 어미를 바꾸거나 사과 한 문장을 덧붙임)")
             lines.append(f"- 다시 쓴 횟수: {d.rewrites}")
             if d.needs_input:
                 lines.append(f"- ⚠ needs_input: {d.needs_input}")
