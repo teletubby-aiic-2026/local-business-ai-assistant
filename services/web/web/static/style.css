@@ -535,7 +535,8 @@ details[open] > summary { margin-bottom: 8px; }
     --ink: #111111; --ink-2: #33363b; --muted: #5b5f66; --line: #d5d8dd; --line-strong: #b9bdc4; --field-line: #8a8e95;
     --accent: #00843d; --accent-hover: #00843d; --accent-ink: #ffffff; --brand: #03c75a; --brand-soft: #e8f9f0; --focus: #009f47;
     --ok: #007a38; --ok-bg: #e8f9f0; --warn: #8a5300; --warn-bg: #fff6e5; --warn-dot: #e8a33a; --bad: #c62828; --bad-bg: #fef1f1;
-    --hot: #e5484d; --bar: #d0d3d8; --bar-strong: #a9aeb6; }
+    --hot: #e5484d; --bar: #d0d3d8; --bar-strong: #a9aeb6;
+    --scrim: rgba(0, 0, 0, .28); --over-shadow: rgba(0, 0, 0, .14); }   /* 덮는 메뉴·서랍용 토큰도 라이트 값 (인쇄에는 안 나오지만 다크 값이 남지 않게) */
   html.rp-view, html.rp-view body { background: #ffffff !important; color: #111111; }
   html.rp-view body { min-height: 0; padding: 0 !important; }
   /* 리포트 구역이 아닌 것은 모두 숨긴다: 리포트 화면도 아니고, 리포트 화면을 품지도 않고, 그 안에 들어 있지도 않은 요소.
