@@ -49,7 +49,8 @@ SYSTEM_TMPL = """\
 2. 손님용 홍보글에는 상권 지표·매출·수치를 넣지 않는다. "매출 감소", "손님이 줄어" 같은 가게 사정도
    쓰지 않는다
 3. 위 쿠폰 메뉴 하나만 소개할 것. 다른 메뉴 이름은 언급하지 말 것
-4. 메뉴 설명은 위 "쿠폰 메뉴"·"손님 반응"에 적힌 내용만 쓸 것 — 거기 없는 재료·조리법·맛 표현을 지어내지 말 것
+4. 메뉴 설명은 위 "쿠폰 메뉴"·"손님 반응"에 적힌 내용만 쓸 것 — 거기 없는 재료·조리법·맛 표현을 지어내지
+   말 것. 특히 메뉴 설명에 없으면 채소·참깨·치즈·버섯·계란 같은 재료 이름을 넣지 말 것
 5. 손님 반응이 있으면 그 칭찬받은 점의 느낌만 참고해 내 말로 쓴다. 손님 후기를 인용하지 않는다 —
    따옴표로 손님 말을 그대로 옮기거나 "손님들께서 ...라고 해 주셨다" 처럼 쓰지 말 것
 6. 할인·가격·숫자·쿠폰·코드·반값·% 는 쓰지 않는다 (코드가 글 끝에 쿠폰 값을 따로 붙인다)
@@ -161,7 +162,8 @@ SYSTEM_TMPL_REVIEW = """\
 2. 손님용 홍보글에는 상권 지표·매출·수치를 넣지 않는다. "매출 감소", "손님이 줄어" 같은 가게 사정도
    쓰지 않는다
 3. 위 대표 메뉴 하나만 소개할 것. 다른 메뉴 이름은 언급하지 말 것
-4. 메뉴 설명은 위 "대표 메뉴"·"칭찬 주제"에 적힌 내용만 쓸 것 — 거기 없는 재료·조리법·맛 표현을 지어내지 말 것
+4. 메뉴 설명은 위 "대표 메뉴"·"칭찬 주제"에 적힌 내용만 쓸 것 — 거기 없는 재료·조리법·맛 표현을 지어내지
+   말 것. 특히 메뉴 설명에 없으면 채소·참깨·치즈·버섯·계란 같은 재료 이름을 넣지 말 것
 5. 칭찬 주제가 있으면 그 느낌만 참고해 내 말로 쓴다. 손님 후기를 인용하지 않는다 —
    따옴표로 손님 말을 그대로 옮기거나 "손님들께서 ...라고 해 주셨다" 처럼 쓰지 말 것
 6. 할인·가격·숫자·쿠폰·코드·반값·% 는 쓰지 않는다 (이 글에는 쿠폰이 없다)
@@ -200,6 +202,7 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
                            time_window=None):
     store = ctx.store
     tone = ctx.tone
+    menu_descriptions = getattr(store, "menu_descriptions", None) or {}
     snapshots = {s.snapshot_id: s for s in ctx.snapshots}
     forbidden_phrases = list(tone.forbidden_phrases) if tone.forbidden_phrases else []
 
@@ -268,6 +271,7 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
             "no_exaggeration": not checks.has_exaggeration(text),
             "no_store_circumstance": not checks.store_circumstance_leaked(text),
             "promo_formal": checks.promo_formal(text),
+            "no_invented_ingredient": not checks.invented_ingredient(text, menu_descriptions),
             "length_ok": checks.length_ok(text, 60, 160),
         }
         if forbidden_phrases:
@@ -392,6 +396,7 @@ def generate_review_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
     (예: 양념, _praise_topics)만 넘긴다."""
     store = ctx.store
     tone = ctx.tone
+    menu_descriptions = getattr(store, "menu_descriptions", None) or {}
     snapshots = {s.snapshot_id: s for s in ctx.snapshots}
     forbidden_phrases = list(tone.forbidden_phrases) if tone.forbidden_phrases else []
 
@@ -457,6 +462,7 @@ def generate_review_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
             "no_exaggeration": not checks.has_exaggeration(text),
             "no_store_circumstance": not checks.store_circumstance_leaked(text),
             "promo_formal": checks.promo_formal(text),
+            "no_invented_ingredient": not checks.invented_ingredient(text, menu_descriptions),
             "length_ok": checks.length_ok(text, 60, 160),
         }
         if forbidden_phrases:

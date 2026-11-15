@@ -44,6 +44,43 @@ async function postJSON(url, body) {
   return res.json();
 }
 
+/* 서버 호출 중(제안 생성 등)에는 말풍선 + 점 3개 애니메이션을 보여 주고, 끝나면 지운다.
+   실패하면 같은 자리에 "잠시 후 다시 눌러 주세요" + [다시 시도]를 보여 준다(onRetry 를 다시 부른다). */
+function setOptionsDisabled(disabled) {
+  optionsEl.querySelectorAll("button").forEach((b) => {
+    b.disabled = disabled;
+  });
+}
+
+function addLoadingBubble() {
+  const row = document.createElement("div");
+  row.className = "row bot";
+  row.innerHTML = `<div class="icon">${icon("spark", 16)}</div>` +
+    `<div class="bubble bot loading">제안을 만들고 있어요<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>`;
+  chatEl.appendChild(row);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return row;
+}
+
+function showRetryPrompt(onRetry) {
+  clearOptions();
+  const row = document.createElement("div");
+  row.className = "row bot";
+  row.innerHTML = `<div class="icon">${icon("spark", 16)}</div><div class="bubble bot">잠시 후 다시 눌러 주세요</div>`;
+  chatEl.appendChild(row);
+
+  const btn = document.createElement("button");
+  btn.className = "opt-btn";
+  btn.textContent = "다시 시도";
+  btn.onclick = () => {
+    row.remove();
+    clearOptions();
+    onRetry();
+  };
+  optionsEl.appendChild(btn);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
 function addBotBubble(text) {
   const row = document.createElement("div");
   row.className = "row bot";
@@ -104,16 +141,68 @@ function renderOptions(options, multi) {
   });
 }
 
+/* free_input 노드(숫자/텍스트 직접 입력) — 버튼 대신 입력칸 + [보내기]를 보인다.
+   suggest_menu 로 보기 버튼도 같이 오면 renderPrompt 가 버튼 먼저 그리고 이 입력칸을 이어 붙인다. */
+function renderInput(spec) {
+  const row = document.createElement("div");
+  row.className = "input-row";
+  const input = document.createElement("input");
+  input.className = "text-input";
+  input.type = spec.type === "number" ? "number" : "text";
+  input.placeholder = spec.type === "number" ? "숫자로 답해 주세요" : "답을 입력해 주세요";
+  const btn = document.createElement("button");
+  btn.className = "next-btn";
+  btn.textContent = "보내기";
+  const submit = () => {
+    const value = input.value.trim();
+    if (!value) return;
+    handleAnswer(value, value);
+  };
+  btn.onclick = submit;
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submit();
+  });
+  row.appendChild(input);
+  row.appendChild(btn);
+  optionsEl.appendChild(row);
+  input.focus();
+}
+
+function renderPrompt(data) {
+  if (data.options && data.options.length) {
+    renderOptions(data.options, data.multi);
+  } else {
+    clearOptions();
+  }
+  if (data.input) {
+    renderInput(data.input);
+  }
+}
+
 async function handleAnswer(answer, displayLabel) {
   addUserBubble(displayLabel);
-  clearOptions();
-  const data = await postJSON(`${API}/step`, { state, answer });
+  await runStep(answer);
+}
+
+async function runStep(answer) {
+  setOptionsDisabled(true);
+  const loadingRow = addLoadingBubble();
+  let data;
+  try {
+    data = await postJSON(`${API}/step`, { state, answer });
+  } catch (e) {
+    loadingRow.remove();
+    showRetryPrompt(() => runStep(answer));
+    return;
+  }
+  loadingRow.remove();
   state = data.state;
+  clearOptions();
   if (data.done) {
     await showDecision();
   } else {
     data.bot_messages.forEach(addBotBubble);
-    renderOptions(data.options, data.multi);
+    renderPrompt(data);
   }
 }
 
@@ -162,6 +251,12 @@ function buildStepCard(step, index, draftText) {
     };
     el.appendChild(copyBtn);
   }
+  if (step.cost_krw) {
+    const cost = document.createElement("div");
+    cost.className = "basis";
+    cost.textContent = `비용(추정): ${fmtWon(step.cost_krw)}`;
+    el.appendChild(cost);
+  }
   if (step.tip) {
     const tip = document.createElement("div");
     tip.className = "basis";
@@ -171,8 +266,50 @@ function buildStepCard(step, index, draftText) {
   return el;
 }
 
+/* 광고비 점검 전용 — 채널별 표(광고비·주문 수·건당 광고비·점검 필요 여부) */
+function buildAdspendTable(rows, thresholdWon) {
+  const wrap = document.createElement("div");
+  wrap.className = "kv";
+  wrap.style.gridTemplateColumns = "repeat(4, 1fr)";
+  const headers = ["채널", "광고비", "주문 수", "건당 광고비"];
+  headers.forEach((h) => {
+    const span = document.createElement("span");
+    span.style.fontWeight = "700";
+    span.textContent = h;
+    wrap.appendChild(span);
+  });
+  rows.forEach((r) => {
+    wrap.appendChild(Object.assign(document.createElement("span"), {
+      textContent: r.needs_check ? `${r.label} (점검 필요)` : r.label,
+    }));
+    wrap.appendChild(Object.assign(document.createElement("span"), { textContent: fmtWon(r.spend_won) }));
+    wrap.appendChild(Object.assign(document.createElement("span"), { textContent: `${r.orders}건` }));
+    wrap.appendChild(Object.assign(document.createElement("span"), {
+      textContent: r.cost_per_order_won == null ? "-" : fmtWon(r.cost_per_order_won),
+    }));
+  });
+  const note = document.createElement("div");
+  note.className = "basis";
+  note.textContent = `기준: 대표 메뉴 가격의 15%(${fmtWon(thresholdWon)}) 초과 시 점검 필요`;
+  const box = document.createElement("div");
+  box.appendChild(wrap);
+  box.appendChild(note);
+  return box;
+}
+
 async function showDecision() {
-  const data = await postJSON(`${API}/plan`, { state });
+  setOptionsDisabled(true);
+  const loadingRow = addLoadingBubble();
+  let data;
+  try {
+    data = await postJSON(`${API}/plan`, { state });
+  } catch (e) {
+    loadingRow.remove();
+    showRetryPrompt(() => showDecision());
+    return;
+  }
+  loadingRow.remove();
+  clearOptions();
   const tag = tagForStrategy(data.strategy_type || "");
 
   const row = document.createElement("div");
@@ -180,8 +317,22 @@ async function showDecision() {
   const card = document.createElement("div");
   card.className = "card";
 
+  const costLine = data.total_cost_krw
+    ? ` · 예상 비용(추정) 합계 ${fmtWon(data.total_cost_krw)}`
+    : "";
   card.innerHTML = `<div class="tag ${tag.cls}"><i>${icon(tag.name, 14)}</i>${data.title}</div>
-    <div class="sub">이번 주 할 일 ${data.steps.length}개 · 총 약 ${data.total_minutes}분</div>`;
+    <div class="sub">이번 주 할 일 ${data.steps.length}개 · 총 약 ${data.total_minutes}분${costLine}</div>`;
+
+  if (data.over_budget) {
+    const warn = document.createElement("div");
+    warn.className = "warn-box";
+    warn.textContent = "예상 비용(추정) 합계가 설문에서 답한 예산을 넘어요.";
+    card.appendChild(warn);
+  }
+
+  if (data.table) {
+    card.appendChild(buildAdspendTable(data.table, data.threshold_won));
+  }
 
   data.steps.forEach((step, i) => {
     card.appendChild(buildStepCard(step, i, data.drafts[step.step_id]));
@@ -209,18 +360,31 @@ async function showDecision() {
   row.appendChild(card);
   chatEl.appendChild(row);
 
-  actions.querySelector('[data-act="approve"]').onclick = async () => {
+  let approved = false;
+  const approveClick = async () => {
     actions.querySelectorAll("button").forEach((b) => (b.disabled = true));
-    addUserBubble("승인");
-    const a = await postJSON(`${API}/approve`, { state, draft_id: null });
+    if (!approved) addUserBubble("승인");
+    approved = true;
+    const loadingRow = addLoadingBubble();
+    let a;
+    try {
+      a = await postJSON(`${API}/approve`, { state, draft_id: null });
+    } catch (e) {
+      loadingRow.remove();
+      actions.querySelectorAll("button").forEach((b) => (b.disabled = false));
+      showRetryPrompt(approveClick);
+      return;
+    }
+    loadingRow.remove();
     state = a.state;
     if (a.follow_up) {
       a.bot_messages.forEach(addBotBubble);
-      renderOptions(a.options, a.multi);
+      renderPrompt(a);
     } else {
       addBotBubble("여기까지 도와드릴게요. 감사합니다!");
     }
   };
+  actions.querySelector('[data-act="approve"]').onclick = approveClick;
 
   chatEl.scrollTop = chatEl.scrollHeight;
 }
@@ -228,10 +392,19 @@ async function showDecision() {
 async function start() {
   chatEl.innerHTML = "";
   clearOptions();
-  const data = await postJSON(`${API}/step`, { state: null, answer: null });
+  const loadingRow = addLoadingBubble();
+  let data;
+  try {
+    data = await postJSON(`${API}/step`, { state: null, answer: null });
+  } catch (e) {
+    loadingRow.remove();
+    showRetryPrompt(start);
+    return;
+  }
+  loadingRow.remove();
   state = data.state;
   data.bot_messages.forEach(addBotBubble);
-  renderOptions(data.options, data.multi);
+  renderPrompt(data);
 }
 
 restartBtn.onclick = () => start();

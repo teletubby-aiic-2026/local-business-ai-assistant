@@ -3,7 +3,7 @@
 import difflib
 import re
 
-from c6.measures import MEASURES, MEASURE_KEYWORDS, INVENTED_KW
+from c6.measures import COMPONENT_ITEMS, INVENTED_KW, MEASURE_KEYWORDS, MEASURES
 
 try:
     from features.tone import FOOD_WORDS
@@ -301,6 +301,17 @@ def coupon_invented(text: str) -> bool:
     return bool(_COUPON_WORDS.search(text))
 
 
+# 메뉴 설명·구성품에 없으면 지어낸 재료로 보는 흔한 식재료 단어들(review_promo·coupon_promo 공용).
+_INVENTED_INGREDIENT_WORDS = ("채소", "참깨", "치즈", "버섯", "계란", "달걀", "새우", "베이컨", "고수")
+
+
+def invented_ingredient(text: str, menu_descriptions: dict[str, str] | None = None) -> bool:
+    """메뉴 설명·구성품(COMPONENT_ITEMS)에 없는 식재료 단어가 글에 있으면 True.
+    홍보글(coupon_promo·review_promo) 전용 — AI 가 메뉴에 없는 재료를 지어내 소개하지 않도록 막는다."""
+    known = " ".join((menu_descriptions or {}).values()) + " " + " ".join(COMPONENT_ITEMS)
+    return any(w in text and w not in known for w in _INVENTED_INGREDIENT_WORDS)
+
+
 def has_markdown(text: str) -> bool:
     """**, #, ` 같은 마크다운 기호가 남아 있으면 True."""
     return bool(_MARKDOWN.search(text))
@@ -392,6 +403,7 @@ def fix_hints(failed: list[str], formal: bool = False) -> list[str]:
         "no_customer_quote": "손님 후기를 인용하지 않는다. 따옴표로 손님 말을 옮기거나 '손님들께서 ...라고' 처럼 "
                               "쓰지 말고, 메뉴 특징을 직접 설명해 주세요.",
         "promo_formal": "해요체 대신 합니다체로 써 주세요.",
+        "no_invented_ingredient": "메뉴 설명에 없는 재료(채소·참깨·치즈·버섯·계란 등)는 지어내지 말고 빼 주세요.",
     }
     if formal:
         mapping["no_stiff_words"] = "사전에 있는 딱딱한 표현을 더 자연스러운 표현으로 바꿔 주세요(합니다체는 유지)."

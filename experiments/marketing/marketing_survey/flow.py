@@ -30,10 +30,22 @@ follow_up(재주문 쿠폰 질문)은 FOLLOW_UP_START("budget")에서 같은 체
 다시 묻지 않는다(build_follow_up_strategy 가 goal 과 상관없이 reorder_coupon 으로 만들기 때문).
 """
 
+import re
+
 from marketing_survey.hypotheses import _area_drop_snapshot
 
 DECISION = "DECISION"
 FOLLOW_UP_START = "budget"
+START = "start"
+
+# "start" 보기의 mode 값 -> server.py 가 FlowState.mode 로 그대로 쓴다(흐름 데이터와 분리해 둠).
+START_MODES = {
+    "맞춤 홍보 제안": "survey",
+    "남은 재료 팔기": "leftover",
+    "광고비 점검": "adspend",
+    "가게 이야기 글": "story",
+    "쿠폰 결과 확인": "coupon_result",
+}
 
 _MENU_AMOUNT_STEP = 100
 _MENU_AMOUNT_PCTS = (10, 20, 30)
@@ -49,6 +61,87 @@ def _round_to_step(amount: float, step: int = _MENU_AMOUNT_STEP) -> int:
 
 
 NODES = {
+    "start": {
+        "text": "무엇을 도와드릴까요?",
+        "options": [
+            {"label": label, "next": next_id}
+            for label, next_id in (
+                ("맞춤 홍보 제안", "repeat_complaint"),
+                ("남은 재료 팔기", "leftover_ingredient"),
+                ("광고비 점검", "adspend_baemin_spend"),
+                ("가게 이야기 글", "story_reason"),
+                ("쿠폰 결과 확인", "coupon_issued"),
+            )
+        ],
+    },
+    "leftover_ingredient": {
+        "free_input": {"key": "leftover_item", "type": "text"},
+        "suggest_menu": True,
+        "text": "어떤 재료(메뉴)가 남았나요? 버튼을 고르거나 직접 입력해 주세요.",
+        "next": "leftover_portions",
+    },
+    "leftover_portions": {
+        "free_input": {"key": "leftover_portions", "type": "number"},
+        "text": "몇 인분 남았나요? 숫자로 답해 주세요.",
+        "next": "leftover_discount",
+    },
+    "leftover_discount": {
+        "text": "할인 가능한가요?",
+        "options": [
+            {"label": "예", "set": {"leftover_discount_allowed": True}, "next": DECISION},
+            {"label": "아니요", "set": {"leftover_discount_allowed": False}, "next": DECISION},
+        ],
+    },
+    "adspend_baemin_spend": {
+        "free_input": {"key": "adspend_baemin_spend", "type": "number"},
+        "text": "배민 — 이번 달 광고비는 얼마였나요? (원)",
+        "next": "adspend_baemin_orders",
+    },
+    "adspend_baemin_orders": {
+        "free_input": {"key": "adspend_baemin_orders", "type": "number"},
+        "text": "배민 — 그 광고로 온 주문 수는 몇 건인가요?",
+        "next": "adspend_coupangeats_spend",
+    },
+    "adspend_coupangeats_spend": {
+        "free_input": {"key": "adspend_coupangeats_spend", "type": "number"},
+        "text": "쿠팡이츠 — 이번 달 광고비는 얼마였나요? (원)",
+        "next": "adspend_coupangeats_orders",
+    },
+    "adspend_coupangeats_orders": {
+        "free_input": {"key": "adspend_coupangeats_orders", "type": "number"},
+        "text": "쿠팡이츠 — 그 광고로 온 주문 수는 몇 건인가요?",
+        "next": "adspend_yogiyo_spend",
+    },
+    "adspend_yogiyo_spend": {
+        "free_input": {"key": "adspend_yogiyo_spend", "type": "number"},
+        "text": "요기요 — 이번 달 광고비는 얼마였나요? (원)",
+        "next": "adspend_yogiyo_orders",
+    },
+    "adspend_yogiyo_orders": {
+        "free_input": {"key": "adspend_yogiyo_orders", "type": "number"},
+        "text": "요기요 — 그 광고로 온 주문 수는 몇 건인가요?",
+        "next": DECISION,
+    },
+    "story_reason": {
+        "free_input": {"key": "story_reason", "type": "text"},
+        "text": "가게를 시작한 계기를 자유롭게 적어 주세요.",
+        "next": "story_keep",
+    },
+    "story_keep": {
+        "free_input": {"key": "story_keep", "type": "text"},
+        "text": "음식에서 꼭 지키는 것은 무엇인가요?",
+        "next": DECISION,
+    },
+    "coupon_issued": {
+        "free_input": {"key": "coupon_issued", "type": "number"},
+        "text": "쿠폰을 몇 장 발급했나요?",
+        "next": "coupon_used",
+    },
+    "coupon_used": {
+        "free_input": {"key": "coupon_used", "type": "number"},
+        "text": "그 중 몇 장이 사용됐나요?",
+        "next": DECISION,
+    },
     "repeat_complaint": {
         "text": "최근 반복되는 불만이 있나요?",
         "options": [
@@ -175,8 +268,14 @@ def node_text(node_id: str, ctx, state: dict) -> str:
 
 
 def node_options(node_id: str, ctx, state: dict) -> list[dict]:
-    """노드의 보기 버튼 목록. menu/max_discount/channels 는 가게 데이터·이전 답으로 계산한다."""
+    """노드의 보기 버튼 목록. menu/max_discount/channels 는 가게 데이터·이전 답으로 계산한다.
+    free_input 노드는 보기가 없고(버튼 없이 자유 입력), suggest_menu 면 메뉴 이름을 "제안 버튼"으로
+    보여 준다 — 눌러도 그 라벨이 그대로 자유 입력 값처럼 쓰인다(연결(next) 없이 apply_free_input 이 처리)."""
     node = NODES[node_id]
+    if node.get("free_input"):
+        if node.get("suggest_menu"):
+            return [{"label": m} for m in ctx.store.menu]
+        return []
     if not node.get("dynamic_options"):
         return node["options"]
     if node_id == "menu":
@@ -204,6 +303,24 @@ def apply_channels(state: dict, selected: list[str]) -> dict:
     return state
 
 
+_NUMBER_RE = re.compile(r"-?\d+")
+
+
+def apply_free_input(state: dict, node_id: str, value: str) -> dict:
+    """free_input 노드 전용 — 버튼 보기 없이 받은 텍스트/숫자를 그대로(또는 숫자만 뽑아) raw 에 넣는다."""
+    node = NODES[node_id]
+    spec = node["free_input"]
+    key, kind = spec["key"], spec["type"]
+    if kind == "number":
+        m = _NUMBER_RE.search(str(value))
+        value = int(m.group()) if m else 0
+    else:
+        value = str(value).strip()
+    state.setdefault("raw", {})
+    state["raw"][key] = value
+    return state
+
+
 class FlowError(ValueError):
     """잘못된 노드·보기로 흐름을 진행하려 할 때(클라이언트 state 가 서버 그래프와 어긋남)."""
 
@@ -226,9 +343,14 @@ def advance(node_id: str, ctx, state: dict, label: str) -> str:
     같은 노드로 되돌아가거나 멈춰 있을 수 없게 한다. next 가 그래프에 없는 값이면 바로 에러를
     내서(조용히 같은 질문을 반복하는 대신) 원인을 바로 드러낸다.
     """
-    option = resolve_option(node_id, ctx, state, label)
-    apply_option(state, option)
-    next_id = option["next"]
+    node = NODES[node_id]
+    if node.get("free_input"):
+        apply_free_input(state, node_id, label)
+        next_id = node["next"]
+    else:
+        option = resolve_option(node_id, ctx, state, label)
+        apply_option(state, option)
+        next_id = option["next"]
     if next_id != DECISION and next_id not in NODES:
         raise FlowError(f"'{node_id}' 의 다음 노드 '{next_id}' 가 그래프에 없어요.")
     return next_id

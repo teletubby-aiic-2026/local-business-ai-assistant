@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
 from common.korean import display_name
-from marketing_survey import flow
+from marketing_survey import adspend, coupon_result, flow, leftover, story
 from marketing_survey.decide import build_follow_up_strategy, decide
 from marketing_survey.execute import COUPON_DAYS, build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
@@ -27,6 +27,8 @@ from marketing_survey.survey import answers_from_raw
 from shared.sample_scenario import (
     SAMPLE_CARDS, SAMPLE_REVIEWS, SAMPLE_SNAPSHOTS, SAMPLE_STORE, SAMPLE_TONE,
 )
+
+_SURVEY_MODES = ("survey", "follow_up")
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
@@ -43,7 +45,7 @@ if WEB_DIR.is_dir():
 
 
 class FlowState(BaseModel):
-    node: str = "repeat_complaint"
+    node: str = flow.START
     raw: dict = Field(default_factory=dict)
     confirms: dict = Field(default_factory=dict)
     mode: str = "survey"
@@ -68,6 +70,11 @@ def _options_payload(node_id: str, state: FlowState) -> list[dict]:
     if flow.NODES[node_id].get("multi"):
         return [{"label": o["label"], "value": o["value"]} for o in opts]
     return [{"label": o["label"]} for o in opts]
+
+
+def _input_payload(node_id: str) -> dict | None:
+    """free_input 노드면 {key, type} 를 돌려준다 — 클라이언트가 버튼 대신 입력칸을 보이게 한다."""
+    return flow.NODES[node_id].get("free_input")
 
 
 def _resolve_strategy_and_answers(state: FlowState):
@@ -106,6 +113,7 @@ def step(req: StepRequest):
     """
     state = req.state or FlowState()
     scratch = {"raw": dict(state.raw), "confirms": dict(state.confirms)}
+    mode = state.mode
 
     if req.answer is None:
         node_id = state.node
@@ -121,12 +129,14 @@ def step(req: StepRequest):
         else:
             if not isinstance(req.answer, str):
                 raise HTTPException(400, "이 질문은 보기 중 하나(문자열)를 골라야 해요.")
+            if state.node == flow.START:
+                mode = flow.START_MODES.get(req.answer, mode)
             try:
                 node_id = flow.advance(state.node, CTX, scratch, req.answer)
             except flow.FlowError as exc:
                 raise HTTPException(400, str(exc)) from exc
 
-    new_state = FlowState(node=node_id, raw=scratch["raw"], confirms=scratch["confirms"], mode=state.mode)
+    new_state = FlowState(node=node_id, raw=scratch["raw"], confirms=scratch["confirms"], mode=mode)
 
     if node_id == flow.DECISION:
         return {"state": new_state, "bot_messages": [], "options": [], "multi": False, "done": True}
@@ -137,13 +147,16 @@ def step(req: StepRequest):
         "bot_messages": [text],
         "options": _options_payload(node_id, new_state),
         "multi": bool(flow.NODES[node_id].get("multi")),
+        "input": _input_payload(node_id),
         "done": False,
     }
 
 
 @app.post("/api/marketing-survey/result")
 def result(req: StateOnlyRequest):
-    """결정(decide 또는 follow_up) + explain 3줄 + 근거."""
+    """결정(decide 또는 follow_up) + explain 3줄 + 근거. [맞춤 홍보 제안] 경로에서만 쓰인다."""
+    if req.state.mode not in _SURVEY_MODES:
+        raise HTTPException(400, "이 기능은 결과를 /plan 으로 바로 받아요.")
     strategy = _resolve_strategy(req.state)
     return {"strategy": strategy.to_dict(), "explain": explain_strategy(strategy)}
 
@@ -151,6 +164,8 @@ def result(req: StateOnlyRequest):
 @app.post("/api/marketing-survey/generate")
 def generate(req: StateOnlyRequest):
     """execute 로 C6 글을 만든다. 키가 없으면 c6 저장본을 쓰고 demo:true 를 남긴다."""
+    if req.state.mode not in _SURVEY_MODES:
+        raise HTTPException(400, "이 기능은 글을 /plan 으로 바로 받아요.")
     strategy = _resolve_strategy(req.state)
     key = os.environ.get("CLOVA_API_KEY")
     _, draft, todo = execute_strategy(CTX, strategy, key)
@@ -173,10 +188,22 @@ def generate(req: StateOnlyRequest):
 
 @app.post("/api/marketing-survey/plan")
 def plan(req: StateOnlyRequest):
-    """실행 계획: {title, total_minutes, steps, drafts, coupon_card, measure}."""
-    strategy, answers = _resolve_strategy_and_answers(req.state)
+    """실행 계획: {title, total_minutes, steps, drafts, measure, ...}. mode 로 기능을 가른다."""
+    state = req.state
     key = os.environ.get("CLOVA_API_KEY")
-    result = build_plan(CTX, strategy, answers, key)
+
+    if state.mode == "leftover":
+        result = leftover.build_leftover_plan(CTX, state.raw, key)
+    elif state.mode == "adspend":
+        result = adspend.build_adspend_table(CTX, state.raw)
+    elif state.mode == "story":
+        result = story.build_story_plan(state.raw)
+    elif state.mode == "coupon_result":
+        result = coupon_result.build_coupon_result_plan(state.raw)
+    else:
+        strategy, answers = _resolve_strategy_and_answers(state)
+        result = build_plan(CTX, strategy, answers, key)
+
     result["demo"] = key is None
     return result
 
@@ -185,6 +212,8 @@ def plan(req: StateOnlyRequest):
 def approve(req: ApproveRequest):
     """승인 처리. H_REPEAT 의 fix_first 를 승인했을 때만 재주문 쿠폰 질문(예산부터)으로 이어진다."""
     state = req.state
+    if state.mode not in _SURVEY_MODES:
+        return {"follow_up": False, "state": state}
     strategy = _resolve_strategy(state)
 
     if state.mode == "survey" and strategy.source_hypothesis == "H_REPEAT":

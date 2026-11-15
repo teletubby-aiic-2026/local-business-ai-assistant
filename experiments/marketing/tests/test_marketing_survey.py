@@ -11,7 +11,7 @@ from datetime import date
 
 from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
-from marketing_survey import flow, playbooks
+from marketing_survey import adspend, coupon_result, flow, leftover, playbooks, story
 from marketing_survey.decide import build_follow_up_strategy, decide
 from marketing_survey.execute import build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
@@ -286,6 +286,25 @@ class TestExecuteReplay(unittest.TestCase):
             self.assertIsNone(draft, plan.strategies[0].type)
             self.assertIsNotNone(todo, plan.strategies[0].type)
 
+    def test_notice_and_reply_replay_pass_m1_chosen_measure(self):
+        """key=None 재생 경로도 key 있을 때와 같은 모양으로 run_card 에 M1 을 넘긴다
+        (저장본이 나중에 chosen_measures 를 쓰게 바뀌어도 조용히 달라지지 않도록)."""
+        from unittest.mock import patch
+
+        from marketing_survey.execute import NOTICE_CHOSEN_MEASURES, _run_notice, _run_reply
+
+        answers = SurveyAnswers(budget_won=100_000, goal="새 손님", discount_allowed=True)
+        plan = decide(DEFAULT_CTX, answers, confirms={"H_REPEAT": "예"})
+
+        with patch("marketing_survey.execute.run_card") as mock_run_card:
+            mock_run_card.return_value.drafts = []
+            _run_notice(DEFAULT_CTX, None, "HCX-005")
+            _run_reply(DEFAULT_CTX, None, "HCX-005")
+
+        self.assertEqual(mock_run_card.call_count, 2)
+        for call in mock_run_card.call_args_list:
+            self.assertEqual(call.kwargs.get("chosen_measures"), NOTICE_CHOSEN_MEASURES)
+
     def test_review_promo_generates_draft_without_coupon_words(self):
         answers = SurveyAnswers(budget_won=0, goal="새 손님")
         plan = decide(DEFAULT_CTX, answers, confirms={})
@@ -442,6 +461,84 @@ class TestBuildPlan(unittest.TestCase):
         self.assertIn("naver_notice", out["drafts"])
         for word in ("할인", "쿠폰", "코드", "반값", "%"):
             self.assertNotIn(word, out["drafts"]["naver_notice"])
+
+    def test_h_late_plan_uses_fixed_code_template_draft(self):
+        from marketing_survey.execute import LATE_NOTICE_TEMPLATE
+
+        ctx = _late_delivery_ctx()
+        answers = SurveyAnswers(budget_won=100_000, goal="새 손님")
+        plan = decide(ctx, answers, confirms={"H_LATE": "예"})
+        strategy = plan.strategies[0]
+
+        out = build_plan(ctx, strategy, answers, None, today=self._TODAY)
+
+        self.assertEqual(out["drafts"]["notice"], LATE_NOTICE_TEMPLATE)
+        self.assertEqual(len(LATE_NOTICE_TEMPLATE.splitlines()), 4)
+        self.assertIn("피크", LATE_NOTICE_TEMPLATE)
+
+    def test_h_repeat_notice_requires_m1_keywords_even_with_vague_ai_response(self):
+        from unittest.mock import patch
+
+        answers = SurveyAnswers(budget_won=100_000, goal="새 손님", discount_allowed=True)
+        plan = decide(DEFAULT_CTX, answers, confirms={"H_REPEAT": "예"})
+        strategy = plan.strategies[0]
+
+        def _vague_call(key, system, messages, model="HCX-005", **kw):
+            # 조치 없는 벙문("더 신경 쓰겠습니다") — M1 핵심어(주문서·대조/확인)가 전혀 없다
+            return {
+                "content": (
+                    "최근 포장 품목이 빠진 일이 있었습니다.\n"
+                    "불편을 드려 죄송합니다.\n"
+                    "오늘부터 비슷한 일이 반복되지 않도록 더 신경 쓰겠습니다.\n"
+                    "필요한 점이 있으면 요청사항에 적어 주시기 바랍니다."
+                ),
+                "won": 0.01, "tokens": 10, "seconds": 0.1,
+            }
+
+        with patch("clova.call", side_effect=_vague_call):
+            out = build_plan(DEFAULT_CTX, strategy, answers, "fake-key", today=self._TODAY)
+
+        self.assertIn("notice", out["drafts"])
+        self.assertIn("주문서", out["drafts"]["notice"])
+
+    def test_baemin_intro_uses_short_first_sentence_as_is(self):
+        from unittest.mock import patch
+
+        answers = SurveyAnswers(budget_won=0, goal="새 손님")
+        plan = decide(DEFAULT_CTX, answers, confirms={})
+        strategy = plan.strategies[0]
+
+        def _short_first_sentence(key, system, messages, model="HCX-005", **kw):
+            return {
+                "content": "정성 가득 메뉴입니다. 오늘도 맛있게 준비했습니다.",
+                "won": 0.01, "tokens": 10, "seconds": 0.1,
+            }
+
+        with patch("clova.call", side_effect=_short_first_sentence):
+            out = build_plan(DEFAULT_CTX, strategy, answers, "fake-key", today=self._TODAY)
+
+        self.assertEqual(out["drafts"]["baemin_intro"], "정성 가득 메뉴입니다.")
+
+    def test_baemin_intro_falls_back_to_template_when_first_sentence_too_long(self):
+        from unittest.mock import patch
+
+        answers = SurveyAnswers(budget_won=0, goal="새 손님")
+        plan = decide(DEFAULT_CTX, answers, confirms={})
+        strategy = plan.strategies[0]
+
+        def _long_first_sentence(key, system, messages, model="HCX-005", **kw):
+            # 마침표 없이 40자를 넘는 한 문장 — 글자 수로 자르면 단어 중간이 잘린다
+            return {
+                "content": "오늘도 변함없이 정성스럽게 준비한 맛있는 메뉴를 손님들께 소개해 드립니다.",
+                "won": 0.01, "tokens": 10, "seconds": 0.1,
+            }
+
+        with patch("clova.call", side_effect=_long_first_sentence):
+            out = build_plan(DEFAULT_CTX, strategy, answers, "fake-key", today=self._TODAY)
+
+        intro = out["drafts"]["baemin_intro"]
+        self.assertNotIn("오늘도 변함없이", intro)
+        self.assertTrue(intro.endswith("정성껏 만들어 따뜻하게 보내드립니다."), intro)
 
 
 class TestDiscountThreadedToPromo(unittest.TestCase):
@@ -609,8 +706,14 @@ class TestChatFlowReachesEnd(unittest.TestCase):
         visited: set[str] = set()
 
         def _explore(node_id: str, state: dict, depth: int = 0):
-            self.assertLess(depth, 15, "사이클 의심(깊이 초과)")
+            self.assertLess(depth, 20, "사이클 의심(깊이 초과)")
             visited.add(node_id)
+            node = flow.NODES[node_id]
+            if node.get("free_input"):
+                nxt = node["next"]
+                if nxt != flow.DECISION:
+                    _explore(nxt, state, depth + 1)
+                return
             if node_id == "channels":
                 return  # 멀티선택 노드 — 다음은 항상 DECISION
             for option in flow.node_options(node_id, DEFAULT_CTX, state):
@@ -620,7 +723,7 @@ class TestChatFlowReachesEnd(unittest.TestCase):
                 if nxt != flow.DECISION:
                     _explore(nxt, branch, depth + 1)
 
-        _explore("repeat_complaint", {"raw": {}, "confirms": {}})
+        _explore(flow.START, {"raw": {}, "confirms": {}})
 
         self.assertEqual(visited, set(flow.all_node_ids()))
 
@@ -642,7 +745,10 @@ class TestServerAPI(unittest.TestCase):
 
     def test_missing_item_path_reaches_result_and_approve_leads_to_coupon_question(self):
         data = self._step(None, None)
+        self.assertEqual(data["state"]["node"], "start")
+        data = self._step(data["state"], "맞춤 홍보 제안")
         self.assertEqual(data["state"]["node"], "repeat_complaint")
+        self.assertEqual(data["state"]["mode"], "survey")
         self.assertFalse(data["done"])
 
         data = self._step(data["state"], "예")
@@ -679,6 +785,7 @@ class TestServerAPI(unittest.TestCase):
 
     def test_discount_not_allowed_path(self):
         data = self._step(None, None)
+        data = self._step(data["state"], "맞춤 홍보 제안")
         data = self._step(data["state"], "아니요")  # repeat_complaint -> goal
         self.assertEqual(data["state"]["node"], "goal")
         data = self._step(data["state"], "새 손님")
@@ -697,6 +804,7 @@ class TestServerAPI(unittest.TestCase):
     def test_same_answer_does_not_repeat_the_same_question(self):
         """'포장 누락'을 누르면 같은 질문(complaint_type)이 반복되지 않고 노드가 반드시 바뀐다."""
         data = self._step(None, None)
+        data = self._step(data["state"], "맞춤 홍보 제안")
         data = self._step(data["state"], "예")
         before_node = data["state"]["node"]
         self.assertEqual(before_node, "complaint_type")
@@ -715,6 +823,250 @@ class TestServerAPI(unittest.TestCase):
             "/api/marketing-survey/step", json={"state": data["state"], "answer": "포장 누락"},
         )
         self.assertEqual(res.status_code, 400)
+
+
+class TestStartScreen(unittest.TestCase):
+    """0. 첫 화면 — 5개 보기 중 하나를 고르면 그 기능의 첫 질문으로 간다."""
+
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        cls.client = TestClient(app)
+
+    def test_start_has_five_options_and_each_leads_somewhere(self):
+        res = self.client.post("/api/marketing-survey/step", json={"state": None, "answer": None})
+        data = res.json()
+        self.assertEqual(data["state"]["node"], "start")
+        labels = [o["label"] for o in data["options"]]
+        self.assertEqual(
+            labels, ["맞춤 홍보 제안", "남은 재료 팔기", "광고비 점검", "가게 이야기 글", "쿠폰 결과 확인"],
+        )
+
+    def test_leftover_option_sets_leftover_mode(self):
+        res = self.client.post("/api/marketing-survey/step", json={"state": None, "answer": None})
+        state = res.json()["state"]
+        res = self.client.post(
+            "/api/marketing-survey/step", json={"state": state, "answer": "남은 재료 팔기"},
+        )
+        data = res.json()
+        self.assertEqual(data["state"]["mode"], "leftover")
+        self.assertEqual(data["state"]["node"], "leftover_ingredient")
+        self.assertIsNotNone(data["input"])
+
+
+class TestBudgetAllocation(unittest.TestCase):
+    """1. 모든 실행 계획 step 에 cost_krw 가 있고, 합계가 예산을 넘지 않는다."""
+
+    _TODAY = date(2026, 11, 15)
+
+    def test_all_steps_have_cost_krw_and_posting_steps_are_zero(self):
+        answers = SurveyAnswers(budget_won=0, goal="새 손님")
+        plan = decide(DEFAULT_CTX, answers, confirms={})
+        pb = playbooks.build_playbook(DEFAULT_CTX, plan.strategies[0], answers, today=self._TODAY)
+
+        for step in pb["steps"]:
+            self.assertIn("cost_krw", step)
+        self.assertEqual(pb["total_cost_krw"], 0)  # review_promo — 글 올리기만, 전부 0원
+
+    def test_coupon_plan_total_cost_matches_budget_used_and_not_over_budget(self):
+        answers = SurveyAnswers(
+            budget_won=100_000, goal="재주문", discount_menu="제육볶음 정식", max_discount_won=5_000,
+            weekly_hours=5,
+        )
+        plan = decide(DEFAULT_CTX, answers, confirms={})
+        strategy = plan.strategies[0]
+        pb = playbooks.build_playbook(DEFAULT_CTX, strategy, answers, today=self._TODAY)
+
+        self.assertEqual(pb["total_cost_krw"], strategy.budget_won)
+        self.assertLessEqual(pb["total_cost_krw"], answers.budget_won)
+        self.assertFalse(pb["over_budget"])
+
+
+class TestLeftoverFeature(unittest.TestCase):
+    """2. 남은 재료 팔기 — 세트 가격 계산 + 할인 불가일 때 "오늘의 추천"으로 바뀌는지."""
+
+    def test_set_bundle_price_is_90_percent_rounded_to_100(self):
+        store = DEFAULT_CTX.store
+        menu_items = list(store.menu_prices.items())
+        first_menu = menu_items[0][0]
+        bundle = leftover.set_bundle_price(store, first_menu)
+
+        self.assertIsNotNone(bundle)
+        total = sum(store.menu_prices[m] for m in bundle["menus"])
+        self.assertEqual(bundle["original_won"], total)
+        expected = int(round(total * 0.9 / 100)) * 100
+        self.assertEqual(bundle["bundle_won"], expected)
+        self.assertEqual(bundle["bundle_won"] % 100, 0)
+
+    def test_discount_allowed_produces_today_only_set(self):
+        menu = next(iter(DEFAULT_CTX.store.menu_prices))
+        raw = {"leftover_item": menu, "leftover_portions": 3, "leftover_discount_allowed": True}
+        out = leftover.build_leftover_plan(DEFAULT_CTX, raw, None)
+
+        self.assertEqual(out["title"], "오늘만 세트")
+        self.assertIn("leftover_post", out["drafts"])
+        self.assertIn("세트", out["drafts"]["leftover_post"])
+        self.assertEqual(out["total_cost_krw"], 0)
+
+    def test_discount_not_allowed_produces_today_recommendation(self):
+        menu = next(iter(DEFAULT_CTX.store.menu_prices))
+        raw = {"leftover_item": menu, "leftover_portions": 3, "leftover_discount_allowed": False}
+        out = leftover.build_leftover_plan(DEFAULT_CTX, raw, None)
+
+        self.assertEqual(out["title"], "오늘의 추천")
+        self.assertIn("오늘의 추천", out["drafts"]["leftover_post"])
+        self.assertNotIn("세트", out["drafts"]["leftover_post"])
+
+    def test_leftover_chat_path_through_server_reaches_decision(self):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        client = TestClient(app)
+        data = client.post("/api/marketing-survey/step", json={"state": None, "answer": None}).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "남은 재료 팔기"},
+        ).json()
+        menu = next(iter(DEFAULT_CTX.store.menu_prices))
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": menu},
+        ).json()
+        self.assertEqual(data["state"]["node"], "leftover_portions")
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "3"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "leftover_discount")
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "예"},
+        ).json()
+        self.assertTrue(data["done"])
+
+        res = client.post("/api/marketing-survey/plan", json={"state": data["state"]})
+        body = res.json()
+        self.assertEqual(body["title"], "오늘만 세트")
+
+
+class TestAdSpendFeature(unittest.TestCase):
+    """3. 광고비 점검 — 건당 광고비 계산, 15% 초과면 점검 필요. AI 없음."""
+
+    def test_cost_per_order_basic(self):
+        self.assertEqual(adspend.cost_per_order(150_000, 30), 5_000)
+        self.assertIsNone(adspend.cost_per_order(150_000, 0))
+
+    def test_high_cost_channel_is_flagged_and_low_cost_is_not(self):
+        store = DEFAULT_CTX.store
+        menu = playbooks.default_menu(store)
+        price = store.menu_prices[menu]
+
+        raw = {
+            "adspend_baemin_spend": price * 1000, "adspend_baemin_orders": 1,  # 건당 광고비 = 메뉴값*1000 (매우 높음)
+            "adspend_coupangeats_spend": 0, "adspend_coupangeats_orders": 0,
+            "adspend_yogiyo_spend": 100, "adspend_yogiyo_orders": 1000,  # 건당 0.1원 (매우 낮음)
+        }
+        out = adspend.build_adspend_table(DEFAULT_CTX, raw)
+        by_channel = {r["channel"]: r for r in out["table"]}
+
+        self.assertTrue(by_channel["baemin"]["needs_check"])
+        self.assertFalse(by_channel["yogiyo"]["needs_check"])
+        self.assertIn("높은 채널 광고 조건 다시 보기", out["todos"])
+        self.assertIn("예산을 낮은 채널로 옮기기(추정)", out["todos"])
+
+    def test_no_flag_when_all_channels_within_threshold(self):
+        raw = {f"adspend_{c}_spend": 0 for c in adspend.AD_CHANNELS}
+        raw.update({f"adspend_{c}_orders": 0 for c in adspend.AD_CHANNELS})
+        out = adspend.build_adspend_table(DEFAULT_CTX, raw)
+        self.assertEqual(out["todos"], [])
+
+
+class TestStoryFeature(unittest.TestCase):
+    """4. 가게 이야기 글 — 답에 없는 사실(연도·수상 등)이 들어가면 실패로 본다. AI 호출 없음."""
+
+    def test_check_no_invented_facts_passes_for_text_within_source(self):
+        source = "부모님 식당을 물려받아서 2015년에 다시 열었습니다 좋은 재료만 씁니다"
+        text = "2015년에 다시 열었습니다. 좋은 재료만 씁니다."
+        self.assertTrue(story.check_no_invented_facts(text, source))
+
+    def test_check_no_invented_facts_fails_on_invented_year(self):
+        source = "부모님 식당을 물려받아서 다시 열었습니다"
+        text = "1998년부터 이어온 전통 있는 맛집입니다."
+        self.assertFalse(story.check_no_invented_facts(text, source))
+
+    def test_check_no_invented_facts_fails_on_invented_award_word(self):
+        source = "맛있게 만들고 싶어서 시작했습니다"
+        text = "대회에서 수상한 경력이 있습니다."
+        self.assertFalse(story.check_no_invented_facts(text, source))
+
+    def test_build_story_plan_uses_only_owner_answers(self):
+        raw = {"story_reason": "부모님 식당을 물려받은 것", "story_keep": "국산 재료만 쓰는 것"}
+        out = story.build_story_plan(raw, today=date(2026, 11, 15))
+
+        self.assertIn("naver_place_intro", out["drafts"])
+        self.assertIn("instagram_intro", out["drafts"])
+        self.assertIn("부모님 식당을 물려받은 것", out["drafts"]["naver_place_intro"])
+        self.assertIn("국산 재료만 쓰는 것", out["drafts"]["naver_place_intro"])
+
+    def test_story_chat_path_through_server_reaches_decision(self):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        client = TestClient(app)
+        data = client.post("/api/marketing-survey/step", json={"state": None, "answer": None}).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "가게 이야기 글"},
+        ).json()
+        data = client.post(
+            "/api/marketing-survey/step",
+            json={"state": data["state"], "answer": "부모님 가게를 물려받아서"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "story_keep")
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "정성껏 만드는 것"},
+        ).json()
+        self.assertTrue(data["done"])
+
+        res = client.post("/api/marketing-survey/plan", json={"state": data["state"]})
+        body = res.json()
+        self.assertIn("부모님 가게를 물려받아서", body["drafts"]["naver_place_intro"])
+
+
+class TestCouponResultFeature(unittest.TestCase):
+    """5. 쿠폰 결과 확인 — 사용률 계산, 30% 기준으로 할 일이 바뀐다. AI 없음."""
+
+    def test_usage_rate_basic(self):
+        self.assertAlmostEqual(coupon_result.usage_rate(100, 25), 0.25)
+        self.assertIsNone(coupon_result.usage_rate(0, 0))
+
+    def test_low_usage_suggests_raising_discount_or_timing(self):
+        out = coupon_result.build_coupon_result_plan({"coupon_issued": 100, "coupon_used": 20})
+        self.assertEqual(out["steps"][0]["what"], coupon_result.TODO_LOW_USAGE)
+
+    def test_high_usage_suggests_repeat(self):
+        out = coupon_result.build_coupon_result_plan({"coupon_issued": 100, "coupon_used": 40})
+        self.assertEqual(out["steps"][0]["what"], coupon_result.TODO_HIGH_USAGE)
+
+    def test_coupon_result_chat_path_through_server_reaches_decision(self):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        client = TestClient(app)
+        data = client.post("/api/marketing-survey/step", json={"state": None, "answer": None}).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "쿠폰 결과 확인"},
+        ).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "50"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "coupon_used")
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "10"},
+        ).json()
+        self.assertTrue(data["done"])
+
+        res = client.post("/api/marketing-survey/plan", json={"state": data["state"]})
+        body = res.json()
+        self.assertEqual(body["usage_rate"], 0.2)
+        self.assertEqual(body["steps"][0]["what"], coupon_result.TODO_LOW_USAGE)
 
 
 if __name__ == "__main__":

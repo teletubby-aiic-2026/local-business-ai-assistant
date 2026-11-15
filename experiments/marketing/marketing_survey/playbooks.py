@@ -57,6 +57,14 @@ def _apps_label(answers) -> str:
     return "/".join(apps) if apps else "배달앱"
 
 
+def default_menu(store) -> str | None:
+    """review_promo 가 쓸 대표 메뉴 — 가격 있는 메뉴 중 첫 번째, 없으면 메뉴 목록의 첫 번째.
+    c6.promo.generate_review_promo 의 기본 메뉴 선택과 같은 규칙(menu 인자를 안 주면 똑같이 고른다)."""
+    return next((m for m in store.menu if m in store.menu_prices), None) or (
+        store.menu[0] if store.menu else None
+    )
+
+
 @dataclass
 class PlaybookStep:
     step_id: str
@@ -68,12 +76,13 @@ class PlaybookStep:
     tip: str = ""
     channel: str | None = None     # channels 필터용. None 이면 채널과 무관해 필터에 안 걸림
     max_chars: int | None = None   # 생성 글자 수 제한(배민 가게 소개 첫 줄 등). 없으면 None
+    cost_krw: int = 0              # 이 할 일의 추정 비용(원). 글 올리기 등 돈이 안 드는 일은 0
 
     def to_dict(self) -> dict:
         return {
             "step_id": self.step_id, "when": self.when, "what": self.what, "where": self.where,
             "minutes": self.minutes, "generator": self.generator, "tip": self.tip,
-            "max_chars": self.max_chars,
+            "max_chars": self.max_chars, "cost_krw": self.cost_krw,
         }
 
 
@@ -105,7 +114,8 @@ def _fix_first_steps(today: date, strategy) -> list[PlaybookStep]:
         return [
             PlaybookStep(
                 "notice", _date_label(today, 0), "배달 지연 안내 공지 올리기", _channel_where("naver_place"), 5,
-                tip="지연 가능한 시간대를 구체적으로 적어요", channel="naver_place",
+                generator="late_notice_template",
+                tip="피크 시간 조리 예상 시간을 늘린다는 조치가 들어갔는지 확인해요", channel="naver_place",
             ),
             PlaybookStep(
                 "peak_time", _date_label(today, 0), "피크 시간 조리 예상 시간 늘리기",
@@ -129,9 +139,7 @@ def _fix_first_steps(today: date, strategy) -> list[PlaybookStep]:
 
 
 def _review_promo_steps(today: date, store) -> list[PlaybookStep]:
-    menu = next((m for m in store.menu if m in store.menu_prices), None) or (
-        store.menu[0] if store.menu else "대표 메뉴"
-    )
+    menu = default_menu(store) or "대표 메뉴"
     when = f"{_date_label(today, 0)}, 피크 2시간 전"
     return [
         PlaybookStep(
@@ -165,6 +173,7 @@ def _coupon_steps(today: date, answers, strategy) -> list[PlaybookStep]:
             "coupon_create", _date_label(today, 0), "쿠폰 만들기",
             f"{apps_label} 사장님 사이트 > 쿠폰" + _SCREEN_NOTE, 10,
             tip="쿠폰 카드의 메뉴·할인액·기간과 똑같이 입력해요",
+            cost_krw=strategy.budget_won,  # 추정 — 쿠폰 전체 예상 비용(장수 x 할인액)
         ),
         PlaybookStep(
             "measure", _date_label(today, 14), "쿠폰 사용 수 확인하기",
@@ -230,9 +239,12 @@ def build_playbook(ctx, strategy, answers, today: date | None = None) -> dict:
     if answers.weekly_hours <= 1:
         steps = steps[:2]
 
+    total_cost_krw = sum(s.cost_krw for s in steps)
     return {
         "title": strategy.title,
         "total_minutes": sum(s.minutes for s in steps),
         "steps": [s.to_dict() for s in steps],
         "measure": measure,
+        "total_cost_krw": total_cost_krw,
+        "over_budget": bool(answers.budget_won) and total_cost_krw > answers.budget_won,
     }
