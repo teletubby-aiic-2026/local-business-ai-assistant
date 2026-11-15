@@ -40,16 +40,30 @@ _AVAILABLE: dict[str, StoreEntry] = {
 
 # scripts/pull_team_data.py 가 아는 다른 팀 가게 id — 이름·메뉴·가격 데이터가 아직 여기 없다.
 _KNOWN_NOT_AVAILABLE = ("store_basak", "store_mongle")
+# 데이터 없는 가게의 화면 표시 이름(id 대신). 모르는 id 는 "다른 가게".
+_NOT_AVAILABLE_LABELS = {"store_basak": "바삭", "store_mongle": "몽글"}
+_NOT_AVAILABLE_FALLBACK = "다른 가게"
+_NO_DATA_SUFFIX = " (데모 데이터 없음)"
+_VIRTUAL_MARK = "(가상)"
+
+
+def _display_name(name: str) -> str:
+    """화면 표시용 이름. '(가상)' 표시만 떼고, 데이터(StoreProfile.name)는 그대로 둔다."""
+    return name.replace(_VIRTUAL_MARK, "").strip()
 
 
 def list_stores() -> list[dict]:
     """화면 가게 알약 목록. available=False 인 가게는 고를 수 없다(데모 데이터 없음)."""
     stores = [
-        {"store_id": e.store_id, "name": e.name, "available": True}
+        {"store_id": e.store_id, "name": _display_name(e.name), "available": True}
         for e in _AVAILABLE.values()
     ]
     stores += [
-        {"store_id": store_id, "name": store_id, "available": False}
+        {
+            "store_id": store_id,
+            "name": _NOT_AVAILABLE_LABELS.get(store_id, _NOT_AVAILABLE_FALLBACK) + _NO_DATA_SUFFIX,
+            "available": False,
+        }
         for store_id in _KNOWN_NOT_AVAILABLE
     ]
     return stores

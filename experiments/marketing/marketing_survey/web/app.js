@@ -51,7 +51,28 @@ async function postJSON(url, body) {
 }
 
 /* 머리의 가게 알약 — 데이터가 있는 가게(available=true)만 고를 수 있다. 없는 가게는
-   "데모 데이터 없음"으로 보여만 주고 누를 수 없게(disabled) 한다. */
+   이름에 "(데모 데이터 없음)"을 붙여 보여만 주고 누를 수 없게(disabled) 한다. */
+function closeStoreMenu() {
+  const pillBtn = document.getElementById("store-pill");
+  const menu = document.getElementById("store-menu");
+  if (!pillBtn || !menu) return;
+  menu.hidden = true;
+  pillBtn.setAttribute("aria-expanded", "false");
+}
+
+/* 바깥 클릭·Esc 로 닫는 리스너는 한 번만 붙인다(다시 그릴 때마다 쌓이지 않게). */
+let storePickerGlobalsBound = false;
+function bindStorePickerGlobals() {
+  if (storePickerGlobalsBound) return;
+  storePickerGlobalsBound = true;
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".store-picker")) closeStoreMenu();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeStoreMenu();
+  });
+}
+
 function renderStorePicker(list) {
   storeList = list;
   const current = list.find((s) => s.store_id === selectedStore) || list[0];
@@ -70,35 +91,25 @@ function renderStorePicker(list) {
   menu.innerHTML = list.map((s) => `
     <button class="store-menu-item" data-id="${escapeHtml(s.store_id)}" role="option" ${s.available ? "" : "disabled"}>
       <span>${escapeHtml(s.name)}</span>
-      ${s.available ? "" : '<span class="store-menu-note">데모 데이터 없음</span>'}
     </button>
   `).join("");
 
-  const closeMenu = () => {
-    menu.hidden = true;
-    pillBtn.setAttribute("aria-expanded", "false");
-  };
-  pillBtn.onclick = (e) => {
-    e.stopPropagation();
+  pillBtn.onclick = () => {
     const willOpen = menu.hidden;
     menu.hidden = !willOpen;
     pillBtn.setAttribute("aria-expanded", String(willOpen));
   };
   menu.querySelectorAll(".store-menu-item").forEach((btn) => {
     if (btn.disabled) return;
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      if (btn.dataset.id === selectedStore) {
-        closeMenu();
-        return;
-      }
+    btn.onclick = () => {
+      closeStoreMenu();
+      if (btn.dataset.id === selectedStore) return;
       selectedStore = btn.dataset.id;
-      closeMenu();
       renderStorePicker(storeList);
       start();
     };
   });
-  document.addEventListener("click", closeMenu, { once: true });
+  bindStorePickerGlobals();
 }
 
 /* 서버 호출 중(제안 생성 등)에는 말풍선 + 점 3개 애니메이션을 보여 주고, 끝나면 지운다.

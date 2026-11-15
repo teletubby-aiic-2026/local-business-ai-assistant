@@ -6,6 +6,7 @@
   python -m tests.test_marketing_survey
 """
 
+import json
 import unittest
 from datetime import date
 from types import SimpleNamespace
@@ -1290,7 +1291,7 @@ class TestAdSpendFeature(unittest.TestCase):
 
 
 class TestStoryFeature(unittest.TestCase):
-    """4. 가게 이야기 글 — 답에 없는 사실(연도·수상 등)이 들어가면 실패로 본다. AI 호출 없음."""
+    """4. 가게 이야기 글 — 답에 없는 사실(연도·수상 등)이 들어가면 실패로 본다. AI 는 가짜 응답(mock)만."""
 
     def test_check_no_invented_facts_passes_for_text_within_source(self):
         source = "부모님 식당을 물려받아서 2015년에 다시 열었습니다 좋은 재료만 씁니다"
@@ -1309,7 +1310,7 @@ class TestStoryFeature(unittest.TestCase):
 
     def test_build_story_plan_uses_only_owner_answers(self):
         raw = {"story_reason": "부모님 식당을 물려받은 것", "story_keep": "국산 재료만 쓰는 것"}
-        out = story.build_story_plan(raw, today=date(2026, 11, 15))
+        out = story.build_story_plan(raw, today=date(2026, 11, 15), key=None)
 
         self.assertIn("naver_place_intro", out["drafts"])
         self.assertIn("instagram_intro", out["drafts"])
@@ -1329,10 +1330,70 @@ class TestStoryFeature(unittest.TestCase):
             "story_reason": "부모님 식당을 물려받은 것", "story_signature": "",
             "story_keep": "", "story_prep": "", "story_message": "",
         }
-        out = story.build_story_plan(raw, today=date(2026, 11, 15))
+        out = story.build_story_plan(raw, today=date(2026, 11, 15), key=None)
 
         for text in out["drafts"].values():
             self.assertNotIn("story_signature", text)  # 안 쓴 답의 자리표시조차 안 남는다
+
+    _ALL = {
+        "story_reason": "부모님 식당을 물려받았어요.", "story_signature": " 제육볶음. 매콤하고 맛있다. ",
+        "story_keep": "국산 재료만 써요", "story_prep": "새벽에 장을 봐요", "story_message": "또 오세요",
+    }
+
+    def test_template_has_no_overlap_and_keeps_answers(self):
+        d = story.build_story_drafts(story._answers_from_raw(self._ALL), "온기한식")
+        naver = d["naver_place"]
+        self.assertNotIn("시작했어요, 그 마음으로", naver)
+        self.assertNotIn("그 마음으로", naver)
+        self.assertTrue(naver.startswith("온기한식 이야기\n· 시작한 이유 — 부모님 식당을 물려받았어요"))
+        self.assertIn("· 대표 메뉴 — 제육볶음. 매콤하고 맛있다", naver)  # 끝 마침표만 뗀다
+        self.assertIn("대표 메뉴: 제육볶음", d["instagram"])
+        self.assertEqual(d["instagram"].count("#"), 3)
+
+    def test_template_skipped_item_line_removed(self):
+        raw = {"story_reason": "물려받았어요", "story_keep": "국산 재료"}
+        d = story.build_story_drafts(story._answers_from_raw(raw), "온기한식")
+        self.assertNotIn("대표 메뉴", d["naver_place"])
+        self.assertNotIn("장사 준비", d["naver_place"])
+        self.assertNotIn("대표 메뉴", d["instagram"])
+        self.assertEqual(d["baemin_intro"], "온기한식의 이야기를 들려드려요")
+
+    def test_baemin_first_line_within_40_and_no_mid_word_cut(self):
+        long_sig = "국산 돼지고기로 매일 아침 양념해서 볶아 내는 매콤한 제육볶음, 밥도둑이라고 불러 주세요"
+        line = story._baemin_line(long_sig, "온기한식")
+        self.assertLessEqual(len(line), 40)
+        self.assertEqual(line, "국산 돼지고기로 매일 아침 양념해서 볶아 내는 매콤한 제육볶음")
+        nocomma = "국산 돼지고기로 매일 아침 양념해서 볶아 내는 매콤한 제육볶음을 만들어 드립니다"
+        line = story._baemin_line(nocomma, "온기한식")
+        self.assertLessEqual(len(line), 40)
+        self.assertIn(line, nocomma.split(" ") and [" ".join(nocomma.split(" ")[:n]) for n in range(1, 20)])
+
+    def test_mixed_register_and_repeat_word_detected(self):
+        self.assertTrue(story.mixed_register("정성껏 만듭니다. 맛있게 먹어요."))
+        self.assertFalse(story.mixed_register("정성껏 만듭니다. 맛있게 준비합니다.\n#동네맛집 #단골환영 #오늘의한끼"))
+        self.assertTrue(story.repeat_word("제육볶음은 제육볶음이 최고입니다."))
+        self.assertFalse(story.repeat_word("우리 가게는 가게 앞까지 정성입니다."))
+
+    def test_ai_mixed_register_rewritten_then_template_fallback(self):
+        bad = {"naver_place": "정성껏 만듭니다. 맛있게 먹어요.", "instagram": "좋아요.\n#a #b #c", "baemin_intro": "제육볶음"}
+        calls = []
+
+        def fake(key, system, messages, **kw):
+            calls.append(messages)
+            return {"content": json.dumps(bad, ensure_ascii=False)}
+
+        out = story.build_story_plan(self._ALL, today=date(2026, 11, 15), key="fake", call=fake)
+        self.assertEqual(len(calls), 2)  # 재작성 1번
+        self.assertIn("mixed_register", calls[1][-1]["content"])
+        self.assertIn("· 대표 메뉴 — ", out["drafts"]["naver_place_intro"])  # 템플릿으로
+
+    def test_ai_good_text_used_on_first_try(self):
+        good = {"naver_place": "부모님의 식당을 이어받았습니다. 국산 재료만 씁니다.",
+                "instagram": "부모님의 식당을 이어받았습니다.\n#a #b #c", "baemin_intro": "매콤한 제육볶음"}
+        out = story.build_story_plan(
+            self._ALL, today=date(2026, 11, 15), key="fake",
+            call=lambda *a, **k: {"content": json.dumps(good, ensure_ascii=False)})
+        self.assertEqual(out["drafts"]["baemin_intro"], "매콤한 제육볶음")
 
     def test_story_chat_path_through_server_reaches_decision(self):
         from fastapi.testclient import TestClient
