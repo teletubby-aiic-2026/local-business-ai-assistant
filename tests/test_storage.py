@@ -144,6 +144,22 @@ def test_approvals_are_separate_per_visitor_and_store(backend):
     assert backend.approvals.list(s1, a)[0]["text"] == "글" and backend.approvals.list(s1, b)[0]["text"] == "B 의 글"
 
 
+def test_approvals_clear_removes_only_that_visitor_in_that_store(backend):
+    """승인 기록 지우기('처음부터 다시'): 이 가게·이 방문자의 것만 지우고 지운 건수를 돌려준다."""
+    s1, s2, a, b = uid("store"), uid("store"), uid("v"), uid("v")
+    backend.approvals.save(s1, a, entry("d1"), card_id="card_a", kind="reply_draft")
+    backend.approvals.save(s1, a, entry("d2", at="2026-11-14T10:00:01+09:00"))
+    backend.approvals.save(s1, b, entry("d1", text="B 의 글"))
+    backend.approvals.save(s2, a, entry("d1", text="다른 가게의 글"))
+    assert backend.approvals.clear(s1, a) == 2
+    assert backend.approvals.list(s1, a) == []
+    assert [i["text"] for i in backend.approvals.list(s1, b)] == ["B 의 글"]            # 다른 방문자 것은 그대로
+    assert [i["text"] for i in backend.approvals.list(s2, a)] == ["다른 가게의 글"]       # 다른 가게 것도 그대로
+    assert backend.approvals.clear(s1, a) == 0                                        # 지울 것이 없으면 0
+    backend.approvals.save(s1, a, entry("d3"))                                        # 지운 뒤에도 다시 쌓인다
+    assert [i["draft_id"] for i in backend.approvals.list(s1, a)] == ["d3"]
+
+
 def test_card_reasons_put_get_overwrite(backend):
     sid = uid("store")
     assert backend.card_reasons.get(sid, "card_a", "k1") is None

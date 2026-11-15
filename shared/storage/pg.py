@@ -192,6 +192,12 @@ class PgApprovals:
             return [_kst(r, "approved_at") for r in rows]
         return self._db.run(work)
 
+    def clear(self, store_id: str, visitor_id: str) -> int:
+        """메모리 구현과 같다: 이 가게·이 방문자의 승인 기록만 지우고 지운 건수를 돌려준다."""
+        def work(conn):
+            return conn.execute("DELETE FROM approvals WHERE store_id = %s AND visitor_id = %s", (store_id, visitor_id)).rowcount
+        return self._db.run(work)
+
 
 # ── 카드 추천 이유 ──────────────────────────────────────────────────
 class PgCardReasons:

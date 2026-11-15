@@ -225,7 +225,8 @@ def test_changed_evidence_prompt_or_model_asks_the_model_again(tmp_path, monkeyp
     monkeypatch.setattr(Demo, "REASON_SYSTEM", Demo.REASON_SYSTEM + " (바뀐 규칙)")
     live(tmp_path, store, model).cards()                                       # 프롬프트가 바뀜
     assert model.calls == 4
-    monkeypatch.setattr("web.demo.REASON_VERSION", "reason-v2")
+    from web.demo import REASON_VERSION                                        # 지금 버전이 무엇이든 그와 다른 값으로 올린다
+    monkeypatch.setattr("web.demo.REASON_VERSION", REASON_VERSION + "-next")
     live(tmp_path, store, model).cards()                                       # 버전을 올림
     assert model.calls == 5
 
@@ -373,6 +374,75 @@ def test_a_record_the_database_refuses_does_not_block_the_ones_behind_it(tmp_pat
     assert "저장하지 못했어요" in refused["warning"] and demo._pending == []
 
 
+# ── 승인 기록 지우기 (DELETE /api/approvals, 완료 화면의 '처음부터 다시') ──────
+def test_clearing_approvals_removes_only_this_visitors_records(tmp_path):
+    a_client, demo, _ = make_app(tmp_path)
+    b_client = TestClient(a_client.app)
+    approve(a_client, "d_1"), approve(a_client, "d_2"), approve(b_client, "d_1", text="B 의 글")
+    res = a_client.delete("/api/approvals")
+    assert res.status_code == 200 and res.json() == {"deleted": 2}
+    assert shown(a_client) == []
+    assert b_client.get("/api/approvals").json()["items"][0]["text"] == "B 의 글"                     # 다른 방문자의 기록은 그대로
+    assert a_client.delete("/api/approvals").json() == {"deleted": 0}                              # 지울 것이 없어도 200
+    assert (Path(tmp_path) / "runtime" / "approvals.jsonl").read_text(encoding="utf-8").count("\n") == 3   # 덧붙이기만 하는 파일은 그대로
+    approve(a_client, "d_3")
+    assert shown(a_client) == ["d_3"]                                                               # 지운 뒤 새 승인만 보인다
+
+
+def test_a_visitor_without_a_cookie_clears_nothing_of_anyone_else(tmp_path):
+    client, demo, _ = make_app(tmp_path)
+    approve(client, "d_1")
+    stranger = TestClient(client.app)                                                               # 쿠키 없는 첫 요청 = 새 방문자
+    assert stranger.delete("/api/approvals").json() == {"deleted": 0}
+    assert shown(client) == ["d_1"]
+
+
+class DownWhenOff(FlakyApprovals):
+    """꺼져 있으면 지우기도 DB 에 닿지 못한다."""
+
+    def clear(self, store_id, visitor_id):
+        if not self.up:
+            raise StorageError("DB 에 닿지 못했습니다 (PoolTimeout)")
+        return super().clear(store_id, visitor_id)
+
+
+def test_clearing_during_an_outage_reports_it_and_keeps_everything(tmp_path):
+    store = _DownStore()
+    store.approvals = db = DownWhenOff()
+    client, demo, _ = make_app(tmp_path, storage=store)
+    other = TestClient(client.app)
+    approve(client, "d_saved")
+    db.up = False
+    approve(client, "d_mine"), approve(other, "d_theirs")
+    res = client.delete("/api/approvals")
+    assert res.status_code == 503 and "지우지 못했어요" in res.json()["error"]["message"]
+    assert len(demo._pending) == 2                                                  # 못 지웠으면 들고 있던 것도 그대로
+    db.up = True
+    assert client.delete("/api/approvals").json() == {"deleted": 2}                 # DB 가 돌아오면: 저장돼 있던 것 + 멈춘 동안 승인한 것
+    assert shown(client) == [] and shown(other) == ["d_theirs"] and demo._pending == []
+
+
+def test_clearing_also_drops_what_this_server_still_holds_for_that_visitor_only(tmp_path):
+    class SaveDown(MemoryApprovals):                                                # 쓰기만 안 되는 DB (지우기·읽기는 됨)
+        def save(self, *a, **k):
+            raise StorageError("DB 에 닿지 못했습니다 (PoolTimeout)")
+    store = _DownStore()
+    store.approvals = SaveDown()
+    client, demo, _ = make_app(tmp_path, storage=store)
+    other = TestClient(client.app)
+    approve(client, "d_mine_1"), approve(client, "d_mine_2"), approve(other, "d_theirs")
+    assert len(demo._pending) == 3
+    assert client.delete("/api/approvals").json() == {"deleted": 2}                 # 이 방문자가 승인해 둔 2건 (아직 DB 에 못 쓴 것)
+    assert [p[1]["draft_id"] for p in demo._pending] == ["d_theirs"]                # 다른 방문자의 밀린 승인은 남는다
+    assert shown(client) == [] and shown(other) == ["d_theirs"]
+
+
+def test_clearing_with_a_store_that_cannot_clear_is_a_clean_503(tmp_path):
+    client, _, _ = make_app(tmp_path, storage=_DownStore())                         # 지우기를 못 하는 저장소 (모든 호출 실패)
+    res = client.delete("/api/approvals")
+    assert res.status_code == 503 and "error" in res.json()
+
+
 # ── 승인 기록의 카드·종류 칸 ─────────────────────────────────────────
 class RecordingApprovals(MemoryApprovals):
     def __init__(self):
@@ -450,6 +520,18 @@ def test_pg_approval_on_one_server_shows_on_the_other(two_servers):
     two.post("/api/drafts/d_a/approve", json={"text": "두 번째 서버에서 다시", "original": "원문"})
     assert one.get("/api/approvals").json()["items"][-1]["text"] == "두 번째 서버에서 다시"
     assert not (Path(tmp) / "was1" / "runtime" / "approvals.jsonl").exists()                   # DB 방식이면 서버 디스크에 쓰지 않음
+
+
+def test_pg_clearing_on_one_server_shows_on_the_other_and_spares_other_visitors(two_servers):
+    (one, two), _, (db, _), store_id, _ = two_servers
+    me = one.get("/api/health").cookies[VISITOR_COOKIE]
+    approve(one, "d_a"), approve(one, "d_b")
+    guest = TestClient(two.app)                                                                 # 다른 방문자
+    approve(guest, "d_a", text="다른 방문자의 글")
+    assert same_visitor(two, me).delete("/api/approvals").json() == {"deleted": 2}             # 지우는 요청이 다른 서버로 가도
+    assert shown(one) == [] and shown(guest) == ["d_a"]
+    rows = db.run(lambda c: c.execute("SELECT draft_id, approved_text FROM approvals WHERE store_id=%s", (store_id,)).fetchall())
+    assert [(r["draft_id"], r["approved_text"]) for r in rows] == [("d_a", "다른 방문자의 글")]
 
 
 def test_pg_paste_goes_through_to_the_shared_review_service_for_both_servers(two_servers):

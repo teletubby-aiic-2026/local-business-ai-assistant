@@ -6,9 +6,10 @@
 | GET    | /api/briefing                 | ① 오늘의 브리핑 |
 | GET    | /api/insight                  | 리뷰 분석 화면(요약·불만 묶음), 읽기 전용 |
 | GET    | /api/cards                    | ② 추천 카드 2장 |
-| POST   | /api/cards/{card_id}/run      | ③ 결과물 생성 |
+| POST   | /api/cards/{card_id}/run      | ③ 결과물 생성. 본문에 generator(+review_id)가 있으면 그 글 한 건만 다시 만듦 (초안 상자의 '다시 만들기') |
 | POST   | /api/drafts/{draft_id}/approve| ④ 승인 (수정 글 포함) |
 | GET    | /api/approvals                | ④ 처리 완료 기록 |
+| DELETE | /api/approvals                | ④ 이 방문자의 승인 기록 지우기 (완료 화면의 '처음부터 다시') |
 | POST   | /api/reviews                  | S2 직접 붙여넣기 (#14 로 전달) |
 | DELETE | /api/reviews/pasted           | 붙여넣은 리뷰 지우기 (데모 다시 하기) |
 | *      | /api/assistant/*              | 서랍의 상권 채팅. 상권 서비스(ic26-market)를 대신 불러 줌 (assistant_proxy.py) |
@@ -60,6 +61,11 @@ class ApproveIn(BaseModel):
 
 class RunIn(BaseModel):
     measures: list[str] | None = None   # 사장님이 고른 재발 방지 조치 id (C6 measures.MEASURES, 예: "M1"). 없으면 기본값
+    # 개별 다시 만들기 (선택). generator 가 있으면 그 종류의 글 한 건만 다시 만들고, 없으면 예전 그대로 카드 전체를 만든다
+    generator: str | None = Field(default=None, max_length=40)    # reply_draft | prevention_notice | coupon_promo
+    review_id: str | None = Field(default=None, max_length=100)   # reply_draft 일 때 필수: 그 답글이 가리키는 리뷰
+    # prevention_notice 일 때만 씀: 지금 화면의 묶음 답글들. 새 공지가 답글과 너무 비슷한지 견주는 데만 쓰고 모델에 넘기지 않는다
+    reply_texts: list[str] | None = Field(default=None, max_length=20)
 
 
 class PasteIn(BaseModel):
@@ -73,6 +79,7 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     # 저장 위치는 여기서만 환경 변수로 정한다 (DB_HOST 가 있으면 PostgreSQL, 없으면 메모리·파일)
     demo = demo or Demo(Settings.from_env(), storage=open_store(app_name="ic26-web"))
     assistant = assistant or AssistantProxy.from_settings(demo.s)   # 시험에서는 가짜 상권 서비스를 넣은 것을 줄 수 있다
+    assistant.attach_store(demo)                                    # 서랍의 가게 기본 질문(이름·메뉴)에 답할 때 가게 프로필을 읽을 곳
     care = care or CareProxy.from_settings(demo.s)                  # 고객응대 프록시 (시험에서는 가짜 리뷰 분석 서비스)
 
     @asynccontextmanager
@@ -127,6 +134,9 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
 
     @app.post("/api/cards/{card_id}/run")
     def run(card_id: str, request: Request, body: RunIn | None = None):
+        if body is not None and body.generator is not None:   # 개별 다시 만들기: 그 글 한 건만
+            return demo.run(card_id, measures=body.measures, visitor=request.state.visitor_id, generator=body.generator,
+                            review_id=body.review_id, reply_texts=body.reply_texts)
         return demo.run(card_id, measures=body.measures if body else None, visitor=request.state.visitor_id)
 
     @app.post("/api/drafts/{draft_id}/approve")
@@ -145,6 +155,10 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     @app.get("/api/approvals")
     def approvals(request: Request):
         return {"items": demo.list_approvals(request.state.visitor_id)}
+
+    @app.delete("/api/approvals")
+    def clear_approvals(request: Request):
+        return {"deleted": demo.clear_approvals(request.state.visitor_id)}
 
     @app.post("/api/reviews", status_code=201)
     def paste(body: PasteIn, request: Request):

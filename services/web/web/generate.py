@@ -15,6 +15,7 @@ import copy
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -207,6 +208,83 @@ def add_pasted_replies(result: dict, drafts: list[dict], skipped: list[dict], *,
         parts.append(f"붙여넣은 불만 리뷰 {len(skipped)}건은 답글을 만들지 않았어요 ({skipped[0]['reason']})")
     if parts:
         result["source_note"] = " · ".join(parts)
+    return result
+
+
+# ── 개별 다시 만들기: 카드의 글 한 건만 (11/16) ─────────────────────────
+# 초안 상자의 '다시 만들기'가 카드 전체를 다시 만들어 다른 글의 수정·승인까지 날리던 것을 고쳤다.
+# 전체 실행(run_live → c6.registry.run_card, run_live_pasted_replies)이 그 글을 만들 때와 같은 입력으로 한 건만 부른다.
+def pick_seed_draft(result: dict, generator: str, review_id: str | None) -> dict | None:
+    """mock: 카드에 맞춘 저장 예시(adapt_seed 결과)에서 그 글 한 건을 고른다. 답글은 리뷰 id 까지 같아야 한다."""
+    for draft in result.get("drafts", []):
+        if draft.get("generator") == generator and (generator != "reply_draft" or draft.get("target_review_id") == review_id):
+            return draft
+    return None
+
+
+def reply_order(card: RecommendationCard, reviews: list[ReviewRecord], review_id: str) -> tuple[ReviewRecord, int, bool] | None:
+    """답글 한 건의 (리뷰, 전체 실행에서의 순서, 붙여넣은 리뷰인지). 카드 묶음 리뷰도 붙여넣은 답글 대상도 아니면 None.
+    순서는 C6 가 답글마다 고정 문장(조치·요청사항)을 돌려 쓰는 기준이라, 전체 실행 때와 같아야 문장이 다른 답글과 겹치지 않는다."""
+    by_id = {r.review_id: r for r in reviews}
+    bundle = [by_id[rid] for rid in card.review_ids if rid in by_id]       # c6.reply.generate_reply_draft 가 도는 순서
+    for targets, pasted in ((bundle, False), (pasted_reply_targets(card, reviews), True)):
+        for index, review in enumerate(targets):
+            if review.review_id == review_id:
+                return review, index, pasted
+    return None
+
+
+def _one_reply(ctx, card: RecommendationCard, review: ReviewRecord, index: int, key: str, model: str) -> tuple[dict, float]:
+    """리뷰 한 건의 답글. c6.reply.generate_reply_draft(reply_style="auto") 가 리뷰마다 하는 일을 그대로 한다.
+
+    generate_reply_draft 는 카드의 답글을 모두 다시 만들고 리뷰 순서(idx)를 밖에서 정할 수 없어서, 그 안에서 리뷰 한 건을
+    처리하는 _process_review 를 같은 인자로 직접 부른다 (C6 코드는 고치지 않음). C6 가 이 함수의 인자를 바꾸면 여기도 같이
+    고쳐야 한다 — tests/test_regen_one.py 가 진짜 C6 코드를 가짜 HCX 응답으로 돌려서 어긋나면 바로 잡는다.
+    전체 실행과 다른 점 하나: 다른 답글과 표현이 겹치는지(checks.not_too_similar)는 보지 않는다. 그 비교는 답글들의 AI 가 쓴
+    부분끼리 하는데 여기서는 한 건만 만들기 때문이다. 그래서 이 칸은 넣지 않는다 (참고용 점검이라 글 상태는 같다).
+    """
+    from c6 import reply as c6_reply
+
+    store, policies = ctx.store, ctx.policies
+    start = time.perf_counter()
+    draft, won, *_ = c6_reply._process_review(
+        review, idx=index, card_id=card.card_id, store=store, store_display=c6_reply.display_name(store.name),
+        menu_names=list(store.menu), allowed_numbers=list(store.menu_prices.values()), policies=policies,
+        forbidden_phrases=list(ctx.tone.forbidden_phrases) if ctx.tone.forbidden_phrases else [],
+        valid_ids={f"F_{r.review_id}" for r in ctx.reviews} | {p["policy_id"] for p in policies} | {"M1"},
+        key=key, model=model, fixed_style=c6_reply.detect_register(ctx.tone))
+    draft.elapsed_ms = round((time.perf_counter() - start) * 1000)
+    return draft.to_dict(), float(won or 0)
+
+
+def run_live_one(card: RecommendationCard, generator: str, *, store: StoreProfile, reviews: list[ReviewRecord],
+                 snapshots: list[AnalysisSnapshot], key: str, model: str, chosen_measures: list[dict] | None = None,
+                 review: ReviewRecord | None = None, index: int = 0, reply_texts: list[str] | None = None) -> dict:
+    """HCX-005 로 글 한 건만 다시 만든다. 돌려주는 모양은 run_live 와 같고 drafts 에 그 한 건만 있다.
+
+    - coupon_promo: 카드 ⓑ 는 글이 하나라 카드 전체 실행과 같다.
+    - prevention_notice: 고른 조치와, 지금 화면에 있는 묶음 답글들(reply_texts: 공지가 답글과 너무 비슷한지 견줄 때만 씀).
+    - reply_draft: review 한 건 (index 는 reply_order 가 준 순서). 붙여넣은 리뷰도 같은 방식 (조치는 원래 답글에 넣지 않는다).
+    """
+    if generator == "coupon_promo":
+        return run_live(card, store=store, reviews=reviews, snapshots=snapshots, key=key, model=model,
+                        chosen_measures=chosen_measures)
+    if not key:
+        raise GenerateError("HCX 키가 없어 실시간 생성을 할 수 없어요. APP_MODE=mock 으로 실행하세요.")
+    ctx = _context(store, reviews, card, snapshots)
+    if generator == "prevention_notice":
+        from c6.notice import generate_prevention_notice
+        result = generate_prevention_notice(ctx, card, key, model=model, chosen_measures=chosen_measures,
+                                            reply_texts=list(reply_texts or [])).to_dict()
+    elif generator == "reply_draft" and review is not None:
+        draft, won = _one_reply(ctx, card, review, index, key, model)
+        result = {"card_id": card.card_id, "kind": card.kind, "reason_text": card.reason_text, "basis_label": None,
+                  "drafts": [draft], "chosen_measures": list(chosen_measures or []), "elapsed_ms": draft["elapsed_ms"],
+                  "won": round(won, 4)}
+    else:
+        raise GenerateError(f"한 건만 다시 만들 수 없는 글이에요: {generator}")
+    result["source"] = "live"
+    result["needs_input"] = list(ctx.needs_input)
     return result
 
 

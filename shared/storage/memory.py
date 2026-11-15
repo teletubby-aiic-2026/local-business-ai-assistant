@@ -26,6 +26,11 @@ class MemoryApprovals:
         with self._lock:
             return list(self._rows.get((store_id, visitor_id), []))
 
+    def clear(self, store_id: str, visitor_id: str) -> int:
+        """이 가게·이 방문자의 승인 기록을 모두 지우고 지운 건수를 돌려준다. 다른 방문자·다른 가게의 기록은 그대로다."""
+        with self._lock:
+            return len(self._rows.pop((store_id, visitor_id), []))
+
 
 class MemoryCardReasons:
     def __init__(self) -> None:

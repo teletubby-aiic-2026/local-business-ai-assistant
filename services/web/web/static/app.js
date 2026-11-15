@@ -77,6 +77,56 @@ function applyTheme() {
   else delete document.documentElement.dataset.theme;
 }
 
+// ── 왼쪽 메뉴 접기 (11/16) ─────────────────────────────────────────
+// 상단 바의 #menu-toggle 로 왼쪽 메뉴를 접고 편다. 상태는 <html data-menu="open|closed"> 하나로만 알리고, 모양·배치는 style.css 가 정한다.
+//   1025px 이상   펼친 채 시작. 접으면 본문이 넓어지고, 접었는지를 localStorage(ic26.menu)에 기억한다
+//   761~1024px   늘 접힌 채 시작 (기억한 값과 상관없음). 펼치면 본문을 밀지 않고 위에 덮는다 → 바깥·Esc·메뉴 항목을 누르면 닫힘
+//   760px 이하    메뉴가 상단 바 아래 가로줄이라 접지 않는다 (토글 버튼이 없음)
+const MENU_KEY = "ic26.menu";
+const menuMid = window.matchMedia("(min-width: 761px) and (max-width: 1024px)");
+const menuPhone = window.matchMedia("(max-width: 760px)");
+// 창 폭이 소수일 때(화면 배율) 구간 사이 1px 틈은 style.css 와 같이 넓은 화면으로 본다
+const menuBandNow = () => (menuMid.matches ? "mid" : menuPhone.matches ? "phone" : "wide");
+let menuBand = "";       // 지금 폭 구간. 구간이 바뀔 때만 그 구간의 처음 상태로 되돌린다
+let menuPref = "open";   // localStorage 를 못 쓰는 환경(사생활 보호 모드 등)에서는 이 값으로만 기억한다 (새로고침하면 처음으로)
+function menuRead() { try { return localStorage.getItem(MENU_KEY) || menuPref; } catch (e) { return menuPref; } }
+function menuWrite(v) { menuPref = v; try { localStorage.setItem(MENU_KEY, v); } catch (e) { /* 저장하지 못해도 이번 화면에서는 그대로 동작 */ } }
+const menuIsOpen = () => document.documentElement.dataset.menu !== "closed";
+const menuOverlayOpen = () => menuBand === "mid" && menuIsOpen();   // 본문 위에 덮인 메뉴가 열려 있는지
+function setMenu(open) {
+  document.documentElement.dataset.menu = open ? "open" : "closed";
+  const b = $("menu-toggle"), label = open ? "왼쪽 메뉴 접기" : "왼쪽 메뉴 펼치기";
+  b.setAttribute("aria-expanded", String(open));
+  b.setAttribute("aria-label", label);
+  b.title = label;
+  setTopH();   // 접으면 상단 바에 로고가 들어와 높이가 달라질 수 있다 (덮는 메뉴는 상단 바 바로 아래에서 시작)
+}
+function applyMenu() {
+  menuBand = menuBandNow();
+  setMenu(menuBand === "mid" ? false : menuBand === "wide" ? menuRead() !== "closed" : true);
+}
+function toggleMenu() {
+  const open = !menuIsOpen();
+  setMenu(open);
+  if (menuBand !== "mid") { menuWrite(open ? "open" : "closed"); return; }
+  // 덮는 메뉴: 기억하지 않는다. 열면 포커스를 메뉴(지금 화면의 항목)로, 닫으면 토글 버튼으로
+  if (open) (document.querySelector('.side .menu a[aria-current="page"]') || document.querySelector(".side .menu a")).focus();
+  else $("menu-toggle").focus();
+}
+// 덮는 메뉴 닫기. 포커스가 메뉴 안에 있었으면(또는 잃었으면) 토글 버튼으로 돌려준다. 이미 다른 곳으로 옮겨 갔으면 건드리지 않는다
+function closeMenuOverlay() {
+  const a = document.activeElement;
+  const back = !a || a === document.body || !!a.closest(".side");
+  setMenu(false);
+  if (back) $("menu-toggle").focus();
+}
+// 메뉴가 접혀 있는 동안 토글 버튼 위에 보이는 승인 대기 수 (renderDash 가 #nav-draft-count 와 같이 맞춘다)
+function syncMenuCount(n) {
+  const c = $("menu-toggle-count");
+  c.hidden = !n;
+  c.innerHTML = n ? `<span aria-hidden="true">${esc(n)}</span><span class="sr">승인 대기 ${esc(n)}개</span>` : "";
+}
+
 // ── 맨 위 띠·바닥 ─────────────────────────────────────────────────
 function renderHealth(h) {
   // 시험용 실행(mock)일 때만 띄운다. live 에서는 보이지 않는다.
@@ -167,13 +217,27 @@ function renderHourChart(b) {
 
 // ── 2 제안 ───────────────────────────────────────────────────────
 // 카드마다 출처·시점 한 줄은 늘 보이고(05 5절·7절), 근거 리뷰·이유 문장 출처는 '근거 보기'로 접는다.
+// 근거 종류는 셋: review(불만 리뷰, 카드 ⓐ) · snapshot(상권 지표, 카드 ⓑ) · praise(쿠폰 메뉴를 칭찬한 리뷰, 카드 ⓑ).
 function sourceLine(p) {
   const reviews = p.evidence.filter((e) => e.type === "review");
-  const snaps = p.evidence.filter((e) => e.type !== "review");
+  const snaps = p.evidence.filter((e) => e.type === "snapshot");
   const parts = [];
   if (reviews.length) parts.push(`리뷰 ${reviews.length}건 · 합성 데이터`);
   snaps.forEach((e) => parts.push(shortBasis(e.basis)));
+  if (praiseOf(p).shown.length) parts.push(`손님 칭찬 리뷰 ${praiseOf(p).total}건 · 합성 데이터`);
   return parts.join(" · ");
+}
+// 카드 ⓑ 의 칭찬 근거: 보여 줄 리뷰(최대 3건), 쿠폰 메뉴, 그 메뉴를 언급한 칭찬 리뷰 수 (card.review_ids 가 전부를 담는다)
+function praiseOf(p) {
+  const shown = p.evidence.filter((e) => e.type === "praise");
+  return { shown, menu: shown.length ? shown[0].menu : "", total: Math.max(shown.length, (p.card.review_ids || []).length) };
+}
+// '근거 보기'의 칩 하나. 리뷰 글·id 는 사용자 입력일 수 있어 esc() 를 거친다. 지표(snapshot)만 기준·'원본' 링크가 붙는다
+function evidenceChip(e) {
+  const body = e.type === "review" ? `리뷰 ${esc(e.id)}: “${esc(e.text)}”`
+    : e.type === "praise" ? `칭찬 리뷰 ${esc(e.id)}: “${esc(e.text)}”`
+    : `${esc(e.text)} · ${esc(shortBasis(e.basis))}${sourceUrl(e.basis) ? ` · <a href="${esc(sourceUrl(e.basis))}" target="_blank" rel="noopener">원본</a>` : ""}`;
+  return `<span title="${esc(e.note || "")}">${body}</span>`;
 }
 function renderCards(data) {
   state.cards = data.cards;
@@ -188,7 +252,7 @@ function renderCards(data) {
       <p class="small muted">근거: ${esc(sourceLine(p))}</p>
       ${measureBox(p)}
       <details class="more"><summary class="small">근거 보기</summary>
-        <div class="ev">${p.evidence.map((e) => `<span title="${esc(e.note || "")}">${e.type === "review" ? "리뷰 " + esc(e.id) + ": “" + esc(e.text) + "”" : esc(e.text) + " · " + esc(shortBasis(e.basis))}${e.type !== "review" && sourceUrl(e.basis) ? ` · <a href="${esc(sourceUrl(e.basis))}" target="_blank" rel="noopener">원본</a>` : ""}</span>`).join("")}</div>
+        <div class="ev">${p.evidence.map(evidenceChip).join("")}</div>
         <p class="small muted">이유 문장: ${esc(p.reason_source)}${(p.problems || []).length ? " · 검사기 지적 " + p.problems.length + "건" : ""}</p>
       </details>
       <button type="button" class="primary" data-run="${esc(c.card_id)}">${label}</button>
@@ -218,7 +282,8 @@ function todosOf() {
   }
   if (mkt) {
     const made = !!state.results[mkt.card.card_id];
-    items.push({ key: "promo", card: mkt, cid: mkt.card.card_id, gen: "coupon_promo", title: "쿠폰 홍보글", sub: `저녁 매출 ${$("stat-market").textContent} · 저녁 손님 다시 부르기`, agent: "마케팅 에이전트", st: status(mkt, of(mkt, "coupon_promo"), made) });
+    const menu = praiseOf(mkt).menu;   // 손님 칭찬 리뷰에 나온 쿠폰 메뉴 (칭찬 근거가 없으면 빈 글자 → 예전 문구)
+    items.push({ key: "promo", card: mkt, cid: mkt.card.card_id, gen: "coupon_promo", title: "쿠폰 홍보글", sub: `저녁 매출 ${$("stat-market").textContent} · ${menu ? `손님이 칭찬한 ${menu} 쿠폰으로 ` : ""}저녁 손님 다시 부르기`, agent: "마케팅 에이전트", st: status(mkt, of(mkt, "coupon_promo"), made) });
   }
   return items;
 }
@@ -240,6 +305,7 @@ function renderDash() {
   const waiting = all.filter((d) => !state.approved.has(d.draft_id)).length;
   $("nav-draft-count").hidden = !waiting;
   $("nav-draft-count").textContent = waiting;
+  syncMenuCount(waiting);   // 메뉴가 접혀 있을 때는 토글 버튼 위에
   const staff = (prefix, list) => {
     const made = list.some((t) => t.st[0] !== "none");
     const done = list.length && list.every((t) => t.st[0] === "done");
@@ -273,13 +339,21 @@ async function runTodo(t, button) {
   if (currentRoute() === "draft") renderDraft(); else go("draft");
 }
 
-// 불만 카드: 공지에 넣을 재발 방지 조치를 사장님이 고른다 (C6 목록, 고르지 않은 조치는 글에 못 들어감)
+// 불만 카드: 오늘부터 가게에서 실천할 점검 수칙을 사장님이 고른다 (C6 조치 목록). 문서용 옵션이 아니라 현장에서 할 일로 보이게 쓴다.
+// 고른 수칙만 재발 방지 공지에 들어가고, 고르지 않은 것은 글에 못 들어간다. (답글은 C6 가 늘 같은 조치 문장을 붙여서 '공지에 반영'이라고만 적는다)
+const RULES_TITLE = "오늘부터 실천할 주방 점검 수칙";
 function measureBox(p) {
   const m = p.measures || {};
   if (!(m.options || []).length) return "";
   const on = new Set(m.default || []);
-  return `<fieldset class="measures"><legend class="small">공지에 넣을 재발 방지 조치</legend>
-    ${m.options.map((o) => `<label class="small"><input type="checkbox" data-measure="${esc(p.card.card_id)}" value="${esc(o.id)}"${on.has(o.id) ? " checked" : ""}> ${esc(o.text)}</label>`).join("")}
+  // 이미 만든 카드는 그때 고른 수칙을 체크해 둔다. 카드를 다시 그릴 때 기본값으로 돌아가면 '카드 전체 다시 만들기'가 고른 수칙을 잃는다
+  const made = state.results[p.card.card_id]?.chosen_measures;
+  const picked = made ? new Set(made.map((x) => x.id)) : on;
+  // 시험용 실행(mock)은 저장 예시 글을 그대로 보여 주므로 '공지에 반영'이라고 말하지 않는다
+  const mock = state.health?.mode === "mock";
+  return `<fieldset class="measures"><legend class="small">${RULES_TITLE}${mock ? "" : " (공지에 반영)"}</legend>
+    ${m.options.map((o) => `<label class="small"><input type="checkbox" data-measure="${esc(p.card.card_id)}" value="${esc(o.id)}"${picked.has(o.id) ? " checked" : ""}> ${esc(o.text)}</label>`).join("")}
+    ${mock ? '<p class="small muted">시험용 실행에서는 저장 예시 글이 그대로 나와요. 고른 수칙은 화면에만 표시돼요.</p>' : ""}
   </fieldset>`;
 }
 
@@ -295,8 +369,11 @@ async function runCard(cardId, button) {
     const boxes = [...document.querySelectorAll(`[data-measure="${CSS.escape(cardId)}"]`)];
     const body = boxes.length ? JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) }) : undefined;
     const result = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body });
-    // 다시 만들면 그 카드의 예전 글 승인·고친 내용은 버린다
-    (state.results[cardId]?.drafts || []).forEach((d) => { state.approved.delete(d.draft_id); delete state.pending[d.draft_id]; });
+    // 다시 만들면 그 카드의 예전 글 승인·고친 내용은 버린다 (완료 화면의 승인 목록에서도 뺀다)
+    const gone = new Set((state.results[cardId]?.drafts || []).map((d) => d.draft_id));
+    gone.forEach((id) => { dropBox(id); state.approved.delete(id); delete state.pending[id]; });
+    state.approvedLog = state.approvedLog.filter((x) => !gone.has(x.id));
+    draftNote = null;
     state.results[cardId] = result;
     state.current = cardId; state.draftId = null;
     renderCards({ cards: state.cards, no_card_b: $("no-card-b").textContent });
@@ -328,14 +405,104 @@ function sourceBlock(p, d) {
   if (target) return `<div class="rv"><p class="rv-title">손님 리뷰</p><ul class="rv-list">${reviewItem(target)}</ul></div>`;
   const reviews = p.evidence.filter((e) => e.type === "review").map((e) => state.reviews[e.id] || { text: e.text });
   if (reviews.length) return `<div class="rv"><p class="rv-title">근거 리뷰 ${reviews.length}건</p><ul class="rv-list">${reviews.map(reviewItem).join("")}</ul></div>`;
-  const snaps = p.evidence.filter((e) => e.type !== "review");
-  if (snaps.length) return `<div class="rv"><p class="rv-title">근거 지표</p>${snaps.map((e) => `<p class="rv-text">${esc(e.text)}</p><div class="rv-meta"><span>${esc(shortBasis(e.basis))}</span></div>`).join("")}</div>`;
-  return "";
+  // 홍보글: 상권 근거 지표와, 쿠폰 메뉴를 칭찬한 손님 리뷰를 둘 다 보여 준다 (칭찬 근거가 없는 카드는 지표만)
+  const snaps = p.evidence.filter((e) => e.type === "snapshot");
+  const praise = praiseOf(p);
+  const praised = praise.shown.map((e) => state.reviews[e.id] || { text: e.text, rating: e.rating });
+  return (snaps.length ? `<div class="rv"><p class="rv-title">근거 지표</p>${snaps.map((e) => `<p class="rv-text">${esc(e.text)}</p><div class="rv-meta"><span>${esc(shortBasis(e.basis))}</span></div>`).join("")}</div>` : "")
+    + (praised.length ? `<div class="rv"><p class="rv-title">손님 칭찬 리뷰 · ${esc(praise.menu)} 언급 ${praise.total}건${praise.total > praised.length ? ` 중 ${praised.length}건` : ""}</p><ul class="rv-list">${praised.map(reviewItem).join("")}</ul></div>` : "");
 }
 
 function saveEdits() {
   // 다시 그리기 전에, 아직 승인하지 않은 글에서 고친 내용을 보존한다
   document.querySelectorAll("textarea[data-text]").forEach((box) => (state.pending[box.dataset.text] = box.value));
+}
+// 새 글로 바꿔 버린 글의 편집 칸이 아직 화면에 있으면, 다음 saveEdits 가 그 내용을 새 글에 다시 담지 않게 뗀다 (mock 은 새 글 id 가 예전과 같다)
+const dropBox = (id) => document.querySelectorAll(`textarea[data-text="${CSS.escape(id)}"]`).forEach((box) => box.removeAttribute("data-text"));
+
+// ── 다시 만들기 두 가지 (11/16) ─────────────────────────────────────
+// 초안 상자의 '다시 만들기'(data-regen = 글 id)는 지금 보는 글 한 건만 새로 만든다: 같은 API 에 generator(+review_id)를 보낸다.
+//   그 글의 승인·고친 내용만 지우고, 다른 글의 승인·고친 내용은 그대로 둔다.
+// 진행줄 옆 '카드 전체 다시 만들기'(data-rerun = 카드 id)는 그 카드의 글을 모두 새로 만든다 (runCard). 승인했거나 고치는 중인 글이
+//   있으면 한 번 더 눌러야 실행한다 (대화상자 대신, 서랍의 '대화 지우기'와 같은 방식).
+const RERUN_LABEL = "카드 전체 다시 만들기";
+const RERUN_ARM_MS = 5000;
+const rerunArm = { card: null, timer: null };   // 한 번 눌러 둔 카드 (RERUN_ARM_MS 안에 한 번 더 누르면 실행)
+const regenBusy = new Set();                    // 지금 다시 만드는 중인 글. 화면을 다시 그려도 '만드는 중…'으로 남는다
+let draftNote = null;                           // 초안 상자 아래 한 줄 안내 { id: 글 id, text }
+const regenKey = (cardId, d) => [cardId, d.generator, d.target_review_id || ""].join("|");
+const sameSlot = (a, b) => a.generator === b.generator && (a.target_review_id || "") === (b.target_review_id || "");
+const isEdited = (d) => state.pending[d.draft_id] != null && state.pending[d.draft_id] !== (d.edited_text ?? d.text);
+const touchedOf = (cardId) => draftsOf(cardId).filter((d) => state.approved.has(d.draft_id) || isEdited(d)).length;
+
+async function regenDraft(id) {
+  const cardId = state.current, r = state.results[cardId];
+  const p = state.cards.find((x) => x.card.card_id === cardId);
+  const d = (r?.drafts || []).find((x) => x.draft_id === id);
+  if (!p || !d) return;
+  const key = regenKey(cardId, d);
+  if (regenBusy.has(key)) return;
+  const body = { generator: d.generator };
+  if (d.target_review_id) body.review_id = d.target_review_id;
+  // 불만 카드: 처음 만들 때 고른 수칙을 그대로 보낸다. 공지는 지금 화면의 묶음 답글도 보낸다 (공지가 답글과 너무 비슷한지 서버가 견줌)
+  if (p.card.kind === "complaint") body.measures = (r.chosen_measures || []).map((m) => m.id);
+  if (d.generator === "prevention_notice") {
+    const pasted = new Set(r.pasted_reply_review_ids || []);
+    body.reply_texts = r.drafts.filter((x) => x.generator === "reply_draft" && !pasted.has(x.target_review_id)).map((x) => x.text);
+  }
+  regenBusy.add(key); draftNote = null;
+  renderDraft();
+  try {
+    const made = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body: JSON.stringify(body) });
+    const fresh = (made.drafts || [])[0];
+    if (!fresh) throw new Error("새 글을 받지 못했어요. 다시 눌러 주세요.");
+    const at = state.results[cardId] === r ? r.drafts.findIndex((x) => sameSlot(x, d)) : -1;
+    if (at < 0) return;   // 기다리는 동안 카드 전체를 다시 만들었거나 카드가 바뀌었다: 늦게 온 이 글은 버린다
+    const gone = r.drafts[at].draft_id;
+    // 바꾼 글의 승인·고친 내용만 지운다. 다른 글의 것은 건드리지 않는다
+    dropBox(gone); state.approved.delete(gone); delete state.pending[gone];
+    state.approvedLog = state.approvedLog.filter((x) => x.id !== gone);
+    r.drafts[at] = fresh;
+    r.flagged_count = r.drafts.filter((x) => failedOf(x).length || checksOf(x).length).length;
+    if (state.draftId === gone) state.draftId = fresh.draft_id;
+    draftNote = { id: fresh.draft_id, text: (made.source === "seed" ? "이 글만 다시 불러왔어요. 시험용 실행이라 저장 예시 글 그대로예요." : "이 글만 새로 만들었어요.")
+      + " 다른 글의 승인과 고친 내용은 그대로예요." };
+  } catch (e) { showAlert(e.message); }
+  finally {
+    regenBusy.delete(key);
+    renderDash();
+    if (currentRoute() === "draft") {
+      // 다시 그려도 고치던 글 칸의 포커스·커서 자리는 지킨다 (기다리는 동안 다른 글을 고치고 있을 수 있다)
+      const box = document.activeElement?.matches?.("textarea[data-text]") ? document.activeElement : null;
+      const keep = box && { id: box.dataset.text, start: box.selectionStart, end: box.selectionEnd, top: box.scrollTop };
+      renderDraft();
+      const again = keep && document.querySelector(`textarea[data-text="${CSS.escape(keep.id)}"]`);
+      if (again) { again.focus({ preventScroll: true }); again.setSelectionRange(keep.start, keep.end); again.scrollTop = keep.top; }
+      else if (document.activeElement === document.body) $("draft").querySelector("[data-regen]")?.focus({ preventScroll: true });   // 버튼이 다시 그려져 잃은 포커스
+    }
+  }
+}
+
+function rerunDisarm() { clearTimeout(rerunArm.timer); rerunArm.card = null; rerunArm.timer = null; }
+// 버튼 글자와 안내 한 줄만 지금 상태에 맞춘다. 화면을 통째로 다시 그리지 않는다 (글을 고치는 중일 수 있어서)
+function rerunPaint() {
+  const button = $("draft").querySelector("[data-rerun]"), note = $("draft").querySelector("[data-rerun-note]");
+  if (!button || !note) return;
+  const armed = rerunArm.card === button.dataset.rerun;
+  button.textContent = armed ? "한 번 더 눌러 실행" : RERUN_LABEL;
+  note.textContent = armed ? `한 번 더 누르면 이 카드의 글을 모두 다시 만들어요. 승인했거나 고친 글 ${touchedOf(rerunArm.card)}개도 새 글로 바뀌어요.` : "";
+}
+async function rerunCard(cardId, button) {
+  saveEdits();
+  if (touchedOf(cardId) && rerunArm.card !== cardId) {
+    rerunDisarm();
+    rerunArm.card = cardId;
+    rerunArm.timer = setTimeout(() => { rerunDisarm(); rerunPaint(); }, RERUN_ARM_MS);
+    rerunPaint();
+    return;
+  }
+  rerunDisarm(); rerunPaint();
+  await runCard(cardId, button);
 }
 
 function renderDraft() {
@@ -360,6 +527,7 @@ function renderDraft() {
   const approved = d && state.approved.has(d.draft_id);
   const [, statusText] = d ? statusOf(d) : [];
   const srcLabel = SOURCE_NAMES[r.source] || r.source || "";
+  const busy = !!d && regenBusy.has(regenKey(state.current, d));   // 이 글을 다시 만드는 중
 
   const name = GEN_NAMES[d?.generator] || d?.generator || "";
   el.innerHTML = `
@@ -369,8 +537,10 @@ function renderDraft() {
     </div>
     ${made.length > 1 ? `<div class="seg" role="group" aria-label="카드">${made.map((q) => `<button type="button" data-card="${esc(q.card.card_id)}"${q.card.card_id === state.current ? ' aria-current="true"' : ""}>${state.cards.indexOf(q) === 0 ? "ⓐ" : "ⓑ"} ${esc(KIND_NAMES[q.card.kind] || q.card.kind)}</button>`).join("")}</div>` : ""}
     ${r.source_note ? `<p class="small muted">${esc(r.source_note)}</p>` : ""}
-    ${(r.chosen_measures || []).length ? `<p class="small">사장님이 고른 재발 방지 조치: ${r.chosen_measures.map((m) => esc(m.text)).join(", ")}</p>` : ""}
-    <div class="progress"><span>승인 ${done} / ${drafts.length}</span><span class="track" aria-hidden="true"><i style="width:${drafts.length ? Math.round((done / drafts.length) * 100) : 0}%"></i></span></div>
+    ${(r.chosen_measures || []).length ? `<p class="small">${RULES_TITLE}: ${r.chosen_measures.map((m) => esc(m.text)).join(", ")} <span class="muted">· ${r.source === "seed" ? "시험용 저장 예시 글은 고른 수칙과 상관없이 그대로예요" : "공지에 반영"}</span></p>` : ""}
+    <div class="progress"><span>승인 ${done} / ${drafts.length}</span><span class="track" aria-hidden="true"><i style="width:${drafts.length ? Math.round((done / drafts.length) * 100) : 0}%"></i></span>
+      <button type="button" class="ghost" data-rerun="${esc(state.current)}">${RERUN_LABEL}</button></div>
+    <p class="small muted draft-note" role="status" data-rerun-note></p>
     <ol class="draft-list" aria-label="글 ${drafts.length}개">${drafts.map((x, i) => {
       const [tone, text] = statusOf(x);
       return `<li><button type="button" data-pick="${esc(x.draft_id)}"${x.draft_id === state.draftId ? ' aria-current="true"' : ""}>${i + 1}. ${esc(GEN_NAMES[x.generator] || x.generator)} <span class="st ${tone}">${text}</span></button></li>`;
@@ -384,23 +554,26 @@ function renderDraft() {
       ${sourceBlock(p, d)}
       <div class="reply">
         <label class="reply-label" for="text-${esc(d.draft_id)}">${ICON_AI}AI ${esc(name)} 초안<span class="sr"> (${esc(statusText)})</span></label>
-        <textarea id="text-${esc(d.draft_id)}" rows="7" data-text="${esc(d.draft_id)}">${esc(state.pending[d.draft_id] ?? d.edited_text ?? d.text)}</textarea>
+        <textarea id="text-${esc(d.draft_id)}" rows="7" data-text="${esc(d.draft_id)}"${busy ? " readonly" : ""}>${esc(state.pending[d.draft_id] ?? d.edited_text ?? d.text)}</textarea>
         ${failed.length ? `<ul class="issues bad">${failed.map((x) => `<li><b>점검 실패</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
         ${checks.length ? `<ul class="issues">${checks.map((x) => `<li><b>확인 필요</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
       </div>
       <div class="row">
-        <button type="button" class="primary" data-approve="${esc(d.draft_id)}">${approved ? "다시 승인" : "승인"}</button>
+        <button type="button" class="primary" data-approve="${esc(d.draft_id)}"${busy ? " disabled" : ""}>${approved ? "다시 승인" : "승인"}</button>
         <button type="button" data-copy="${esc(d.draft_id)}">복사</button>
-        <button type="button" class="ghost" data-rerun="${esc(state.current)}">다시 만들기</button>
+        <button type="button" class="ghost" data-regen="${esc(d.draft_id)}"${busy ? " disabled" : ""}>${busy ? "만드는 중…" : "다시 만들기"}</button>
       </div>
+      <p class="small muted draft-note" role="status">${busy ? "이 글만 다시 만들고 있어요. 다른 글의 승인과 고친 내용은 그대로예요." : draftNote?.id === d.draft_id ? esc(draftNote.text) : ""}</p>
       <p class="small muted model">${esc(d.model || "")}${d.elapsed_ms ? " · " + (d.elapsed_ms / 1000).toFixed(1) + "초" : ""}</p>
     </article>` : '<div class="panel"><p class="muted">이 카드에서 만든 글이 없어요.</p></div>'}`;
 
-  el.querySelectorAll("[data-card]").forEach((b) => b.addEventListener("click", () => { saveEdits(); state.current = b.dataset.card; state.draftId = null; renderDraft(); }));
-  el.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => { saveEdits(); state.draftId = b.dataset.pick; renderDraft(); }));
+  el.querySelectorAll("[data-card]").forEach((b) => b.addEventListener("click", () => { saveEdits(); draftNote = null; state.current = b.dataset.card; state.draftId = null; renderDraft(); }));
+  el.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => { saveEdits(); draftNote = null; state.draftId = b.dataset.pick; renderDraft(); }));
   el.querySelectorAll("[data-approve]").forEach((b) => b.addEventListener("click", () => approve(b.dataset.approve)));
   el.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => copyDraft(b.dataset.copy, b)));
-  el.querySelectorAll("[data-rerun]").forEach((b) => b.addEventListener("click", () => runCard(b.dataset.rerun, b)));
+  el.querySelectorAll("[data-regen]").forEach((b) => b.addEventListener("click", () => regenDraft(b.dataset.regen)));
+  el.querySelectorAll("[data-rerun]").forEach((b) => b.addEventListener("click", () => rerunCard(b.dataset.rerun, b)));
+  rerunPaint();
 }
 
 function findDraft(id) {
@@ -447,6 +620,13 @@ function renderDone() {
     return;
   }
   const total = Object.values(state.results).flatMap((r) => r.drafts || []).length;
+  // 불만 카드를 만들 때 사장님이 고른 수칙 (서버 응답의 chosen_measures). 글 승인과 함께 오늘부터 현장에서 할 일로 다시 보여 준다
+  const care = state.cards.find((p) => p.card.kind === "complaint");
+  const made = care ? state.results[care.card.card_id] : null;
+  const rules = made?.chosen_measures || [];
+  const noticeDone = (made?.drafts || []).some((d) => d.generator === "prevention_notice" && state.approved.has(d.draft_id));
+  const rulesNote = made?.source === "seed" ? "시험용 저장 예시 글은 고른 수칙과 상관없이 그대로예요."
+    : noticeDone ? "승인한 재발 방지 공지에 넣어 만든 수칙이에요." : "재발 방지 공지에 넣어 만든 수칙이에요. 공지는 아직 승인 전이에요.";
   el.innerHTML = `
     <div class="page-head"><h1 tabindex="-1">처리 완료</h1>
       <p class="muted">승인한 글 ${log.length}개 / 만든 글 ${total}개 · 게시는 복사해서 직접 올려요</p></div>
@@ -454,9 +634,17 @@ function renderDone() {
       <div class="progress"><span>승인 ${log.length} / ${total}</span><span class="track" aria-hidden="true"><i style="width:${total ? Math.round((log.length / total) * 100) : 0}%"></i></span></div>
       <ul class="plain log">${log.map((a) => `<li><span class="badge ok">승인 완료</span> ${esc(a.name)} <span class="small muted">· ${esc(a.card)} · ${esc(String(a.at).slice(11, 19))}${a.edited ? " · 사장님이 고침" : ""}</span></li>`).join("")}</ul>
     </div>
-    <button type="button" class="primary big" id="restart">처음으로</button>
+    ${rules.length ? `<div class="panel done-rules"><h2>${RULES_TITLE}</h2>
+      <ul>${rules.map((m) => `<li>${esc(m.text)}</li>`).join("")}</ul>
+      <p class="small muted">사장님이 카드에서 고른 수칙 ${rules.length}가지예요. ${rulesNote}</p></div>` : ""}
+    <div class="row done-actions">
+      <button type="button" class="primary big" data-home>홈으로</button>
+      <button type="button" class="ghost" id="restart">처음부터 다시</button>
+    </div>
+    <p class="small muted done-hint">‘홈으로’는 만든 글과 승인 표시를 그대로 둬요. ‘처음부터 다시’는 만든 글과 승인 기록을 모두 지워요.</p>
     <details class="more"><summary class="small">서버 처리 기록</summary><ul id="approvals" class="plain small"></ul></details>`;
-  $("restart").addEventListener("click", restart);
+  el.querySelector("[data-home]").addEventListener("click", () => go("today"));
+  $("restart").addEventListener("click", (e) => restart(e.currentTarget));
   loadApprovals().catch(() => {});
 }
 
@@ -466,12 +654,21 @@ async function loadApprovals() {
   if (ul) ul.innerHTML = data.items.map((a) => `<li>${esc(a.approved_at.slice(11, 19))} · ${esc(a.draft_id)} 승인${a.edited ? " (사장님이 고침)" : ""}</li>`).join("") || "<li>기록 없음</li>";
 }
 
-// 처음으로: 이 브라우저의 진행만 비운다 (서버 기록은 그대로)
-function restart() {
+// 처음부터 다시: 이 브라우저의 진행(만든 글·승인 표시·고친 내용)을 비우고, 서버에 남은 이 방문자의 승인 기록도 지운다 (DELETE /api/approvals).
+// 다시 카드 → 승인 → 완료로 왔을 때 예전 승인이 '서버 처리 기록'에 남아 있지 않게 한다. 서버가 못 지워도 화면은 비우고 알림 띠로 알린다.
+// (진행을 그대로 두고 대시보드로 가는 것은 주 버튼 '홈으로')
+async function restart(button) {
+  if (button) { button.disabled = true; button.textContent = "지우는 중…"; }
+  let failed = "";
+  try { await api("/api/approvals", { method: "DELETE" }); }
+  catch (e) { failed = e.message; }
+  rerunDisarm(); regenBusy.clear(); draftNote = null;
   state.results = {}; state.approved.clear(); state.approvedLog = []; state.pending = {};
   state.current = null; state.draftId = null;
+  $("draft").replaceChildren();   // 숨은 초안 화면에 남은 편집 칸도 치운다 (다음에 그릴 때 saveEdits 가 예전 글을 다시 담지 않게)
   renderCards({ cards: state.cards, no_card_b: $("no-card-b").textContent });
   go("today");
+  if (failed) showAlert(`화면은 처음으로 돌렸지만 서버의 승인 기록은 지우지 못했어요. ${failed}`);
 }
 
 // ── 리뷰 분석: 요약 · 불만 묶음 · 리뷰 붙여넣기 (탭 3개) ─────────────────
@@ -800,12 +997,14 @@ async function capSave() {
 }
 
 // ── 종합 리포트 (#/report) ────────────────────────────────────────────
-// 칸 다섯 개를 따로 그린다: 오늘 요약(/api/care/report/daily) · 응대 점수(/api/care/response) · 월간 보고서(/api/care/report/monthly)
+// 칸 여섯 개를 따로 그린다: 오늘 요약(/api/care/report/daily) · 응대 점수(/api/care/response) · 손님 칭찬 요약 · 월간 보고서(/api/care/report/monthly)
 // · 상권 요약 · 마케팅 요약. 상권·마케팅은 처음 화면을 열 때 이미 받은 브리핑·추천 카드(state)와 /api/approvals 로만 만든다.
+// 손님 칭찬 요약은 월간 보고서 응답의 praise 칸으로 그린다 (요청을 더하지 않음). '전체 리포트 PDF 저장'은 이 여섯 칸을 브라우저 인쇄로 내보낸다.
 // 이 화면을 열어도 AI(HCX)를 새로 부르지 않는다 (/api/cards·/api/briefing·글 만들기·서랍을 부르지 않음). 한 칸이 실패해도 다른 칸은 그대로.
 // 남은 시간: 서버의 due_at 으로 1초마다 센다 (서버와 브라우저 시계 차이는 응답의 remaining_seconds 로 맞춤). 피크 중이면 '멈춤'.
-const rp = { month: null, maxMonth: null, loading: null, loadedAt: 0, clocks: [], peak: false, tick: null, poll: null };
-const RP_STATE = { daily: "rp-daily-state", score: "rp-score-state", month: "rp-month-state", market: "rp-market-state", mkt: "rp-mkt-state" };
+const rp = { month: null, maxMonth: null, loading: null, loadedAt: 0, clocks: [], peak: false, tick: null, poll: null,
+  day: null, until: null, trend: null, mktBusy: 0 };   // day·until: 인쇄 머리글의 기간 · trend: 인쇄 폭으로 다시 그릴 점수 추이 · mktBusy: 마케팅 요약을 불러오는 중인 수
+const RP_STATE = { daily: "rp-daily-state", score: "rp-score-state", praise: "rp-praise-state", month: "rp-month-state", market: "rp-market-state", mkt: "rp-mkt-state" };
 const RP_ISSUE_STATE = { recurred_after_reply: "답글 뒤 재발", no_recurrence: "답글 뒤 7일 재발 없음", replied_watching: "답글 달고 지켜보는 중", no_reply: "답글 없음" };
 const signed = (n) => (Number(n) > 0 ? `+${n}` : String(n ?? 0));
 const rpDelta = (n) => `<span class="rp-delta ${Number(n) < 0 ? "neg" : Number(n) > 0 ? "pos" : ""}">${esc(signed(n))}</span>`;
@@ -823,7 +1022,7 @@ function rpState(name, msg, bad = false) {
   el.textContent = msg || "";
   el.classList.toggle("bad", bad);
 }
-function rpStop() { clearInterval(rp.tick); clearInterval(rp.poll); rp.tick = rp.poll = null; }
+function rpStop() { clearInterval(rp.tick); clearInterval(rp.poll); rp.tick = rp.poll = null; rpMark(); }
 // 남은 시간 1초 시계 + 1분마다 점수 다시 부르기 (화면을 보고 있을 때만). restart 면 새로 맞춘다
 function rpTimers(restart = false) {
   if (restart) rpStop();
@@ -832,8 +1031,10 @@ function rpTimers(restart = false) {
 }
 // force: '다시 불러오기'. 처음 열 때 route() 가 두 번 불려도(시작 직후·브리핑을 받은 뒤) 고객응대 칸은 한 번만 부른다
 function loadReport(force = false) {
+  rpMark();
   rpMarket();
-  rpMarketing();
+  rp.mktBusy += 1;
+  rpMarketing().finally(() => { rp.mktBusy -= 1; });
   if (rp.loading) return rp.loading;
   if (!force && Date.now() - rp.loadedAt < 3000) { rpTimers(); return Promise.resolve(); }   // 방금 불렀으면 시계만 다시 돌린다
   rp.loading = Promise.all([rpDaily(), rpScore(), rpMonth(rp.month)]).finally(() => { rp.loading = null; rp.loadedAt = Date.now(); });
@@ -845,6 +1046,7 @@ async function rpDaily() {
   try {
     const d = await careApi("/api/care/report/daily");
     const src = Object.entries(d.by_source || {}).map(([k, n]) => `${SOURCE_KO[k] || k} ${n}`).join(" · ");
+    rp.day = d.date || null;
     $("rp-daily-date").textContent = d.date ? `${d.date}${d.until ? ` · ${String(d.until).slice(11, 16)}까지` : ""}` : "";
     $("rp-daily").innerHTML = `
       <p class="rp-summary">${esc(d.summary)}</p>
@@ -917,11 +1119,11 @@ async function rpScore(quiet = false) {
 }
 
 // 날마다 점수 선 그래프 (외부 라이브러리 없이 SVG). 색은 CSS(.rp-line 등)가 정해 라이트·다크를 따른다
-function rpTrend(trend) {
+function rpTrend(trend, width) {
   const pts = (Array.isArray(trend) ? trend : []).filter((t) => Number.isFinite(Number(t?.score)));
   if (!pts.length) return '<p class="small muted">점수 기록이 없어요.</p>';
-  // 그림 폭 = 칸의 실제 폭 (좁은 화면에서 글자가 같이 줄어들어 안 보이지 않게). 칸이 숨어 있으면 600
-  const W = Math.round(Math.min(860, Math.max(280, $("rp-month").clientWidth || 600))), H = 170, L = 36, R = 16, T = 18, B = 26;
+  // 그림 폭 = 칸의 실제 폭 (좁은 화면에서 글자가 같이 줄어들어 안 보이지 않게). 칸이 숨어 있으면 600. width 를 주면 그 폭 (인쇄할 때 종이 폭)
+  const W = Math.round(Math.min(860, Math.max(280, width || $("rp-month").clientWidth || 600))), H = 170, L = 36, R = 16, T = 18, B = 26;
   const v = pts.map((t) => Number(t.score));
   const lo = Math.min(80, ...v), last = v.length - 1;
   const x = (i) => L + (W - L - R) * (pts.length === 1 ? 0.5 : i / last);
@@ -941,9 +1143,13 @@ function rpTrend(trend) {
 }
 async function rpMonth(month) {
   rpState("month", "불러오는 중…");
+  rpState("praise", "불러오는 중…");
   try {
     const m = await careApi("/api/care/report/monthly" + (month ? `?month=${encodeURIComponent(month)}` : ""));
     rp.month = m.month;
+    rp.until = m.until || null;
+    rp.trend = m.score_trend;
+    rpPraise(m);
     if (!month || !rp.maxMonth) rp.maxMonth = rp.maxMonth && rp.maxMonth > m.month ? rp.maxMonth : m.month;   // 달 없이 부른 값 = 서버의 이번 달
     const issues = Array.isArray(m.repeated_issues) ? m.repeated_issues : [];
     $("rp-month").innerHTML = `
@@ -969,8 +1175,10 @@ async function rpMonth(month) {
     rpState("month", "");
   } catch (e) {
     if (month) rp.month = month;
+    rp.until = rp.trend = null;
     $("rp-month").innerHTML = "";
     rpState("month", e.message, true);
+    rpPraise(null, e.message);
   } finally {
     $("rp-month-label").textContent = monthKo(rp.month);
     $("rp-print").href = "/api/care/report/monthly/print" + (rp.month ? `?month=${encodeURIComponent(rp.month)}` : "");
@@ -982,6 +1190,41 @@ async function rpMoveMonth(step, button) {
   if (!rp.month) return;
   await rpMonth(shiftMonth(rp.month, step));
   if (button.disabled && document.activeElement === button) $(step < 0 ? "rp-month-next" : "rp-month-prev").focus();   // 끝에 닿아 막힌 버튼의 포커스를 옆으로
+}
+// 손님 칭찬 요약 (11/16): 월간 보고서 응답의 praise 칸으로만 그린다 (요청을 더하지 않음). 집계 기간 = 월간 보고서에서 고른 달.
+// 숫자·주제·메뉴·대표 한 줄은 리뷰 분석 서비스가 코드로 센 값 그대로다 (모델 호출 없음). 대표 한 줄은 서비스가 개인정보를 가린 글만 보낸다.
+function rpPraise(m, error) {
+  const p = m?.praise;
+  $("rp-praise-period").textContent = m ? `${monthKo(m.month)}${m.until ? ` · ${dateKo(m.until)}까지` : ""}` : "";
+  if (!p) {
+    $("rp-praise").innerHTML = "";
+    rpState("praise", error || "이 서버의 리뷰 분석 서비스는 아직 손님 칭찬 요약을 보내지 않아요.", !!error);
+    return;
+  }
+  const topics = Array.isArray(p.top_topics) ? p.top_topics : [], menus = Array.isArray(p.top_menus) ? p.top_menus : [];
+  $("rp-praise").innerHTML = `
+    <div class="rp-praise-body">
+      <div>
+        <dl class="rp-nums">
+          <div><dt>별점 4~5점</dt><dd>${esc(p.high_rating_count ?? 0)}건</dd></div>
+          <div><dt>긍정 리뷰</dt><dd>${esc(p.positive_count ?? 0)}건</dd></div>
+        </dl>
+        <h3 class="rp-h3">칭찬 주제 상위</h3>
+        <ul class="plain rp-praise-topics">${topics.map((t) => `<li class="kw-chip pos">${esc(t.topic_name)} <b>${esc(t.count)}</b></li>`).join("")
+          || '<li class="small muted">칭찬으로 분류된 주제가 아직 없어요.</li>'}</ul>
+      </div>
+      <div>
+        <h3 class="rp-h3">인기 메뉴 TOP 3 <span class="small muted">· 칭찬 리뷰에 이름이 나온 수</span></h3>
+        <ol class="plain rp-menus">${menus.map((x, i) => `<li><span class="rp-rank">${i + 1}</span><b>${esc(x.menu)}</b><span class="rp-menu-n">${esc(x.count)}건</span></li>`).join("")
+          || '<li class="small muted">칭찬 리뷰에 나온 메뉴가 아직 없어요.</li>'}</ol>
+        <h3 class="rp-h3">대표 칭찬 한 줄</h3>
+        ${p.quote ? `<blockquote class="rp-quote"><p>“${esc(p.quote.text)}”</p><footer class="small muted">${p.quote.rating ? `별점 ${esc(p.quote.rating)}점 리뷰` : "별점 없는 리뷰"} · 개인정보를 가린 글</footer></blockquote>`
+          : '<p class="small muted rp-quote-none">아직 칭찬 리뷰가 없어요.</p>'}
+      </div>
+    </div>
+    <p class="small muted">이 달 리뷰 ${esc(p.review_count ?? 0)}건을 코드로 셌어요 (모델 호출 없음). 인기 메뉴와 대표 한 줄은 칭찬 리뷰 ${esc(p.praise_count ?? 0)}건에서 골랐어요.${
+      p.praise_basis === "rating" ? " 긍정으로 분류된 리뷰가 없어서, 별점 4점 이상이고 불만이 없는 리뷰를 칭찬 리뷰로 봤어요." : ""}<span class="rp-screen"> 달은 월간 보고서에서 바꿔요.</span></p>`;
+  rpState("praise", "");
 }
 
 // 상권 요약: 브리핑의 상권 지표 (홈 '상권 저녁 매출' 칸과 같은 자료). 서버를 다시 부르지 않는다
@@ -1036,6 +1279,53 @@ async function rpMarketing() {
   } catch (e) { const el = $("rp-approvals"); if (el) el.textContent = `승인 기록을 불러오지 못했어요: ${e.message}`; }
 }
 
+// 전체 리포트 PDF 저장 (11/16): 브라우저 인쇄 창을 연다 (거기서 'PDF로 저장'). 서버에 새로 묻지 않고, 지금 그려진 여섯 칸이 그대로 나온다.
+// 인쇄 모양은 style.css 의 '종합 리포트 인쇄' 덩어리가 정하고, 그 덩어리는 <html class="rp-view"> 일 때만(리포트 화면이 보일 때만) 먹는다.
+const RP_PDF_WAIT_MS = 20000;   // 아직 불러오는 칸이 있으면 여기까지 기다렸다가 인쇄 창을 연다
+const RP_PDF_HINT = "인쇄 창이 열리면 ‘PDF로 저장’을 골라 주세요.";
+const RP_PRINT_W = 860;   // 인쇄할 때 점수 추이 그래프를 그리는 폭 (넓은 화면과 같은 값). 창이 좁아도(휴대전화) 종이에서는 같은 모양·같은 쪽 수로 나오게
+// route() 가 화면을 바꿀 때마다 loadReport() 나 rpStop() 을 부르므로, 두 곳에서 부르면 표시가 늘 지금 화면과 맞는다
+function rpMark() { document.documentElement.classList.toggle("rp-view", currentRoute() === "report"); }
+const rpReady = () => state.booted && !rp.loading && !rp.mktBusy;
+// 인쇄 직전: 머리글(가게 이름 · 출력한 날 · 기간)을 채우고 접힌 칸(details)을 펼친다. 인쇄가 끝나면 rpPrintDone 이 다시 접는다.
+// 시험용 실행이면 화면 맨 위 띠의 안내(실제 AI 결과 아님)를 머리글에도 적는다 (인쇄에서는 그 띠가 빠지므로)
+function rpTrendWidth(width) {   // 점수 추이 그래프를 그 폭으로 다시 그린다 (폭을 안 주면 화면 폭)
+  const svg = document.querySelector("#rp-month .rp-trend");
+  if (svg && rp.trend) svg.outerHTML = rpTrend(rp.trend, width);
+}
+function rpPrintPrep() {
+  rpMark();
+  rpTrendWidth(RP_PRINT_W);
+  const now = new Date(), two = (n) => String(n).padStart(2, "0");
+  $("rp-print-store").textContent = state.briefing?.store?.name || "";
+  $("rp-print-meta").textContent = [
+    `출력한 날 ${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`,
+    rp.day ? `오늘 요약 ${rp.day}` : "",
+    rp.month ? `손님 칭찬 요약·월간 보고서 ${monthKo(rp.month)}${rp.until ? ` (${dateKo(rp.until)}까지)` : ""}` : "",
+    "응대 점수 최근 28일",
+  ].filter(Boolean).join(" · ");
+  $("rp-print-note").textContent = state.health?.mode_notice || "";
+  document.querySelectorAll('[data-view="report"] details:not([open])').forEach((d) => { d.open = true; d.dataset.rpOpened = "1"; });
+}
+function rpPrintDone() {
+  document.querySelectorAll('[data-view="report"] details[data-rp-opened]').forEach((d) => { d.open = false; delete d.dataset.rpOpened; });
+  rpTrendWidth();
+}
+async function rpPdf() {
+  const button = $("rp-pdf"), msg = $("rp-pdf-msg");
+  if (!rpReady()) {   // 아직 불러오는 칸이 있으면 끝날 때까지 기다린다 (그동안 버튼을 잠근다)
+    button.disabled = true;
+    msg.textContent = "리포트를 다 불러오면 인쇄 창을 열어요…";
+    const until = Date.now() + RP_PDF_WAIT_MS;
+    while (!rpReady() && Date.now() < until) await new Promise((done) => setTimeout(done, 150));
+    button.disabled = false;
+    msg.textContent = RP_PDF_HINT;
+    if (currentRoute() !== "report") return;   // 기다리는 동안 다른 화면으로 갔으면 인쇄하지 않는다
+  }
+  rpPrintPrep();
+  window.print();
+}
+
 // ── 준비 중 자리: LATER 목록으로 왼쪽 메뉴 링크와 빈 화면을 만든다 ─────────────
 function mountLater() {
   const menu = document.querySelector(".side .menu");
@@ -1079,6 +1369,7 @@ const chat = {
   started: false, loading: false, ready: false, busy: false,
   setupTried: false,          // 조건 자동 저장(setup)은 페이지마다 한 번만. '다시 확인'을 누르면 다시
   label: "",                  // 상태의 setup.label ("온기한식 · 장승배기역 · 한식음식점")
+  atHome: false,              // 지금 분석 조건이 우리 가게 기본 조건과 같은지 (서버가 준 conditions.is_store_default 가 true 일 때만)
   latest: null,               // 마지막 답의 선택지 묶음 (이것만 누를 수 있음)
   chips: { list: [], starters: false },
   armed: null, tick: null,
@@ -1092,9 +1383,15 @@ function chatValue(value, unit) {
     : value.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });   // 비율은 늘 소수 둘째 자리 (카드 문장과 같게)
   return unit ? text + unit : text;
 }
-const chatCondText = (c) => (c ? [c.area_name ? `${c.area_name} 상권` : null, c.industry_name, c.period_label].filter(Boolean).join(" · ") : "");
+// 분기 코드(20262 · 2026Q2)를 '2026년 2분기'로. 서버(assistant_proxy.py 의 QUARTER_IN_TEXT)와 같은 정규식이다 (시험이 글자 그대로 같은지 확인).
+// 서버가 먼저 바꿔 주지만, 서버가 놓친 글자도 날것으로 보이지 않게 화면에서 한 번 더 본다. 금액·개수(20262원, 20,262, 120262)는 그대로 둔다
+const CHAT_QUARTER = /(^|[^0-9A-Za-z_,.\-])(20[0-9]{2})(?:Q([1-4])(?![0-9A-Za-z])|([1-4])(?![0-9A-Za-z_\-]|[,.][0-9]|원|건|명|개|곳|호|번|위|배|회|세|살|대|가구|만|억|천|조|년|월|일|시|초|분(?!기)|평|점|%|퍼센트)(?: ?분기)?)/g;
+const chatQuarter = (t) => (typeof t === "string" ? t.replace(CHAT_QUARTER, (_, pre, y, q, n) => `${pre}${y}년 ${q || n}분기`) : t);
+// 조건 줄의 분기: 이름이 코드 그대로(20262)이면 바꾸고, 이름이 없으면 코드(period)로 만든다
+const chatPeriod = (c) => { const p = String(c.period_label || c.period || ""); return /^[0-9]{4}[1-4]$/.test(p) ? `${p.slice(0, 4)}년 ${p[4]}분기` : chatQuarter(p); };
+const chatCondText = (c) => (c ? [c.area_name ? `${c.area_name} 상권` : null, c.industry_name, chatPeriod(c)].filter(Boolean).join(" · ") : "");
 const chatId = () => "web-" + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
-const chatSuggest = (reply) => (Array.isArray(reply?.suggestions) ? reply.suggestions : []).filter((s) => typeof s === "string" && s.trim()).slice(0, 3);
+const chatSuggest = (reply) => (Array.isArray(reply?.suggestions) ? reply.suggestions : []).filter((s) => typeof s === "string" && s.trim()).map(chatQuarter).slice(0, 3);
 const chatSameKey = (a, b) => JSON.stringify(a || {}, Object.keys(a || {}).sort()) === JSON.stringify(b || {}, Object.keys(b || {}).sort());
 
 // 서랍 전용 호출: 같은 출처 쿠키·JSON, 90초가 넘으면 끊는다. 실패하면 message·state 를 담은 Error (화면 띠에는 아무것도 띄우지 않음)
@@ -1150,7 +1447,7 @@ function chatInput() {
   $("assistant-send").disabled = off || !q.value.trim();
   $("assistant-clear").hidden = !chat.ready || !$("assistant-log").children.length;
   $("assistant-clear").disabled = chat.busy;
-  $("assistant-home").disabled = off;
+  $("assistant-home").disabled = off || chat.atHome;   // 이미 우리 가게 기본 조건이면 누를 것이 없다
   $("assistant-chips").querySelectorAll("button").forEach((b) => (b.disabled = off));
   if (chat.latest) chat.latest.querySelectorAll("button").forEach((b) => (b.disabled = off));
   $("assistant-count").textContent = q.value.length >= 900 ? `${q.value.length} / 1000자` : "";
@@ -1179,10 +1476,20 @@ function chatReveal(el, where = "start") {
   box.scrollTo({ top: Math.max(0, y - 12), behavior: smooth });
 }
 
+// '우리 가게 조건으로' 버튼: 지금 조건이 우리 가게 기본 조건이면 누를 수 없는 '우리 가게 기준 적용 중', 다른 상권·업종·분기를 보고 있으면 되돌리기 버튼
+function chatHomeButton() {
+  const b = $("assistant-home");
+  b.textContent = chat.atHome ? "우리 가게 기준 적용 중" : "우리 가게 조건으로";
+  b.classList.toggle("on", chat.atHome);
+  b.disabled = chat.atHome || !chat.ready || chat.busy;
+}
+// 같은지는 서버(프록시)만 판단한다. 값이 없으면(기본 조건이 없는 가게 등) 버튼은 누를 수 있는 채로 둔다
 function chatConditions(c) {
   const text = chatCondText(c);
   $("assistant-cond").hidden = !text;
   $("assistant-cond-text").textContent = text;
+  chat.atHome = !!c && c.is_store_default === true;
+  chatHomeButton();
 }
 // 추천 질문 칩: 대화가 비었으면 고정 질문, 그 뒤에는 마지막 답의 suggestions
 function chatChips(list, starters = false) {
@@ -1217,7 +1524,7 @@ function chatEvidence(cards) {
     head.append(mk("span", "ev-id", c.id), mk("span", "ev-topic", CHAT_TOPICS[c.topic] || c.topic || ""));
     if (CHAT_STATUS[c.status]) head.append(mk("span", "ev-st", CHAT_STATUS[c.status]));
     li.append(head);
-    if (c.text) li.append(mk("p", "ev-text", c.text));
+    if (c.text) li.append(mk("p", "ev-text", chatQuarter(c.text)));
     const nums = (Array.isArray(c.values) ? c.values : []).filter((v) => v && typeof v.value === "number");
     if (nums.length) {
       const table = mk("table", "ev-table");
@@ -1226,7 +1533,7 @@ function chatEvidence(cards) {
       thead.append(tr0);
       const tbody = mk("tbody");
       nums.slice(0, 12).forEach((v) => {
-        const tr = mk("tr"), th = mk("th", "", v.group ? `${v.group} ${v.label}` : v.label);
+        const tr = mk("tr"), th = mk("th", "", chatQuarter(v.group ? `${v.group} ${v.label}` : v.label));
         th.scope = "row";
         tr.append(th, mk("td", "", chatValue(v.value, v.unit)), mk("td", "share", typeof v.share_percent === "number" ? chatValue(v.share_percent, "%") : ""));
         tbody.append(tr);
@@ -1236,7 +1543,7 @@ function chatEvidence(cards) {
       if (nums.length > 12) li.append(mk("p", "ev-more", `숫자 ${nums.length}개 중 12개만 보여요.`));
     }
     const warnings = (Array.isArray(c.warnings) ? c.warnings : []).filter((w) => typeof w === "string" && w);
-    if (warnings.length) { const ul = mk("ul", "ev-warn"); warnings.forEach((w) => ul.append(mk("li", "", w))); li.append(ul); }
+    if (warnings.length) { const ul = mk("ul", "ev-warn"); warnings.forEach((w) => ul.append(mk("li", "", chatQuarter(w)))); li.append(ul); }
     const src = c.source_ref || {};
     if (src.source_title || src.data_version) {
       const p = mk("p", "ev-src");
@@ -1269,11 +1576,11 @@ function chatEvidence(cards) {
 function chatLine(into, line, cite) {
   let last = 0;
   for (const m of line.matchAll(/\[(F\d+)\]/g)) {
-    if (m.index > last) into.append(line.slice(last, m.index));
+    if (m.index > last) into.append(chatQuarter(line.slice(last, m.index)));
     into.append(cite(m[1]) || m[0]);
     last = m.index + m[0].length;
   }
-  if (last < line.length) into.append(line.slice(last));
+  if (last < line.length) into.append(chatQuarter(line.slice(last)));
 }
 // 비서 답 하나: 글(목록·참고·해석·다음으로) → 선택지 → 근거 n개 → 자료 기준 안내. live = 마지막 답 (선택지를 누를 수 있음)
 function chatBot(data, live) {
@@ -1314,7 +1621,7 @@ function chatBot(data, live) {
     group.setAttribute("role", "group");
     group.setAttribute("aria-label", "선택지");
     actions.forEach((a) => {
-      const b = mk("button", "pick", a.label);
+      const b = mk("button", "pick", chatQuarter(a.label));
       b.type = "button";
       b.disabled = !live || !chat.ready || chat.busy;
       b.addEventListener("click", () => chatChoose(group, b, a));
@@ -1327,7 +1634,7 @@ function chatBot(data, live) {
   if (notes.length) {
     const d = mk("details", "msg-fold msg-notes");
     const ul = mk("ul");
-    notes.forEach((n) => ul.append(mk("li", "", n)));
+    notes.forEach((n) => ul.append(mk("li", "", chatQuarter(n))));
     d.append(mk("summary", "", "자료 기준 안내"), ul);
     msg.append(d);
   }
@@ -1350,8 +1657,8 @@ function chatHistory(turns) {
     if (t.user_text) chatUser(t.user_text);
     else if (t.action) {
       const picked = (prev?.reply?.actions || []).find((a) => chatSameKey(a.payload, t.action));
-      chatUser(picked ? `선택: ${picked.label}` : "선택했어요");
-      const b = picked && prevMsg && [...prevMsg.querySelectorAll(".pick")].find((x) => x.textContent === picked.label);
+      chatUser(picked ? `선택: ${chatQuarter(picked.label)}` : "선택했어요");
+      const b = picked && prevMsg && [...prevMsg.querySelectorAll(".pick")].find((x) => x.textContent === chatQuarter(picked.label));
       if (b) b.setAttribute("aria-current", "true");
     }
     const m = chatBot(t, i === turns.length - 1);
@@ -1401,7 +1708,7 @@ async function chatChoose(group, button, action) {
   const chips = chat.chips;
   chatError(""); chatDisarm();
   button.setAttribute("aria-current", "true");
-  const mine = chatUser(`선택: ${action.label}`);
+  const mine = chatUser(`선택: ${chatQuarter(action.label)}`);
   chatChips([]);
   chatBusy(true, "자료를 확인하고 있어요");
   chatReveal(null, "end");
@@ -1462,11 +1769,12 @@ async function chatHome() {
   } catch (e) { chatError(e.message); }
   finally {
     chatBusy(false);
-    if (document.activeElement === document.body && !$("assistant").hidden && !$("assistant-cond").hidden) b.focus();   // 누르는 동안 막혀서 잃은 포커스
+    // 누르는 동안 막혀서 잃은 포커스. 맞춘 뒤 버튼이 '적용 중'으로 막히면 입력칸으로 보낸다
+    if (document.activeElement === document.body && !$("assistant").hidden && !$("assistant-cond").hidden) { if (b.disabled) chatFocus(); else b.focus(); }
     if (done) {
       chatStatus("우리 가게 조건으로 맞췄어요", false, true);
-      b.textContent = "✓ 맞췄어요";   // 조건이 이미 같으면 표시줄이 그대로라, 눌렀다는 것을 버튼 글자로 잠깐 알린다
-      setTimeout(() => (b.textContent = "우리 가게 조건으로"), 2000);
+      // 서버가 같은지 알려 주지 않는 가게에서는 버튼 글자가 그대로라, 눌렀다는 것을 잠깐 알린다 ('적용 중'으로 바뀌면 그 글자가 알림)
+      if (!chat.atHome) { b.textContent = "✓ 맞췄어요"; setTimeout(chatHomeButton, 2000); }
     }
   }
 }
@@ -1570,6 +1878,29 @@ async function boot() {
 
 applyTheme(); // ?theme=light 는 서버 응답을 기다리지 않고 바로
 mountLater(); // 준비 중 메뉴·화면을 첫 route() 전에
+applyMenu();  // 왼쪽 메뉴: 넓은 폭은 기억한 상태로, 761~1024px 은 접힌 채로 (첫 화면 전에)
+
+// 왼쪽 메뉴 접기
+$("menu-toggle").addEventListener("click", toggleMenu);
+// 창 폭이 구간(760px 이하 · 761~1024px · 1025px 이상)을 넘으면 그 구간의 처음 상태로
+window.addEventListener("resize", () => { if (menuBandNow() !== menuBand) applyMenu(); });
+if (window.ResizeObserver) new ResizeObserver(setTopH).observe(document.querySelector(".top"));   // 상단 바가 두 줄이 되면 덮는 메뉴도 그 아래로
+// 덮는 메뉴(761~1024px)가 열려 있는 동안: 바깥(어두운 배경)이나 메뉴 항목을 누르면 닫는다
+document.addEventListener("click", (e) => {
+  if (!menuOverlayOpen() || e.target.closest("#menu-toggle")) return;
+  if (e.target.closest(".side") && !e.target.closest(".side a[href]")) return;   // 메뉴 안의 빈 곳
+  closeMenuOverlay();
+});
+// Esc 로 닫고(캡처 단계에서 받아 서랍의 Esc 처리보다 먼저, 서랍은 그대로 둔다), Tab 은 토글 버튼과 메뉴 항목 안에서만 돈다
+document.addEventListener("keydown", (e) => {
+  if (!menuOverlayOpen() || e.isComposing) return;
+  if (e.key === "Escape") { e.stopPropagation(); closeMenuOverlay(); return; }
+  if (e.key !== "Tab") return;
+  const stops = [$("menu-toggle"), ...document.querySelectorAll(".side a[href]")].filter((x) => x.getClientRects().length);
+  const i = stops.indexOf(document.activeElement);
+  e.preventDefault();
+  stops[e.shiftKey ? (i <= 0 ? stops.length - 1 : i - 1) : (i + 1) % stops.length].focus();
+}, true);
 
 $("start").addEventListener("click", () => go("cards"));
 $("paste-send").addEventListener("click", paste);
@@ -1601,6 +1932,10 @@ $("cap").addEventListener("drop", (e) => { e.preventDefault(); $("cap").classLis
 $("rp-reload").addEventListener("click", () => loadReport(true));
 $("rp-month-prev").addEventListener("click", (e) => rpMoveMonth(-1, e.currentTarget));
 $("rp-month-next").addEventListener("click", (e) => rpMoveMonth(1, e.currentTarget));
+$("rp-pdf").addEventListener("click", rpPdf);
+// 브라우저 메뉴(Ctrl+P)로 인쇄해도 같은 머리글·펼친 칸으로 나오게
+window.addEventListener("beforeprint", () => { if (currentRoute() === "report") rpPrintPrep(); else rpMark(); });
+window.addEventListener("afterprint", rpPrintDone);
 document.querySelector('[data-view="report"]').addEventListener("click", (e) => {
   const b = e.target.closest("[data-rp-ask]");
   if (b) toggleAssistant(true, b);
