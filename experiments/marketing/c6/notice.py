@@ -40,6 +40,34 @@ NOTICE_FALLBACK_TMPL = (
 )
 _NOTICE_FALLBACK_GENERIC_MEASURE = "비슷한 일이 반복되지 않도록 더 신경 쓰겠습니다."
 
+# 다시 쓰기를 다 써도 남은 실패가 이것뿐이면 템플릿으로 통째 덮지 않고 코드가 AI 본문의 그 부분만 고친다 (_repair_notice_body).
+_NOTICE_REPAIRABLE = frozenset({"has_apology", "notice_formal"})
+NOTICE_APOLOGY_LINE = "불편을 드려 죄송합니다."   # 본문 2번째 줄(짧은 사과) 자리에 넣는 문장 — 템플릿·예시와 같은 문장
+
+
+def _repair_notice_body(body, failed):
+    """다시 쓰기 뒤에도 남은 실패가 사과 빠짐·해요체 어미뿐일 때, AI 본문을 살리고 그 부분만 고친 본문을 돌려준다.
+    (a) notice_formal: 줄 끝 해요체 어미를 합니다체로 바꾼다(checks.to_formal_endings). 그래도 합니다체가 아니면 고치지 않는다.
+    (b) has_apology: 처음 두 문장에 사과가 없으면, 뒤쪽 줄에 사과가 있으면 그 줄을 2번째로 올리고, 없으면
+        '불편을 드려 죄송합니다.'를 2번째 줄로 넣는다(시스템 프롬프트의 본문 순서 2 = 짧은 사과).
+    고칠 수 없으면 body 를 그대로 돌려준다. 고친 본문을 쓸지는 호출부가 점검을 다시 돌려 정한다."""
+    if not body or not failed or not set(failed) <= _NOTICE_REPAIRABLE:
+        return body
+    fixed = body
+    if "notice_formal" in failed:
+        fixed = checks.to_formal_endings(fixed)
+        if not checks.notice_formal(fixed):
+            return body
+    if "has_apology" in failed and not checks.has_apology(fixed):
+        lines = [ln.strip() for ln in fixed.splitlines() if ln.strip()]
+        later = next((i for i, ln in enumerate(lines) if i > 1 and checks.has_apology(ln)), None)
+        if later is not None:
+            lines.insert(1, lines.pop(later))
+        else:
+            lines.insert(1 if lines else 0, NOTICE_APOLOGY_LINE)
+        fixed = "\n".join(lines)
+    return fixed
+
 # MEASURE_FALLBACK_SENTENCES 는 "앞으로 ~하겠습니다" 꼴이라, start_label("오늘부터")과 바로 이어 붙이면
 # "오늘부터 앞으로 포장 마감 전에…"처럼 시점 표현이 겹친다. 조치 문장 앞의 이런 표현은 지우고 붙인다.
 _LEADING_TIME_PHRASES = ("앞으로는", "앞으로", "다음부터는", "다음부터", "이제부터는", "이제부터")
@@ -206,7 +234,8 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
             "not_quote_review": not checks.quotes_review(body, target_reviews),
             # AI 가 쓴 본문(body)만 본다 — 코드가 붙이는 제목·시작·마무리 줄은 대상이 아니다.
             # 사전(STIFF_WORDS)에 있는 단어만 걸리고, 합니다체 자체는 딱딱함으로 보지 않는다.
-            "no_stiff_words": not checks.has_stiff_words(body),
+            # '고객 여러분'·'배달 과정에서'처럼 공지에 자연스러운 말은 빼고 본다(checks.NOTICE_ALLOWED_STIFF).
+            "no_stiff_words": not checks.has_stiff_words(body, allow=checks.NOTICE_ALLOWED_STIFF),
             "no_broken_ending": checks.no_broken_ending(text),
             "no_overpromise": not checks.has_overpromise(text),
             "no_claimed_action": not checks.has_claimed_action(text),
@@ -251,7 +280,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
 
     rewrite_call_failed = False
     while failed and body and not needs and rewrites < _MAX_REWRITES:   # 호출 실패로 채운 글은 다시 쓰지 않는다
-        hints = checks.fix_hints(failed, formal=True)
+        hints = checks.fix_hints(failed, formal=True, register="합니다체")   # 사과 힌트에 '정말 죄송합니다' 예시
         # notice_formal 이 걸렸으면, 해요체로 끝난 줄을 그대로 보여 주고 고치게 한다
         if "notice_formal" in failed:
             bad_lines = checks.notice_informal_lines(body)
@@ -259,6 +288,15 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
                 hints = hints + [
                     "해요체(-요)로 끝난 문장: " + " / ".join(bad_lines) + " → 합니다체로 고쳐 주세요.",
                 ]
+        # 딱딱한 표현·리뷰 베끼기는 어떤 말이 걸렸는지 그대로 보여 준다 (11/15 실시간: 말을 안 알려 주면 '이러한'·'기재'를 또 씀)
+        if "no_stiff_words" in failed:
+            hint = checks.stiff_words_hint(body, allow=checks.NOTICE_ALLOWED_STIFF, formal=True)
+            if hint:
+                hints = hints + [hint]
+        if "not_quote_review" in failed:
+            hint = checks.quote_hint(body, target_reviews)
+            if hint:
+                hints = hints + [hint]
         retry_msg = [
             {"role": "user", "content": f"카드 이유: {card.reason_text}"},
             {"role": "assistant", "content": raw},
@@ -276,9 +314,10 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
             body = _dedupe_start_label_line(body2, start_label)
         text, check_results, failed = _check(body)
 
-    # 딱딱한 표현이 남으면 본문에만 사전대로 단어를 바꾼다 (추가 호출 없음)
+    # 딱딱한 표현이 남으면 본문에만 사전대로 단어를 바꾼다 (추가 호출 없음). 공지는 합니다체라 formal=True —
+    # 기본 사전 값('정말 죄송해요'·'더 신경 쓸게요')은 해요체라 공지에 넣으면 말투가 섞인다.
     if not check_results.get("no_stiff_words", True):
-        body = checks.fix_stiff_words(body)
+        body = checks.fix_stiff_words(body, formal=True)
         text, check_results, failed = _check(body)
 
     # 조치 키워드가 본문에 이미 없을 때만 표준 문장을 마지막 줄(요청사항 안내) 바로 앞에 끼워 넣는다
@@ -288,6 +327,18 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         body = _insert_measure_line(body, f"{start_label} {fallback}")
         text, check_results, failed = _check(body)
 
+    # 남은 실패가 사과 빠짐·해요체 어미뿐이면 코드가 그 부분만 고친다 (추가 호출 없음, _repair_notice_body).
+    # 고친 본문이 점검을 전부 넘을 때만 쓰고, 아니면 아래 템플릿으로 간다. 고쳤는지는 checks.ai_part_repaired 로 남긴다
+    # (c6.reply 와 같은 표시 — measure_live.py 가 'AI 글 + 코드 보정'으로 센다).
+    ai_part_repaired = False
+    if failed and not needs and not rewrite_call_failed:
+        repaired = _repair_notice_body(body, failed)
+        if repaired != body:
+            r_text, r_chk, r_failed = _check(repaired)
+            if not r_failed:
+                body, text, check_results, failed = repaired, r_text, r_chk, r_failed
+                ai_part_repaired = True
+
     # 그래도(총 1 + _MAX_REWRITES 번 시도) 점검을 못 넘으면 코드 템플릿으로 바꿔 넣고 통과 처리한다
     # (c6.reply 의 used_fallback 과 같은 방식). needs_input 에는 남기지 않는다 — 대체 문장은 늘
     # 점검을 통과하므로 사람이 볼 필요가 없다.
@@ -296,6 +347,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         body = _notice_fallback_text(target_reviews, menu_names, chosen_measures, start_label)
         text, check_results, failed = _check(body)
     check_results["used_fallback"] = used_fallback
+    check_results["ai_part_repaired"] = ai_part_repaired
 
     elapsed_ms = round((time.perf_counter() - start) * 1000)
 
@@ -307,7 +359,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         text=text,
         evidence_ids=evidence_ids,
         checks=check_results,
-        failed_reasons=checks.fix_hints(failed, formal=True) if failed else [],
+        failed_reasons=checks.fix_hints(failed, formal=True, register="합니다체") if failed else [],
         rewrites=rewrites,
         needs_input=needs,
         model=model,

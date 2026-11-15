@@ -21,7 +21,9 @@ _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _ALL_MEASURE_TEXTS = [m["text"] for m in MEASURES]
 _OVERPROMISE = re.compile(r"없을\s*거예요|절대|다시는\s*없|완벽|도입했|마련했|이미\s*(도입|마련|적용)")
 _CLAIMED_ACTION = re.compile(r"(?:보내|챙겨|환불해|다시\s*보내)\s*드렸|재발송(?:했|\s*드렸)")
-_APOLOGY = re.compile(r"죄송")
+# 공지의 사과(has_apology). '죄송'만 보면 '사과드립니다'·'사과의 말씀 드립니다'·'송구스럽습니다'처럼 정중한 사과가
+# 걸려 다시 쓰기를 다 쓰고 템플릿으로 갔다(11/15 실시간 8번 중 3번). 과일 '사과'와 헷갈리지 않게 뒤에 붙는 말까지 본다.
+_APOLOGY = re.compile(r"죄송|사과\s*(?:드리|드립|드려|드렸|말씀)|사과(?:의|를)\s*(?:말씀|드)|송구|불찰|면목")
 _FEWSHOT_WORDS = ("국물", "넉넉하다", "집밥")
 _PERSONAL_ADDRESS = re.compile(r"고객님|주문하신|구매하신|손님께서는")
 _AI_EMPATHY_FORBIDDEN = re.compile(
@@ -160,7 +162,7 @@ def has_apology_anywhere(text: str) -> bool:
 
 
 def has_apology(text: str) -> bool:
-    """글의 처음 두 문장 안에 사과("죄송")가 있으면 True."""
+    """글의 처음 두 문장 안에 사과('죄송'·'사과드립니다'·'사과의 말씀'·'송구'·'불찰'·'면목')가 있으면 True."""
     if not text or not text.strip():
         return False
     sentences = _SENT_SPLIT.split(text.strip())
@@ -328,16 +330,123 @@ def truncate_sentences(text: str, max_sentences: int = 3) -> str:
     return " ".join(sentences[:max_sentences]).strip()
 
 
-def has_stiff_words(text: str) -> bool:
-    return any(w in text for w in STIFF_WORDS)
+# 공지(c6.notice)에서는 자연스러워 딱딱함으로 보지 않는 말. '고객 여러분께'·'배달 과정에서'는 모든 손님에게 알리는
+# 공지의 보통 말투다(11/15 실시간: 이 두 말만으로 다시 쓰기를 쓰고 템플릿으로 간 공지가 있었음). 홍보글·답글은 그대로 본다.
+NOTICE_ALLOWED_STIFF = ("과정에서", "여러분")
 
 
-def fix_stiff_words(text: str) -> str:
-    """뜻이 바뀌지 않는 것만 사전대로 바꾼다 (치환 쌍이 있는 것만)."""
+def stiff_words_in(text: str, allow: tuple[str, ...] = ()) -> list[str]:
+    """글에 든 사전(STIFF_WORDS)의 딱딱한 표현 목록 (allow 에 든 말은 뺀다). 다시 쓰기 힌트에 그대로 보여 준다."""
+    return [w for w in STIFF_WORDS if w in (text or "") and w not in allow]
+
+
+def has_stiff_words(text: str, allow: tuple[str, ...] = ()) -> bool:
+    return bool(stiff_words_in(text, allow))
+
+
+# '기재'는 뒤에 붙는 말에 따라 바꿔야 한다. 그냥 '적어'로 바꾸면 '기재해 주시면' → '적어해 주시면'(깨진 어미),
+# '기재 부탁드립니다' → '적어 부탁드립니다'가 된다(11/15 실시간 공지에서 그대로 나옴). 아래 꼴만 바꾸고, 그 밖의
+# '기재…'는 그대로 둬서 점검(no_stiff_words)이 계속 걸리게 한다 — 틀린 문장을 만드는 것보다 낫다.
+_GIJAE_FIXES = (
+    (re.compile(r"기재\s*부탁드립니다"), "적어 주시기 바랍니다"),
+    (re.compile(r"기재\s*부탁드려요"), "적어 주세요"),
+    (re.compile(r"기재\s*부탁드리"), "적어 주시기 부탁드리"),
+    (re.compile(r"기재(?:해|하여)\s*주"), "적어 주"),
+    (re.compile(r"기재해\s*(?=두|놓|넣)"), "적어 "),
+    (re.compile(r"기재하시"), "적으시"),
+)
+# 합니다체 글(공지·홍보글·합니다체 답글)에서 쓰는 치환. 기본 사전 값은 해요체라 공지에 넣으면 말투가 섞인다.
+# '사과드리며'는 이어지는 말이라 '죄송합니다'로 끊지 않고 '죄송하며'로 잇는다.
+_FORMAL_STIFF_FIXES = {
+    "진심으로 사과드리며": "진심으로 죄송하며",
+    "최선을 다할 예정입니다": "더 신경 쓰겠습니다",
+    "최선을 다할 예정": "더 신경 쓸 예정",
+}
+# 다시 쓰기 힌트에 보여 줄 바꿀 말 (사전 값이 없거나 꼴에 따라 다른 것)
+_STIFF_SUGGEST = {"기재": "적어 주세요 / 적어 주시기 바랍니다", "여러분": "모든 분", "과정에서": "다른 말로"}
+
+
+def fix_stiff_words(text: str, formal: bool = False) -> str:
+    """뜻이 바뀌지 않는 것만 사전대로 바꾼다 (치환 쌍이 있는 것만).
+    formal=True(공지·홍보글·합니다체 답글)면 '진심으로 사과드리며'·'최선을 다할 예정'을 합니다체로 바꾼다
+    (_FORMAL_STIFF_FIXES). '기재'는 꼴별로만 바꾼다(_GIJAE_FIXES)."""
+    for pattern, new in _GIJAE_FIXES:
+        text = pattern.sub(new, text)
+    if formal:
+        for old, new in _FORMAL_STIFF_FIXES.items():
+            text = text.replace(old, new)
     for old, new in STIFF_WORDS.items():
+        if old == "기재":
+            continue
         if new is not None and old in text:
             text = text.replace(old, new)
     return text
+
+
+def stiff_words_hint(text: str, allow: tuple[str, ...] = (), formal: bool = False) -> str:
+    """'딱딱한 표현: '기재' → 적어 주세요 / …, '이러한' → 이런' 처럼 글에서 실제로 걸린 말과 바꿀 말 한 줄. 없으면 ''."""
+    words = stiff_words_in(text, allow)
+    if not words:
+        return ""
+    parts = []
+    for w in words:
+        new = _FORMAL_STIFF_FIXES.get(w) if formal else None
+        new = new or _STIFF_SUGGEST.get(w) or STIFF_WORDS.get(w)
+        parts.append(f"'{w}' → {new}" if new else f"'{w}' → 빼거나 다른 말로")
+    return "글에서 걸린 딱딱한 표현: " + ", ".join(parts) + ". 이 말들을 쓰지 말고 다시 써 주세요."
+
+
+def quoted_chunks(text: str, reviews) -> list[str]:
+    """글이 리뷰 원문에서 그대로 가져온 8자 구절들 (겹치는 구절은 하나로 이어 붙여 보여 준다)."""
+    found: list[str] = []
+    for rv in reviews:
+        body = rv.text
+        run = ""
+        for i in range(max(len(body) - 8, 0) + 1):
+            chunk = body[i:i + 8]
+            if len(chunk) == 8 and chunk in text:
+                run = chunk if not run else run + chunk[-1]
+            elif run:
+                found.append(run)
+                run = ""
+        if run:
+            found.append(run)
+    return list(dict.fromkeys(found))
+
+
+def quote_hint(text: str, reviews) -> str:
+    """'리뷰 원문을 그대로 쓴 구절: '…' / '…'' 한 줄. 없으면 ''."""
+    chunks = quoted_chunks(text, reviews)
+    if not chunks:
+        return ""
+    return "리뷰 원문을 그대로 쓴 구절: " + " / ".join(f"'{c}'" for c in chunks) + ". 이 구절은 다른 말로 바꿔 새로 써 주세요."
+
+
+# 해요체 어미 → 합니다체 어미 (줄 끝만). 공지가 다시 쓰기 뒤에도 notice_formal 만 걸렸을 때 c6.notice 가 쓴다.
+# 받침 규칙이 단순한 꼴만 넣었다 — 표에 없는 꼴(예: '만들게요')은 바꾸지 않아 점검이 계속 걸린다(템플릿으로 감).
+_FORMAL_ENDINGS = (
+    ("드릴게요", "드리겠습니다"), ("할게요", "하겠습니다"), ("릴게요", "리겠습니다"), ("길게요", "기겠습니다"),
+    ("쓸게요", "쓰겠습니다"), ("볼게요", "보겠습니다"),
+    ("있어요", "있습니다"), ("없어요", "없습니다"), ("었어요", "었습니다"), ("았어요", "았습니다"),
+    ("겠어요", "겠습니다"), ("드려요", "드립니다"), ("돼요", "됩니다"), ("이에요", "입니다"), ("예요", "입니다"),
+    ("해요", "합니다"),
+)
+_LINE_END_PUNCT = re.compile(r"([.!?~…]*)\s*$")
+
+
+def to_formal_endings(text: str) -> str:
+    """줄마다 끝 어미가 해요체이면 표(_FORMAL_ENDINGS)대로 합니다체로 바꾼다. 줄 구조는 그대로 둔다."""
+    out = []
+    for line in (text or "").splitlines():
+        stripped = line.rstrip()
+        punct = _LINE_END_PUNCT.search(stripped).group(1)
+        core = stripped[: len(stripped) - len(punct)] if punct else stripped
+        for old, new in _FORMAL_ENDINGS:
+            if core.endswith(old):
+                core = core[: -len(old)] + new
+                break
+        out.append(core + punct)
+    return "\n".join(out)
 
 
 def same_first_sentence(texts: list[str]) -> bool:
@@ -502,7 +611,7 @@ def offers_compensation(text: str) -> bool:
 
 def admits_fault(text: str) -> bool:
     """'죄송'·'사과드려요'·'잘못'·'실수'·'불편을 드려'·'책임' 같은 사과·과실 인정 표현이 있으면 True.
-    has_apology(첫 문장 '죄송')와 뜻이 다르다: 글 전체에서 과실을 인정하는 말을 찾는다."""
+    has_apology(공지의 처음 두 문장 사과)와 뜻이 다르다: 글 전체에서 과실을 인정하는 말을 찾는다."""
     return bool(_FAULT_ADMISSION.search(text or ""))
 
 

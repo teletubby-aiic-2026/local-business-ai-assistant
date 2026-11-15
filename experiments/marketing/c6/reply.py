@@ -370,7 +370,7 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
 
     # 딱딱한 표현이 남으면 AI 가 쓴 공감·사과 부분에만 사전대로 단어를 바꾼다 (추가 호출 없음)
     if failed and not chk.get("no_stiff_words", True):
-        ai_body = checks.fix_stiff_words(ai_body)
+        ai_body = checks.fix_stiff_words(ai_body, formal=ai_register == "합니다체")   # 합니다체 답글엔 합니다체 치환
         text, evidence, chk, failed = _check(ai_body)
 
     # 남은 실패가 사과 말투·사과 빠짐뿐이면 코드가 그 부분만 고친다 (추가 호출 없음, _repair_ai_part).

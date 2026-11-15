@@ -25,7 +25,7 @@
   첫 문장 강제(has_apology)가 아니다. 가게 과실일 수 있는 불만에 사과 없는 답글이 '점검 통과'로 나가지 않게 한다.
 - EXPLAIN_CHECKS: c6.reply_explain.run_explain_checks. 사과 대신 '과실 인정 없음'·'유감 표현'·'원칙 설명'·'보상 약속 없음'·
   '손님 탓·훈계·비꼼 없음'을 보고, 정책·숫자·개인정보·길이·딱딱한 말·장담·금지 표현은 apology 와 같은 점검을 쓴다.
-- checks.has_apology(첫 문장 '죄송')는 뜻을 바꾸지 않았고 지금처럼 재발 방지 공지(c6.notice)에만 쓴다.
+- checks.has_apology(처음 두 문장의 사과 — 11/15부터 '사과드립니다'·'송구' 등도 인정)는 재발 방지 공지(c6.notice)에만 쓴다.
   답글은 main 에서도 has_apology 점검이 없고, 프롬프트(사과 → 약속 → 감사 순서)로 사과를 시킨다.
 """
 from __future__ import annotations
