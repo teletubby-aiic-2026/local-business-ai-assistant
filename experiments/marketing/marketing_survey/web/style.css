@@ -1,0 +1,180 @@
+/* 설문 맞춤 마케팅 — 흰 배경, 패널 1000px 가운데. 11/3 "마케팅 비서" 대화형 시안(build.py)의
+   카드·타임라인·쿠폰 디자인 언어를 그대로 가져와 적용한다. */
+
+:root {
+  --green: #1F6F5C;
+  --green-bg: #E3F0EC;
+  --bot-bubble-bg: #EEF0EC;
+  --panel-bg: #FFFFFF;
+  --page-bg: #F7F7F4;
+  --border: #E2E4E0;
+  --muted: #5B636B;
+  --warn-bg: #FFF4D6;
+  --warn-border: #F0DFA0;
+  --warn-text: #6B5310;
+  --draft-bg: #F6F7F4;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: #1D2125;
+  font-family: -apple-system, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif;
+  font-size: 16px;
+}
+
+.topbar {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px 16px 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.topbar .crumb { color: var(--muted); font-size: 0.95rem; }
+.topbar .crumb b { color: #1D2125; }
+.topbar .store { color: var(--muted); font-size: 0.95rem; }
+.topbar .store .pill {
+  background: #FFFFFF; border: 1px solid var(--border); border-radius: 10px;
+  padding: 4px 10px; color: #1D2125; margin-left: 6px;
+}
+
+.panel {
+  max-width: 1000px;
+  margin: 0 auto 40px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px 16px;
+}
+
+.chat { display: flex; flex-direction: column; gap: 14px; }
+
+.row { display: flex; align-items: flex-start; gap: 10px; }
+.row.bot { justify-content: flex-start; }
+.row.user { justify-content: flex-end; }
+
+.icon {
+  flex: 0 0 auto;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--green-bg); color: var(--green);
+  display: flex; align-items: center; justify-content: center;
+}
+.icon svg { width: 16px; height: 16px; }
+
+.bubble {
+  max-width: 680px;
+  padding: 11px 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+}
+.bubble.bot { background: var(--bot-bubble-bg); color: #1D2125; border-radius: 4px 14px 14px 14px; }
+.bubble.user { background: var(--green); color: #FFFFFF; border-radius: 14px 4px 14px 14px; }
+
+.options {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin: 2px 0 0 44px;
+}
+.opt-btn {
+  border: 1px solid var(--border);
+  background: #FFFFFF;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.opt-btn:hover { border-color: var(--green); color: var(--green); }
+.opt-btn.selected { background: var(--green); color: #FFFFFF; border-color: var(--green); }
+
+.next-btn {
+  border: none; background: var(--green); color: #FFFFFF;
+  border-radius: 999px; padding: 8px 20px; font-size: 0.95rem; cursor: pointer;
+}
+
+.card {
+  margin-left: 44px; max-width: 680px;
+  background: #FFFFFF; border: 1px solid var(--border); border-radius: 14px;
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
+}
+
+/* 카드 머리말 — 아이콘 동그라미 + 라벨(초록/파랑/주황 변형) */
+.tag { display: flex; align-items: center; gap: 8px; font-size: 0.92rem; font-weight: 700; }
+.tag i {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; flex: none;
+}
+.tag i svg { width: 14px; height: 14px; }
+.tag.g { color: var(--green); } .tag.g i { background: var(--green-bg); }
+.tag.b { color: #1E4FA3; } .tag.b i { background: #E3EBF8; }
+.tag.o { color: #9A3412; } .tag.o i { background: #FCE7DA; }
+
+.why-box {
+  background: var(--green-bg); color: #174F42; border-radius: 10px;
+  padding: 10px 14px; margin: 2px 0; font-size: 0.92rem; line-height: 1.55;
+}
+
+.basis { color: var(--muted); font-size: 0.85rem; margin: 2px 0; }
+.metric { font-size: 0.9rem; margin: 2px 0; }
+.sub { font-size: 0.82rem; font-weight: 700; color: var(--green); margin-top: 2px; }
+
+/* 키-값, 타임라인 그리드(쿠폰 상세, 할 일 날짜 등) */
+.kv { display: grid; grid-template-columns: 96px 1fr; row-gap: 6px; font-size: 0.9rem; }
+.kv span:nth-child(odd) { color: var(--muted); }
+
+.draft-box {
+  background: var(--draft-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px; white-space: pre-wrap; margin-top: 4px; font-size: 0.92rem; line-height: 1.6;
+}
+
+.draft-actions { display: flex; gap: 8px; margin-top: 2px; }
+.btn-primary {
+  border: none; background: var(--green); color: #FFFFFF;
+  border-radius: 10px; padding: 9px 16px; font-size: 0.92rem; cursor: pointer;
+}
+.btn-secondary {
+  border: 1px solid var(--border); background: #FFFFFF; color: #1D2125;
+  border-radius: 10px; padding: 9px 16px; font-size: 0.92rem; cursor: pointer;
+}
+
+/* 할 일 카드 1개 — 번호·제목 / 언제·어디서 / (있으면) 글 / 체크 팁 */
+.step-card {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem;
+}
+.step-head { font-size: 0.95rem; font-weight: 700; }
+.step-meta { color: var(--green); font-weight: 700; font-size: 0.82rem; }
+.step-meta .where-text { color: var(--muted); font-weight: 400; }
+
+.coupon-card {
+  border: 2px dashed #BFC4BE; border-radius: 12px;
+  padding: 14px 18px; margin-top: 4px; display: flex; flex-direction: column; gap: 8px; max-width: 460px;
+}
+.coupon-card .cap { color: var(--muted); font-size: 0.78rem; }
+.coupon-card .title { font-size: 1.1rem; font-weight: 700; }
+
+.where-box {
+  background: var(--green-bg); border-radius: 12px;
+  padding: 12px 16px; font-size: 0.86rem; color: #174F42; line-height: 1.6;
+}
+.where-box b { font-size: 0.9rem; }
+.free-pill {
+  font-size: 0.72rem; background: #FFFFFF; color: var(--green);
+  border-radius: 999px; padding: 2px 8px; margin-left: 6px;
+}
+
+.warn-box {
+  background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text);
+  border-radius: 10px; padding: 10px 14px; font-size: 0.88rem; line-height: 1.55;
+}
+
+.restart-row { max-width: 1000px; margin: 0 auto 40px; text-align: center; }
+
+@media (max-width: 720px) {
+  .panel { padding: 16px 10px; }
+  .bubble, .card, .options { max-width: 100%; }
+  .options, .card { margin-left: 0; }
+}

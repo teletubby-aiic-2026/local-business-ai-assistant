@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-_VALID_GENERATORS = ("reply_draft", "prevention_notice", "coupon_promo")
+_VALID_GENERATORS = ("reply_draft", "prevention_notice", "coupon_promo", "review_promo")
 _VALID_STATUSES = ("draft", "edited", "approved")
 _VALID_STYLES = ("haeyo", "hamnida", "mixed")
 
