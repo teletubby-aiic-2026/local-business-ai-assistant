@@ -14,7 +14,8 @@ _MONEY_KEYWORDS = re.compile(r"환불|쿠폰|무료|서비스|보상|증정|할�
 _PHONE = re.compile(r"01[016789]-?\d{3,4}-?\d{4}")
 _ADDR = re.compile(r"[가-힣]+(시|도|구|군|동|로|길)\s*\d")
 _NICK = re.compile(r"[가-힣]{2,4}\s*(님|씨)")
-_COUPON_WORDS = re.compile(r"할인|쿠폰|코드|반값|%|원")
+# '원'은 금액(숫자·천·만·백 뒤)일 때만 본다 — 그냥 '원'이면 '성원'·'원하시는'·'원래'까지 걸렸다(11/15 실시간 홍보글).
+_COUPON_WORDS = re.compile(r"할인|쿠폰|코드|반값|%|(?:\d|천|만|백)\s*원")
 _EXAGGERATION = re.compile(r"최고|무조건|100%")
 _STORE_CIRCUMSTANCE = re.compile(r"매출|손님이\s*줄|경기가?\s*안\s*좋|장사가?\s*안\s*돼|하락세|매출\s*감소|감소세")
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
@@ -30,7 +31,8 @@ _AI_EMPATHY_FORBIDDEN = re.compile(
     r"챙[기겨길]|대조|요청사항|앞으로|다음부터|다음에[는도]?\s*(?:꼭|잘)"
     r"|(?:드릴게요?|드리겠습니다|드리겠어요)[.!?]?(?=\s|$)"
 )
-_BROKEN_ENDING = re.compile(r"[어아]해\s?주|해해|주세주세요")
+# '좋아해 주시는'·'싫어해 주'는 바른 말(좋아하다·싫어하다)이라 뺀다 — 11/15 실시간 홍보글 "좋아해 주고 계십니다"가 걸렸다.
+_BROKEN_ENDING = re.compile(r"(?<![좋싫])[어아]해\s?주|해해|주세주세요")
 _FORMAL_END = re.compile(r"(합니다|습니다|됩니다|입니다|바랍니다|드립니다)[.!?]?\s*$")
 _INFORMAL_END = re.compile(r"(해요|게요|어요|아요|예요|죠)[.!?]?\s*$")
 _STYLE_SUFFIX = {"haeyo": "요", "hamnida": "니다", "mixed": "요"}
@@ -70,15 +72,31 @@ def promises_not_in_policy(text: str, policies: list[dict]) -> bool:
     return False
 
 
-def mentions_unknown_menu(text: str, menu_names: list[str]) -> bool:
-    """메뉴에 없는 음식(FOOD_WORDS)이 글에 있으면 True.
-    글에서 메뉴 이름을 먼저 지운다(긴 것부터). 메뉴 이름을 띄어쓰기로 나눈 2글자 이상 조각도 같이 지운다
-    ("불고기 덮밥"을 "불고기"만 써도 메뉴로 본다). 남은 글에서만 일반 음식 낱말을 찾는다."""
+# 고기 요리 메뉴면 '고기'(·'돼지고기')는 다른 음식이 아니라 그 메뉴의 재료다. 11/15 실시간 홍보글(쿠폰 메뉴 '제육볶음 정식')
+# 10번 중 대부분이 "양념과 고기의 조화" 같은 문장 하나로 no_unknown_menu 에 걸려 템플릿으로 갔다.
+_MEAT_MENU = re.compile(r"제육|불고기|고기|갈비|삼겹|목살|돼지|소고기|닭|치킨|보쌈|족발|돈까스|돈가스|수육|스테이크|육개장|오리|떡갈비")
+
+
+def menu_ingredient_words(menu: str | None) -> tuple[str, ...]:
+    """메뉴 이름으로 보아 그 메뉴의 재료라 '다른 음식'으로 보지 않을 일반 낱말 (지금은 고기 요리의 '고기'만)."""
+    return ("고기",) if menu and _MEAT_MENU.search(menu) else ()
+
+
+def unknown_menu_words(text: str, menu_names: list[str], allow: tuple[str, ...] = ()) -> list[str]:
+    """글에 든, 메뉴에 없는 음식 낱말(FOOD_WORDS) 목록. 메뉴 이름과 그 조각, allow 에 든 재료 낱말은 뺀다."""
     names = {n for name in menu_names for n in (" ".join(name.split()), *name.split()) if len(n) >= 2}
-    rest = text
+    rest = text or ""
     for name in sorted(names, key=len, reverse=True):
         rest = rest.replace(name, " ")
-    return any(w in rest for w in FOOD_WORDS if len(w) >= 2)
+    return [w for w in FOOD_WORDS if len(w) >= 2 and w in rest and w not in allow]
+
+
+def mentions_unknown_menu(text: str, menu_names: list[str], allow: tuple[str, ...] = ()) -> bool:
+    """메뉴에 없는 음식(FOOD_WORDS)이 글에 있으면 True.
+    글에서 메뉴 이름을 먼저 지운다(긴 것부터). 메뉴 이름을 띄어쓰기로 나눈 2글자 이상 조각도 같이 지운다
+    ("불고기 덮밥"을 "불고기"만 써도 메뉴로 본다). 남은 글에서만 일반 음식 낱말을 찾는다.
+    allow: 다른 음식으로 보지 않을 재료 낱말 (홍보글은 menu_ingredient_words(쿠폰 메뉴)를 넘긴다)."""
+    return bool(unknown_menu_words(text, menu_names, allow))
 
 
 def personal_info(text: str) -> bool:
@@ -223,10 +241,16 @@ def store_circumstance_leaked(text: str) -> bool:
 
 
 _QUOTE_MARKS = re.compile(r"[\"'“”‘’].{1,40}[\"'“”‘’]")
-# "라고" 뒤에 실제 전달 동사(해/하셨/하시/말씀/했)가 와야 인용으로 본다 — "~라고 생각합니다"처럼
+# "라고/다고" 뒤에 실제 전달 동사(해/하셨/하시/말씀/했/극찬/칭찬)가 와야 인용으로 본다 — "~라고 생각합니다"처럼
 # 손님 얘기가 아니라 사장님 자신의 의견을 말할 때(문장 안에 "손님"이 그냥 섞여 있는 경우)까지
-# 걸리는 걸 막는다.
-_CUSTOMER_QUOTE_PHRASE = re.compile(r"손님(?:들)?(?:께서|이)?\s*[^.?!]{0,20}라고\s*(?:해|하셨|하시|말씀|했)")
+# 걸리는 걸 막는다. 11/15: 따옴표 없이 옮기는 꼴('손님분들께서 … 좋다고 말씀해주신', '맛있다며 … 시키게 된다는
+# 손님들')도 잡는다.
+_QUOTE_SPEAKER = r"(?:(?:손님|고객)분?들?(?:께서|이|은|도)?|많은\s*분들?(?:께서|이)?|분들(?:께서|이))"
+_CUSTOMER_QUOTE_PHRASE = re.compile(
+    rf"{_QUOTE_SPEAKER}\s*[^.?!]{{0,30}}(?:라고|다고|다며|라며)\s*(?:해|하셨|하시|말씀|했|극찬|칭찬|입을\s*모|인정|평가|추천)"
+    r"|(?:다며|라며)\s*[^.?!]{0,20}(?:손님|고객|분들)"
+    r"|(?:다는|라는)\s*(?:손님|고객|분들)"
+)
 
 
 def quotes_customer_speech(text: str) -> bool:
@@ -361,6 +385,14 @@ _FORMAL_STIFF_FIXES = {
     "진심으로 사과드리며": "진심으로 죄송하며",
     "최선을 다할 예정입니다": "더 신경 쓰겠습니다",
     "최선을 다할 예정": "더 신경 쓸 예정",
+    # 홍보글(합니다체)에 자주 나와 다시 쓰기를 부르던 말 (11/15 실시간). 뜻이 같고 합니다체를 지키는 말로만 바꾼다.
+    # '방문을 기다리겠습니다'는 배달 주문 기준(시스템 프롬프트 14번)에 맞게 '주문을'로.
+    "맛보시길 바랍니다": "드셔 보시기 바랍니다",
+    "즐겨보세요": "드셔 보세요",
+    "제공하고 있습니다": "준비하고 있습니다",
+    "제공하고 있으니": "준비하고 있으니",
+    "방문을 기다리겠습니다": "주문을 기다리겠습니다",
+    "한끼 식사": "한 끼",
 }
 # 다시 쓰기 힌트에 보여 줄 바꿀 말 (사전 값이 없거나 꼴에 따라 다른 것)
 _STIFF_SUGGEST = {"기재": "적어 주세요 / 적어 주시기 바랍니다", "여러분": "모든 분", "과정에서": "다른 말로"}
@@ -434,19 +466,90 @@ _FORMAL_ENDINGS = (
 _LINE_END_PUNCT = re.compile(r"([.!?~…]*)\s*$")
 
 
+def _formal_ending(sentence: str) -> str:
+    stripped = sentence.rstrip()
+    punct = _LINE_END_PUNCT.search(stripped).group(1)
+    core = stripped[: len(stripped) - len(punct)] if punct else stripped
+    for old, new in _FORMAL_ENDINGS:
+        if core.endswith(old):
+            return core[: -len(old)] + new + punct
+    return stripped
+
+
+# 공지 한 줄이 공지 말투로 끝나는가(-니다·-세요·-십시오). notice_formal 은 '합니다체 위주'(다수결)라, 코드가 사과 줄·조치 줄을
+# 더하면 반말·장난 줄이 섞여도 통과할 수 있다 → 코드 보정한 공지는 모든 줄이 이 꼴이어야 쓴다 (c6.notice._repair_notice_body).
+_NOTICE_LINE_END = re.compile(r"(?:니다|세요|십시오)[.!?]*\s*$")
+
+
+def notice_lines_all_formal(text: str) -> bool:
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    return bool(lines) and all(_NOTICE_LINE_END.search(ln) for ln in lines)
+
+
 def to_formal_endings(text: str) -> str:
-    """줄마다 끝 어미가 해요체이면 표(_FORMAL_ENDINGS)대로 합니다체로 바꾼다. 줄 구조는 그대로 둔다."""
+    """줄마다 끝 어미가 해요체이면 표(_FORMAL_ENDINGS)대로 합니다체로 바꾼다. 줄 구조는 그대로 둔다 (공지)."""
+    return "\n".join(_formal_ending(line) for line in (text or "").splitlines())
+
+
+def to_formal_sentence_endings(text: str) -> str:
+    """문장마다(_SENT_SPLIT) 끝 어미가 해요체이면 합니다체로 바꾼다 — 여러 문장이 한 줄에 이어지는 홍보글용."""
+    if not text or not text.strip():
+        return text
+    return " ".join(_formal_ending(s) for s in _SENT_SPLIT.split(text.strip()) if s.strip())
+
+
+def promo_detail_hints(failed: list[str], text: str, *, menu_names: list[str], coupon_menu: str | None,
+                       review_texts: list[str], reviews, allow_food: tuple[str, ...] = ()) -> list[str]:
+    """홍보글 다시 쓰기 힌트에 덧붙일 줄: 점검마다 글에서 실제로 걸린 단어·구절을 적는다(11/15 — 무엇이 걸렸는지 안 알려
+    주면 같은 말을 또 썼다). 걸린 게 없으면 그 점검 줄은 넣지 않는다."""
     out = []
-    for line in (text or "").splitlines():
-        stripped = line.rstrip()
-        punct = _LINE_END_PUNCT.search(stripped).group(1)
-        core = stripped[: len(stripped) - len(punct)] if punct else stripped
-        for old, new in _FORMAL_ENDINGS:
-            if core.endswith(old):
-                core = core[: -len(old)] + new
-                break
-        out.append(core + punct)
-    return "\n".join(out)
+    if "no_unknown_menu" in failed:
+        words = unknown_menu_words(text, menu_names, allow_food)
+        if words:
+            out.append("메뉴에 없는 음식 낱말: " + ", ".join(f"'{w}'" for w in words)
+                       + (f" → 쿠폰 메뉴 '{coupon_menu}' 말고 다른 음식은 쓰지 마세요." if coupon_menu else " → 빼 주세요."))
+    if "only_coupon_menu" in failed and coupon_menu:
+        others = [m for m in menu_names if m != coupon_menu and len(m) > 2 and m in text]
+        if others:
+            out.append("쿠폰 메뉴가 아닌 메뉴: " + ", ".join(f"'{m}'" for m in others) + f" → '{coupon_menu}' 하나만 소개해 주세요.")
+    if "no_customer_quote" in failed:
+        m = _QUOTE_MARKS.search(text) or _CUSTOMER_QUOTE_PHRASE.search(text)
+        if m:
+            out.append(f"손님 말을 옮긴 부분: '{m.group(0).strip()}' → 따옴표 없이, 손님 말을 옮기지 말고 메뉴 특징을 직접 설명해 주세요.")
+    if "no_fewshot_copy" in failed:
+        source = " ".join(menu_names) + " " + " ".join(review_texts)
+        copied = [w for w in _FEWSHOT_WORDS if w in text and w not in source]
+        toks = re.findall(r"[가-힣]{2,}", text)
+        repeated = list(dict.fromkeys(t for i, t in enumerate(toks) if t in toks[:i]))
+        parts = []
+        if copied:
+            parts.append("예시에서 가져온 말 " + ", ".join(f"'{w}'" for w in copied))
+        if repeated:
+            parts.append("가까이 되풀이한 말 " + ", ".join(f"'{w}'" for w in repeated[:3]))
+        if parts:
+            out.append(" / ".join(parts) + " → 다른 말로 바꿔 주세요.")
+    if "not_quote_review" in failed:
+        hint = quote_hint(text, reviews)
+        if hint:
+            out.append(hint)
+    if "no_stiff_words" in failed:
+        hint = stiff_words_hint(text, formal=True)
+        if hint:
+            out.append(hint)
+    if "no_exaggeration" in failed:
+        words = list(dict.fromkeys(_EXAGGERATION.findall(text)))
+        if words:
+            out.append("과장 표현: " + ", ".join(f"'{w}'" for w in words) + " → 빼 주세요.")
+    if "no_coupon_invented" in failed:
+        words = list(dict.fromkeys(m.group(0) for m in _COUPON_WORDS.finditer(text)))
+        if words:
+            out.append("쿠폰 값 표현: " + ", ".join(f"'{w}'" for w in words) + " → 빼 주세요. 쿠폰 줄은 코드가 붙여요.")
+    if "promo_formal" in failed:
+        bad = [s for s in _SENT_SPLIT.split((text or "").strip())
+               if s.strip() and _INFORMAL_END.search(s) and not _FORMAL_END.search(s)]
+        if bad:
+            out.append("해요체로 끝난 문장: " + " / ".join(bad) + " → '-습니다/-니다'로 고쳐 주세요.")
+    return out
 
 
 def same_first_sentence(texts: list[str]) -> bool:

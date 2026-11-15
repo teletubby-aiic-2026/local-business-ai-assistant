@@ -88,6 +88,10 @@ def _repair_notice_body(body, failed, start_label="오늘부터", chosen_measure
         else:
             lines.insert(1 if lines else 0, NOTICE_APOLOGY_LINE)
         fixed = "\n".join(lines)
+    # 코드가 고친 공지는 모든 줄이 공지 말투(-니다·-세요·-십시오)로 끝나야 쓴다. notice_formal 은 다수결이라, 사과 줄·조치 줄을
+    # 더하면 "야 다들 들어봐 … ㅋㅋ" 같은 AI 줄이 섞여도 통과했다(PR #54 회귀, 11/15 --mock 시험에서 발견) → 그런 글은 템플릿으로.
+    if not checks.notice_lines_all_formal(fixed):
+        return body
     return fixed
 
 # MEASURE_FALLBACK_SENTENCES 는 "앞으로 ~하겠습니다" 꼴이라, start_label("오늘부터")과 바로 이어 붙이면
