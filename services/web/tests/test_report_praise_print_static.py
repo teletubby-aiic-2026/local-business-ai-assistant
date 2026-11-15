@@ -71,10 +71,18 @@ def rules(css: str) -> list[tuple[str, str]]:
     return [(sel.strip(), body.strip()) for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)]
 
 
+PRINT_HEAD = "/* ── 종합 리포트 인쇄"       # style.css 의 인쇄 덩어리 머리 주석
+
+
+def print_chunk() -> str:
+    """style.css 에서 '종합 리포트 인쇄' 머리 주석부터 끝까지 (다른 덩어리가 @media print 를 써도 이 덩어리만 본다)."""
+    assert PRINT_HEAD in CSS, "style.css 에 '종합 리포트 인쇄' 덩어리가 없음"
+    return CSS[CSS.index(PRINT_HEAD):]
+
+
 def print_css() -> str:
-    """style.css 의 첫 @media print 덩어리 (종합 리포트 인쇄)."""
-    assert "@media print {" in CSS, "style.css 에 @media print 가 없음"
-    return block(CSS, "@media print {")
+    """'종합 리포트 인쇄' 덩어리의 @media print 안쪽."""
+    return block(print_chunk(), "@media print {")
 
 
 def print_rules() -> list[tuple[str, str]]:
@@ -195,7 +203,7 @@ class PrintStyles(unittest.TestCase):
         for sel, _ in scoped:
             for one in sel.split(","):
                 self.assertRegex(one.strip(), r"^html(:root)?\.rp-view\b", f"리포트 화면 밖에도 먹는 인쇄 규칙: {one.strip()}")
-        fallback = block(CSS, "@supports not selector(:has(*)) {")
+        fallback = block(print_chunk(), "@supports not selector(:has(*)) {")
         for sel, _ in rules(block(fallback, "@media print {")):
             for one in sel.split(","):
                 self.assertRegex(one.strip(), r"^html\.rp-view\b")
@@ -206,7 +214,7 @@ class PrintStyles(unittest.TestCase):
         self.assertIn(':not([data-view="report"] *)', hide[0])                 # 리포트 안쪽은 건드리지 않고
         self.assertIn(':not(:has([data-view="report"]))', hide[0])             # 리포트를 품은 뼈대도 남긴다
         # :has 를 못 쓰는 브라우저용 대체 규칙
-        fallback = block(CSS, "@supports not selector(:has(*)) {")
+        fallback = block(print_chunk(), "@supports not selector(:has(*)) {")
         self.assertIn("@media print", fallback)
         for part in ("body > :not(.shell)", ".shell > :not(main)", '.shell > main > :not([data-view="report"])', "display: none !important"):
             self.assertIn(part, fallback)
@@ -238,9 +246,10 @@ class PrintStyles(unittest.TestCase):
         self.assertIn("-webkit-print-color-adjust: exact", exact)
 
     def test_print_block_follows_the_report_styles(self):
-        self.assertEqual(CSS.count("@media print"), 2)                          # 본 덩어리 + :has 대체 덩어리
-        self.assertLess(CSS.index(".rp-print-head { display: none; }"), CSS.index("@media print {"))
-        self.assertLess(CSS.index("@media print {"), CSS.index("@supports not selector(:has(*)) {"))
+        chunk = print_chunk()
+        self.assertLess(chunk.index("@media print {"), chunk.index("@supports not selector(:has(*)) {"))    # 본 덩어리 → :has 대체 덩어리
+        self.assertLess(CSS.index(".rp-print-head { display: none; }"), CSS.index(PRINT_HEAD))              # 리포트 스타일 바로 뒤
+        self.assertLess(CSS.index("#rp-approvals {"), CSS.index(PRINT_HEAD))
         self.assertIn(".rp-table-wrap { overflow-x: auto;", CSS)                # 화면 규칙은 그대로 (인쇄에서만 풀어 줌)
 
 
