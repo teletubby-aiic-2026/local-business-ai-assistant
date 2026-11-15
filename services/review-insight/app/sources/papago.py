@@ -25,7 +25,8 @@ from app.sources import capture
 
 log = logging.getLogger("review_insight.papago")
 ENDPOINT = "https://papago.apigw.ntruss.com/nmt/v1/translation"
-LANGS = ("en", "ja", "zh-CN")
+# Papago 텍스트 번역이 한국어에서 지원하는 언어 (공식 문서 11/15 확인). 앞의 셋은 메뉴판 사전이 있는 언어
+LANGS = ("en", "ja", "zh-CN", "zh-TW", "vi", "th", "id", "fr", "es", "ru", "de", "it")
 _lock = threading.Lock()
 
 

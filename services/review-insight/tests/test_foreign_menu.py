@@ -114,8 +114,8 @@ def test_owner_override_and_api(client):
     assert r.status_code == 200
     m = client.get(f"{API}/menu/foreign", params={"lang": "en"}).json()
     assert m["items"][0]["name"] == "Jeyuk Set (spicy pork)" and m["items"][0]["name_source"] == "owner"
-    assert client.get(f"{API}/menu/foreign", params={"lang": "fr"}).status_code == 400
-    bad = client.put(f"{API}/profile", json={"changes": {"foreign": {"overrides": {"fr": {}}}}})
+    assert client.get(f"{API}/menu/foreign", params={"lang": "xx"}).status_code == 400
+    bad = client.put(f"{API}/profile", json={"changes": {"foreign": {"overrides": {"xx": {}}}}})
     assert bad.status_code == 400
 
 
@@ -126,3 +126,35 @@ def test_print_page_is_a4_and_escapes(client):
     text = page.text
     assert "size: A4" in text and "<script>x</script>" not in text and "&lt;script&gt;" in text
     assert "₩1,000" in text and "自動翻訳" in text and "예시 번역" in text
+
+
+def test_language_without_dictionary_and_no_key_falls_back_to_english():
+    m = foreign_menu.build(service.store("store_ongi"), prof.load("store_ongi"), "vi", Papago())
+    assert not m["dictionary"] and m["fallback_en"] and m["labels"]["title"] == "Menu"
+    assert m["items"][0]["name"] == "Spicy Stir-fried Pork Set Meal" and m["items"][0]["name_source"] == "dictionary_en"
+    assert any("Papago 키가 필요" in c["text"] for c in m["checks"])
+    assert "영어로 대신" in foreign_menu.render(m, foreign_menu.datetime(2026, 11, 15))
+
+
+def test_language_without_dictionary_uses_papago_for_everything():
+    seen = []
+
+    def handle(request):
+        body = json.loads(request.content)
+        seen.append((body["source"], body["target"]))
+        return httpx.Response(200, json={"message": {"result": {"translatedText": f"[{body['target']}]{body['text']}"}}})
+    pg = Papago("id", "secret", transport=httpx.MockTransport(handle))
+    m = foreign_menu.build(service.store("store_ongi"), prof.load("store_ongi"), "zh-TW", pg)
+    assert m["dictionary"] is False and not m["fallback_en"] and m["papago_used"]
+    assert m["labels"]["title"] == "[zh-TW]메뉴" and m["labels"]["spicy"][2] == "[zh-TW]보통 매움"
+    assert m["phrases"][0]["text"] == "[zh-TW]덜 맵게 해 주세요"
+    item = m["items"][0]
+    assert item["name"] == "[zh-TW]제육볶음 정식" and item["name_source"] == "papago" and item["name_back"]
+    assert item["allergens"][0] == "[zh-TW]돼지고기"
+    assert ("ko", "zh-TW") in seen and ("zh-TW", "ko") in seen          # 번역 + 다시 한국어로
+
+
+@pytest.mark.parametrize("lang", ["zh-TW", "vi", "th", "id", "fr", "es", "ru", "de", "it"])
+def test_all_papago_languages_are_accepted(client, lang):
+    r = client.get(f"{API}/menu/foreign", params={"lang": lang})
+    assert r.status_code == 200 and r.json()["lang_name"]

@@ -17,7 +17,9 @@ from datetime import datetime
 from app import profile as prof
 from app.sources.papago import LANGS, Papago, TranslateError
 
-LANG_NAMES = {"en": "English", "ja": "日本語", "zh-CN": "简体中文"}
+LANG_NAMES = {"en": "English", "ja": "日本語", "zh-CN": "简体中文", "zh-TW": "繁體中文", "vi": "Tiếng Việt", "th": "ไทย",
+              "id": "Bahasa Indonesia", "fr": "Français", "es": "Español", "ru": "Русский", "de": "Deutsch", "it": "Italiano"}
+DICT_LANGS = ("en", "ja", "zh-CN")      # 확인한 사전이 있는 언어. 나머지는 Papago (키 없으면 영어로 대신)
 
 # ── 로마자 (국어의 로마자 표기법 기본 규칙: 받침 이어 읽기, ㄹㄹ → ll. 자음 동화 등은 하지 않음) ──
 _INIT = ["g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h"]
@@ -97,7 +99,11 @@ WORDS = {
     "고등어": ("mackerel", "さば", "鲭鱼"), "오징어": ("squid", "いか", "鱿鱼"), "토마토": ("tomato", "トマト", "番茄"),
     "복숭아": ("peach", "もも", "桃"), "아황산류": ("sulfites", "亜硫酸塩", "亚硫酸盐"),
 }
-_IDX = {lang: i for i, lang in enumerate(LANGS)}
+_IDX = {lang: i for i, lang in enumerate(DICT_LANGS)}
+# 사전이 없는 언어의 메뉴판 문구: 이 한국어 원문을 Papago 로 번역 (저장본 재사용)
+UI_KO = {"ing": "재료", "all": "알레르기 유발 재료", "ask": "알레르기 정보가 등록되지 않았습니다. 직원에게 물어봐 주세요",
+         "pop": "추천", "spicy": ["안 매움", "조금 매움", "보통 매움", "많이 매움"], "phr": "주문할 때 쓰는 말 (직원에게 보여 주세요)",
+         "foot": "이 메뉴판은 자동 번역입니다. 궁금한 점은 직원에게 물어봐 주세요.", "title": "메뉴"}
 UI = {
     "en": {"ing": "Ingredients", "all": "Contains", "ask": "Allergy info not registered — please ask our staff",
            "pop": "Popular", "spicy": ["Not spicy", "Mild", "Medium", "Hot"], "phr": "Useful phrases (show this to staff)",
@@ -124,24 +130,49 @@ def build(store: dict, p: prof.Profile, lang: str, papago: Papago | None = None)
     if lang not in LANGS:
         raise ValueError(f"lang 은 {', '.join(LANGS)} 중 하나입니다")
     papago = papago or Papago()
-    i = _IDX[lang]
-    ui = UI[lang]
+    i = _IDX.get(lang)                       # None 이면 사전 없는 언어
     overrides = (p.foreign.overrides or {}).get(lang, {})
     contract_menu = set(store.get("menu") or [])
     checks: list[dict] = []
     used_papago = False
+    fallback_en = False                      # 사전 없는 언어인데 Papago 를 못 써서 영어로 대신 씀
+
+    def via_papago(text: str) -> str | None:
+        nonlocal used_papago
+        try:
+            out = papago.translate(text, lang)
+            used_papago = True
+            return out
+        except TranslateError:
+            return None
+
+    if i is not None:
+        ui = UI[lang]
+        phrases = [{"ko": ko, "text": t[i]} for ko, t in PHRASES]
+    else:
+        got = {k: (via_papago(v) if isinstance(v, str) else [via_papago(x) for x in v]) for k, v in UI_KO.items()}
+        ok = all(x is not None for v in got.values() for x in (v if isinstance(v, list) else [v]))
+        ui = got if ok else UI["en"]
+        tr = [via_papago(ko) for ko, _ in PHRASES]
+        phrases = [{"ko": ko, "text": t if t is not None else en[0]} for (ko, en), t in zip(PHRASES, tr)]
+        if not ok or any(t is None for t in tr):
+            fallback_en = True
+            checks.append({"menu": "-", "kind": "untranslated",
+                           "text": f"{LANG_NAMES[lang]} 번역에 Papago 키가 필요합니다. 메뉴판 안내 문구를 영어로 대신 씁니다"})
 
     def word(w: str, where: str) -> tuple[str, str | None]:
-        nonlocal used_papago
         if w in WORDS:
-            return WORDS[w][i], None
-        try:
-            t = papago.translate(w, lang)
-            used_papago = True
+            if i is not None:
+                return WORDS[w][i], None
+            t = via_papago(w)
+            if t is not None:
+                return t, papago.translate(t, "ko", source=lang)
+            return WORDS[w][0], None                  # 영어 사전으로 대신
+        t = via_papago(w)
+        if t is not None:
             return t, papago.translate(t, "ko", source=lang)
-        except TranslateError:
-            checks.append({"menu": where, "kind": "untranslated", "text": f"'{w}' 번역이 없어 한국어로 둡니다 (사전·Papago 키 없음)"})
-            return w, None
+        checks.append({"menu": where, "kind": "untranslated", "text": f"'{w}' 번역이 없어 한국어로 둡니다 (사전·Papago 키 없음)"})
+        return w, None
 
     items = []
     for m in p.menu:
@@ -151,7 +182,7 @@ def build(store: dict, p: prof.Profile, lang: str, papago: Papago | None = None)
         back = None
         if ov.get("name"):
             name, src = ov["name"], "owner"
-        elif m.name in NAMES:
+        elif m.name in NAMES and i is not None:
             name, src = NAMES[m.name][i], "dictionary"
         else:
             try:
@@ -159,8 +190,11 @@ def build(store: dict, p: prof.Profile, lang: str, papago: Papago | None = None)
                 used_papago = True
                 back = papago.translate(name, "ko", source=lang)
             except TranslateError:
-                name, src = "", "none"
-                checks.append({"menu": m.name, "kind": "untranslated", "text": "메뉴 이름 번역이 없어 로마자만 씁니다"})
+                if m.name in NAMES:              # 사전 없는 언어 + 키 없음 → 영어 이름으로 대신
+                    name, src = NAMES[m.name][0], "dictionary_en"
+                else:
+                    name, src = "", "none"
+                    checks.append({"menu": m.name, "kind": "untranslated", "text": "메뉴 이름 번역이 없어 로마자만 씁니다"})
         ingredients = [word(x, m.name) for x in m.ingredients]
         allergens = [word(x, m.name) for x in m.allergens]
         if m.name not in contract_menu:
@@ -181,7 +215,7 @@ def build(store: dict, p: prof.Profile, lang: str, papago: Papago | None = None)
     store_name = store.get("name", "").replace("(가상)", "").strip()
     return {"store_id": p.store_id, "lang": lang, "lang_name": LANG_NAMES[lang], "store_name": store_name,
             "store_roman": romanize(store_name), "title": ui["title"], "items": items,
-            "phrases": [{"ko": ko, "text": t[i]} for ko, t in PHRASES], "labels": ui,
+            "phrases": phrases, "labels": ui, "dictionary": i is not None, "fallback_en": fallback_en,
             "checks": checks, "papago_used": used_papago, "papago_available": papago.available,
             "demo": not papago.available, "data_origin": p.data_origin,
             "note": "자동 번역입니다. 인쇄 전에 메뉴 이름·가격·알레르기를 확인해 주세요"}
@@ -203,13 +237,14 @@ def render(menu: dict, now: datetime) -> str:
   <div class="al{'' if it['allergens'] else ' ask'}">{e(it['allergy_text'])}</div>
 </article>""")
     phrases = "".join(f'<div class="ph"><b>{e(x["text"])}</b><span>{e(x["ko"])}</span></div>' for x in menu["phrases"])
-    demo = '<div class="demo">예시 번역 (Papago 키 없음) · 시연용 가상 가게</div>' if menu["demo"] else ""
+    demo = ('<div class="demo">Papago 키가 없어 영어로 대신 표시 · 시연용 가상 가게</div>' if menu.get("fallback_en")
+            else '<div class="demo">예시 번역 (Papago 키 없음) · 시연용 가상 가게</div>' if menu["demo"] else "")
     return f"""<!doctype html><html lang="{e(menu['lang'])}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{e(menu['store_roman'])} {e(menu['title'])}</title>
 <style>
   @page {{ size: A4; margin: 12mm; }}
   * {{ box-sizing:border-box; }}
-  body {{ margin:0; background:#fff; color:#111; font:14px/1.45 -apple-system, "Noto Sans", "Noto Sans KR", "Noto Sans JP", "Noto Sans SC", "Apple SD Gothic Neo", "Malgun Gothic", "Hiragino Sans", "Microsoft YaHei", sans-serif; }}
+  body {{ margin:0; background:#fff; color:#111; font:14px/1.45 -apple-system, "Noto Sans", "Noto Sans KR", "Noto Sans JP", "Noto Sans SC", "Noto Sans TC", "Noto Sans Thai", "Leelawadee UI", "Microsoft JhengHei", "Apple SD Gothic Neo", "Malgun Gothic", "Hiragino Sans", "Microsoft YaHei", sans-serif; }}
   .page {{ max-width:186mm; margin:0 auto; padding:8px; }}
   header {{ display:flex; justify-content:space-between; align-items:flex-end; border-bottom:3px solid #111; padding-bottom:6px; margin-bottom:10px; }}
   h1 {{ font-size:26px; margin:0; letter-spacing:-0.01em; }} .sub {{ color:#555; font-size:13px; }}

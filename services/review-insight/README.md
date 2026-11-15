@@ -108,7 +108,7 @@ reviews = json.load(open("services/review-insight/data/synthetic/store_ongi/revi
 | GET | `/api/review-insight/promises` | 약속 장부: 답글의 약속과 그 뒤 재발 여부 |
 | GET·POST | `/api/review-insight/public/{가게}/info · inquiries · inquiries/{code}` | **손님용 (토큰 없음)**. 가게 정보로 바로 답하거나 사장님에게 전달. 횟수 제한 |
 | GET | `/s/{가게}` | 손님 문의 페이지 (휴대폰 화면) |
-| GET | `/api/review-insight/menu/foreign?lang=en\|ja\|zh-CN` · `/menu/foreign/print` | 다국어 메뉴판 초안과 인쇄용 A4 페이지 (Papago, 키 없으면 확인한 사전만) |
+| GET | `/api/review-insight/menu/foreign?lang=` · `/menu/foreign/print` | 다국어 메뉴판 초안과 인쇄용 A4 페이지. 12개 언어: en·ja·zh-CN(확인한 사전 + Papago), zh-TW·vi·th·id·fr·es·ru·de·it(Papago, 키 없으면 영어로 대신) |
 
 - `store_id`를 빼면 발표용 가게 `store_ongi`입니다. 없는 가게는 404 `STORE_NOT_FOUND`.
 - 오류는 규격 7절 모양입니다: `{"error": {"code", "message", "retryable", "details", "request_id"}}`

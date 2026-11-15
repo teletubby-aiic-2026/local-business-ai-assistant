@@ -123,10 +123,13 @@ class Reply(_Strict):
     sla_minutes: int = Field(30, ge=5, le=24 * 60)
 
 
+LangCode = Literal["en", "ja", "zh-CN", "zh-TW", "vi", "th", "id", "fr", "es", "ru", "de", "it"]
+
+
 class Foreign(_Strict):
-    languages: list[Literal["en", "ja", "zh-CN"]] = Field(default_factory=list)
+    languages: list[LangCode] = Field(default_factory=list)
     # 사장님이 고친 번역: {"en": {"제육볶음 정식": {"name": "Jeyuk (spicy pork) set", "desc": "..."}}}
-    overrides: dict[Literal["en", "ja", "zh-CN"], dict[str, dict[Literal["name", "desc"], str]]] = Field(default_factory=dict)
+    overrides: dict[LangCode, dict[str, dict[Literal["name", "desc"], str]]] = Field(default_factory=dict)
 
 
 class Notice(_Strict):
