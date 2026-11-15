@@ -225,7 +225,8 @@ def test_changed_evidence_prompt_or_model_asks_the_model_again(tmp_path, monkeyp
     monkeypatch.setattr(Demo, "REASON_SYSTEM", Demo.REASON_SYSTEM + " (바뀐 규칙)")
     live(tmp_path, store, model).cards()                                       # 프롬프트가 바뀜
     assert model.calls == 4
-    monkeypatch.setattr("web.demo.REASON_VERSION", "reason-v2")
+    from web.demo import REASON_VERSION                                        # 지금 버전이 무엇이든 그와 다른 값으로 올린다
+    monkeypatch.setattr("web.demo.REASON_VERSION", REASON_VERSION + "-next")
     live(tmp_path, store, model).cards()                                       # 버전을 올림
     assert model.calls == 5
 

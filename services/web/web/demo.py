@@ -17,7 +17,7 @@ from shared.contracts import CARD_GENERATORS   # 카드 종류 → 그 카드가
 from shared.storage import MemoryStore, StorageError, clean_visitor_id
 
 from .cards import (REASON_OK, CardPlan, apply_writer, model_reason_failed, normalize_citations, plan_cards,
-                    reason_problems, strip_citations, why_no_card_b)
+                    praised_coupon_menu, reason_problems, strip_citations, why_no_card_b)
 from .generate import (DEFAULT_MEASURES, GenerateError, adapt_seed, add_pasted_replies, c6_available,
                        ensure_marketing_on_path, load_pasted_examples, load_seed, measure_catalog, pasted_reply_targets,
                        pick_measures, run_live, run_live_pasted_replies, seed_pasted_replies, summarize)
@@ -31,7 +31,7 @@ MOCK_NOTICE = "시험용 실행 · 키 없이 저장된 예시 결과를 보여 
 KST = timezone(timedelta(hours=9))
 log = logging.getLogger("web.demo")
 
-REASON_VERSION = "reason-v1"   # 이유 문장 만드는 방식을 바꾸면 올린다 → 저장해 둔 이전 문장을 더 쓰지 않음 (프롬프트·모델·근거가 바뀌어도 열쇠가 달라진다)
+REASON_VERSION = "reason-v2"   # 이유 문장 만드는 방식을 바꾸면 올린다 → 저장해 둔 이전 문장을 더 쓰지 않음 (프롬프트·모델·근거가 바뀌어도 열쇠가 달라진다)
 MEMO_MAX = 256                 # 카드 계획을 서버 메모리에 기억하는 최대 개수 (방문자가 많아져도 무한히 늘지 않게)
 DRAFT_MAX = 2000               # 어느 카드의 초안인지 기억하는 최대 개수
 PENDING_MAX = 2000             # DB 가 멈춘 동안 들고 있는 승인 기록의 최대 개수 (넘으면 오래된 것부터 버림)
@@ -174,15 +174,31 @@ class Demo:
 
     def _plans(self, st: dict) -> list[CardPlan]:
         writer = self._reason_writer if self.s.mode == "live" else None
+        # 카드 ⓑ 의 손님 칭찬 근거: C6 에 넘기는 것과 같은 가게·리뷰(_contract_inputs)로 고른다 → 카드가 말한 메뉴 == 홍보글 쿠폰 메뉴.
+        # 변환이 안 되는 리뷰가 있어도 카드는 뜨게 한다 (칭찬 근거 없이 예전 카드)
+        try:
+            store, reviews = self._contract_inputs(st)
+            praise = praised_coupon_menu(store, reviews)
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            log.warning("리뷰를 읽지 못해 카드 ⓑ 에 칭찬 근거를 붙이지 않아요 (%s)", exc.__class__.__name__)
+            store = reviews = praise = None
+        if praise and self.s.mode == "mock":
+            # mock 의 홍보글은 저장 예시라 쿠폰 메뉴가 정해져 있다. 붙여넣은 칭찬 리뷰로 고른 메뉴가 그 메뉴와 달라지면
+            # 카드가 다른 메뉴를 말하게 되므로 칭찬 근거를 붙이지 않는다 (live 는 고른 메뉴로 홍보글을 새로 쓴다)
+            saved = {e for d in self.seed.get("promo", {}).get("drafts", []) for e in d.get("evidence_ids", [])
+                     if e.startswith("coupon:")}
+            if saved and f"coupon:{praise['menu']}" not in saved:
+                store = reviews = praise = None
         # 묶음 전체(근거 문장 포함)를 열쇠에 넣는다. 방문자마다 붙여넣은 글이 다른데 리뷰 번호(…_paste_001)만 같으면
         # 한 방문자의 근거 문장이 다른 방문자에게 보일 수 있다. 내용이 같을 때만 같은 계획을 쓴다.
+        # 칭찬 근거(고른 메뉴·건수·근거 리뷰 글)도 같은 이유로 넣는다: 붙여넣은 칭찬 리뷰가 카드 ⓑ 의 근거로 보인다.
         key = json.dumps([st["insight"].get("top_issue_id"), st["insight"].get("groups", []),
-                          [s.to_dict() for s in st["snapshots"]], self.s.mode], ensure_ascii=False, sort_keys=True)
+                          [s.to_dict() for s in st["snapshots"]], self.s.mode, praise], ensure_ascii=False, sort_keys=True)
         with self._lock:
             plans = self._reason_memo.get(key)
             if plans is None:   # live 에서 GET 마다 HCX 를 다시 부르지 않게
                 plans = plan_cards(st["insight"], st["snapshots"], self.s.store_id, preferred_id=self.s.card_b_snapshot_id,
-                                   threshold=self.s.card_b_threshold)
+                                   threshold=self.s.card_b_threshold, store=store, reviews=reviews)
                 if writer is not None:
                     for plan in plans:
                         if not plan.problems:   # 고정 문장이 검사기에 걸린 카드는 모델을 부르지 않는다 (plan_cards 와 같은 규칙)
