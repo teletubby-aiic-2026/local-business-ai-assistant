@@ -69,7 +69,7 @@ curl -s http://localhost:8000/api/health
 - 2부. 화면을 다듬을 때 유지해야 하는 것
   - 2.1 파일 세 개와 정적 파일 경로 · 2.2 `id` 목록 · 2.3 id 말고도 app.js가 기대하는 것
   - 2.4 시험이 직접 확인하는 것 · 2.5 화면 주소 · 2.6 화면 흐름과 부르는 API
-  - 2.7 자유롭게 바꿔도 되는 것 · 2.8 바꾼 뒤 확인하는 법
+  - 2.7 자유롭게 바꿔도 되는 것 · 2.8 바꾼 뒤 확인하는 법 · 2.9 왼쪽 메뉴 접기와 폭 기준
 - 3부. 데이터가 어디에 저장되나, 무엇이 바뀔 예정인가
   - 3.1 지금 · 3.2 예정(아직 없음) · 3.3 지금 화면에 있는 빈 자리 · 3.4 임시 DB 표 이름
 - 부록. 알려진 특이점, 코드에서 확인하지 못한 것
@@ -1509,15 +1509,17 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 
 ### 2.2 `id` 목록
 
-(11/15 `feat/connect-care-ui` 기준으로 다시 셈. 서랍·캡처·종합 리포트 id 포함) `app.js`가 찾는 id는 **114개**입니다. `$("…")`로 글자 그대로 적힌 99개, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`), 종합 리포트의 `RP_STATE` 표로 찾는 5개(`rp-daily-state`·`rp-score-state`·`rp-month-state`·`rp-market-state`·`rp-mkt-state`)를 합한 수입니다. 그중 `approvals`, `restart`, `rp-approvals`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 111개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 112개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
+(11/15 `feat/connect-care-ui` 기준으로 다시 세고, 11/16 왼쪽 메뉴 접기의 `menu-toggle`·`menu-toggle-count`를 더함. 서랍·캡처·종합 리포트 id 포함) `app.js`가 찾는 id는 **116개**입니다. `$("…")`로 글자 그대로 적힌 101개, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`), 종합 리포트의 `RP_STATE` 표로 찾는 5개(`rp-daily-state`·`rp-score-state`·`rp-month-state`·`rp-market-state`·`rp-mkt-state`)를 합한 수입니다. 그중 `approvals`, `restart`, `rp-approvals`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 113개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 114개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
 
-`index.html`에는 id가 121개 있습니다. 112개를 뺀 나머지 9개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`)로만 씁니다 (표의 마지막 묶음).
+`index.html`에는 id가 124개 있습니다. 114개를 뺀 나머지 10개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`·`aria-controls`)로만 씁니다 (표의 마지막 묶음).
 
 **상단 바와 알림**
 
 | id | 한 줄 설명 |
 |---|---|
-| `store-name` | 상단 바의 가게 이름 줄. "가게 이름 · 업종 · 상권 이름 상권"으로 채움 |
+| `menu-toggle` | 상단 바 왼쪽의 메뉴 접기·펼치기 버튼 (761px 이상에서만 보임). JS가 `aria-expanded`·`aria-label`("왼쪽 메뉴 접기"/"왼쪽 메뉴 펼치기")·`title`을 바꿈. `aria-controls`가 `side-menu`를 가리킴 (2.9) |
+| `menu-toggle-count` | 토글 버튼 위의 승인 대기 수. 메뉴가 접혀 있을 때만 보이고, 값은 `nav-draft-count`와 같음. 0이면 `hidden` |
+| `store-name` | 상단 바의 가게 이름 줄. "가게 이름 · 업종 · 상권 이름 상권"으로 채움. 좁으면 자르지 않고 줄을 바꿈 |
 | `ask-ai` | 상단 'AI에게 묻기' 버튼. 서랍(`#assistant`)을 열고 닫음. JS가 `aria-expanded`를 바꿈 |
 | `mode-notice` | 시험용 실행 안내 띠. `/api/health`의 `mode_notice`가 있으면 보임. **시험이 이 id를 확인함** |
 | `alert` | 오류·경고 띠. API 오류 문장과 막힘 안내를 여기에 보여 줌 |
@@ -1541,7 +1543,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `today-source` | 눈썹 줄의 "기간 · 리뷰는 합성 데이터" |
 | `dash-title` | 홈 제목(`h1`). "사장님, 오늘 처리할 일 n가지" 등 |
 | `hero-problem` | '오늘의 핵심 문제' 한 줄. **JS가 이 글자를 다시 읽어** '오늘 할 일'의 부제로 씀 |
-| `staff-strip` | 375px 폭에서 보이는 AI 직원 한 줄 상태(`ul`). `#staff`를 복사해서 그림 |
+| `staff-strip` | 왼쪽 메뉴의 'AI 직원'이 안 보일 때(760px 이하, 761~1024px, 넓은 화면에서 메뉴를 접었을 때) 홈에 보이는 AI 직원 한 줄 상태(`ul`). `#staff`를 복사해서 그림 |
 | `stat-reviews` | '리뷰' 타일의 숫자 |
 | `stat-reviews-sub` | '리뷰' 타일의 보조 글 ("28일 동안") |
 | `stat-complaints` | '불만' 타일의 숫자 |
@@ -1662,10 +1664,11 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `assistant-count` | 900자를 넘으면 "n / 1000자" |
 | `honesty` | 바닥 '동작·모의 표시'가 들어가는 칸 (`/api/health`의 `parts`) |
 
-**JS가 찾지 않는 id 9개** (접근성 연결. 이름을 바꾸면 연결된 `aria-labelledby`·`for`도 같이 바꿉니다)
+**JS가 찾지 않는 id 10개** (접근성 연결. 이름을 바꾸면 연결된 `aria-labelledby`·`aria-controls`·`for`도 같이 바꿉니다)
 
 | id | 한 줄 설명 |
 |---|---|
+| `side-menu` | 왼쪽 메뉴(`nav.side`). 토글 버튼(`#menu-toggle`)의 `aria-controls`가 가리킴 |
 | `chart-title` | 차트 패널 제목. 패널의 `aria-labelledby`가 가리킴 |
 | `todo-title` | '오늘 할 일' 패널 제목. 패널의 `aria-labelledby`가 가리킴 |
 | `assistant-title` | 서랍 제목. 서랍의 `aria-labelledby`가 가리킴 |
@@ -1684,6 +1687,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `.side .menu` | 준비 중 메뉴 링크를 끝에 더함 | 왼쪽 메뉴 `nav`에 `side`, 그 안 목록에 `menu` 클래스 |
 | `.shell > main` | 준비 중 화면을 끝에 더함 | `shell` 클래스 요소의 바로 아래 자식 `main` |
 | `.menu a` | 현재 화면의 메뉴 링크에 `aria-current="page"`를 켬 | 메뉴 링크마다 `data-route` |
+| `.side`, `.side a[href]`, `.side .menu a[aria-current="page"]` | 덮는 메뉴(761~1024px): 바깥·메뉴 항목 누름으로 닫기, Tab 이 도는 범위, 열 때 포커스 줄 곳 (2.9) | 왼쪽 메뉴 `nav`에 `side`, 메뉴 항목은 `href`가 있는 `a` |
 | `#staff li`, 그 안의 `.dot`, `b`, `b + span` | `#staff-strip`을 그림 | `li` 안에 `.dot`, 굵은 글 `<b>`, 그 바로 다음 `<span>`(상태 문구) 순서 |
 | `[data-view]` | 화면 전환 (`hidden`) | 화면마다 `<section data-view="이름">` |
 | `[data-view="이름"] h1` | 화면을 바꾸면 그 화면의 첫 `h1`에 포커스 | 화면 안에 `h1`(`tabindex="-1"`). 없으면 포커스만 건너뜀 |
@@ -1723,10 +1727,11 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `aria-current="true"` | 고른 카드·글 버튼 | `.seg`, `.draft-list` 안의 버튼 |
 | `aria-selected="true"`와 `tabindex` | 고른 탭 | `.an-tabs [aria-selected="true"]` |
 | `aria-expanded="true"` | 서랍을 열고 있을 때 `#ask-ai`, `#ask-open` | `.ask[aria-expanded="true"]` |
+| `<html data-menu="open">` / `"closed"` | 왼쪽 메뉴를 펴고 접을 때 (`setMenu`). `#menu-toggle`의 `aria-expanded`도 같이 바꿈 | `:root[data-menu="closed"] …`, `:root[data-menu="open"] …` (모두 `@media screen and …` 안. 2.9) |
 | `class="dot ok"` / `"dot warn"` | `#dot-care`, `#dot-mkt` (`className`을 통째로 바꿈) | `.dot.ok`, `.dot.warn` |
 | `st`·`bad` 클래스 켜고 끄기 | `#an-status` | `.st`, `.bad` |
 | `<html data-theme="light">` | 주소에 `?theme=light`가 있을 때 | `:root:not([data-theme="light"])` 안의 다크 색 |
-| `--top-h` (CSS 변수) | JS가 `<html>`에 상단 바 높이를 넣음 | `.side`, `.drawer`의 `top`·`height` |
+| `--top-h` (CSS 변수) | JS가 `<html>`에 상단 바 높이를 넣음 (창 크기·상단 바 높이·메뉴 접힘이 바뀔 때마다) | `scroll-padding-top`, 761~1024px 에서 덮는 메뉴(`.side`)와 그 뒤 배경의 `top` |
 
 **(4) JS가 DOM에서 다시 읽는 글자**: `#hero-problem`, `#stat-market`, `#no-card-b`의 글자와 `#staff li`의 구조입니다. 이 요소의 글자 모양을 바꿔도 되지만, 안에 다른 태그나 장식 글자를 섞으면 '오늘 할 일' 부제에 그대로 섞여 나옵니다.
 
@@ -1785,6 +1790,10 @@ const on = new Set(m.default || []);
 - `test_assistant_drawer_static.py`: 서랍 id(`assistant-`), `/api/assistant/*`만, `drawerApi`만, 90초 끊기, 한글 입력 중 Enter 막기, 첫 추천 질문 4개.
 - `test_care_ui_static.py` (17건): 캡처 칸 id는 `cap`, 리포트 id는 `rp-`로 시작하고 JS가 찾는 것은 모두 HTML에 있음. 두 화면은 `careApi`로만 `/api/care/*`·`/api/reviews`·`/api/approvals`를 부르고 전역 `api()`·`showAlert`·`#alert`를 쓰지 않음. `accept`의 세 형식, 10MB, 이미 있는 리뷰는 처음에 고르지 않음, `source: "capture"`, 예시 결과·`warnings`·별점 확인 문구, 메뉴 자리(리뷰 분석 다음)와 `ROUTES`의 `"report"`, 인쇄 링크(`target="_blank"`, `rel="noopener"`), 남은 시간(`due_at`)·멈춤·지난 불만, 월간 표의 칸 7개와 SVG 그래프, **종합 리포트 덩어리가 `/api/cards`·`/api/briefing`·`/run`·`/api/assistant`·`refresh(`를 부르지 않음**(열어도 AI를 새로 부르지 않음), 외부 스크립트 없음.
 - `test_care_proxy.py` (29건, 화면 파일은 읽지 않음): 1.11절의 허용 목록·덮어쓰기·손님용 경로·상태·413·500 없음·막히지 않음, 1.6의 답글 승인 기록, 1.8의 `source`.
+
+**11/16에 더한 정적 시험**
+
+- `test_layout_static.py` (30건): 2.9의 규칙을 글자로 확인함. 토글 버튼의 `id`·`aria-controls`·`aria-expanded`·`aria-label`, `localStorage`는 `try { … } catch` 안에서만, `data-menu` 하나로 상태를 알림, 폭 기준 `@media`(761px 이상 · 761~1024px · 1279px 이하 · 1025~1279px)와 그 안의 규칙, 토글 버튼·메뉴 상태 규칙은 `screen`으로만, 서랍이 미는 곳에서는 본문이 680px 이상 남는지(CSS의 숫자로 계산), `.stats`·`.tiles`·`.hour-chart`의 `@container` 단계, 숫자 칸·가게 이름에 말줄임표가 없는지. **`style.css`의 폭 숫자나 `app.js`의 `setMenu`·`applyMenu`·`toggleMenu`를 고치면 이 시험도 같이 봅니다.**
 
 **조심할 점**
 
@@ -1848,7 +1857,7 @@ const on = new Set(m.default || []);
 | 바꿔도 되는 것 | 조건·주의 |
 |---|---|
 | 색, 글꼴, 글자 크기, 간격, 모서리, 그림자 | 색은 `style.css` 맨 위 `:root` 변수(`--bg`, `--panel`, `--ink`, `--accent`, `--brand` 등)에 모여 있고, 다크 값은 `@media (prefers-color-scheme: dark)` 안에 따로 있음. 라이트·다크 둘 다 챙기세요. CSS 주석에 따르면 글자 대비를 WCAG AA(4.5:1)에 맞춰 둔 값이 있으니, 색을 바꿀 때 대비를 다시 확인하세요 |
-| 배치 (flex·grid), 화면 폭별 모양 | 지금은 760px 이하에서 모바일 배치(왼쪽 메뉴가 위쪽 가로 메뉴로, 서랍이 아래 시트로)이고 `main`의 컨테이너 쿼리(600·640·720px)도 씀. 375px 폭에서 가로 스크롤이 생기지 않게 |
+| 배치 (flex·grid), 화면 폭별 모양 | 폭 기준과 왼쪽 메뉴·서랍의 동작은 2.9에 있음 (760px 이하 = 모바일 배치, 761~1024px = 메뉴가 접힌 채 시작, 1280px 이상 = 서랍이 본문을 밂). `main`의 컨테이너 쿼리(카드 640px, 숫자 칸 259·479·679px, 시간대 막대 340·420·440·520·640px, 종합 리포트 720px)도 씀. 320px 폭까지 가로 스크롤이 생기지 않게. 숫자를 바꾸면 `test_layout_static.py`와 2.9를 같이 고침 |
 | 아이콘 (인라인 SVG) | `index.html`·`app.js` 안에 있음. **`c9`, `replay`가 들어가면 시험이 깨짐** (2.4). `aria-hidden="true"`로 장식 표시 |
 | 문구 (버튼 글자, 제목, 안내문) | 2.4에 적은 문구(`mode_notice`, `실제 AI 결과 아님`, `회의에서 정한 뒤 넣을 자리입니다`, `LATER`의 `"상권"`, `준비 중`, 캡처의 "예시 결과 — 이미지를 실제로 읽지 않았어요"·별점 확인 문구·`선택한 리뷰 저장`, 종합 리포트 제목)와 시험 6의 일곱 줄만 빼고 자유 |
 | CSS 클래스의 **스타일** | 2.3(7)에 적은 클래스의 모양은 자유. 이름은 `app.js`와 같이 바꿔야 함. `index.html`에만 있는 클래스(`bar`, `brand`, `logo`, `dash-grid` 등)는 `style.css`와 `index.html`만 맞추면 됨 |
@@ -1886,9 +1895,63 @@ PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest discover -s t
 2. '무엇을 할까요?' → 카드 2장 → 카드 ⓐ의 '재발 방지 공지·답글 만들기' → 초안 화면으로 간다.
 3. 초안에서 글을 고치고 '승인' → 다음 글로 간다 → 다 승인하면 '처리 완료'가 뜬다.
 4. 리뷰 분석 3탭이 마우스와 ←/→/Home/End 키로 바뀐다. 붙여넣기 탭에서 예시 문장으로 '분류하기', '붙여넣은 리뷰 지우기'가 동작한다.
-5. 375px 폭(휴대전화)에서 가로 스크롤이 없고, 메뉴가 위쪽 가로 메뉴가 된다.
+5. 375px 폭(휴대전화)에서 가로 스크롤이 없고, 메뉴가 위쪽 가로 메뉴가 된다 (토글 버튼은 보이지 않음).
 6. 운영체제가 다크일 때와 `?theme=light`를 붙였을 때 둘 다 글자가 읽힌다.
 7. 'AI에게 묻기' 버튼으로 서랍이 열리고 `Esc`나 '닫기'로 닫힌다.
+8. 상단 바 왼쪽 버튼으로 왼쪽 메뉴가 접히고 펴진다. 넓은 창에서는 새로고침해도 접힌 채이고, 900px쯤으로 줄이면 접힌 채 시작해 펼치면 본문 위에 덮이며 `Esc`·바깥·메뉴 항목으로 닫힌다. 900px에서 서랍을 열어도 본문 폭이 줄지 않는다 (2.9).
+
+### 2.9 왼쪽 메뉴 접기와 폭 기준
+
+(11/16에 더함) 창 폭이 애매할 때 본문이 잘리던 것을 고치면서 정한 규칙입니다. 모양은 `style.css`의 '왼쪽 메뉴 접기 · 서랍 배치' 덩어리와 `main` 컨테이너 규칙, 동작은 `app.js`의 '왼쪽 메뉴 접기' 덩어리에 있습니다. 숫자를 바꾸면 `test_layout_static.py`도 같이 고칩니다.
+
+**(1) 폭마다 메뉴와 서랍이 어떻게 되나**
+
+| 창 폭 | 왼쪽 메뉴 | 서랍 (AI에게 묻기) |
+|---|---|---|
+| 1280px 이상 | 화면 왼쪽에 고정 (260px). 토글 버튼으로 접으면 사라지고 본문이 넓어짐. 접었는지를 기억함 | 본문을 밀어냄 (서랍 폭 1339px 이하 340px, 1340px부터 400px) |
+| 1025~1279px | 위와 같음 (1100px 이하에서는 메뉴 폭 228px) | 메뉴가 펼쳐져 있으면 본문 위에 덮임. 메뉴를 접으면 본문을 밀어냄 |
+| 761~1024px | **접힌 채 시작** (기억한 값과 상관없음). 펼치면 상단 바 아래에서 본문 위에 덮임. 뒤에 어두운 배경이 깔림 | 본문 위에 덮임 (본문 폭을 깎지 않음) |
+| 760px 이하 | 상단 바 아래 가로 메뉴. 토글 버튼 없음 | 아래에서 올라오는 시트 |
+
+- **서랍이 본문을 미는 것은 본문이 680px 이상 남을 때뿐입니다.** 1280 − 260 − 340 = 680, 메뉴를 접은 1025 − 340 = 685. 그 밖의 폭에서는 서랍이 본문 위에 덮이고, 760px 이하의 시트처럼 뒤를 어둡게 하지 않으며 '닫기'·`Esc`로 닫습니다.
+- 서랍을 여닫는 JS(`toggleAssistant`)는 그대로 `hidden` 속성만 바꿉니다. 미는지 덮는지는 CSS가 `body:has(> .shell > .drawer:not([hidden]))`와 `@media`, `data-menu`로 정합니다.
+- 메뉴가 늘 보이지 않는 경우(760px 이하, 761~1024px, 메뉴를 접은 넓은 화면)에는 상단 바에 로고(`.top-brand`)가, 홈에 AI 직원 한 줄(`#staff-strip`)이 보이고, 승인 대기 글이 있으면 토글 버튼 위에 그 수(`#menu-toggle-count`)가 보입니다.
+
+**(2) 상태와 기억**
+
+- 상태는 **`<html data-menu="open">` 또는 `"closed"` 하나**입니다 (`setMenu`). 이때 `#menu-toggle`의 `aria-expanded`와 `aria-label`("왼쪽 메뉴 접기" / "왼쪽 메뉴 펼치기")도 같이 바뀝니다. `data-menu`가 아직 없어도(스크립트가 돌기 전) 761~1024px에서는 CSS만으로 접혀 있습니다.
+- 접힘 여부는 **`localStorage`의 `ic26.menu`**(값 `"open"`·`"closed"`)에 둡니다. 1025px 이상에서 토글할 때만 쓰고 읽습니다. `localStorage`는 늘 `try { … } catch` 안에서만 부르고, 못 쓰는 환경에서는 그 화면을 보는 동안만 기억합니다.
+- 창 폭이 구간(760px 이하 · 761~1024px · 1025px 이상)을 넘을 때마다 그 구간의 처음 상태로 돌아갑니다 (`applyMenu`).
+- 덮는 메뉴(761~1024px)가 열려 있는 동안: 포커스가 메뉴(지금 화면의 항목)로 가고, `Tab`은 토글 버튼과 메뉴 항목 안에서만 돕니다. `Esc`·바깥(어두운 배경)·메뉴 항목·토글 버튼으로 닫히고, 닫히면 포커스가 토글 버튼으로 돌아옵니다 (화면이 바뀐 경우에는 그 화면 제목으로). 서랍도 열려 있으면 `Esc`는 메뉴부터 닫습니다.
+
+**(3) 새로 생긴 이름**
+
+| 이름 | 무엇 |
+|---|---|
+| `#menu-toggle` (`.menu-toggle`) | 상단 바의 메뉴 토글 버튼 |
+| `#menu-toggle-count` (`.menu-toggle-count`) | 토글 버튼 위의 승인 대기 수 |
+| `#side-menu` | 왼쪽 메뉴 `nav.side`에 붙인 id (`aria-controls`용) |
+| `.shell::before` | 덮는 메뉴 뒤의 어두운 배경. 따로 요소가 없고 761~1024px에서 `data-menu="open"`일 때만 생김 |
+| `--scrim`, `--over-shadow` | 어두운 배경 색, 덮이는 메뉴·서랍의 그림자 색 (라이트·다크 값이 따로) |
+| `.dash` 규칙 | 홈 화면 전체에 `word-break: keep-all` (한글을 낱말 단위로 줄바꿈) |
+
+- **인쇄**: `data-menu`를 보는 규칙은 모두 `@media screen and …` 안에 있고, 토글 버튼도 `screen` 761px 이상에서만 보입니다 (기본은 `display: none`). 인쇄 폭(A4 약 794px)이 761~1024px 구간에 들어가기 때문입니다. 그래서 인쇄 모양을 만들 때 이 절의 요소를 따로 숨길 필요는 없습니다.
+- **폭이 소수일 때**(화면 배율 때문에 760.5px 같은 폭): 구간 사이 1px 틈에서는 CSS와 JS(`menuBandNow`) 모두 넓은 화면 규칙을 따릅니다.
+
+**(4) 본문 폭에 따라 바뀌는 것 (`main`의 컨테이너 규칙)**
+
+서랍이 밀거나 메뉴를 접으면 창 폭은 그대로인데 본문 폭만 달라집니다. 그래서 아래는 창 폭(`@media`)이 아니라 **`main`의 안쪽 폭**(`@container`)을 봅니다.
+
+| 무엇 | 넓을 때 | 좁아지면 |
+|---|---|---|
+| 추천 카드 `.cards` | 2장 나란히 | 640px 이하: 1열 |
+| 홈 숫자 칸 `.tiles` | 4칸 | 679px 이하: 2×2, 259px 이하: 1열 (799px 이하에서는 숫자 글자를 조금 작게) |
+| 리뷰 분석 숫자 칸 `.stats` | 3칸 | 479px 이하: 2칸 + 마지막 칸은 한 줄 전체, 259px 이하: 1열 |
+| 시간대 막대 `.hour-chart` | 막대 사이 6px, 시간 라벨 모두 | 520px 이하: 3px, 340px 이하: 2px. 420px 이하(막대가 15개 이상이면 640px 이하): 시간 라벨을 한 칸 건너 하나만. 막대가 17개 이상이고 440px 이하: 막대 위 숫자도 한 칸 건너 |
+
+- 숫자 칸의 라벨·숫자, 상단 바의 가게 이름은 **말줄임표로 자르지 않고 줄을 바꿉니다** (`word-break: keep-all` + `overflow-wrap`). `.stats`의 `overflow: hidden`은 둥근 모서리용이라 그대로입니다.
+- 시간대 막대에서 숨긴 라벨도 자리(높이)는 그대로 차지합니다. 모든 숫자는 차트의 `aria-label`에 그대로 있습니다.
+- 확인한 것 (11/16, 시험용 실행 + Chrome): 폭 1440·1280·1180·1100·1024·900·800·768·761·760·600·390·320px × 화면 5개(홈·추천 카드·리뷰 분석·종합 리포트·초안) × 서랍 닫힘/열림 × 메뉴 처음 상태/토글한 상태 220가지에서 페이지 가로 스크롤 0, 잘린 글자 0.
 
 ---
 
@@ -1915,7 +1978,8 @@ PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest discover -s t
 | **만든 글(live)** | 저장하지 않음. 브라우저 화면에만 있음 | 새로고침하면 사라짐 | — |
 | **카드 이유 문장** | 비서 화면 서버의 메모리(`_reason_memo`). 같은 입력이면 live에서 HCX를 다시 부르지 않으려는 것 | 서버를 끄면 사라짐 | `GET /api/cards`가 씀 |
 | **리뷰 분류 결과** | mock(규칙 분류)은 **요청마다 새로 계산**하고 저장하지 않음. 리뷰 분석 서버가 live일 때만 결과를 파일(`services/review-insight/data/replay/classify.json`, `services/review-insight/data/runtime/classify_paste.json`)에 남김 | — | 리뷰 분석 서버 |
-| **화면 진행 상태** (만든 글, 승인 표시, 고친 글) | **브라우저 메모리**(`app.js`의 `state`) | 새로고침하면 사라짐. `localStorage`·쿠키를 쓰지 않음 (확인함) | `app.js` |
+| **화면 진행 상태** (만든 글, 승인 표시, 고친 글) | **브라우저 메모리**(`app.js`의 `state`) | 새로고침하면 사라짐. 진행 상태는 `localStorage`·쿠키에 두지 않음 (확인함) | `app.js` |
+| **왼쪽 메뉴를 접었는지** (11/16) | **브라우저 `localStorage`**의 `ic26.menu` (`"open"`·`"closed"`). 서버로 보내지 않음 | 브라우저에 남음 (1025px 이상에서만 씀. 2.9) | `app.js` |
 | **방문자 구분** | **없음** | — | 로그인·쿠키·사용자 id가 코드에 없음. 모든 방문자가 같은 가게·같은 승인 목록·같은 붙여넣은 리뷰를 봄 |
 
 승인 기록 파일 한 줄은 이런 모양입니다 (`1.6` 응답과 같은 칸): `draft_id`, `status`, `edited`, `text`, `approved_at`, `mode`.
