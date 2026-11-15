@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="shop-api" content="/api/shop">
+  <title>동네배달 · 시연용 가상 배달앱</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shop">
+    <div class="phone">
+      <div class="s-demo">시연용 가상 배달앱 · 실제 배달앱과 연결되지 않음</div>
+      <div class="phone__screen" id="screen"><p class="s-loading">가게를 불러오고 있어요…</p></div>
+      <div id="sheet"></div>
+      <nav class="phone__nav" id="nav" aria-label="앱 메뉴">
+        <button type="button" data-view="store" class="is-active">🏠<span>가게</span></button>
+        <button type="button" data-view="orders">🧾<span>주문내역</span><i id="orders-dot" hidden></i></button>
+      </nav>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -20,6 +20,7 @@ RUNTIME = ROOT / "data" / "runtime"                         # 붙여넣은 리�
 DEFAULT_STORE = "store_ongi"                                 # 발표 시나리오 가게
 KST = timezone(timedelta(hours=9))
 MAX_TEXT = 1000
+MAX_MENU = 40
 # 리뷰가 어디서 들어왔나. 계약(shared/contracts.py)의 input_method 는 sample·paste 뿐이라 저장은 모두 "paste" 로 하고,
 # 이 값은 records 의 source 칸에 따로 둔다 (계약이 바뀌면 input_method 로 옮길 수 있음, docs/handoff.md)
 SOURCES = ("paste", "capture", "app", "memo")
@@ -46,15 +47,62 @@ class StoreNotFound(KeyError):
     pass
 
 
-def store_ids() -> list[str]:
+STORE_ID = re.compile(r"store_[a-z0-9_]{1,40}")
+MAX_STORES = 200                 # 계정으로 만든 가게 수 상한 (시연 서버 보호)
+
+
+def synthetic_store_ids() -> list[str]:
     ids = sorted(p.name for p in SYNTHETIC.iterdir() if (p / "store.json").exists())
     return sorted(ids, key=lambda s: s != DEFAULT_STORE)      # 시나리오 가게를 맨 앞에
 
 
+def _made_dir() -> Path:
+    """계정으로 새로 만든 가게 (저장소에 올리지 않는 data/runtime/stores/<가게>/store.json). 합성 리뷰 없이 0건에서 시작."""
+    return RUNTIME / "stores"
+
+
+def made_store_ids() -> list[str]:
+    try:
+        return sorted(p.name for p in _made_dir().iterdir() if (p / "store.json").exists())
+    except FileNotFoundError:
+        return []
+
+
+def store_ids() -> list[str]:
+    return synthetic_store_ids() + made_store_ids()
+
+
 def _dir(store_id: str) -> Path:
-    if store_id not in store_ids():
-        raise StoreNotFound(store_id)
-    return SYNTHETIC / store_id
+    if isinstance(store_id, str) and STORE_ID.fullmatch(store_id):      # 형식부터 확인 (경로에 들어감)
+        if (SYNTHETIC / store_id / "store.json").exists():
+            return SYNTHETIC / store_id
+        if (_made_dir() / store_id / "store.json").exists():
+            return _made_dir() / store_id
+    raise StoreNotFound(store_id)
+
+
+def create_store(store_id: str, name: str, business_type_name: str | None = None) -> dict:
+    """새 가게 만들기 (계정 가입 때). 합성 리뷰·정답 라벨 없이 시작한다. 이미 있으면 ValueError."""
+    if not (isinstance(store_id, str) and STORE_ID.fullmatch(store_id)):
+        raise ValueError("가게 ID 는 store_ 뒤에 영문 소문자·숫자·_ 1~40자여야 합니다")
+    name = " ".join((name or "").split())
+    kind = " ".join((business_type_name or "").split()) or None
+    if not 1 <= len(name) <= 40:
+        raise ValueError("가게 이름은 1~40자여야 합니다")
+    if kind is not None and len(kind) > 20:
+        raise ValueError("업종은 20자 이하여야 합니다")
+    with _lock:
+        if store_id in store_ids():
+            raise ValueError("이미 있는 가게입니다")
+        if len(made_store_ids()) >= MAX_STORES:
+            raise ValueError("가게를 더 만들 수 없습니다 (상한)")
+        folder = _made_dir() / store_id
+        folder.mkdir(parents=True, exist_ok=True)
+        data = {"store_id": store_id, "name": name, "business_type": "etc", "business_type_name": kind,
+                "channels": list(CHANNELS), "menu": [], "data_origin": "synthetic",      # 대회 동안은 합성·직접 쓴 리뷰만 (규격 9.2)
+                "created_at": datetime.now(KST).isoformat(timespec="seconds")}
+        (folder / "store.json").write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    return data
 
 
 def stores() -> list[dict]:
@@ -66,11 +114,18 @@ def store(store_id: str = DEFAULT_STORE) -> dict:
 
 
 def sample_reviews(store_id: str = DEFAULT_STORE) -> list[Review]:
-    return [Review.from_dict(d) for d in json.loads((_dir(store_id) / "reviews.json").read_text(encoding="utf-8"))]
+    """합성 가게의 원래 있던 리뷰. 계정으로 만든 가게는 파일이 없어 0건."""
+    try:
+        return [Review.from_dict(d) for d in json.loads((_dir(store_id) / "reviews.json").read_text(encoding="utf-8"))]
+    except FileNotFoundError:
+        return []
 
 
 def labels(store_id: str = DEFAULT_STORE) -> dict:
-    return {l["review_id"]: l for l in json.loads((_dir(store_id) / "labels.json").read_text(encoding="utf-8"))}
+    try:
+        return {l["review_id"]: l for l in json.loads((_dir(store_id) / "labels.json").read_text(encoding="utf-8"))}
+    except FileNotFoundError:
+        return {}
 
 
 def _pasted_file(store_id: str, visitor_id: str | None = None) -> Path:
@@ -99,8 +154,32 @@ def pasted_reviews(store_id: str = DEFAULT_STORE, visitor_id: str | None = None)
 
 
 def all_reviews(store_id: str = DEFAULT_STORE, visitor_id: str | None = None) -> list[Review]:
-    """합성 리뷰(모두에게 같음) + 이 방문자가 붙여넣은 리뷰. 방문자를 안 주면 공용."""
-    return sample_reviews(store_id) + pasted_reviews(store_id, visitor_id)
+    """합성 리뷰(모두에게 같음) + 가상 배달앱 리뷰(가게 공용, 모두에게 같음) + 이 방문자가 붙여넣은 리뷰.
+    방문자를 안 주면 공용 칸 전체 (공용 칸에는 앱 리뷰가 이미 들어 있다)."""
+    shared = [] if clean_visitor(visitor_id) == COMMON_VISITOR else app_reviews(store_id)
+    return sample_reviews(store_id) + shared + pasted_reviews(store_id, visitor_id)
+
+
+def is_app_review(review_id: str) -> bool:
+    """가상 배달앱에서 온 리뷰인가 (id 가 rv_<가게>_app_NNN). 이 리뷰와 그 기록은 늘 가게 공용 칸에 있다."""
+    return "_app_" in review_id
+
+
+def app_reviews(store_id: str = DEFAULT_STORE) -> list[Review]:
+    return [r for r in pasted_reviews(store_id, COMMON_VISITOR) if is_app_review(r.review_id)]
+
+
+def record_owner(review_id: str, visitor_id: str | None) -> str | None:
+    """이 리뷰의 기록(상태·답글)을 둘 칸. 앱 리뷰는 공용 → 어느 사장님 화면에서 답해도 배달앱에 보인다."""
+    return COMMON_VISITOR if is_app_review(review_id) else visitor_id
+
+
+def meta_for(store_id: str = DEFAULT_STORE, visitor_id: str | None = None) -> dict[str, dict]:
+    """이 방문자가 보는 리뷰들의 기록: 자기 칸 기록 + 공용 칸의 앱 리뷰 기록."""
+    own = records.load(store_id, visitor_id)
+    if clean_visitor(visitor_id) == COMMON_VISITOR:
+        return own
+    return own | {k: v for k, v in records.load(store_id, COMMON_VISITOR).items() if is_app_review(k)}
 
 
 def _save_pasted(store_id: str, rows: list[Review], visitor_id: str | None = None) -> None:
@@ -121,7 +200,7 @@ def scenario_now(store_id: str, n: int = 1) -> datetime:
     try:
         last = max(datetime.fromisoformat(r.created_at) for r in sample_reviews(store_id))
     except (ValueError, FileNotFoundError):
-        return datetime.now(KST)
+        return datetime.now(KST)       # 합성 리뷰가 없는 가게(계정으로 만든 가게)는 실제 시각
     base = last.astimezone(KST).replace(hour=23, minute=0, second=0, microsecond=0)
     return base + timedelta(minutes=n - 1)
 
@@ -134,7 +213,7 @@ def add_pasted(text: str, rating: int | None = None, channel: str | None = None,
 
 def add_review(text: str, rating: int | None = None, channel: str | None = None, now: datetime | None = None,
                store_id: str = DEFAULT_STORE, visitor_id: str | None = None, *, source: str = "paste",
-               received_at: datetime | None = None) -> Review:
+               received_at: datetime | None = None, menu: str | None = None) -> Review:
     """리뷰 한 건 저장 (붙여넣기·캡처 확인·가상 배달앱·매장 메모). 저장·모델 전송 전에 전화번호·이메일·링크를 가립니다.
     created_at 은 분석용 시나리오 시각(scenario_now), received_at 은 실제로 받은 시각 (기한·새 리뷰 조회용)."""
     if source not in SOURCES:
@@ -146,13 +225,18 @@ def add_review(text: str, rating: int | None = None, channel: str | None = None,
         raise ValueError("별점은 1~5 사이 정수이거나 비워 두세요")
     if channel is not None and channel not in CHANNELS:
         raise ValueError(f"채널은 {', '.join(CHANNELS)} 중 하나이거나 비워 두세요")
+    menu = " ".join((menu or "").split()) or None
+    if menu is not None and len(menu) > MAX_MENU:
+        raise ValueError(f"주문 메뉴는 {MAX_MENU}자 이하여야 합니다")
     masked, changed = mask_pii(text)
-    visitor = clean_visitor(visitor_id)
+    # 가상 배달앱 리뷰는 가게 데이터라 누가 보내든 가게 공용 칸에 쌓는다 (모든 사장님 화면·배달앱에 같이 보임)
+    visitor = COMMON_VISITOR if source == "app" else clean_visitor(visitor_id)
+    kind = "app" if source == "app" else "paste"
     short = store_id.removeprefix("store_")
 
     def build(n: int) -> Review:
         when = now or scenario_now(store_id, n)
-        return Review(review_id=f"rv_{short}_paste_{n:03d}", store_id=store_id, channel=channel, rating=rating,
+        return Review(review_id=f"rv_{short}_{kind}_{n:03d}", store_id=store_id, channel=channel, rating=rating,
                       text=masked, created_at=when.isoformat(timespec="seconds"),
                       input_method="paste", pii_masked=changed,
                       data_origin="synthetic")   # 대회 동안 붙여넣기에도 합성 리뷰만 씀 (모듈 규격 9.2)
@@ -170,7 +254,8 @@ def add_review(text: str, rating: int | None = None, channel: str | None = None,
             rows.append(review)
             _save_pasted(store_id, rows, visitor)
     received = (received_at or datetime.now(KST)).astimezone(KST).isoformat(timespec="seconds")
-    records.update(store_id, visitor, review.review_id, {"source": source, "received_at": received})
+    records.update(store_id, visitor, review.review_id,
+                   {"source": source, "received_at": received} | ({"menu": menu} if menu else {}))
     return review
 
 
@@ -218,13 +303,14 @@ def decorate(review: Review, meta: dict | None) -> dict:
     d["source"] = meta.get("source") or ("sample" if review.input_method == "sample" else "paste")
     d["received_at"] = meta.get("received_at")
     d["reply"] = meta.get("reply")
+    d["menu"] = meta.get("menu")          # 주문 메뉴 (가상 배달앱이 보낸 값, 없으면 null)
     if meta.get("status"):
         d["status"] = meta["status"]
     return d
 
 
 def decorated_reviews(store_id: str = DEFAULT_STORE, visitor_id: str | None = None) -> list[dict]:
-    meta = records.load(store_id, visitor_id)
+    meta = meta_for(store_id, visitor_id)
     return [decorate(r, meta.get(r.review_id)) for r in all_reviews(store_id, visitor_id)]
 
 
@@ -262,7 +348,7 @@ def set_status(store_id: str, visitor_id: str | None, review_id: str, status: st
         if status != "replied":
             raise ValueError("답글 글은 status 가 replied 일 때만 보낼 수 있습니다")
         fields["reply"] = {"text": reply_text, "replied_at": stamp}
-    row = records.update(store_id, visitor_id, review_id, fields, {"status": status, "at": stamp})
+    row = records.update(store_id, record_owner(review_id, visitor_id), review_id, fields, {"status": status, "at": stamp})
     return decorate(review, row)
 
 
@@ -274,7 +360,7 @@ class Timeline:
         from app import response
         self.store_id, self.policy = store_id, response.policy()
         self.reviews = all_reviews(store_id, visitor_id)
-        meta = records.load(store_id, visitor_id)
+        meta = meta_for(store_id, visitor_id)
         self.rows = [decorate(r, meta.get(r.review_id)) | {"history": (meta.get(r.review_id) or {}).get("history") or []}
                      for r in self.reviews]
         self.classes = classifier.classify(self.reviews)

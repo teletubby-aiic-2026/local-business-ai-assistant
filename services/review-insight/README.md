@@ -85,8 +85,10 @@ reviews = json.load(open("services/review-insight/data/synthetic/store_ongi/revi
 | 메서드 | 주소 | 하는 일 |
 |---|---|---|
 | POST | `/api/review-insight/reviews/capture` | **캡처 입력** multipart `file`(png·jpg·webp, 10MB 이하) + `store_id`·`visitor_id` → HCX-005 가 옮겨 적은 리뷰 후보 `{candidates:[{text, rating, pii_masked, duplicate}], count, demo, warnings}`. **저장하지 않음** |
-| POST | `/api/review-insight/reviews` | 기존 붙여넣기에 `source`(`paste`·`capture`·`app`·`memo`) 추가. 계약의 `input_method` 는 모두 `paste` 로 저장 |
-| GET | `/api/review-insight/reviews?since=&source=` | `since`(ISO 시각) 뒤에 실제로 받은 리뷰만, 받은 순서로 + `server_time`. 항목마다 `source`, `received_at`, `reply` |
+| POST | `/api/review-insight/reviews` | 기존 붙여넣기에 `source`(`paste`·`capture`·`app`·`memo`)와 주문 메뉴 `menu`(선택) 추가. 계약의 `input_method` 는 모두 `paste` 로 저장. `source="app"`(가상 배달앱)은 가게 공용 칸에 쌓여 모든 시연자 화면에 보임 |
+| POST | `/api/review-insight/auth/login` | **가게 계정 로그인 확인** `{login_id, password}` → `{login_id, store_id, store_name, demo}`. 틀리면 401 `LOGIN_FAILED`, 5분에 5번 틀리면 429. 화면 서버만 부름 (`integration/care_proxy.py`) |
+| POST | `/api/review-insight/auth/accounts` | **가입** `{login_id, password, store_name, business_type_name?, signup_code?}` → 새 계정 + 새 가게 `store_<아이디>` (합성 리뷰 없이 0건). 비밀번호는 scrypt 해시로만 저장 |
+| GET | `/api/review-insight/reviews?since=&source=` | `since`(ISO 시각) 뒤에 실제로 받은 리뷰만, 받은 순서로 + `server_time`. 항목마다 `source`, `received_at`, `reply`, `menu` |
 | POST | `/api/review-insight/reviews/{review_id}/status` | `{status, reply_text?, at?}` 상태·시각·답글 기록 (`new`·`analyzed`·`drafted`·`replied`·`skipped`) |
 | GET | `/api/review-insight/response?store_id=` | 답글 대기 불만별 `due_at`·남은 시간, 응대 점수(0~100)와 이유 목록. 규칙으로만 계산 |
 | GET | `/api/review-insight/report/daily?store_id=&date=` | 일일 요약: 리뷰·불만 수, 기한 안 답글, 점수 변동과 이유, 내일 먼저 할 일 1개 |
@@ -340,6 +342,8 @@ pytest -q                         # 시험 (키 필요 없음, CLOVA 응답은 �
 | `REVIEW_KIWI_HINTS` | `on` | AI에게 kiwi 참고 자료를 줄지 |
 | `REVIEW_MORPH` | `on` | kiwi 사용 여부 |
 | `REVIEW_MORPH_TYPOS` | `basic_with_continual` | kiwi 오타 교정 (`off`로 끔) |
+| `DEMO_ACCOUNT_PASSWORD` | (없음) | 시연용 계정(`ongi`·`basak`·`mongle`)의 비밀번호. 비우면 시연용 계정으로 로그인할 수 없음. 코드·저장소에 넣지 않음 |
+| `ACCOUNT_SIGNUP_CODE` | (없음) | 정하면 이 코드를 같이 보낸 가입만 받음 (공개 서버에서 아무나 가게를 만드는 것 막기) |
 | `APP_ACCESS_TOKEN` | (없음) | 밖에 띄울 때만. 정하면 `X-Access-Token` 헤더가 맞는 요청만 받음 (없으면 401 `UNAUTHORIZED`) |
 
 - AI 호출은 일시 오류(429·5xx·시간 초과)면 1번 다시 시도하고, 키 오류(400·401·403)는 바로 실패합니다.

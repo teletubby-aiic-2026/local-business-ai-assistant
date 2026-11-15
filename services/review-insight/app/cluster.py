@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.models import IssueGroup, Review, ReviewClassification, ReviewInsight
 from app.topics import TOPICS, topic_name
@@ -40,7 +40,8 @@ def build_insight(store_id: str, reviews: list[Review], classes: list[ReviewClas
                   end: datetime | None = None, window_days: int = WINDOW_DAYS, min_count: int = MIN_COUNT,
                   group_min: int = GROUP_MIN) -> ReviewInsight:
     by_id = {r.review_id: r for r in reviews}
-    end = end or max(datetime.fromisoformat(r.created_at) for r in reviews)
+    if end is None:      # 리뷰가 아직 없는 가게(계정으로 새로 만든 가게)는 오늘을 기준으로 빈 결과를 낸다
+        end = max((datetime.fromisoformat(r.created_at) for r in reviews), default=None) or datetime.now(timezone(timedelta(hours=9)))
     end_day = end.replace(hour=23, minute=59, second=59)
     start = (end_day - timedelta(days=window_days)).replace(hour=0, minute=0, second=0) + timedelta(days=1)
     mid = start + (end_day - start) / 2

@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사장님 확인 화면 (확인용)</title>
+<style>
+  :root { --ink:#16181d; --sub:#5b6270; --muted:#8b93a1; --line:#e6e8ee; --bg:#f4f5f8; --brand:#4f46e5; --brand-weak:#eef2ff; --red:#d93a40; --red-weak:#fdecec; --green:#1a7f4b; --green-weak:#e7f6ee; --star:#f5a623; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic',sans-serif; word-break:keep-all; }
+  button, input, textarea { font:inherit; color:inherit; }
+  button { cursor:pointer; border:0; border-radius:10px; padding:9px 14px; background:var(--ink); color:#fff; font-weight:600; }
+  button.ghost { background:#fff; color:var(--ink); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:default; }
+  :focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+  .strip { background:#16181d; color:#fff; font-size:12.5px; text-align:center; padding:7px 16px; }
+  .wrap { max-width:860px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:22px; margin:0; letter-spacing:-.02em; }
+  h2 { font-size:16px; margin:0 0 10px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:20px; }
+  .muted { color:var(--sub); font-size:13.5px; }
+  /* 로그인 */
+  .auth { max-width:420px; margin:48px auto 0; display:flex; flex-direction:column; gap:14px; }
+  .tabs { display:flex; gap:6px; }
+  .tabs button { flex:1; background:#fff; color:var(--sub); border:1px solid var(--line); }
+  .tabs button[aria-selected="true"] { background:var(--brand-weak); color:var(--brand); border-color:var(--brand); }
+  label { display:flex; flex-direction:column; gap:5px; font-size:13.5px; color:var(--sub); }
+  input, textarea { width:100%; padding:10px 12px; border:1px solid #d5d9e2; border-radius:10px; background:#fff; }
+  .err { color:var(--red); font-size:13.5px; min-height:20px; margin:0; }
+  /* 가게 화면 */
+  .top { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+  .top .grow { flex:1; min-width:200px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; background:var(--brand-weak); color:var(--brand); vertical-align:middle; }
+  .badge.red { background:var(--red-weak); color:var(--red); } .badge.green { background:var(--green-weak); color:var(--green); } .badge.gray { background:#eef0f4; color:var(--sub); }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:16px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  .stat b { display:block; font-size:22px; letter-spacing:-.02em; } .stat span { color:var(--sub); font-size:13px; }
+  .filters { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 12px; }
+  .filters button { background:#fff; color:var(--sub); border:1px solid var(--line); padding:6px 12px; border-radius:999px; font-weight:500; font-size:13.5px; }
+  .filters button[aria-pressed="true"] { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .list { display:flex; flex-direction:column; gap:10px; margin:0; padding:0; list-style:none; }
+  .review { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .review.is-new { border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-weak); }
+  .review header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:13px; color:var(--sub); margin-bottom:6px; }
+  .stars { color:var(--star); letter-spacing:1px; } .stars i { color:#d9dde5; font-style:normal; }
+  .review p { margin:0 0 8px; }
+  .reply { background:var(--bg); border-radius:10px; padding:10px 12px; font-size:14px; }
+  .reply strong { display:block; font-size:12.5px; color:var(--sub); margin-bottom:2px; }
+  .replybox { display:flex; flex-direction:column; gap:8px; } .replybox div { display:flex; gap:8px; justify-content:flex-end; }
+  .empty { text-align:center; color:var(--sub); padding:36px 16px; background:#fff; border:1px dashed #cfd4de; border-radius:12px; }
+  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#16181d; color:#fff; padding:10px 18px; border-radius:999px; font-size:14px; max-width:calc(100vw - 32px); }
+  a { color:var(--brand); }
+</style>
+</head>
+<body>
+<div class="strip">확인용 화면 · 팀 통합 화면이 아님 · 가게와 리뷰는 모두 가상(합성) 데이터</div>
+<div class="wrap" id="root"><p class="muted">불러오고 있어요…</p></div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script>
+(() => {
+  'use strict';
+  const API = '/api/care';
+  const root = document.getElementById('root');
+  const state = { me: null, mode: 'login', reviews: [], response: null, filter: 'all', open: null, seen: null, fresh: new Set(), error: '' };
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const pad = (n) => String(n).padStart(2, '0');
+  const when = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}.${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const stars = (n) => `<span class="stars" aria-label="별점 ${n}점">${'★'.repeat(n)}<i>${'★'.repeat(5 - n)}</i></span>`;
+  const SOURCE = { sample: '원래 있던 리뷰', app: '가상 배달앱', paste: '붙여넣기', capture: '캡처', memo: '매장 메모' };
+  let toastTimer;
+  const toast = (msg) => { const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2600); };
+
+  async function api(path, options = {}) {
+    const res = await fetch(API + path, { ...options, headers: options.body ? { 'Content-Type': 'application/json' } : {}, credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error?.message || '요청을 처리하지 못했어요.');
+    return data;
+  }
+
+  async function loadMe() { state.me = await api('/auth/me').catch(() => ({ logged_in: false })); }
+  async function loadReviews(quiet) {
+    if (!state.me?.logged_in) return;
+    try {
+      const [list, response] = await Promise.all([api('/reviews'), api('/response').catch(() => null)]);
+      const ids = new Set(list.items.map((r) => r.review_id));
+      if (state.seen) list.items.forEach((r) => { if (!state.seen.has(r.review_id)) state.fresh.add(r.review_id); });
+      const arrived = state.seen ? list.items.filter((r) => !state.seen.has(r.review_id)) : [];
+      state.seen = ids;
+      const changed = JSON.stringify(list.items) !== JSON.stringify(state.reviews);
+      state.reviews = list.items; state.response = response;
+      if (arrived.length) toast(`새 리뷰 ${arrived.length}건이 들어왔어요.`);
+      if (changed && !(quiet && state.open)) render();      // 답글을 쓰는 동안에는 다시 그리지 않습니다
+    } catch (e) { if (!quiet) toast(e.message); }
+  }
+
+  function authView() {
+    const signup = state.mode === 'signup';
+    return `
+      <form class="auth card" id="auth-form">
+        <div><h1>가게 계정 ${signup ? '만들기' : '로그인'}</h1>
+          <p class="muted">${signup ? '새 가게가 리뷰 0건으로 만들어져요.' : '로그인하면 그 가게의 리뷰만 보여요.'}</p></div>
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" data-mode="login" aria-selected="${!signup}">로그인</button>
+          <button type="button" role="tab" data-mode="signup" aria-selected="${signup}">새 가게 가입</button>
+        </div>
+        <label>아이디<input name="login_id" autocomplete="username" required autocapitalize="none" spellcheck="false" placeholder="${signup ? '영문 소문자·숫자 3~20자' : '예: ongi'}"></label>
+        <label>비밀번호<input name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" required placeholder="${signup ? '8자 이상' : ''}"></label>
+        ${signup ? `<label>가게 이름<input name="store_name" required maxlength="40" placeholder="예: 우리분식"></label>
+        <label>업종 (선택)<input name="business_type_name" maxlength="20" placeholder="예: 분식"></label>` : ''}
+        <p class="err" role="alert">${esc(state.error)}</p>
+        <button type="submit" id="auth-submit">${signup ? '가입하고 시작하기' : '로그인'}</button>
+        ${signup ? '' : '<p class="muted">시연용 계정: <b>ongi</b> · <b>basak</b> · <b>mongle</b><br>비밀번호는 <code>preview.py</code> 를 켠 창에 나와요.</p>'}
+      </form>`;
+  }
+
+  function storeView() {
+    const me = state.me, rows = state.reviews, score = state.response;
+    const waiting = rows.filter((r) => !r.reply && r.status !== 'skipped' && r.rating && r.rating <= 3).length;
+    const shown = rows.filter((r) => state.filter === 'all' || (state.filter === 'app' ? r.source === 'app' : state.filter === 'wait' ? !r.reply : false));
+    const shop = `/shop/?store=${encodeURIComponent(me.store_id)}`;
+    return `
+      <div class="top">
+        <div class="grow"><h1>${esc(me.store_name || me.store_id)} <span class="badge ${me.demo ? '' : 'green'}">${me.demo ? '시연용 계정' : '가입한 계정'}</span></h1>
+          <p class="muted">${esc(me.login_id)} 로 로그인 · 가게 ID ${esc(me.store_id)}</p></div>
+        <a href="/owner/full/"><button type="button">고객응대 전체 화면</button></a>
+        <a href="${shop}" target="_blank" rel="noopener"><button type="button" class="ghost">우리 가게 배달앱 열기 ↗</button></a>
+        <button type="button" class="ghost" data-act="logout">로그아웃</button>
+      </div>
+      <p class="muted" style="margin:-6px 0 14px">이 화면은 로그인과 새 리뷰 도착만 빠르게 보는 곳이에요. 분석·캡처 입력·응대 기한과 점수·보고서·받은함·가게 정보·다국어 메뉴판은 <a href="/owner/full/">고객응대 전체 화면</a>에 있어요.</p>
+      <div class="stats">
+        <div class="stat"><b>${rows.length}</b><span>리뷰</span></div>
+        <div class="stat"><b>${rows.filter((r) => r.source === 'app').length}</b><span>가상 배달앱에서 온 리뷰</span></div>
+        <div class="stat"><b>${waiting}</b><span>답글 없는 별점 3점 이하</span></div>
+        <div class="stat"><b>${score ? score.score : '-'}</b><span>응대 점수</span></div>
+      </div>
+      <div class="filters">
+        ${[['all', '전체'], ['app', '가상 배달앱'], ['wait', '답글 없음']].map(([id, label]) => `<button type="button" data-filter="${id}" aria-pressed="${state.filter === id}">${label}</button>`).join('')}
+      </div>
+      ${rows.length ? '' : `<div class="empty"><b>아직 리뷰가 없어요.</b><br>이 가게는 합성 리뷰 없이 시작해요. <a href="${shop}" target="_blank" rel="noopener">우리 가게 배달앱</a>에서 리뷰를 써 보세요. 5초 안에 여기 나타나요.</div>`}
+      ${rows.length && !shown.length ? '<div class="empty">조건에 맞는 리뷰가 없어요.</div>' : ''}
+      <ul class="list">${shown.slice(0, 60).map((r) => `
+        <li class="review ${state.fresh.has(r.review_id) ? 'is-new' : ''}">
+          <header>
+            ${r.rating ? stars(r.rating) : ''}
+            <span class="badge ${r.source === 'app' ? '' : 'gray'}">${esc(SOURCE[r.source] || r.source)}</span>
+            ${r.menu ? `<span class="badge gray">주문: ${esc(r.menu)}</span>` : ''}
+            ${state.fresh.has(r.review_id) ? '<span class="badge red">새 리뷰</span>' : ''}
+            <span>${esc(when(r.received_at || r.created_at))}</span>
+          </header>
+          <p>${esc(r.text)}</p>
+          ${r.reply ? `<div class="reply"><strong>사장님 답글 · ${esc(when(r.reply.replied_at))}</strong>${esc(r.reply.text)}</div>`
+            : state.open === r.review_id ? `<form class="replybox" data-reply="${esc(r.review_id)}">
+                <textarea rows="3" maxlength="1000" required placeholder="답글을 적어 주세요. 등록하면 배달앱의 이 리뷰 아래에 보여요."></textarea>
+                <div><button type="button" class="ghost" data-act="cancel">취소</button><button type="submit">답글 등록</button></div></form>`
+            : `<button type="button" class="ghost" data-open="${esc(r.review_id)}">답글 쓰기</button>`}
+        </li>`).join('')}</ul>
+      ${shown.length > 60 ? `<p class="muted">최근 60건만 보여요 (전체 ${shown.length}건).</p>` : ''}`;
+  }
+
+  function render() { root.innerHTML = state.me?.logged_in ? storeView() : authView(); }
+
+  document.addEventListener('click', async (e) => {
+    const el = e.target.closest('button');
+    if (!el) return;
+    if (el.dataset.mode) { state.mode = el.dataset.mode; state.error = ''; render(); }
+    else if (el.dataset.filter) { state.filter = el.dataset.filter; render(); }
+    else if (el.dataset.open) { state.open = el.dataset.open; render(); root.querySelector('.replybox textarea')?.focus(); }
+    else if (el.dataset.act === 'cancel') { state.open = null; render(); }
+    else if (el.dataset.act === 'logout') {
+      await api('/auth/logout', { method: 'POST' }).catch(() => {});
+      Object.assign(state, { me: { logged_in: false }, reviews: [], response: null, seen: null, open: null, error: '', mode: 'login' });
+      state.fresh.clear(); render();
+    }
+  });
+
+  document.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    if (form.id === 'auth-form') {
+      const data = Object.fromEntries(new FormData(form));
+      if (!data.business_type_name) delete data.business_type_name;
+      const button = document.getElementById('auth-submit');
+      button.disabled = true;
+      try {
+        await api(state.mode === 'signup' ? '/auth/signup' : '/auth/login', { method: 'POST', body: JSON.stringify(data) });
+        state.error = ''; state.seen = null; state.fresh.clear();
+        await loadMe(); await loadReviews(); render();
+      } catch (err) { state.error = err.message; render(); }
+    } else if (form.dataset.reply) {
+      const text = form.querySelector('textarea').value.trim();
+      if (!text) return;
+      form.querySelector('button[type="submit"]').disabled = true;
+      try {
+        await api(`/reviews/${encodeURIComponent(form.dataset.reply)}/status`, { method: 'POST', body: JSON.stringify({ status: 'replied', reply_text: text }) });
+        state.fresh.delete(form.dataset.reply); state.open = null;
+        await loadReviews(); render(); toast('답글을 등록했어요. 배달앱에서도 보여요.');
+      } catch (err) { toast(err.message); form.querySelector('button[type="submit"]').disabled = false; }
+    }
+  });
+
+  (async () => { await loadMe(); await loadReviews(); render(); setInterval(() => loadReviews(true), 5000); })();
+})();
+</script>
+</body>
+</html>

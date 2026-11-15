@@ -68,6 +68,7 @@ curl -F file=@review.png -F store_id=store_ongi http://127.0.0.1:8020/api/review
 {"store_id": "store_ongi", "text": "반찬이 또 빠져 있었어요", "rating": 2, "source": "app"}
 ```
 - `source`: `paste`(기본) | `capture`(캡처 후보 확인) | `app`(가상 배달앱) | `memo`(매장에서 들은 불만). `input_method` 로 보내도 같은 뜻.
+- `menu`: 주문 메뉴 이름 (선택, 40자 이하). 조회 응답의 `menu` 로 돌려줍니다 (없으면 `null`).
 - 응답은 지금과 같고, `review` 에 `source`, `received_at`(실제로 받은 시각), `reply`(null) 가 더 붙습니다.
 - **`input_method` 는 계약대로 모두 `"paste"`** 로 저장합니다 (3절).
 - `created_at` 은 지금처럼 발표 장면 시각(마지막 합성 리뷰 날 23:00 + n분)이고, 기한·새 리뷰 조회에는 `received_at` 을 씁니다.
@@ -199,12 +200,42 @@ POST /public/store_ongi/inquiries  {"text": "토요일 저녁 6시 15명 예약 
 | 붙여넣은·캡처한 리뷰, 그 답글·상태 기록 | **시연자별** (`visitor_id`, 지금과 같음) | 시연하는 사람마다 따로 해 볼 수 있게 (팀 규칙) |
 | 가게 정보(영업시간·메뉴·공지·배운 답) | **가게 공용** | 손님 문의 페이지가 이 정보로 답하고, 사장님이 저장한 배운 답이 다음 손님에게 쓰여야 함 |
 | 손님 문의 | **가게 공용** | 손님은 사장님 화면의 방문자 쿠키가 없어서, 시연자별로 나누면 사장님 받은함에 0건으로 보임 (실제로 확인함) |
-| 가상 배달앱 리뷰 | **정하지 않음** | 배달앱 세션에서 정함. 같은 문제가 있어 가게 공용을 권함 |
+| 가상 배달앱 리뷰(`source="app"`), 그 답글·상태·주문 메뉴 | **가게 공용** (11/15 정함) | 손님 기기에는 사장님 화면의 방문자 쿠키가 없음. 팀이 직접 쓴 리뷰가 가게 데이터로 쌓여 모든 시연자 화면의 목록·분석·기한에 합쳐짐. `visitor_id` 를 같이 보내도 공용 칸에 저장. id 는 `rv_<가게>_app_NNN` (붙여넣기 `…_paste_NNN` 과 겹치지 않음) |
 
-- 시연자 한 명의 "데모 다시 하기"(`DELETE /reviews/pasted?visitor_id=`)는 가게 공용 문의를 지우지 않습니다. `visitor_id` 없이 부르면 공용 문의도 지웁니다.
+- 시연자 한 명의 "데모 다시 하기"(`DELETE /reviews/pasted?visitor_id=`)는 가게 공용 문의와 가상 배달앱 리뷰를 지우지 않습니다. 배달앱 리뷰까지 처음으로 돌리려면 `visitor_id` 없이 부릅니다.
+- 가상 배달앱 리뷰의 답글은 어느 시연자 화면에서 승인해도 공용 칸에 기록되어 배달앱과 다른 시연자 화면에 같이 보입니다 (나중에 한 승인이 앞의 것을 덮어씀).
+- `visitor_id` 없이 부르면 공용 문의도 지웁니다.
 - 프록시는 손님용(`/api/care/public/*`)에 방문자를 붙이지 않습니다.
 - 통합 시뮬레이션(11/15, 팀 서버와 같은 모양: 화면 서버 8000 + 이 서비스 127.0.0.1:8020 + 토큰 + 프록시 두 줄)으로 확인한 흐름:
   손님 휴대폰 문의 → 사장님 받은함 → 답장(배운 답 저장) → 손님이 확인 번호로 답 확인 → 다른 손님의 비슷한 질문에 자동 답. 기존 화면 서버 시험 109개 통과.
+
+### 2-14. 가게 계정: 로그인하면 그 가게 리뷰만 (11/15)
+
+다른 가게 사장님이 쓰면 합성 리뷰가 아니라 **그 가게의 리뷰만** 보여야 해서 넣었습니다.
+
+| 계정 | 아이디 | 가게 | 처음 상태 |
+|---|---|---|---|
+| 시연용 | `ongi` · `basak` · `mongle` (비밀번호는 서버의 `DEMO_ACCOUNT_PASSWORD`) | 합성 가게 3곳 | 합성 리뷰가 원래 있던 리뷰로 보임 (온기한식 40건) |
+| 가입한 계정 | 영문 소문자로 시작하는 소문자·숫자 3~20자 | 새 가게 `store_<아이디>` | 리뷰 0건, 가게 정보 비어 있음 |
+
+- 서비스: `POST /auth/login`, `POST /auth/accounts` (위 표). 계정은 `data/runtime/accounts.json`(소금 + scrypt 해시), 새 가게는 `data/runtime/stores/<가게>/store.json`.
+- 프록시(`integration/care_proxy.py`): `POST /api/care/auth/login` · `signup` · `logout`, `GET /api/care/auth/me`. 로그인하면 서명한 쿠키 `care_session`(HttpOnly, 12시간)을 심고, 사장님용 요청의 `store_id` 를 **그 계정의 가게**로 덮어씁니다. 브라우저가 다른 가게를 보내도 버립니다.
+- **로그인하면 시연자별(방문자) 구분이 없습니다.** 같은 계정이면 어느 기기에서든 같은 리뷰·답글을 봅니다 (가게 공용 칸).
+- 로그인하지 않으면 지금까지처럼 `DEMO_STORE_ID` 가게를 방문자 쿠키로 나눠 보여 줍니다. `CARE_LOGIN_REQUIRED=1` 이면 401 (`state: login_required`).
+- 리뷰가 0건인 가게에서도 `/insight`·`/response`·보고서·받은함이 빈 결과로 답합니다 (전에는 `/insight` 가 500).
+- 대회 동안 `data_origin` 은 새 가게도 `synthetic` 입니다. 실제 손님 리뷰를 넣지 않습니다.
+
+**통합 담당께 부탁드릴 것**
+
+| # | 할 일 |
+|---|---|
+| 1 | 로그인 부분을 통합 서버의 프록시에 옮기기. `main` 의 `services/web/web/care_proxy.py` 는 이 참고 구현과 모양이 달라져서(`CareProxy` 클래스) 그대로 복사할 수 없습니다. 옮길 것: 세션 쿠키 만들기·확인(`_pack`, `session_of`), `/api/care/auth/*` 네 주소, 사장님용 요청에서 로그인했으면 `store_id` = 계정의 가게 + 방문자 없음 |
+| 2 | 로그인 화면: 아이디·비밀번호 → `POST /api/care/auth/login`. 화면을 열 때 `GET /api/care/auth/me` 로 로그인 여부·가게 이름 확인. 로그아웃 버튼 → `POST /api/care/auth/logout` |
+| 3 | (선택) 가입 화면 → `POST /api/care/auth/signup {login_id, password, store_name, business_type_name?, signup_code?}`. 성공하면 바로 로그인 상태 |
+| 4 | 서버 환경 변수: 서비스에 `DEMO_ACCOUNT_PASSWORD`(시연용 비밀번호), 공개 서버면 `ACCOUNT_SIGNUP_CODE`. 화면 서버에 (선택) `CARE_SESSION_SECRET`, `CARE_LOGIN_REQUIRED` |
+| 5 | 통합 화면의 다른 영역(상권·마케팅 카드 등)은 여전히 `DEMO_STORE_ID` 한 가게입니다. 그쪽도 로그인한 가게를 따르게 할지는 팀 결정 |
+
+**알려진 한계**: 계정·새 가게가 파일이라 WAS 가 2대면 서버마다 다릅니다 (한 서버에서 가입한 계정이 다른 서버에 없음). 세션 쿠키는 2대여도 통합니다. DB 모드에서 새 가게의 리뷰 저장은 확인하지 못했습니다 (`stores` 표에 가게가 있어야 할 수 있음). 비밀번호 바꾸기·계정 삭제는 없습니다.
 
 ## 3. 계약 변경 요청 (`shared/contracts.py`)
 
@@ -227,8 +258,9 @@ POST /public/store_ongi/inquiries  {"text": "토요일 저녁 6시 15명 예약 
 
 ## 5. 가상 배달앱이 해 주실 일
 
-- 손님 리뷰 등록: 화면 서버를 거쳐 `POST /reviews` `{"store_id", "text", "rating", "source": "app"}`.
-- 리뷰와 사장님 답글 보기: `GET /reviews?source=app` → 항목의 `reply.text`, `reply.replied_at`.
+- 손님 리뷰 등록: 화면 서버를 거쳐 `POST /reviews` `{"store_id", "text", "rating", "source": "app", "menu": "주문 메뉴(선택, 40자 이하)"}`. 방문자는 보내지 않아도 됩니다 (가게 공용 칸에 저장, 2-13).
+- 리뷰와 사장님 답글 보기: `GET /reviews` (방문자 없이) → 합성 리뷰 + 배달앱 리뷰. 항목의 `source`, `menu`, `reply.text`, `reply.replied_at`.
+- 구현: `services/delivery-app` (`/shop/`, `/api/shop/*`). 통합 화면 서버에 붙이는 법은 `services/delivery-app/docs/handoff.md`.
 - 화면에 "시연용 가상 배달앱"이라고 밝혀 주세요. 실제 배달앱과 연결된 것처럼 보이면 안 됩니다. `data_origin` 은 `synthetic` 그대로입니다.
 
 ## 6. 화면에 필요한 자리

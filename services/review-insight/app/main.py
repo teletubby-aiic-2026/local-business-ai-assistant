@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
-from app import report, service, storage  # noqa: E402  (.env 를 먼저 읽어야 함)
+from app import accounts, report, service, storage  # noqa: E402  (.env 를 먼저 읽어야 함)
 from app.classify import Classifier  # noqa: E402
 from app.sources import capture  # noqa: E402
 
@@ -90,6 +90,7 @@ class PasteIn(BaseModel):
     visitor_id: Optional[str] = Field(None, pattern=VISITOR_PATTERN, description=VISITOR_DESC)
     source: Optional[str] = Field(None, description="어디서 들어왔나: paste(기본) | capture(캡처 후보 확인) | app(가상 배달앱) | memo(매장 메모). "
                                                     "계약의 input_method 는 모두 paste 로 저장하고 이 값은 source 칸에 따로 둔다")
+    menu: Optional[str] = Field(None, description="주문 메뉴 이름 (40자 이하, 가상 배달앱이 보냄). 리뷰 조회 응답의 menu 로 돌려줌")
     input_method: Optional[str] = Field(None, description="source 와 같은 뜻 (paste | capture | app | memo). 둘 다 주면 source 가 우선")
 
 
@@ -110,6 +111,39 @@ def _now(value: str | None):
 
 StoreQ = Query(service.DEFAULT_STORE, description="가게 ID (기본: 발표 시나리오 가게 store_ongi)")
 VisitorQ = Query(None, pattern=VISITOR_PATTERN, description=VISITOR_DESC)
+
+
+class LoginIn(BaseModel):
+    login_id: str = Field(..., max_length=64, description="가게 계정 아이디 (시연용: ongi · basak · mongle)")
+    password: str = Field(..., max_length=200, description="비밀번호. 저장·로그하지 않음")
+
+
+class SignupIn(LoginIn):
+    store_name: str = Field(..., description="가게 이름 (1~40자)")
+    business_type_name: Optional[str] = Field(None, description="업종 (선택, 20자 이하. 예: 분식)")
+    signup_code: Optional[str] = Field(None, max_length=200, description="서버에 ACCOUNT_SIGNUP_CODE 를 정했을 때 필요한 가입 코드")
+
+
+@router.post("/auth/login")
+def login(body: LoginIn):
+    """아이디·비밀번호 확인 → 그 계정의 가게. 화면 서버가 부르고, 받은 store_id 로 이후 요청의 가게를 정한다."""
+    try:
+        return accounts.login(body.login_id, body.password)
+    except accounts.TooManyTries:
+        return error(429, "TOO_MANY_TRIES", "로그인을 여러 번 틀렸습니다. 5분 뒤에 다시 해 주세요.", retryable=True)
+    except accounts.LoginFailed:
+        return error(401, "LOGIN_FAILED", "아이디나 비밀번호가 맞지 않습니다.")
+
+
+@router.post("/auth/accounts", status_code=201)
+def signup(body: SignupIn):
+    """새 계정 + 새 가게 (합성 리뷰 없이 0건에서 시작)."""
+    try:
+        return accounts.signup(body.login_id, body.password, body.store_name, body.business_type_name, signup_code=body.signup_code)
+    except PermissionError as e:
+        return error(403, "SIGNUP_CODE_REQUIRED", str(e))
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
 
 
 @router.get("/stores")
@@ -144,7 +178,7 @@ def get_review(review_id: str, store_id: str = StoreQ, visitor_id: Optional[str]
     if review is None:
         return error(404, "REVIEW_NOT_FOUND", f"없는 리뷰입니다: {review_id}")
     c = classifier().classify([review])[0]
-    meta = service.records.load(store_id, visitor_id).get(review_id)
+    meta = service.meta_for(store_id, visitor_id).get(review_id)
     d = service.decorate(review, meta)
     if not (meta or {}).get("status"):
         d["status"] = "analyzed"
@@ -222,13 +256,13 @@ def paste_review(body: PasteIn):
     source = body.source or body.input_method or "paste"
     try:
         review = service.add_review(body.text, body.rating, body.channel, store_id=body.store_id,
-                                    visitor_id=body.visitor_id, source=source)
+                                    visitor_id=body.visitor_id, source=source, menu=body.menu)
     except ValueError as e:
         return error(400, "VALIDATION_ERROR", str(e))
     insight = service.analyze(classifier(), body.store_id, body.visitor_id)
     mine = next((c for c in insight.classifications if c.review_id == review.review_id), None)
     joined = [g.issue_id for g in insight.groups if review.review_id in g.review_ids]
-    shown = service.decorate(review, service.records.load(body.store_id, body.visitor_id).get(review.review_id))
+    shown = service.decorate(review, service.meta_for(body.store_id, body.visitor_id).get(review.review_id))
     return {"review": shown | ({"status": "analyzed"} if mine else {}), "classification": mine.to_dict() if mine else None,
             "joined_issues": joined, "review_count": insight.review_count, "complaint_count": insight.complaint_count,
             "groups": [g.to_dict() for g in insight.groups],
@@ -318,7 +352,7 @@ async def _storage_down(_: Request, exc: storage.StorageUnavailable):
 
 @app.exception_handler(service.StoreNotFound)
 async def _no_store(_: Request, exc: service.StoreNotFound):
-    return error(404, "STORE_NOT_FOUND", f"없는 가게입니다: {exc.args[0]}", {"stores": service.store_ids()})
+    return error(404, "STORE_NOT_FOUND", f"없는 가게입니다: {exc.args[0]}", {"stores": service.synthetic_store_ids()})
 
 
 @app.exception_handler(RequestValidationError)
