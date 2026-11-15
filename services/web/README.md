@@ -68,6 +68,28 @@ open http://localhost:8000
 - **카드 추천 이유 저장 (live)**: 한 번 쓴 이유 문장(규칙 검사 통과분)을 저장하고, 가게·카드·근거 카드(숫자)·참조 문장·프롬프트·모델이 같으면 HCX 를 다시 부르지 않습니다. 서버를 켠 뒤 첫 화면이 느린 것을 줄입니다. 저장이 실패해도 화면은 뜹니다.
 - 승인 요청 본문에 `card_id`·`kind`(초안 종류)를 선택으로 보낼 수 있습니다. 안 보내면 이 서버가 ③ 에서 만든 초안만 알고 있어서, 다른 서버에서 만든 초안이면 DB 의 카드·종류 칸이 빕니다.
 
+## 상권 채팅 서랍 (상권 서비스 프록시)
+
+오른쪽 "AI에게 묻기" 서랍이 상권 서비스(`services/market-analysis`, `ic26-market`, 127.0.0.1:8766)와 대화합니다. 브라우저는 이 서버의 `/api/assistant/*`만 부르고, 서버(`web/assistant_proxy.py`)가 상권 서비스를 대신 부릅니다. API 설명은 `docs/api/contract.md` 1.10절.
+
+- 상권 서비스가 요구하는 세트를 모두 맞춥니다: 세션 쿠키(`market_onboarding_session`) 전달과 새 쿠키 심기, `Host: 127.0.0.1:8766`, `Origin`은 넘기지 않음, 엄격한 본문 검사(모르는 칸이 있으면 422), `messages`·`actions`·`conversation`(조회·지우기)·`status` 모두.
+- **상권 서비스가 꺼져 있거나, 챗봇이 꺼져 있거나, 공식 자료가 아직 없어도 비서 화면은 죽지 않습니다.** 서랍 안에서만 상태 안내(`down`·`disabled`·`no_data`·`error`)가 나오고, 이 API들은 500을 주지 않습니다.
+- 서랍을 처음 열면 `setup`이 우리 가게(온기한식) 분석 조건(장승배기역 · 한식음식점 · 장승배기역 4번 상권 · 최신 분기)을 자동으로 맞춥니다. 다른 가게를 `DEMO_STORE_ID`로 쓰면 기본 조건이 없어 질문할 때 위치·업종을 묻습니다.
+- 환경 변수: `MARKET_URL`(기본 `http://127.0.0.1:8766`, `off`면 이 서버에서는 끔), `MARKET_HOST`(기본 `127.0.0.1:8766`), `MARKET_TIMEOUT_SEC`(질문 하나를 기다리는 최대 시간, 기본 75).
+- 방문자마다 상권 세션이 따로입니다(쿠키는 브라우저에, 프록시는 쿠키를 모아 두지 않음).
+
+**공식 자료 없이 끝까지 확인하는 법** (개발 전용): 상권 서비스의 시험이 쓰는 합성 자료로 상권 서비스를 띄웁니다. 숫자는 합성 값이고 서울시 OpenAPI 수집(`--collect`)은 하지 않습니다. 상권 서비스는 파이썬 3.12가 필요해(`requirements.lock.txt`의 `pyproj` 3.8) 컨테이너를 씁니다. 자세한 설명은 `scripts/serve_market_synthetic.py` 머리말.
+
+```bash
+# 한 번만: 파이썬 3.12 이미지 (requirements 설치)
+cd services/market-analysis && printf 'FROM python:3.12-slim\nCOPY requirements.lock.txt requirements-assistant.txt /tmp/\nRUN pip install --no-cache-dir -q -r /tmp/requirements.lock.txt -r /tmp/requirements-assistant.txt\n' | docker build -q -t ic26-market-dev:py312 -f - .
+# 합성 자료 상권 서비스 (키 없이: 고정 문형 답). 실시간 HCX-005 는 -e APP_MODE=live -e CLOVA_STUDIO_API_KEY 를 더함 (값은 적지 않고 이름만)
+docker run --rm -p 127.0.0.1:18766:8766 -v "$PWD/../..":/repo:ro -w /repo/services/market-analysis -e PYTHONDONTWRITEBYTECODE=1 -e ASSISTANT_ENABLED=1 \
+  ic26-market-dev:py312 python /repo/services/web/scripts/serve_market_synthetic.py
+# 비서 화면 서버 (다른 터미널, 저장소 루트에서)
+MARKET_URL=http://127.0.0.1:18766 APP_MODE=mock services/web/run.sh
+```
+
 ## 키·토큰
 
 - 키는 저장소 밖 `~/.config/teletubby-aiic/env` (폴더 700, 파일 600) 에만 둡니다. `run.sh` 가 읽고 값은 출력하지 않습니다. 없으면 mock 으로 돕니다. 키가 있어도 `APP_MODE=mock` 을 주면 mock 입니다.

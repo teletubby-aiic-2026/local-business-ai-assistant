@@ -344,27 +344,127 @@ details[open] > summary { margin-bottom: 8px; }
 .paste-foot .ghost { min-height: 34px; padding: 4px 12px; border-color: var(--line-strong); font-size: .875rem; color: var(--ink-2); }
 .an-joined { margin: 12px 0 0; }
 
-/* ── 서랍 (AI에게 묻기 자리, 05 17번): 넓은 화면 = 화면 오른쪽에 고정된 400px 칸 (위에서 아래까지) ── */
+/* ── 서랍 = AI에게 묻기 (상권 채팅, 11/15): 넓은 화면 = 화면 오른쪽에 고정된 400px 칸 (위에서 아래까지) ── */
 /* 서랍이 열리면 본문(상단 바·main·바닥)이 남은 폭으로 줄어든다 (:has를 못 쓰는 브라우저에서는 서랍이 본문 위에 겹침).
    카드 2열·숫자 4칸은 화면 폭이 아니라 main 폭을 보고 바뀐다 (컨테이너 쿼리) */
 @container (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
 @container (max-width: 600px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .drawer { position: fixed; z-index: 7; top: 0; right: 0; bottom: 0; width: 400px;
-  display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); }
+  display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line);
+  word-break: keep-all;      /* 한글은 낱말 단위로 줄바꿈 (긴 글자·주소는 아래 overflow-wrap 으로 끊김) */
+  --bubble: var(--chip); }   /* 사용자 말풍선 면 */
 body:has(> .shell > .drawer:not([hidden])) { padding-right: 400px; }
-.drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 56px; padding: 8px 12px 8px 20px; }
-.drawer-head h2 { margin: 0; font-size: 1rem; }
-.drawer-head .ghost { min-height: 34px; padding: 4px 12px; font-size: .875rem; }
-.drawer-body { flex: 1; overflow: auto; padding: 8px 20px 16px; }
-.drawer-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.drawer-chips:not(:empty) { margin-bottom: 12px; }
-.drawer-input { display: flex; align-items: center; gap: 8px; margin: 0 16px 16px; padding: 6px 6px 6px 18px;
-  border: 1px solid var(--field-line); border-radius: 28px; background: transparent; }
+/* 머리: 제목 + 작은 설명 · 대화 지우기 · 닫기 */
+.drawer-head { display: flex; align-items: center; gap: 2px; min-height: 60px; padding: 8px 10px 8px 20px; }
+.drawer-title { flex: 1 1 auto; min-width: 0; }
+.drawer-head h2 { margin: 0; font-size: 1rem; line-height: 1.4; }
+.drawer-sub { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--meta); line-height: 1.4; color: var(--muted); }
+.drawer-head .ghost { flex: 0 0 auto; min-height: 34px; padding: 4px 12px; font-size: .875rem; }
+#assistant-clear { color: var(--ink-2); }
+#assistant-clear.armed { color: var(--bad); border-color: currentColor; font-weight: 600; } /* 같은 뜻을 글자('한 번 더 누르면 지워요')로 */
+/* 분석 조건 (조건이 없으면 숨김): 윗줄 = '분석 조건' + 오른쪽 '우리 가게 조건으로', 아랫줄 = 조건 */
+.drawer-cond { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label home" "text text"; align-items: center;
+  margin: 0 16px 8px; padding: 4px 4px 8px 12px; border-radius: 12px; background: var(--surface); color: var(--ink); font-size: var(--meta); line-height: 1.5; }
+.drawer-cond b { grid-area: label; font-weight: 600; color: var(--muted); }
+#assistant-cond-text { grid-area: text; padding-right: 8px; font-weight: 500; }
+.drawer-cond .ghost { grid-area: home; min-height: 28px; padding: 2px 8px; color: var(--ink-2); font-size: var(--meta); font-weight: 500;
+  text-decoration: underline; text-decoration-color: var(--field-line); text-underline-offset: 3px; }
+.drawer-cond .ghost:hover { background: var(--hover); color: var(--ink); text-decoration-color: currentColor; }
+/* 대화 칸: 이 안에서만 스크롤 (입력줄은 늘 아래에 고정). position 은 JS 스크롤 계산의 기준.
+   내려 읽는 동안에는 위쪽에 가는 선 (.scrolled, JS) */
+.drawer-body { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 20px 20px;
+  border-top: 1px solid transparent; }
+.drawer.scrolled .drawer-body { border-top-color: var(--line); }
+/* 처음 안내 (대화가 비었을 때) */
+.drawer-welcome { padding: 8px 0 0; }
+.drawer-welcome h3 { margin: 0 0 6px; font-size: 1.125rem; line-height: 1.4; font-weight: 600; letter-spacing: -.01em; }
+.drawer-welcome p { margin: 0 0 6px; color: var(--ink-2); font-size: .875rem; }
+.drawer-welcome p.muted { color: var(--muted); }
+/* 상태 안내 카드: 제목 앞 모양도 상태마다 다르게 (연결 안 됨·오류 = 네모, 자료 없음 = 세모, 꺼짐 = 빈 동그라미) */
+.drawer-state { margin-top: 4px; padding: 18px 18px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.drawer-state p { margin: 0; color: var(--ink-2); font-size: .875rem; }
+.drawer-state .drawer-state-title { position: relative; margin: 0 0 6px; padding-left: 18px; color: var(--ink); font-size: .9375rem; font-weight: 600; }
+.drawer-state-title::before { content: ""; position: absolute; left: 1px; top: .6em; width: 9px; height: 8px; background: var(--warn-dot); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.drawer-state[data-state="down"] .drawer-state-title::before, .drawer-state[data-state="error"] .drawer-state-title::before {
+  width: 8px; border-radius: 1px; background: var(--bad); clip-path: none; }
+.drawer-state[data-state="off"] .drawer-state-title::before, .drawer-state[data-state="disabled"] .drawer-state-title::before {
+  width: 9px; height: 9px; border-radius: 50%; background: transparent; box-shadow: inset 0 0 0 2px var(--muted); clip-path: none; }
+.drawer-state button { margin-top: 14px; min-height: 36px; padding: 4px 16px; font-size: .875rem; }
+/* 대화: 사용자 = 오른쪽 연한 말풍선, 비서 = 왼쪽 면 없이 글만 */
+.drawer-log { display: grid; gap: 22px; }
+.msg { min-width: 0; }
+.msg.user { justify-self: end; max-width: 85%; }
+.msg.user .bubble { margin: 0; padding: 8px 14px; border-radius: 18px; background: var(--bubble); white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-fail { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin: 4px 4px 0; color: var(--bad); font-size: var(--meta); font-weight: 500; }
+.msg-fail::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.msg-text { line-height: 1.7; overflow-wrap: anywhere; }
+.msg-text p, .msg-text ul { margin: 0 0 8px; }
+.msg-text > :last-child { margin-bottom: 0; }
+.msg-text ul { padding-left: 20px; }
+.msg-text li + li { margin-top: 2px; }
+.msg-text b { font-weight: 600; margin-right: 3px; }
+.ln-note, .ln-next { color: var(--muted); font-size: .875rem; }
+.ln-insight { padding: 1px 0 1px 12px; border-left: 2px solid var(--line-strong); color: var(--ink-2); font-size: .875rem; }   /* 해석: 통계가 아닌 풀이 (글자 '해석:'으로도) */
+/* 인용 [F1]: 누르면 아래 근거 카드를 펼치고 강조 */
+.cite { min-height: 22px; height: 22px; margin: 0 2px; padding: 0 6px; vertical-align: 1px; border-radius: 6px; border-color: var(--line-strong);
+  background: var(--panel); color: var(--ink-2); font-size: var(--meta); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.cite:hover { background: var(--hover); color: var(--ink); }
+/* 선택지: 알약형 버튼 묶음. 고른 것은 진한 테두리 + ✓ (마지막 답의 선택지만 누를 수 있음) */
+.msg-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.pick { min-height: 36px; padding: 5px 14px; font-size: .875rem; text-align: left; }
+.pick[aria-current="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); background: var(--active); font-weight: 600; opacity: 1; }
+.pick[aria-current="true"]::before { content: "✓"; font-weight: 700; }
+/* 접는 칸: 근거 n개 · 자료 기준 안내 */
+.msg-fold { margin-top: 10px; font-size: .875rem; }
+.msg-fold + .msg-fold { margin-top: 4px; }
+.msg-notes ul { margin: 0; padding: 10px 14px 10px 30px; border-radius: 12px; background: var(--surface); color: var(--ink-2); font-size: var(--meta); line-height: 1.6; }
+.msg-notes li + li { margin-top: 4px; }
+/* 근거 카드 */
+.ev-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ev-card { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); scroll-margin: 12px; }
+.ev-card.hl { border-color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--ink-2); }   /* 누른 인용의 카드: 굵은 테두리 + 포커스 */
+.ev-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 4px; }
+.ev-id { padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: var(--meta); font-weight: 700; line-height: 1.5; }
+.ev-topic { font-size: .875rem; font-weight: 600; }
+.ev-st { margin-left: auto; padding: 0 7px; border-radius: 6px; background: var(--chip); color: var(--ink-2); font-size: var(--meta); font-weight: 600; }
+.ev-text { margin: 0; color: var(--ink-2); font-size: .875rem; overflow-wrap: anywhere; }
+.ev-table { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: var(--meta); font-variant-numeric: tabular-nums; }
+.ev-table th, .ev-table td { padding: 4px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.ev-table th { padding-right: 8px; text-align: left; font-weight: 500; color: var(--muted); }
+.ev-table td { text-align: right; color: var(--ink); white-space: nowrap; }
+.ev-table td.share { width: 4.5em; padding-left: 8px; color: var(--muted); }
+.ev-more, .ev-src, .ev-note { margin: 8px 0 0; color: var(--muted); font-size: var(--meta); overflow-wrap: anywhere; }
+.ev-src a { color: var(--ink-2); }
+.ev-warn { margin: 8px 0 0; padding-left: 18px; list-style: disc; color: var(--muted); font-size: var(--meta); }
+/* 진행 (role=status): 깜박이는 점 + 글 + 걸린 초 */
+.drawer-status { margin: 0; color: var(--muted); font-size: .875rem; }
+.drawer-status.busy { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 18px; }
+.drawer-status.busy::before { content: ""; flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--ink-2); animation: drawer-pulse 1.2s ease-in-out infinite; }
+.drawer-sec { font-variant-numeric: tabular-nums; }
+@keyframes drawer-pulse { 50% { transform: scale(.55); opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .drawer-status.busy::before { animation: none; } }
+/* 추천 질문 칩 */
+.drawer-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 18px; }
+.drawer-chips-title { flex-basis: 100%; margin: 0 0 2px; color: var(--muted); font-size: var(--meta); font-weight: 600; }
+.chip { min-height: 34px; padding: 5px 14px; color: var(--ink-2); font-size: .875rem; text-align: left; }
+.chip:hover { color: var(--ink); }
+/* 오류 (role=alert): 서랍 안에서만. 빈 동안은 자리를 차지하지 않음 */
+.drawer-error { position: relative; margin: 0 16px 8px; padding: 8px 12px 8px 30px; border-radius: 12px; background: var(--bad-bg); color: var(--bad);
+  font-size: .875rem; font-weight: 500; line-height: 1.5; }
+.drawer-error::before { content: ""; position: absolute; left: 13px; top: 15px; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.drawer-error:empty { margin: 0; padding: 0; }
+.drawer-error:empty::before { display: none; }
+/* 입력줄: 둥근 상자 하나 (글 칸 + 보내기), 아래에 작은 안내 */
+.drawer-input { display: flex; align-items: flex-end; gap: 8px; margin: 0 16px; padding: 6px 6px 6px 18px;
+  border: 1px solid var(--field-line); border-radius: 26px; background: var(--panel); }
 .drawer-input:focus-within { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
-.drawer-input input { flex: 1; min-width: 0; padding: 8px 0; border: 0; background: transparent; color: var(--ink); }
-.drawer-input input:focus { outline: none; }
-.drawer-input input:disabled { cursor: not-allowed; }
-.drawer-input .primary { min-height: 36px; padding: 4px 14px; font-size: .875rem; }
+.drawer-input textarea { flex: 1; min-width: 0; height: 40px; max-height: 140px; padding: 8px 0; border: 0; background: transparent; color: var(--ink);
+  font-size: 1rem; line-height: 1.5; resize: none; }
+.drawer-input textarea:focus { outline: none; }   /* 포커스는 상자 테두리와 링으로 보임 */
+.drawer-input textarea:disabled { cursor: not-allowed; }
+.drawer-input .primary { flex: 0 0 auto; min-height: 40px; padding: 4px 16px; font-size: .875rem; }
+.drawer-foot { display: flex; justify-content: space-between; gap: 8px; min-height: 20px; margin: 6px 24px 10px; color: var(--muted); font-size: var(--meta); line-height: 1.5; }
+#assistant-count { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 /* ── 바닥 ─────────────────────────────────────────────────────── */
 .foot { max-width: calc(var(--col) + 80px); margin: 0 auto; padding: 0 40px 40px; }
@@ -423,16 +523,25 @@ body:has(.view.narrow:not([hidden])) > .foot { max-width: calc(720px + 80px); } 
   .staff-strip li { display: flex; align-items: center; gap: 8px; font-size: .875rem; }
   .staff-strip b { font-weight: 600; }
   .staff-strip .dot { margin-top: 0; }
-  /* 서랍 대신 아래에서 올라오는 시트 (본문 폭은 그대로) */
+  /* 서랍 대신 아래에서 올라오는 시트 (본문 폭은 그대로). 대화를 읽을 수 있게 화면의 85%까지, 입력줄은 시트 맨 아래에 고정 */
   body:has(> .shell > .drawer:not([hidden])) { padding-right: 0; }
-  .drawer { z-index: 10; left: 0; right: 0; bottom: 0; top: auto; width: auto; height: min(75vh, 560px);
+  .drawer { z-index: 10; left: 0; right: 0; bottom: 0; top: auto; width: auto; height: min(85vh, 720px); height: min(85dvh, 720px);
     border-left: 0; border-top: 1px solid var(--line); border-radius: 20px 20px 0 0; box-shadow: 0 -8px 32px rgba(0, 0, 0, .14); }
-  .drawer::before { content: ""; align-self: center; width: 36px; height: 4px; margin-top: 8px; border-radius: 2px; background: var(--line-strong); }
-  .drawer-head { min-height: 48px; }
+  .drawer::before { content: ""; flex: 0 0 auto; align-self: center; width: 36px; height: 4px; margin-top: 8px; border-radius: 2px; background: var(--line-strong); }
+  .drawer-head { min-height: 52px; padding: 4px 8px 4px 16px; }
+  .drawer-cond { margin: 0 12px 2px; }
+  .drawer-body { padding: 10px 16px 16px; }
+  .msg.user { max-width: 90%; }
+  .drawer-error { margin: 0 12px 8px; }
+  .drawer-input { margin: 0 12px; }
+  .drawer-hint { display: none; }   /* 휴대전화 자판에는 Shift+Enter 안내가 맞지 않음 */
+  .drawer-foot { min-height: 0; margin: 4px 20px max(10px, env(safe-area-inset-bottom)); }
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .ask-bar { box-shadow: none; }
 }
 @media (max-width: 760px) and (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .drawer { background: var(--surface); border-top-color: var(--line-strong); } /* 시트를 본문보다 한 단계 밝게 */
+  /* 시트를 본문보다 한 단계 밝게. 시트 안의 면(카드·입력 상자·조건 줄·말풍선)도 같이 한 단계씩 올린다 (muted 글자: #2a2a2a 5.5 · #333 4.9) */
+  :root:not([data-theme="light"]) .drawer { --panel: #2a2a2a; --surface: #333333; --chip: #383838; --hover: #333333; --bubble: #3a3a3a;
+    background: var(--panel); border-top-color: var(--line-strong); }
 }

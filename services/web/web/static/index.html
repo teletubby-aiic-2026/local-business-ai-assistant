@@ -99,7 +99,7 @@
         </section>
       </div>
       <button id="ask-open" class="ask-bar" type="button" aria-controls="assistant" aria-expanded="false">
-        <span class="ask-ph">AI에게 묻기 · 예) 포장 누락은 언제 많아요?</span><span class="badge">준비 중</span>
+        <span class="ask-ph">AI에게 묻기 · 예) 우리 가게 상권 매출은 어때?</span>
       </button>
     </section>
 
@@ -198,23 +198,47 @@
     </section>
   </main>
 
-  <!-- 챗봇 서랍 자리 (기능은 아직 없음). 넓은 화면 = 오른쪽 400px, 760px 이하 = 아래에서 올라오는 시트 -->
+  <!-- AI에게 묻기 서랍 = 상권 채팅 (11/15). 넓은 화면 = 오른쪽 400px, 760px 이하 = 아래에서 올라오는 시트.
+       이 서버의 /api/assistant/* 만 부른다 (상권 서비스는 서버가 대신 부름). 서랍을 처음 열 때 시작하고, 오류는 서랍 안에만 보인다.
+       위에서부터: 머리(제목·대화 지우기·닫기) → 분석 조건 한 줄 → 대화(스크롤) → 오류 → 입력줄(고정) -->
   <aside id="assistant" class="drawer" aria-labelledby="assistant-title" hidden>
     <div class="drawer-head">
-      <h2 id="assistant-title">AI에게 묻기</h2>
+      <div class="drawer-title">
+        <h2 id="assistant-title">AI에게 묻기</h2>
+        <p class="drawer-sub">상권 비서 · 서울시 공개 상권 자료로 답해요</p>
+      </div>
+      <button id="assistant-clear" type="button" class="ghost" hidden>대화 지우기</button>
       <button id="assistant-close" type="button" class="ghost" aria-label="AI에게 묻기 닫기">닫기</button>
     </div>
-    <div class="drawer-body">
-      <div id="assistant-chips" class="drawer-chips" aria-label="추천 질문"></div>
-      <div id="assistant-log" class="drawer-log">
-        <p class="small muted">S1 질문창(PR #13)이 들어올 자리예요. 아직 동작하지 않아요.</p>
+    <div id="assistant-cond" class="drawer-cond" hidden>
+      <b>분석 조건</b>
+      <span id="assistant-cond-text"></span>
+      <!-- 채팅에서 다른 곳을 보고 있어도 우리 가게 조건(장승배기역 4번 · 한식음식점 · 최신 분기)으로 되돌림 (setup?force=1) -->
+      <button id="assistant-home" type="button" class="ghost">우리 가게 조건으로</button>
+    </div>
+    <div id="assistant-scroll" class="drawer-body">
+      <!-- 상권 비서를 쓸 수 없을 때만 보이는 상태 안내 (꺼짐·연결 안 됨·챗봇 꺼짐·자료 없음·오류) -->
+      <div id="assistant-state" class="drawer-state" hidden>
+        <p id="assistant-state-title" class="drawer-state-title"></p>
+        <p id="assistant-state-msg"></p>
+        <button id="assistant-retry" type="button">다시 확인</button>
       </div>
+      <div id="assistant-welcome" class="drawer-welcome" hidden>
+        <h3>우리 가게 상권, 편하게 물어보세요</h3>
+        <p>서울시 공개 상권 자료로 매출·점포 수·유동인구를 알려 드려요. 숫자마다 근거 번호가 붙고, 누르면 원래 자료를 볼 수 있어요.</p>
+        <p class="small muted">상권 통계는 상권·업종 전체의 추정치예요. 우리 가게 매출이 아니에요.</p>
+      </div>
+      <div id="assistant-log" class="drawer-log" role="log" aria-live="polite" aria-label="대화 기록"></div>
+      <p id="assistant-status" class="drawer-status" role="status"></p>
+      <div id="assistant-chips" class="drawer-chips" role="group" aria-label="추천 질문" hidden></div>
     </div>
-    <div class="drawer-input">
+    <p id="assistant-error" class="drawer-error" role="alert"></p>
+    <form id="assistant-form" class="drawer-input" novalidate>
       <label for="assistant-q" class="sr">질문</label>
-      <input id="assistant-q" type="text" placeholder="예) 포장 누락은 언제 많아요?" disabled>
-      <button type="button" class="primary" disabled>보내기</button>
-    </div>
+      <textarea id="assistant-q" rows="1" maxlength="1000" placeholder="준비하고 있어요…" autocomplete="off" disabled></textarea>
+      <button id="assistant-send" type="submit" class="primary" disabled>보내기</button>
+    </form>
+    <p class="drawer-foot"><span class="drawer-hint">Enter 보내기 · Shift+Enter 줄바꿈</span><span id="assistant-count"></span></p>
   </aside>
   </div>
 

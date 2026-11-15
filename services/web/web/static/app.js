@@ -1,6 +1,7 @@
 // 텔레토비 AI 비서: 단계별 화면 (1 오늘 → 2 제안 → 3 초안 → 4 완료) + 리뷰 분석. 외부 라이브러리 없이 동작.
 // 화면은 주소 해시로 바꾼다: #/today #/cards #/draft #/done #/analysis (재정비/05 UI 디자인 레퍼런스 15번, 박건영 결정 11/10)
 // 화면마다 할 일은 하나. API: /api/health, briefing, insight, cards, cards/{id}/run, drafts/{id}/approve, approvals, reviews.
+// 오른쪽 'AI에게 묻기' 서랍은 상권 채팅: /api/assistant/* (서랍 전용 drawerApi, 서랍을 처음 열 때부터).
 // 리뷰 분석(#/analysis)은 따로 떠 있던 리뷰 분석 화면의 세 화면(요약·불만 묶음·붙여넣기)을 옮겨 왔다 (11/13 통합 1차).
 "use strict";
 
@@ -634,11 +635,485 @@ function mountLater() {
     </section>`).join(""));
 }
 
-// ── 챗봇 서랍 자리 (S1 질문창, PR #13이 들어올 곳) ─────────────────────
-// 지금은 'AI에게 묻기' 버튼이 숨겨져 있어 열 수 없다. 여닫기·자리만 있고 질문·답 기능은 없다 (05 17번).
+// ── AI에게 묻기 서랍: 상권 채팅 (11/15) ──────────────────────────────
+// 이 서버의 /api/assistant/* 만 부른다 (상권 서비스는 서버가 안에서 대신 부르는 프록시). 서랍을 처음 열 때 시작한다.
+// 호출은 서랍 전용 drawerApi 로만 한다: 전역 api()·#alert 를 쓰지 않아서 오류는 서랍 안(#assistant-error·상태 안내)에만 보인다.
+// 상권 숫자·문장은 서버가 준 그대로 textContent 로만 넣는다 (서버 글을 innerHTML 에 넣지 않음).
+// 줄 종류·인용·주제 이름·값 모양은 상권 서비스 자체 채팅 화면(services/market-analysis/app/static/assistant/assistant.js)과 같다.
+const CHAT_TOPICS = {
+  conditions: "분석 조건", sales_total: "추정매출", sales_weekday: "요일별 매출", sales_time: "시간대별 매출",
+  sales_age: "연령별 매출", stores_count: "점포 수", stores_open_close: "개업·폐업", population: "유동인구",
+  change_qoq: "전분기 대비", change_yoy: "전년 동분기 대비", comparison: "상권 비교", ranking: "매출 상위 상권",
+};
+const CHAT_STATUS = {
+  available: "", no_data: "자료 없음", not_collected: "미수집", invalid: "형식 확인 필요", error: "불러오기 실패",
+  partial: "일부만 확인", missing: "자료 없음", no_observation: "관측 없음",
+};
+// 상태 안내 카드: [제목, 서버 문장(message)이 없을 때 쓰는 문장]. 제목은 서버 문장과 겹치지 않게 짧게
+const CHAT_STATES = {
+  off: ["상권 비서를 쓸 수 없어요", "이 서버에서는 상권 비서를 켜 두지 않았어요."],
+  down: ["지금은 연결할 수 없어요", "상권 서비스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요."],
+  disabled: ["상권 챗봇이 쉬고 있어요", "상권 서비스는 켜져 있지만 상권 비서(챗봇)가 꺼져 있어요."],
+  no_data: ["상권 자료를 준비하고 있어요", "공식 상권 자료가 아직 준비되지 않았어요. 자료가 들어오면 바로 쓸 수 있어요."],
+  error: ["상권 비서를 불러오지 못했어요", "상권 비서에 문제가 생겼어요. 잠시 뒤 다시 시도해 주세요."],
+};
+// 처음 추천 질문 (11/15 실제 상권 서버로 확인한 4개. 다른 말투는 AI 계획기가 없는 기간을 지어내 '자료가 없어요'로 답하기도 함)
+const CHAT_STARTERS = ["우리 가게 상권 매출은 어때?", "주말 매출은 어때?", "주변에 같은 업종 점포는 몇 개야?", "점심과 저녁 중 매출은 어디가 커?"];
+const CHAT_WAIT_MS = 90000;   // 실제 AI 호출이라 60~90초 걸릴 수 있다. 넘으면 끊고 입력을 풀어 준다
+const CHAT_SLOW = "답이 늦어지고 있어요. 잠시 뒤 다시 물어봐 주세요";
+const chat = {
+  started: false, loading: false, ready: false, busy: false,
+  setupTried: false,          // 조건 자동 저장(setup)은 페이지마다 한 번만. '다시 확인'을 누르면 다시
+  label: "",                  // 상태의 setup.label ("온기한식 · 장승배기역 · 한식음식점")
+  latest: null,               // 마지막 답의 선택지 묶음 (이것만 누를 수 있음)
+  chips: { list: [], starters: false },
+  armed: null, tick: null,
+};
+const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+const chatUrl = (v) => { try { const u = new URL(String(v)); return u.protocol === "https:" || u.protocol === "http:" ? u.href : null; } catch { return null; } };
+function chatValue(value, unit) {
+  if (value === null || value === undefined) return "확인 불가";
+  if (typeof value !== "number") return String(value);
+  const text = Number.isInteger(value) && unit !== "%" ? value.toLocaleString("ko-KR")
+    : value.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });   // 비율은 늘 소수 둘째 자리 (카드 문장과 같게)
+  return unit ? text + unit : text;
+}
+const chatCondText = (c) => (c ? [c.area_name ? `${c.area_name} 상권` : null, c.industry_name, c.period_label].filter(Boolean).join(" · ") : "");
+const chatId = () => "web-" + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+const chatSuggest = (reply) => (Array.isArray(reply?.suggestions) ? reply.suggestions : []).filter((s) => typeof s === "string" && s.trim()).slice(0, 3);
+const chatSameKey = (a, b) => JSON.stringify(a || {}, Object.keys(a || {}).sort()) === JSON.stringify(b || {}, Object.keys(b || {}).sort());
+
+// 서랍 전용 호출: 같은 출처 쿠키·JSON, 90초가 넘으면 끊는다. 실패하면 message·state 를 담은 Error (화면 띠에는 아무것도 띄우지 않음)
+async function drawerApi(path, options = {}, slow = "응답이 늦어지고 있어요. 잠시 뒤 다시 확인해 주세요.") {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), CHAT_WAIT_MS);
+  const fail = (message, st) => Object.assign(new Error(message), { state: st });
+  try {
+    const res = await fetch(path, { credentials: "same-origin", cache: "no-store", ...options, signal: ctl.signal,
+      headers: { "Content-Type": "application/json", Accept: "application/json" } });
+    const body = await res.json().catch(() => null);
+    if (res.ok && body) return body;
+    if (body?.error?.message) throw fail(body.error.message, body.error.state || "error");
+    if (res.status === 404) throw fail("이 서버에는 아직 상권 비서가 연결되지 않았어요.", "off");
+    if (res.status === 422) throw fail("질문을 다시 확인해 주세요. 1000자까지 쓸 수 있어요.", "invalid");
+    throw fail(res.ok ? "응답을 읽지 못했어요. 잠시 뒤 다시 시도해 주세요." : `상권 비서가 응답하지 않았어요 (${res.status}). 잠시 뒤 다시 시도해 주세요.`, "error");
+  } catch (e) {
+    if (e.name === "AbortError") throw fail(slow, "timeout");
+    if (e instanceof TypeError) throw fail("상권 비서에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.", "down");
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+
+// 진행·안내 (#assistant-status, role=status). busy 이면 점이 깜박이고 걸린 초를 보인다 (초는 읽기 프로그램에 읽히지 않게).
+// srOnly 는 화면에는 안 보이고 읽기 프로그램에만 알리는 안내
+function chatStatus(text, busy = false, srOnly = false) {
+  const el = $("assistant-status");
+  clearInterval(chat.tick);
+  el.classList.toggle("busy", !!text && busy);
+  el.replaceChildren();
+  if (!text) return;
+  const msg = mk("span", srOnly ? "sr" : "", text);
+  el.append(msg);
+  if (!busy) return;
+  const sec = mk("span", "drawer-sec");
+  sec.setAttribute("aria-hidden", "true");
+  el.append(sec);
+  const t0 = Date.now();
+  chat.tick = setInterval(() => {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    sec.textContent = s >= 3 ? `${s}초` : "";
+    if (s === 20) msg.textContent = `${text}. 길면 1분 넘게 걸려요`;
+  }, 1000);
+}
+function chatError(message) { $("assistant-error").textContent = message || ""; }
+
+// 입력칸·버튼을 지금 상태(준비·보내는 중)에 맞춘다
+function chatInput() {
+  const q = $("assistant-q"), off = !chat.ready || chat.busy;
+  q.disabled = off;
+  // 340px 서랍에서도 한 줄에 들어가게 짧게 (글 칸은 한 줄 높이에서 시작)
+  q.placeholder = chat.busy ? "답을 기다리고 있어요…" : chat.ready ? "상권에 대해 물어보세요" : chat.loading ? "준비하고 있어요…" : "지금은 물어볼 수 없어요";
+  $("assistant-send").disabled = off || !q.value.trim();
+  $("assistant-clear").hidden = !chat.ready || !$("assistant-log").children.length;
+  $("assistant-clear").disabled = chat.busy;
+  $("assistant-home").disabled = off;
+  $("assistant-chips").querySelectorAll("button").forEach((b) => (b.disabled = off));
+  if (chat.latest) chat.latest.querySelectorAll("button").forEach((b) => (b.disabled = off));
+  $("assistant-count").textContent = q.value.length >= 900 ? `${q.value.length} / 1000자` : "";
+}
+function chatBusy(on, text) {
+  chat.busy = on;
+  chatInput();
+  chatStatus(on ? text : "", on);
+}
+function chatGrow() { const q = $("assistant-q"); q.style.height = "auto"; q.style.height = Math.min(q.scrollHeight, 140) + "px"; }
+// 보낸 뒤 입력칸으로 포커스를 돌려준다. 다른 곳으로 옮겼거나 터치 화면(자판이 답을 가림)이면 그대로 둔다
+function chatFocus(force = false) {
+  const box = $("assistant"), a = document.activeElement;
+  if (box.hidden || !chat.ready || (a && a !== document.body && !box.contains(a))) return;
+  if (!force && matchMedia("(pointer: coarse)").matches) return;
+  $("assistant-q").focus({ preventScroll: true });
+}
+// 대화 칸 안에서만 스크롤한다 (페이지는 움직이지 않음). where: start = 요소 맨 위로, near = 안 보일 때만, end = 맨 아래로
+function chatReveal(el, where = "start") {
+  const box = $("assistant-scroll");
+  const smooth = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  if (where === "end" || !el) { box.scrollTo({ top: box.scrollHeight, behavior: smooth }); return; }
+  let y = 0;
+  for (let n = el; n && n !== box; n = n.offsetParent) y += n.offsetTop;
+  if (where === "near" && y >= box.scrollTop && y + el.offsetHeight <= box.scrollTop + box.clientHeight) return;
+  box.scrollTo({ top: Math.max(0, y - 12), behavior: smooth });
+}
+
+function chatConditions(c) {
+  const text = chatCondText(c);
+  $("assistant-cond").hidden = !text;
+  $("assistant-cond-text").textContent = text;
+}
+// 추천 질문 칩: 대화가 비었으면 고정 질문, 그 뒤에는 마지막 답의 suggestions
+function chatChips(list, starters = false) {
+  const box = $("assistant-chips");
+  chat.chips = { list, starters };
+  box.replaceChildren();
+  box.hidden = !list.length;
+  if (!list.length) return;
+  const title = starters ? "이렇게 물어보세요" : "이어서 물어보기";
+  box.setAttribute("aria-label", title);
+  const head = mk("p", "drawer-chips-title", title);
+  head.setAttribute("aria-hidden", "true");
+  box.append(head, ...list.map((q) => {
+    const b = mk("button", "chip", q);
+    b.type = "button";
+    b.disabled = !chat.ready || chat.busy;
+    b.addEventListener("click", () => chatSend(q));
+    return b;
+  }));
+}
+
+// 근거 카드: 답 아래 접힌 '근거 n개'. 인용 [F1]을 누르면 펼치고 그 카드를 강조한다
+function chatEvidence(cards) {
+  const box = mk("details", "msg-fold msg-ev");
+  box.append(mk("summary", "", `근거 ${cards.length}개`));
+  const list = mk("ol", "ev-list");
+  const byId = new Map();
+  cards.forEach((c) => {
+    const li = mk("li", "ev-card");
+    li.tabIndex = -1;
+    const head = mk("div", "ev-head");
+    head.append(mk("span", "ev-id", c.id), mk("span", "ev-topic", CHAT_TOPICS[c.topic] || c.topic || ""));
+    if (CHAT_STATUS[c.status]) head.append(mk("span", "ev-st", CHAT_STATUS[c.status]));
+    li.append(head);
+    if (c.text) li.append(mk("p", "ev-text", c.text));
+    const nums = (Array.isArray(c.values) ? c.values : []).filter((v) => v && typeof v.value === "number");
+    if (nums.length) {
+      const table = mk("table", "ev-table");
+      const thead = mk("thead", "sr"), tr0 = mk("tr");
+      ["항목", "값", "비중"].forEach((t) => { const th = mk("th", "", t); th.scope = "col"; tr0.append(th); });
+      thead.append(tr0);
+      const tbody = mk("tbody");
+      nums.slice(0, 12).forEach((v) => {
+        const tr = mk("tr"), th = mk("th", "", v.group ? `${v.group} ${v.label}` : v.label);
+        th.scope = "row";
+        tr.append(th, mk("td", "", chatValue(v.value, v.unit)), mk("td", "share", typeof v.share_percent === "number" ? chatValue(v.share_percent, "%") : ""));
+        tbody.append(tr);
+      });
+      table.append(thead, tbody);
+      li.append(table);
+      if (nums.length > 12) li.append(mk("p", "ev-more", `숫자 ${nums.length}개 중 12개만 보여요.`));
+    }
+    const warnings = (Array.isArray(c.warnings) ? c.warnings : []).filter((w) => typeof w === "string" && w);
+    if (warnings.length) { const ul = mk("ul", "ev-warn"); warnings.forEach((w) => ul.append(mk("li", "", w))); li.append(ul); }
+    const src = c.source_ref || {};
+    if (src.source_title || src.data_version) {
+      const p = mk("p", "ev-src");
+      const href = chatUrl(src.source_url);
+      if (src.source_title) {
+        p.append("출처: ");
+        if (href) { const a = mk("a", "", src.source_title); a.href = href; a.target = "_blank"; a.rel = "noopener noreferrer"; p.append(a); }
+        else p.append(src.source_title);
+      }
+      if (src.data_version) p.append(`${src.source_title ? " · " : ""}자료 버전 ${src.data_version}`);
+      li.append(p);
+    }
+    list.append(li);
+    byId.set(String(c.id), li);
+  });
+  box.append(list, mk("p", "ev-note", "상권 통계는 상권·업종 전체의 추정치예요. 우리 가게 매출이 아니에요."));
+  const show = (id) => {
+    const li = byId.get(id);
+    if (!li) return;
+    box.open = true;
+    $("assistant-log").querySelectorAll(".ev-card.hl").forEach((x) => x.classList.remove("hl"));
+    li.classList.add("hl");
+    chatReveal(li, "near");
+    li.focus({ preventScroll: true });
+  };
+  return { box, has: (id) => byId.has(id), show };
+}
+
+// 한 줄을 글과 인용 버튼으로. 이 답에 없는 근거 번호는 글자 그대로 둔다
+function chatLine(into, line, cite) {
+  let last = 0;
+  for (const m of line.matchAll(/\[(F\d+)\]/g)) {
+    if (m.index > last) into.append(line.slice(last, m.index));
+    into.append(cite(m[1]) || m[0]);
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) into.append(line.slice(last));
+}
+// 비서 답 하나: 글(목록·참고·해석·다음으로) → 선택지 → 근거 n개 → 자료 기준 안내. live = 마지막 답 (선택지를 누를 수 있음)
+function chatBot(data, live) {
+  const reply = data?.reply || {};
+  const cards = (Array.isArray(data?.cards) ? data.cards : []).filter((c) => c && c.id);
+  const msg = mk("div", "msg bot");
+  const ev = cards.length ? chatEvidence(cards) : null;
+  const cite = (id) => {
+    if (!ev || !ev.has(id)) return null;
+    const b = mk("button", "cite", id);
+    b.type = "button";
+    b.setAttribute("aria-label", `근거 ${id} 보기`);
+    b.addEventListener("click", () => ev.show(id));
+    return b;
+  };
+  const body = mk("div", "msg-text");
+  let list = null;
+  for (const line of String(reply.text || "").split("\n")) {
+    if (!line.trim()) { list = null; continue; }
+    if (line.startsWith("- ")) {
+      if (!list) body.append((list = mk("ul")));
+      const li = mk("li");
+      chatLine(li, line.slice(2), cite);
+      list.append(li);
+      continue;
+    }
+    list = null;
+    const kind = line.startsWith("참고:") ? "note" : line.startsWith("해석:") ? "insight" : line.startsWith("다음으로 ") ? "next" : "";
+    const p = mk("p", kind ? "ln-" + kind : "");
+    if (kind === "note" || kind === "insight") { p.append(mk("b", "", line.slice(0, 3))); chatLine(p, line.slice(3), cite); }
+    else chatLine(p, line, cite);
+    body.append(p);
+  }
+  msg.append(body);
+  const actions = (Array.isArray(reply.actions) ? reply.actions : []).filter((a) => a && a.label);
+  if (actions.length) {
+    const group = mk("div", "msg-actions");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "선택지");
+    actions.forEach((a) => {
+      const b = mk("button", "pick", a.label);
+      b.type = "button";
+      b.disabled = !live || !chat.ready || chat.busy;
+      b.addEventListener("click", () => chatChoose(group, b, a));
+      group.append(b);
+    });
+    msg.append(group);
+  }
+  if (ev) msg.append(ev.box);
+  const notes = (Array.isArray(reply.notes) ? reply.notes : []).filter((n) => typeof n === "string" && n);
+  if (notes.length) {
+    const d = mk("details", "msg-fold msg-notes");
+    const ul = mk("ul");
+    notes.forEach((n) => ul.append(mk("li", "", n)));
+    d.append(mk("summary", "", "자료 기준 안내"), ul);
+    msg.append(d);
+  }
+  return msg;
+}
+function chatUser(text) {
+  const m = mk("div", "msg user");
+  m.append(mk("p", "bubble", text));
+  $("assistant-log").append(m);
+  return m;
+}
+// 이전 대화: 선택지를 고른 턴은 앞 답의 선택지에서 이름을 찾아 '선택: 이름'으로 보이고 그 버튼을 고른 표시로
+function chatHistory(turns) {
+  const log = $("assistant-log");
+  log.setAttribute("aria-live", "off");   // 처음 그릴 때 지난 대화를 통째로 읽지 않게
+  log.replaceChildren();
+  chat.latest = null;
+  let prev = null, prevMsg = null;
+  turns.forEach((t, i) => {
+    if (t.user_text) chatUser(t.user_text);
+    else if (t.action) {
+      const picked = (prev?.reply?.actions || []).find((a) => chatSameKey(a.payload, t.action));
+      chatUser(picked ? `선택: ${picked.label}` : "선택했어요");
+      const b = picked && prevMsg && [...prevMsg.querySelectorAll(".pick")].find((x) => x.textContent === picked.label);
+      if (b) b.setAttribute("aria-current", "true");
+    }
+    const m = chatBot(t, i === turns.length - 1);
+    log.append(m);
+    prev = t; prevMsg = m;
+  });
+  if (prevMsg) chat.latest = prevMsg.querySelector(".msg-actions");
+  const last = turns[turns.length - 1];
+  chatChips(last ? chatSuggest(last.reply) : CHAT_STARTERS, !last);
+  requestAnimationFrame(() => log.setAttribute("aria-live", "polite"));
+}
+// 답을 받으면: 그 답을 붙이고, 선택지는 이 답 것만 누를 수 있게, 칩은 이 답의 suggestions, 조건은 응답에 있을 때만 바꾼다
+function chatAnswer(r, mine) {
+  const m = chatBot(r, true);
+  $("assistant-log").append(m);
+  chat.latest = m.querySelector(".msg-actions");
+  chatChips(chatSuggest(r?.reply));
+  if (r && "conditions" in r) chatConditions(r.conditions);
+  requestAnimationFrame(() => chatReveal(mine, "start"));
+}
+function chatFailed(mine, message, chips) {
+  mine.append(mk("p", "msg-fail", "보내지 못했어요"));
+  chatChips(chips.list, chips.starters);
+  chatError(message);
+}
+
+async function chatSend(text) {
+  const value = String(text ?? "").trim();
+  if (!value || chat.busy || !chat.ready) return;
+  const q = $("assistant-q"), chips = chat.chips;
+  chatError(""); chatDisarm();
+  $("assistant-welcome").hidden = true;
+  const mine = chatUser(value);
+  if (q.value.trim() === value) { q.value = ""; chatGrow(); }   // 칩으로 물었으면 쓰던 글은 그대로 둔다
+  chatChips([]);
+  chatBusy(true, "자료를 확인하고 있어요");
+  chatReveal(null, "end");
+  try {
+    chatAnswer(await drawerApi("/api/assistant/messages", { method: "POST", body: JSON.stringify({ text: value, client_message_id: chatId() }) }, CHAT_SLOW), mine);
+  } catch (e) {
+    chatFailed(mine, e.message, chips);
+    if (!q.value.trim()) { q.value = value; chatGrow(); }   // 다시 보내기 쉽게 입력칸에 돌려놓는다
+  } finally { chatBusy(false); chatFocus(); }
+}
+async function chatChoose(group, button, action) {
+  if (chat.busy || !chat.ready || group !== chat.latest) return;
+  const chips = chat.chips;
+  chatError(""); chatDisarm();
+  button.setAttribute("aria-current", "true");
+  const mine = chatUser(`선택: ${action.label}`);
+  chatChips([]);
+  chatBusy(true, "자료를 확인하고 있어요");
+  chatReveal(null, "end");
+  try {
+    chatAnswer(await drawerApi("/api/assistant/actions", { method: "POST", body: JSON.stringify(action.payload ?? {}) }, CHAT_SLOW), mine);
+  } catch (e) {
+    button.removeAttribute("aria-current");
+    chatFailed(mine, e.message, chips);
+  } finally { chatBusy(false); chatFocus(); }
+}
+
+// 대화 지우기: 두 번 눌러 확인 (4초 안에). 분석 조건은 서버에 남으니 setup 은 다시 부르지 않고 표시만 서버 값으로 다시 맞춘다
+function chatDisarm() {
+  clearTimeout(chat.armed);
+  chat.armed = null;
+  $("assistant-clear").textContent = "대화 지우기";
+  $("assistant-clear").classList.remove("armed");
+}
+async function chatClear() {
+  if (chat.busy || !chat.ready) return;
+  if (!chat.armed) {
+    $("assistant-clear").textContent = "한 번 더 누르면 지워요";
+    $("assistant-clear").classList.add("armed");
+    chatStatus("한 번 더 누르면 대화를 지워요", false, true);
+    chat.armed = setTimeout(() => { chatDisarm(); chatStatus(""); }, 4000);
+    return;
+  }
+  chatDisarm(); chatError("");
+  let done = false;
+  chatBusy(true, "대화를 지우고 있어요");
+  try {
+    await drawerApi("/api/assistant/conversation", { method: "DELETE" });
+    $("assistant-log").replaceChildren();
+    chat.latest = null;
+    chatConditions(null);
+    $("assistant-welcome").hidden = false;
+    chatChips(CHAT_STARTERS, true);
+    done = true;
+    drawerApi("/api/assistant/conversation").then((c) => chatConditions(c.conditions)).catch(() => {});
+  } catch (e) { chatError(e.message); }
+  finally {
+    chatBusy(false);
+    if (done) { chatStatus("대화를 지웠어요", false, true); $("assistant-scroll").scrollTop = 0; chatFocus(true); }
+  }
+}
+
+// '우리 가게 조건으로': 채팅에서 다른 상권·업종을 보고 있어도 우리 가게 조건으로 되돌린다 (setup?force=1). 대화 기록은 그대로
+async function chatHome() {
+  if (chat.busy || !chat.ready) return;
+  const b = $("assistant-home");
+  chatError(""); chatDisarm();
+  chatBusy(true, "우리 가게 조건으로 맞추고 있어요");
+  let done = false;
+  try {
+    const s = await drawerApi("/api/assistant/setup?force=1", { method: "POST" });
+    if (s?.status === "unavailable") chatError(s.message || (CHAT_STATES[s.state] || CHAT_STATES.error)[1]);
+    else { if (s && "conditions" in s) chatConditions(s.conditions); done = true; }
+  } catch (e) { chatError(e.message); }
+  finally {
+    chatBusy(false);
+    if (document.activeElement === document.body && !$("assistant").hidden && !$("assistant-cond").hidden) b.focus();   // 누르는 동안 막혀서 잃은 포커스
+    if (done) {
+      chatStatus("우리 가게 조건으로 맞췄어요", false, true);
+      b.textContent = "✓ 맞췄어요";   // 조건이 이미 같으면 표시줄이 그대로라, 눌렀다는 것을 버튼 글자로 잠깐 알린다
+      setTimeout(() => (b.textContent = "우리 가게 조건으로"), 2000);
+    }
+  }
+}
+
+// 상태 안내 카드: 상권 비서를 쓸 수 없을 때 이것만 보이고 입력칸은 막힌다
+function chatState(st, message) {
+  const key = CHAT_STATES[st] ? st : "error";
+  const [title, fallback] = CHAT_STATES[key];
+  chat.ready = false; chat.latest = null;
+  $("assistant-log").replaceChildren();
+  $("assistant-welcome").hidden = true;
+  chatChips([]);
+  chatConditions(null);
+  $("assistant-state").dataset.state = key;
+  $("assistant-state-title").textContent = title;
+  $("assistant-state-msg").textContent = message || fallback;
+  $("assistant-state").hidden = false;
+  chatStatus(`${title}. ${message || fallback}`, false, true);
+}
+// 시작 (서랍을 처음 열 때, 또는 '다시 확인'): 상태 → (ready 이면) 이전 대화·조건 → 조건이 없으면 setup 한 번
+async function chatStart() {
+  if (chat.loading) return;
+  chat.loading = true; chat.ready = false;
+  chatError(""); chatDisarm(); chatInput();
+  const retry = $("assistant-retry");
+  retry.disabled = true; retry.textContent = "확인하는 중…";
+  chatStatus("상권 비서를 확인하고 있어요", true);
+  try {
+    const st = await drawerApi("/api/assistant/status");
+    chat.label = st?.setup?.label || "";
+    if (st?.state !== "ready") { chatState(st?.state, st?.message); return; }
+    const conv = await drawerApi("/api/assistant/conversation");
+    const turns = Array.isArray(conv.turns) ? conv.turns : [];
+    let cond = conv.conditions || null;
+    if (!cond && !chat.setupTried) {
+      chat.setupTried = true;
+      chatStatus(`분석 조건을 맞추고 있어요${chat.label ? ` (${chat.label})` : ""}`, true);
+      const s = await drawerApi("/api/assistant/setup", { method: "POST" });
+      if (s?.status === "unavailable") { chatState(s.state, s.message); return; }
+      cond = s?.conditions || null;
+    }
+    $("assistant-state").hidden = true;
+    chat.ready = true;
+    chatHistory(turns);
+    chatConditions(cond);
+    $("assistant-welcome").hidden = turns.length > 0;
+    chatStatus("");
+    const users = $("assistant-log").querySelectorAll(".msg.user");
+    requestAnimationFrame(() => chatReveal(users[users.length - 1] || null, "start"));
+  } catch (e) { chatState(e.state, e.message); }
+  finally {
+    chat.loading = false;
+    retry.disabled = false; retry.textContent = "다시 확인";
+    chatInput();
+  }
+}
+
 // 상단 바 높이: 왼쪽 메뉴·서랍이 상단 바 아래에 붙게
 function setTopH() { document.documentElement.style.setProperty("--top-h", document.querySelector(".top").offsetHeight + "px"); }
 // 닫으면 서랍을 연 그 버튼(상단 'AI에게 묻기' 또는 홈 입력줄)으로 포커스를 돌려준다. 그 버튼이 화면에 없으면 상단 버튼으로.
+// 처음 열 때만 상권 채팅을 시작한다 (열기 전에는 아무 호출도 하지 않아 첫 화면 로딩에 영향이 없음)
 function toggleAssistant(open, opener) {
   const box = $("assistant");
   const on = open ?? box.hidden;
@@ -646,7 +1121,12 @@ function toggleAssistant(open, opener) {
   if (on && opener) state.askFrom = opener;
   box.hidden = !on;
   ["ask-ai", "ask-open"].forEach((id) => $(id).setAttribute("aria-expanded", String(on)));
-  if (on) { $("assistant-close").focus(); return; }
+  if (on) {
+    $("assistant-close").focus();
+    if (!chat.started) { chat.started = true; chatStart(); }
+    return;
+  }
+  chatDisarm();
   const back = state.askFrom && state.askFrom.offsetParent !== null ? state.askFrom : $("ask-ai");
   if (!back.hidden) back.focus();
 }
@@ -697,7 +1177,22 @@ $("ask-ai").addEventListener("click", (e) => toggleAssistant(undefined, e.curren
 $("ask-open").addEventListener("click", (e) => toggleAssistant(true, e.currentTarget));
 window.addEventListener("resize", setTopH);
 $("assistant-close").addEventListener("click", () => toggleAssistant(false));
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("assistant").hidden) toggleAssistant(false); });
+$("assistant-clear").addEventListener("click", chatClear);
+$("assistant-home").addEventListener("click", chatHome);
+// 대화를 내리면 머리와 대화 칸 사이에 가는 선 (맨 위에서는 선 없이)
+$("assistant-scroll").addEventListener("scroll", (e) => $("assistant").classList.toggle("scrolled", e.currentTarget.scrollTop > 0), { passive: true });
+$("assistant-retry").addEventListener("click", async () => {
+  chat.setupTried = false;   // '다시 확인'을 누를 때만 setup 을 다시 부를 수 있다
+  await chatStart();
+  (chat.ready ? $("assistant-q") : $("assistant-retry")).focus();
+});
+$("assistant-form").addEventListener("submit", (e) => { e.preventDefault(); chatSend($("assistant-q").value); });
+$("assistant-q").addEventListener("keydown", (e) => {
+  // 한글 입력 중의 Enter 는 글자를 확정할 뿐 보내지 않는다 (isComposing, Safari 는 keyCode 229). Shift+Enter 는 줄바꿈
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); chatSend(e.currentTarget.value); }
+});
+$("assistant-q").addEventListener("input", () => { chatGrow(); chatInput(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.isComposing && !$("assistant").hidden) toggleAssistant(false); });
 window.addEventListener("hashchange", route);
 route();
 boot();
