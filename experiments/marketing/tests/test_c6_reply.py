@@ -157,7 +157,11 @@ class TestPromo(unittest.TestCase):
         self.assertEqual(result.kind, "promo")
         self.assertIsNotNone(result.basis_label)
         self.assertIn("기준:", result.basis_label)
-        self.assertIn("수치 확정 전", result.reason_text)
+        # 샘플 지표 값이 채워졌다(-19.31%, 팀 결정 v0.4 · 커밋 2127078) → 자리표시자 대신 실제 값이 들어가고
+        # '수치 확정 전' 문구는 붙지 않는다 (test_c6_all.py 의 같은 점검과 맞춤. 예전 기대는 값이 None 일 때 것)
+        self.assertIn("-19.31%", result.reason_text)
+        self.assertNotIn("수치 확정 전", result.reason_text)
+        self.assertNotIn("X%", result.reason_text)
         self.assertEqual(len(result.drafts), 1)
         draft = result.drafts[0]
         self.assertEqual(draft.generator, "coupon_promo")

@@ -209,6 +209,17 @@ class TestNoticeRepair(unittest.TestCase):
         self.assertNotIn("고객님", d.text)
         self.assertEqual(d.failed_reasons, [])
 
+    def test_slang_line_is_never_kept_by_a_repair(self):
+        """PR #54 회귀 (11/15 --mock 시험에서 발견): 반말·장난 한 줄짜리 AI 글에 코드가 사과 줄·조치 줄을 더하면
+        notice_formal(다수결)을 넘어 그 줄이 그대로 나갔다. 코드 보정한 공지는 모든 줄이 공지 말투여야 쓴다 → 템플릿."""
+        d, _ = run_notice("야 다들 들어봐 공깃밥 빠진 거 완전 웃기지 않냐 ㅋㅋ")
+        self.assertTrue(d.checks["used_fallback"], d.text)
+        self.assertFalse(d.checks["ai_part_repaired"])
+        self.assertNotIn("ㅋㅋ", d.text)
+        self.assertEqual(d.failed_reasons, [])
+        self.assertTrue(checks.notice_lines_all_formal(f"{LINE1}\n{LINE3}\n{LINE4}"))
+        self.assertFalse(checks.notice_lines_all_formal(f"{LINE1}\n공깃밥 빠진 거 웃기지 않냐 ㅋㅋ\n{LINE3}"))
+
     def test_clean_notice_is_not_marked(self):
         d, seen = run_notice(f"{LINE1}\n불편을 드려 죄송합니다.\n{LINE3}\n{LINE4}")
         self.assertEqual(len(seen), 1)
