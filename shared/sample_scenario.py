@@ -13,10 +13,10 @@ C2 데이터와의 관계
 - 가격(menu_prices)은 쿠폰 홍보글 개발용으로 이 샘플에서 정한 가정값입니다. 이건영 님 데이터에는 없습니다.
 
 자리표시자 (C4 주현석 님이 11/9에 실제 값으로 정합니다)
-- 상권: SAMPLE_STORE.area_name은 None, 지표의 area_name은 PLACEHOLDER_AREA_NAME
-- 저녁 추정매출 전년 동기 대비 변화율: value=None 이고 카드 문장에는 "-X%"로 적혀 있습니다.
-  숫자를 먼저 정하고 데이터를 맞추지 않기 위해 가짜 숫자를 넣지 않았습니다.
-실제 값이 정해지면 SAMPLE_SNAPSHOTS[0].value와 area_name만 바꾸면 됩니다.
+- 상권: SAMPLE_STORE.area_name은 None, 지표의 area_name은 PLACEHOLDER_AREA_NAME (아직 미정)
+- 저녁 추정매출 전년 동기 대비 변화율: 팀 결정 v0.4로 value=-19.31 확정. 카드 문장의 "-X%"는
+  c6.promo가 이 값으로 채워 넣는다(값이 채워지면 "수치 확정 전" 문구는 붙지 않는다).
+남은 자리표시자(area_name)가 정해지면 SAMPLE_SNAPSHOTS[0].area_name만 바꾸면 됩니다.
 """
 from __future__ import annotations
 
@@ -73,13 +73,13 @@ SAMPLE_SNAPSHOTS = [
         snapshot_id="snap_sample_01",
         area_name=PLACEHOLDER_AREA_NAME,
         metric_name="저녁 시간대 추정매출 (전년 동기 대비 변화율)",
-        value=None,  # 자리표시자: -X%. C4가 11/9에 실제 값으로 정함
+        value=-19.31,  # 팀 결정 v0.4 값 (C4 확정)
         unit="%",
         basis_quarter="2026Q2",
         is_estimate=True,
         source="서울시",
         compared_with_quarter="2025Q2",
-        note="자리표시자: 변화율(-X%)은 C4가 11/9에 실제 데이터로 정합니다",
+        note="팀 결정 v0.4: 저녁 시간대 추정매출 변화율 -19.31%",
     ),
 ]
 
