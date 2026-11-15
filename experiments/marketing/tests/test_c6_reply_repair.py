@@ -143,6 +143,13 @@ class TestRepairInReply(unittest.TestCase):
         self.assertFalse(d.checks["ai_part_repaired"])
         self.assertNotIn("챙길게요", d.text.split("앞으로")[0])
 
+    def test_word_replacement_is_marked_as_repaired(self):
+        """사전 치환('이러한' → '이런')도 코드가 AI 글을 바꾼 것이라 ai_part_repaired 로 센다 (공지와 같은 기준)."""
+        d, _ = run_reply("이러한 일로 공깃밥이 빠져 있었다니 정말 죄송해요.", "haeyo")
+        self.assertFalse(d.checks["used_fallback"])
+        self.assertTrue(d.checks["ai_part_repaired"])
+        self.assertIn("이런 일로 공깃밥이 빠져 있었다니 정말 죄송해요.", d.text)
+
     def test_clean_ai_text_is_not_marked(self):
         d, prompts = run_reply("공깃밥이 빠져 있었다니 정말 죄송해요.", "haeyo")
         self.assertEqual(len(prompts), 1)

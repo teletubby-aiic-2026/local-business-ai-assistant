@@ -257,7 +257,7 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
         check_results, failed = _check(text)
 
     if not check_results.get("no_stiff_words", True):
-        text = checks.fix_stiff_words(text)
+        text = checks.fix_stiff_words(text, formal=True)   # 홍보글은 합니다체 (promo_formal) — 해요체 치환을 넣지 않는다
         check_results, failed = _check(text)
 
     # 마크다운 기호 제거·3문장까지만 자르기는 결과와 무관하게 코드가 항상 적용한다
