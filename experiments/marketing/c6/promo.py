@@ -180,8 +180,7 @@ SYSTEM_TMPL_REVIEW = """\
 _REVIEW_PROMO_FALLBACK_NO_DESC = "정성껏 만들어 따뜻하게 보내드립니다."
 _REVIEW_PROMO_FALLBACK_TMPL = (
     "{store}에서 {item}{item_eul} 정성껏 준비하고 있습니다. "
-    "{desc} "
-    "앞으로도 좋은 모습으로 찾아뵙겠습니다."
+    "{desc}"
 )
 
 

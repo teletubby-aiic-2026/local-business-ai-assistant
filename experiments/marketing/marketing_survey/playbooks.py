@@ -57,6 +57,19 @@ def _apps_label(answers) -> str:
     return "/".join(apps) if apps else "배달앱"
 
 
+BASIC_TODOS_BY_GOAL = {
+    "새 손님": ["새 손님에게 보이는 채널에 쿠폰 알림 글 올리기", "메뉴 사진 다시 찍어 올리기"],
+    "재주문": ["포장 봉투에 재주문 쿠폰 카드 넣기", "다음 주문 요청사항 안내 문구 올리기"],
+    "객단가": ["대표 메뉴 + 추가 메뉴 세트 문구 올리기", "최소 주문 금액 점검하기"],
+    "남는 재료 처리": ["남은 재료 할인 글 올리기", "재고 다시 세기"],
+}
+
+
+def basic_todos_for_goal(goal: str) -> list[str]:
+    """목표별 기본 할 일 2개(목표마다 서로 겹치지 않음) — "AI 추천 아이디어" 상자와 별도로 늘 보여 준다."""
+    return list(BASIC_TODOS_BY_GOAL.get(goal, []))
+
+
 def default_menu(store) -> str | None:
     """review_promo 가 쓸 대표 메뉴 — 가격 있는 메뉴 중 첫 번째, 없으면 메뉴 목록의 첫 번째.
     c6.promo.generate_review_promo 의 기본 메뉴 선택과 같은 규칙(menu 인자를 안 주면 똑같이 고른다)."""

@@ -92,13 +92,17 @@ NODES = {
         "text": "어떻게 팔까요?",
         "options": [
             {"label": "다른 메뉴와 세트", "next": "leftover_bundle_menu"},
-            {"label": "이 메뉴만 할인", "set": {"leftover_mode": "discount_only"}, "next": DECISION},
+            {"label": "이 메뉴만 할인", "set": {"leftover_mode": "discount_only"}, "next": "leftover_discount_pct"},
             {"label": "할인 없이 추천 글", "set": {"leftover_mode": "no_discount"}, "next": DECISION},
         ],
     },
     "leftover_bundle_menu": {
         "dynamic_options": True,
         "text": "어떤 메뉴와 묶을까요?",
+    },
+    "leftover_discount_pct": {
+        "dynamic_options": True,
+        "text": "얼마나 할인할까요?",
     },
     "adspend_apps": {
         "text": "광고를 하고 있는 배달앱을 모두 골라 주세요.",
@@ -133,13 +137,33 @@ NODES = {
         ],
     },
     "story_reason": {
-        "free_input": {"key": "story_reason", "type": "text"},
-        "text": "가게를 시작한 계기를 자유롭게 적어 주세요.",
+        "free_input": {"key": "story_reason", "type": "text", "skip": True},
+        "text": "가게를 시작한 계기를 적어 주세요.",
+        "example": "예: 어머니 손맛을 더 많은 분들과 나누고 싶어서 시작했어요",
+        "next": "story_signature",
+    },
+    "story_signature": {
+        "free_input": {"key": "story_signature", "type": "text", "skip": True},
+        "text": "대표 메뉴와 그 메뉴를 내세우는 이유를 적어 주세요.",
+        "example": "예: 매운 양념치킨, 소스를 직접 담가서 맵단짠 균형을 맞췄어요",
         "next": "story_keep",
     },
     "story_keep": {
-        "free_input": {"key": "story_keep", "type": "text"},
+        "free_input": {"key": "story_keep", "type": "text", "skip": True},
         "text": "음식에서 꼭 지키는 것은 무엇인가요?",
+        "example": "예: 재료는 매일 아침 직접 받아서 써요",
+        "next": "story_prep",
+    },
+    "story_prep": {
+        "free_input": {"key": "story_prep", "type": "text", "skip": True},
+        "text": "하루 장사 준비에서 신경 쓰는 일은 무엇인가요?",
+        "example": "예: 국물은 매일 아침 새로 끓여요",
+        "next": "story_message",
+    },
+    "story_message": {
+        "free_input": {"key": "story_message", "type": "text", "skip": True},
+        "text": "손님께 꼭 하고 싶은 말이 있다면 적어 주세요.",
+        "example": "예: 늦게 오셔도 따뜻하게 맞아드릴게요",
         "next": DECISION,
     },
     "coupon_issued": {
@@ -295,6 +319,22 @@ def _max_discount_options(ctx, raw: dict) -> list[dict]:
     return options
 
 
+def _leftover_discount_options(ctx, raw: dict) -> list[dict]:
+    """"이 메뉴만 할인" 선택 뒤 할인액 보기 — 가격의 10/20/30%, 100원 단위(menu.max_discount 와 같은 방식)."""
+    store = ctx.store
+    menu = _match_menu(store, raw.get("leftover_item"))
+    price = store.menu_prices.get(menu, 0) if menu else 0
+    options = []
+    for pct in _MENU_AMOUNT_PCTS:
+        amount = _round_to_step(price * pct / 100)
+        options.append({
+            "label": f"{amount:,}원 (가격의 {pct}%)",
+            "set": {"leftover_discount_won": amount},
+            "next": DECISION,
+        })
+    return options
+
+
 def _leftover_bundle_menu_options(ctx, raw: dict) -> list[dict]:
     """세트로 묶을 메뉴 보기 — 사장님이 고른 남은 재료(메뉴) 는 뺀다(물어보지 않은 메뉴가
     자동으로 세트에 들어가는 일이 없도록, 고를 수 있는 보기 자체에서 제외한다)."""
@@ -377,6 +417,11 @@ def node_text(node_id: str, ctx, state: dict) -> str:
     return node["text"]
 
 
+def node_example(node_id: str) -> str | None:
+    """free_input 노드의 회색 예시 한 줄(없으면 None)."""
+    return NODES[node_id].get("example")
+
+
 def node_options(node_id: str, ctx, state: dict) -> list[dict]:
     """노드의 보기 버튼 목록. menu/max_discount/channels 는 가게 데이터·이전 답으로 계산한다.
     free_input 노드는 보기가 없고(버튼 없이 자유 입력), suggest_menu 면 메뉴 이름을 "제안 버튼"으로
@@ -396,6 +441,8 @@ def node_options(node_id: str, ctx, state: dict) -> list[dict]:
         return _channel_options(ctx)
     if node_id == "leftover_bundle_menu":
         return _leftover_bundle_menu_options(ctx, state.get("raw", {}))
+    if node_id == "leftover_discount_pct":
+        return _leftover_discount_options(ctx, state.get("raw", {}))
     if node_id == "adspend_avg_amount":
         return _adspend_avg_amount_options(ctx)
     if node_id == "coupon_avg_amount":

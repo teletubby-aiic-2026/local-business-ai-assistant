@@ -51,6 +51,7 @@ def build_leftover_plan(ctx, raw: dict, key, model: str = "HCX-005", today: date
     when = f"{_date_label(today, 0)}, 마감 2시간 전"
     base_text = _base_text(ctx, item, key, model)
     bundle = None
+    discount_tile = None
 
     if mode == MODE_BUNDLE:
         chosen = match_menu(store, item)
@@ -66,7 +67,15 @@ def build_leftover_plan(ctx, raw: dict, key, model: str = "HCX-005", today: date
         measure = "측정: 오늘 중, 세트 메뉴 주문 수"
     elif mode == MODE_DISCOUNT_ONLY:
         title = "이 메뉴만 할인"
-        discount_line = f"🔥 오늘만, {item or '대표 메뉴'} 할인 판매해요"
+        chosen = match_menu(store, item)
+        price = store.menu_prices.get(chosen, 0) if chosen else 0
+        discount_won = int(raw.get("leftover_discount_won") or 0)
+        if price:
+            sale_won = max(price - discount_won, 0)
+            discount_tile = {"menu": chosen or item, "original_won": price, "sale_won": sale_won}
+            discount_line = f"🔥 오늘만, {item or '대표 메뉴'} {sale_won:,}원에 할인 판매해요"
+        else:
+            discount_line = f"🔥 오늘만, {item or '대표 메뉴'} 할인 판매해요"
         draft_text = f"{base_text}\n{discount_line}" if base_text else discount_line
         tip = f"{portions}인분 남았다고 하셨어요 — 이 메뉴만 할인해요"
         measure = "측정: 오늘 중, 할인 메뉴 주문 수"
@@ -89,4 +98,5 @@ def build_leftover_plan(ctx, raw: dict, key, model: str = "HCX-005", today: date
         "measure": measure,
         "total_cost_krw": step.cost_krw,
         "bundle": bundle,
+        "discount_tile": discount_tile,
     }

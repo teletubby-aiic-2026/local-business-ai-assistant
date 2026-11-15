@@ -30,7 +30,7 @@ from c6.output import DraftOutput
 from c6.promo import generate_coupon_promo, generate_review_promo, review_promo_fallback_text
 from c6.registry import run_card
 from c6.reply import generate_reply_draft
-from marketing_survey import adspend, playbooks
+from marketing_survey import adspend, ideas as _ideas, playbooks
 from marketing_survey.coupon_calc import calc as _coupon_calc
 from marketing_survey.decide import BUSY_TIMING
 from shared.sample_scenario import SAMPLE_CARDS
@@ -169,6 +169,16 @@ def build_plan(ctx, strategy, answers, key, model="HCX-005", today=None):
     plan["drafts"] = drafts
     plan["coupon_card"] = coupon_card
     plan["strategy_type"] = strategy.type  # 화면이 카드 아이콘을 고르는 용도(사실 자체는 그대로 strategy 가 정함)
+    plan["basic_todos"] = playbooks.basic_todos_for_goal(answers.goal)
+    plan["idea"] = None
+    plan["idea_index"] = 0
+    idea, idx = _ideas.idea_at(answers.goal, ctx, answers, 0)
+    if idea is not None:
+        plan["idea_index"] = idx
+        plan["idea"] = {
+            "id": idea["id"], "title": idea["title"], "why": idea["why"],
+            "todos": list(idea["todos"]), "draft": _ideas.render_idea_draft(idea, ctx, answers),
+        }
     return plan
 
 

@@ -8,6 +8,7 @@ const storeNameEl = document.getElementById("store-name");
 const restartBtn = document.getElementById("restart-btn");
 
 let state = null;
+let editedTexts = {};
 
 /* 11/3 "마케팅 비서" 시안(build.py)의 아이콘 — 꼭 쓰는 것만 가져온다 */
 const ICON_PATHS = {
@@ -165,7 +166,21 @@ function renderInput(spec) {
   row.appendChild(input);
   row.appendChild(btn);
   optionsEl.appendChild(row);
+  if (spec.skip) {
+    const skipBtn = document.createElement("button");
+    skipBtn.className = "opt-btn";
+    skipBtn.textContent = "건너뛰기";
+    skipBtn.onclick = () => handleAnswer("", "건너뛰기");
+    optionsEl.appendChild(skipBtn);
+  }
   input.focus();
+}
+
+function renderExample(text) {
+  const row = document.createElement("div");
+  row.className = "example-line";
+  row.textContent = text;
+  chatEl.appendChild(row);
 }
 
 function renderPrompt(data) {
@@ -173,6 +188,9 @@ function renderPrompt(data) {
     renderOptions(data.options, data.multi);
   } else {
     clearOptions();
+  }
+  if (data.example) {
+    renderExample(data.example);
   }
   if (data.input) {
     renderInput(data.input);
@@ -291,12 +309,7 @@ function buildCouponCalcPanel(coupon, state) {
     regenBtn.disabled = true;
     try {
       const g = await postJSON(`${API}/generate`, { state, coupon_override: { ...current } });
-      if (g.text) {
-        const box = document.createElement("div");
-        box.className = "draft-box";
-        box.textContent = g.text;
-        panel.appendChild(box);
-      }
+      if (g.text) panel.appendChild(buildDraftBox("coupon_regen", g.text));
     } catch (e) {
       /* 실패하면 버튼을 다시 눌러 볼 수 있게 둔다 */
     }
@@ -310,15 +323,17 @@ function buildCouponCalcPanel(coupon, state) {
 function buildCouponCard(coupon, state) {
   const box = document.createElement("div");
   box.className = "coupon-card";
+  const rows = [
+    ["혜택", `${fmtWon(coupon.discount_won)} 할인`],
+    ["발급 수량", coupon.count ? `${coupon.count}장` : null],
+    ["시간대", coupon.timing || null],
+    ["유효기간", `발급일 포함 ${coupon.days}일`],
+  ].filter(([, v]) => v != null && v !== "-");
+  const kvHtml = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join("");
   box.innerHTML = `
     <div class="cap">쿠폰 이름</div>
     <div class="title">${coupon.menu || "대표 메뉴"} ${fmtWon(coupon.discount_won)} 할인</div>
-    <div class="kv">
-      <span>혜택</span><span>${fmtWon(coupon.discount_won)} 할인</span>
-      <span>발급 수량</span><span>${coupon.count ? `${coupon.count}장` : "-"}</span>
-      <span>시간대</span><span>${coupon.timing || "-"}</span>
-      <span>유효기간</span><span>발급일 포함 ${coupon.days}일</span>
-    </div>
+    <div class="kv">${kvHtml}</div>
   `;
   if (coupon.breakeven_orders != null) {
     const tile = document.createElement("div");
@@ -332,6 +347,78 @@ function buildCouponCard(coupon, state) {
   return box;
 }
 
+/* 글 상자 하나(모든 기능이 공통으로 쓴다) — [고치기]를 누르면 textarea + [저장][취소]로 바뀐다.
+   저장하면 editedTexts[key] 에 고친 글을 들고 있다가 [승인] 때 approve 요청에 실어 보낸다.
+   서버가 edit_failed 를 돌려주면(개인정보·보상 약속) 빨간 안내를 보여준다. */
+function buildDraftBox(key, text) {
+  const wrap = document.createElement("div");
+  wrap.className = "draft-wrap";
+
+  const box = document.createElement("div");
+  box.className = "draft-box";
+  box.textContent = text;
+
+  const editBtn = document.createElement("button");
+  editBtn.className = "edit-btn";
+  editBtn.textContent = "고치기";
+
+  const errBox = document.createElement("div");
+  errBox.className = "warn-box";
+  errBox.style.display = "none";
+
+  const head = document.createElement("div");
+  head.className = "draft-head";
+  head.appendChild(editBtn);
+
+  wrap.appendChild(head);
+  wrap.appendChild(box);
+  wrap.appendChild(errBox);
+
+  wrap.dataset.key = key;
+  wrap.showEditError = (reasons) => {
+    errBox.textContent = reasons.join(", ");
+    errBox.style.display = reasons.length ? "block" : "none";
+  };
+
+  editBtn.onclick = () => {
+    const textarea = document.createElement("textarea");
+    textarea.className = "edit-textarea";
+    textarea.value = editedTexts[key] ?? box.textContent;
+
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "btn-secondary";
+    saveBtn.textContent = "저장";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "btn-secondary";
+    cancelBtn.textContent = "취소";
+
+    const actionsRow = document.createElement("div");
+    actionsRow.className = "edit-actions";
+    actionsRow.appendChild(saveBtn);
+    actionsRow.appendChild(cancelBtn);
+
+    box.replaceWith(textarea);
+    head.appendChild(actionsRow);
+    editBtn.style.display = "none";
+
+    saveBtn.onclick = () => {
+      editedTexts[key] = textarea.value;
+      box.textContent = textarea.value;
+      textarea.replaceWith(box);
+      actionsRow.remove();
+      editBtn.style.display = "";
+      errBox.style.display = "none";
+    };
+    cancelBtn.onclick = () => {
+      textarea.replaceWith(box);
+      actionsRow.remove();
+      editBtn.style.display = "";
+    };
+  };
+
+  return wrap;
+}
+
 function buildStepCard(step, index, draftText) {
   const el = document.createElement("div");
   el.className = "step-card";
@@ -341,17 +428,14 @@ function buildStepCard(step, index, draftText) {
     <div class="step-meta">${step.when}${whereHtml}</div>
   `;
   if (draftText) {
-    const box = document.createElement("div");
-    box.className = "draft-box";
-    box.textContent = draftText;
-    el.appendChild(box);
+    el.appendChild(buildDraftBox(step.step_id, draftText));
 
     const copyBtn = document.createElement("button");
     copyBtn.className = "btn-secondary";
     copyBtn.textContent = "복사하기";
     copyBtn.onclick = async () => {
       try {
-        await navigator.clipboard.writeText(draftText);
+        await navigator.clipboard.writeText(editedTexts[step.step_id] ?? draftText);
       } catch (e) {
         /* 클립보드 권한이 없으면 조용히 무시 */
       }
@@ -456,6 +540,55 @@ function buildAdspendBars(rows) {
   return box;
 }
 
+/* "AI 추천 아이디어" 상자 — 정보 파랑 배지 + 제목·왜·할 일·글. [다른 아이디어 보기]로
+   같은 목표의 다음 아이디어로 순서대로 바뀐다(서버 /next-idea, 무작위 아님). */
+function buildIdeaBox(idea, index) {
+  const box = document.createElement("div");
+  box.className = "step-card idea-box";
+
+  function render(idea) {
+    box.innerHTML = `<div class="tag b"><i>${icon("spark", 14)}</i>AI 추천 아이디어</div>
+      <div class="step-head">${idea.title}</div>
+      <div class="step-meta">${idea.why}</div>` +
+      idea.todos.map((t) => `<div class="step-meta">· ${t}</div>`).join("");
+    if (idea.draft) box.appendChild(buildDraftBox(`idea_${idea.id}`, idea.draft));
+    if (idea.id === "story_link") {
+      const linkBtn = document.createElement("button");
+      linkBtn.className = "btn-secondary";
+      linkBtn.textContent = "가게 이야기 글 만들기";
+      linkBtn.onclick = async () => {
+        const base = await postJSON(`${API}/step`, { state: null, answer: null });
+        const r = await postJSON(`${API}/step`, { state: base.state, answer: "가게 이야기 글" });
+        state = r.state;
+        addBotBubble(r.bot_messages[0]);
+        renderPrompt(r);
+      };
+      box.appendChild(linkBtn);
+    }
+  }
+  render(idea);
+
+  const nextBtn = document.createElement("button");
+  nextBtn.className = "btn-secondary";
+  nextBtn.textContent = "다른 아이디어 보기";
+  nextBtn.onclick = async () => {
+    nextBtn.disabled = true;
+    try {
+      const r = await postJSON(`${API}/next-idea`, { state, current_index: index });
+      if (r.idea) {
+        index = r.idea_index;
+        render(r.idea);
+        box.appendChild(nextBtn);
+      }
+    } catch (e) {
+      /* 실패하면 다시 눌러 볼 수 있게 둔다 */
+    }
+    nextBtn.disabled = false;
+  };
+  box.appendChild(nextBtn);
+  return box;
+}
+
 async function showDecision() {
   setOptionsDisabled(true);
   const loadingRow = addLoadingBubble();
@@ -469,6 +602,7 @@ async function showDecision() {
   }
   loadingRow.remove();
   clearOptions();
+  editedTexts = {};
   const tag = tagForStrategy(data.strategy_type || "");
 
   const row = document.createElement("div");
@@ -479,8 +613,10 @@ async function showDecision() {
   const costLine = data.total_cost_krw
     ? ` · 예상 비용(추정) 합계 ${fmtWon(data.total_cost_krw)}`
     : "";
-  card.innerHTML = `<div class="tag ${tag.cls}"><i>${icon(tag.name, 14)}</i>${data.title}</div>
-    <div class="sub">이번 주 할 일 ${data.steps.length}개 · 총 약 ${data.total_minutes}분${costLine}</div>`;
+  const subLine = (data.steps.length || data.total_minutes)
+    ? `<div class="sub">이번 주 할 일 ${data.steps.length}개 · 총 약 ${data.total_minutes}분${costLine}</div>`
+    : "";
+  card.innerHTML = `<div class="tag ${tag.cls}"><i>${icon(tag.name, 14)}</i>${data.title}</div>${subLine}`;
 
   if (data.over_budget) {
     const warn = document.createElement("div");
@@ -506,6 +642,24 @@ async function showDecision() {
     card.appendChild(tile);
   }
 
+  if (data.discount_tile) {
+    const tile = document.createElement("div");
+    tile.className = "basis";
+    tile.textContent =
+      `원래 가격 ${fmtWon(data.discount_tile.original_won)} → 할인 가격 ${fmtWon(data.discount_tile.sale_won)}`;
+    card.appendChild(tile);
+  }
+
+  if (data.basic_todos && data.basic_todos.length) {
+    const box = document.createElement("div");
+    box.className = "step-card";
+    box.innerHTML = `<div class="step-head">기본 할 일</div>` +
+      data.basic_todos.map((t) => `<div class="step-meta">· ${t}</div>`).join("");
+    card.appendChild(box);
+  }
+
+  if (data.idea) card.appendChild(buildIdeaBox(data.idea, data.idea_index ?? 0));
+
   if (data.coupon_card) card.appendChild(buildCouponCard(data.coupon_card, state));
 
   if (data.breakeven_orders != null) {
@@ -529,12 +683,7 @@ async function showDecision() {
       genBtn.disabled = true;
       try {
         const g = await postJSON(`${API}/generate`, { state });
-        if (g.text) {
-          const box = document.createElement("div");
-          box.className = "draft-box";
-          box.textContent = g.text;
-          cond.appendChild(box);
-        }
+        if (g.text) cond.appendChild(buildDraftBox("next_coupon", g.text));
         if (g.coupon) cond.appendChild(buildCouponCard(g.coupon));
       } catch (e) {
         /* 실패하면 버튼을 다시 눌러 볼 수 있게 둔다 */
@@ -574,11 +723,21 @@ async function showDecision() {
     const loadingRow = addLoadingBubble();
     let a;
     try {
-      a = await postJSON(`${API}/approve`, { state, draft_id: null });
+      a = await postJSON(`${API}/approve`, { state, draft_id: null, edited_texts: editedTexts });
     } catch (e) {
       loadingRow.remove();
       actions.querySelectorAll("button").forEach((b) => (b.disabled = false));
       showRetryPrompt(approveClick);
+      return;
+    }
+    if (a.edit_failed) {
+      loadingRow.remove();
+      actions.querySelectorAll("button").forEach((b) => (b.disabled = false));
+      approved = false;
+      card.querySelectorAll(".draft-wrap").forEach((wrap) => {
+        const reasons = a.edit_failed[wrap.dataset.key];
+        if (wrap.showEditError) wrap.showEditError(reasons || []);
+      });
       return;
     }
     loadingRow.remove();
@@ -618,10 +777,7 @@ async function showDecision() {
       box.innerHTML = `<div class="step-head">공지 전후 불만 리뷰 수</div>
         <div class="step-meta">이전 ${f.window_days}일 ${f.before}건 → 이후 ${f.window_days}일 ${f.after}건 (${f.basis})</div>`;
       if (f.improved && f.text) {
-        const draft = document.createElement("div");
-        draft.className = "draft-box";
-        draft.textContent = f.text;
-        box.appendChild(draft);
+        box.appendChild(buildDraftBox("notice_followup", f.text));
       } else if (f.todo) {
         const tip = document.createElement("div");
         tip.className = "basis";

@@ -12,7 +12,9 @@ from types import SimpleNamespace
 
 from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
-from marketing_survey import adspend, coupon_calc, coupon_result, flow, leftover, notice_followup, playbooks, story
+from marketing_survey import (
+    adspend, coupon_calc, coupon_result, flow, ideas, leftover, notice_followup, playbooks, story,
+)
 from marketing_survey.decide import build_follow_up_strategy, decide
 from marketing_survey.execute import build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
@@ -1039,12 +1041,19 @@ class TestLeftoverFeature(unittest.TestCase):
         data = client.post(
             "/api/marketing-survey/step", json={"state": data["state"], "answer": "이 메뉴만 할인"},
         ).json()
+        self.assertEqual(data["state"]["node"], "leftover_discount_pct")
+        discount_label = data["options"][0]["label"]
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": discount_label},
+        ).json()
         self.assertTrue(data["done"])
 
         res = client.post("/api/marketing-survey/plan", json={"state": data["state"]})
         body = res.json()
         self.assertEqual(body["title"], "이 메뉴만 할인")
         self.assertIsNone(body["bundle"])
+        self.assertIsNotNone(body["discount_tile"])
+        self.assertLess(body["discount_tile"]["sale_won"], body["discount_tile"]["original_won"])
 
 
 class TestCouponCalc(unittest.TestCase):
@@ -1239,6 +1248,7 @@ class TestStoryFeature(unittest.TestCase):
 
         self.assertIn("naver_place_intro", out["drafts"])
         self.assertIn("instagram_intro", out["drafts"])
+        self.assertIn("baemin_intro", out["drafts"])
         self.assertIn("부모님 식당을 물려받은 것", out["drafts"]["naver_place_intro"])
         self.assertIn("국산 재료만 쓰는 것", out["drafts"]["naver_place_intro"])
         self.assertIn("#", out["drafts"]["instagram_intro"])  # 해시태그 포함
@@ -1247,6 +1257,17 @@ class TestStoryFeature(unittest.TestCase):
         # 어긋나면(예전 버그: step_id="story_post", drafts 키="naver_place_intro") 글 상자가 비어 보인다.
         step_ids = {s["step_id"] for s in out["steps"]}
         self.assertEqual(step_ids, set(out["drafts"].keys()))
+
+    def test_build_story_plan_skipped_questions_leave_no_trace(self):
+        """6. 건너뛴 질문(빈 문자열)의 내용은 어떤 글에도 안 들어간다."""
+        raw = {
+            "story_reason": "부모님 식당을 물려받은 것", "story_signature": "",
+            "story_keep": "", "story_prep": "", "story_message": "",
+        }
+        out = story.build_story_plan(raw, today=date(2026, 11, 15))
+
+        for text in out["drafts"].values():
+            self.assertNotIn("story_signature", text)  # 안 쓴 답의 자리표시조차 안 남는다
 
     def test_story_chat_path_through_server_reaches_decision(self):
         from fastapi.testclient import TestClient
@@ -1261,15 +1282,19 @@ class TestStoryFeature(unittest.TestCase):
             "/api/marketing-survey/step",
             json={"state": data["state"], "answer": "부모님 가게를 물려받아서"},
         ).json()
-        self.assertEqual(data["state"]["node"], "story_keep")
-        data = client.post(
-            "/api/marketing-survey/step", json={"state": data["state"], "answer": "정성껏 만드는 것"},
-        ).json()
+        self.assertEqual(data["state"]["node"], "story_signature")
+        self.assertIsNotNone(data["example"])  # 회색 예시 한 줄
+
+        for answer in ("", "정성껏 만드는 것", "", ""):  # 대표 메뉴·준비·손님께 할 말은 건너뛰기
+            data = client.post(
+                "/api/marketing-survey/step", json={"state": data["state"], "answer": answer},
+            ).json()
         self.assertTrue(data["done"])
 
         res = client.post("/api/marketing-survey/plan", json={"state": data["state"]})
         body = res.json()
         self.assertIn("부모님 가게를 물려받아서", body["drafts"]["naver_place_intro"])
+        self.assertIn("정성껏 만드는 것", body["drafts"]["naver_place_intro"])
 
 
 class TestCouponResultFeature(unittest.TestCase):
@@ -1416,6 +1441,165 @@ class TestNoticeFollowup(unittest.TestCase):
         body = res.json()
         for key in ("before", "after", "window_days", "basis", "improved", "text", "todo"):
             self.assertIn(key, body)
+
+
+class TestEditDraftApprove(unittest.TestCase):
+    """11. 고친 글 승인 — [고치기]로 바꾼 글(edited_text)도 개인정보·보상 약속만 다시 점검한다."""
+
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        cls.client = TestClient(app)
+
+    def _survey_decision_state(self):
+        data = self.client.post("/api/marketing-survey/step", json={"state": None, "answer": None}).json()
+        data = self.client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "맞춤 홍보 제안"},
+        ).json()
+        data = self.client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "아니요"},
+        ).json()
+        data = self.client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "새 손님"},
+        ).json()
+        data = self.client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "아니요"},
+        ).json()
+        data = self.client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "0원(지금은 안 씀)"},
+        ).json()
+        self.assertTrue(data["done"])
+        return data["state"]
+
+    def test_clean_edited_text_passes_approve(self):
+        state = self._survey_decision_state()
+        res = self.client.post(
+            "/api/marketing-survey/approve",
+            json={"state": state, "edited_texts": {"naver_notice": "오늘도 맛있게 준비했어요."}},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertNotIn("edit_failed", res.json())
+
+    def test_personal_info_in_edited_text_fails_approve(self):
+        state = self._survey_decision_state()
+        res = self.client.post(
+            "/api/marketing-survey/approve",
+            json={"state": state, "edited_texts": {"naver_notice": "문의는 010-1234-5678 로 주세요."}},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertIn("edit_failed", body)
+        self.assertIn("naver_notice", body["edit_failed"])
+        self.assertFalse(body["follow_up"])
+
+    def test_promise_not_in_policy_in_edited_text_fails_approve(self):
+        state = self._survey_decision_state()
+        res = self.client.post(
+            "/api/marketing-survey/approve",
+            json={"state": state, "edited_texts": {"naver_notice": "불편을 드려 10000원을 환불해 드릴게요."}},
+        )
+        body = res.json()
+        self.assertIn("edit_failed", body)
+
+
+class TestIdeasPerGoal(unittest.TestCase):
+    """12. 목표별 결과가 서로 다르다 — ideas.py 의 아이디어가 목표마다 다르고, [다른 아이디어
+    보기]는 무작위가 아니라 코드 순서대로 순환한다."""
+
+    def test_goals_have_different_idea_sets(self):
+        answers = SurveyAnswers(budget_won=0, goal="")
+        new_customer = {i["id"] for i in ideas.ideas_for("새 손님", DEFAULT_CTX, answers)}
+        reorder = {i["id"] for i in ideas.ideas_for("재주문", DEFAULT_CTX, answers)}
+        upsell = {i["id"] for i in ideas.ideas_for("객단가", DEFAULT_CTX, answers)}
+
+        self.assertNotEqual(new_customer, reorder)
+        self.assertNotEqual(reorder, upsell)
+        self.assertIn("story_link", new_customer)
+        self.assertIn("thank_note", reorder)
+        self.assertIn("upsell_pair", upsell)
+
+    def test_min_order_check_only_appears_when_avg_order_is_low(self):
+        store = DEFAULT_CTX.store
+        menu = next(iter(store.menu_prices))
+        price = store.menu_prices[menu]
+
+        low = SurveyAnswers(budget_won=0, goal="객단가", discount_menu=menu, avg_order_won=1)
+        high = SurveyAnswers(budget_won=0, goal="객단가", discount_menu=menu, avg_order_won=price * 3)
+
+        self.assertIn("min_order_check", {i["id"] for i in ideas.ideas_for("객단가", DEFAULT_CTX, low)})
+        self.assertNotIn("min_order_check", {i["id"] for i in ideas.ideas_for("객단가", DEFAULT_CTX, high)})
+
+    def test_idea_at_cycles_in_fixed_code_order_not_randomly(self):
+        answers = SurveyAnswers(budget_won=0, goal="재주문")
+        candidates = ideas.ideas_for("재주문", DEFAULT_CTX, answers)
+        n = len(candidates)
+        self.assertGreater(n, 1)
+
+        picked = [ideas.idea_at("재주문", DEFAULT_CTX, answers, i)[0]["id"] for i in range(n + 1)]
+        self.assertEqual(picked[:n], [c["id"] for c in candidates])  # 코드에 적힌 순서 그대로
+        self.assertEqual(picked[n], picked[0])  # n바퀴 돌면 처음으로 되돌아온다(무작위 아님)
+
+    def test_upsell_pair_draft_computes_add_price_from_store_data(self):
+        store = DEFAULT_CTX.store
+        menu = next(iter(store.menu_prices))
+        answers = SurveyAnswers(budget_won=0, goal="객단가", discount_menu=menu)
+        idea = next(i for i in ideas.IDEAS if i["id"] == "upsell_pair")
+
+        draft = ideas.render_idea_draft(idea, DEFAULT_CTX, answers)
+
+        other = next(m for m in store.menu_prices if m != menu)
+        self.assertIn(f"{store.menu_prices[other]:,}원", draft)
+
+    def test_build_plan_attaches_goal_specific_idea_and_basic_todos(self):
+        answers = SurveyAnswers(
+            budget_won=100_000, goal="재주문", discount_menu="제육볶음 정식", max_discount_won=5_000,
+        )
+        plan = decide(DEFAULT_CTX, answers, confirms={})
+        out = build_plan(DEFAULT_CTX, plan.strategies[0], answers, None, today=date(2026, 11, 15))
+
+        self.assertEqual(out["basic_todos"], playbooks.basic_todos_for_goal("재주문"))
+        self.assertNotEqual(
+            playbooks.basic_todos_for_goal("재주문"), playbooks.basic_todos_for_goal("새 손님"),
+        )
+        self.assertIsNotNone(out["idea"])
+        self.assertIn(out["idea"]["id"], {i["id"] for i in ideas.ideas_for("재주문", DEFAULT_CTX, answers)})
+
+    def test_next_idea_endpoint_cycles_through_server(self):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        client = TestClient(app)
+        data = client.post("/api/marketing-survey/step", json={"state": None, "answer": None}).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "맞춤 홍보 제안"},
+        ).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "아니요"},
+        ).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "재주문"},
+        ).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "아니요"},
+        ).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "0원(지금은 안 씀)"},
+        ).json()
+        self.assertTrue(data["done"])
+        state = data["state"]
+
+        plan_res = client.post("/api/marketing-survey/plan", json={"state": state}).json()
+        first_id = plan_res["idea"]["id"]
+
+        res = client.post(
+            "/api/marketing-survey/next-idea", json={"state": state, "current_index": plan_res["idea_index"]},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertIsNotNone(body["idea"])
+        self.assertNotEqual(body["idea"]["id"], first_id)
 
 
 if __name__ == "__main__":

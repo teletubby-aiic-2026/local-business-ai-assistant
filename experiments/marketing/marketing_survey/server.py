@@ -16,10 +16,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from c6.checks import personal_info, promises_not_in_policy
 from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
 from common.korean import display_name
-from marketing_survey import adspend, coupon_result, flow, leftover, notice_followup, playbooks, story
+from marketing_survey import adspend, coupon_result, flow, ideas, leftover, notice_followup, playbooks, story
 from marketing_survey.coupon_calc import calc as coupon_calc
 from marketing_survey.decide import build_follow_up_strategy, decide
 from marketing_survey.execute import COUPON_DAYS, NOTICE_CARD, build_plan, execute_strategy
@@ -66,6 +67,12 @@ class StateOnlyRequest(BaseModel):
 class ApproveRequest(BaseModel):
     state: FlowState
     draft_id: str | None = None
+    edited_texts: dict[str, str] = Field(default_factory=dict)
+
+
+class NextIdeaRequest(BaseModel):
+    state: FlowState
+    current_index: int = 0
 
 
 class CouponCalcRequest(BaseModel):
@@ -97,6 +104,16 @@ def _resolve_strategy_and_answers(state: FlowState):
         return strategy, answers
     plan = decide(CTX, answers, confirms=state.confirms)
     return plan.strategies[0], answers
+
+
+def _check_edited_text(text: str) -> list[str]:
+    """고친 글(edited_text) 점검 — 개인정보·정책에 없는 보상 약속만 다시 돈다(그 외 점검은 생성 때 이미 끝났음)."""
+    reasons = []
+    if personal_info(text):
+        reasons.append("개인정보로 보일 수 있는 내용이 있어요")
+    if promises_not_in_policy(text, POLICIES):
+        reasons.append("가게 정책에 없는 보상 약속이 있어요")
+    return reasons
 
 
 def _resolve_strategy(state: FlowState):
@@ -159,6 +176,7 @@ def step(req: StepRequest):
         "options": _options_payload(node_id, new_state),
         "multi": bool(flow.NODES[node_id].get("multi")),
         "input": _input_payload(node_id),
+        "example": flow.node_example(node_id),
         "done": False,
     }
 
@@ -253,6 +271,24 @@ def plan(req: StateOnlyRequest):
     return result
 
 
+@app.post("/api/marketing-survey/next-idea")
+def next_idea(req: NextIdeaRequest):
+    """[다른 아이디어 보기] — 같은 목표의 다음 아이디어로 순서대로 넘어간다(무작위 아님)."""
+    if req.state.mode not in _SURVEY_MODES:
+        raise HTTPException(400, "이 기능은 설문 결과에서만 써요.")
+    _, answers = _resolve_strategy_and_answers(req.state)
+    idea, idx = ideas.idea_at(answers.goal, CTX, answers, req.current_index + 1)
+    if idea is None:
+        return {"idea": None, "idea_index": req.current_index}
+    return {
+        "idea": {
+            "id": idea["id"], "title": idea["title"], "why": idea["why"],
+            "todos": list(idea["todos"]), "draft": ideas.render_idea_draft(idea, CTX, answers),
+        },
+        "idea_index": idx,
+    }
+
+
 @app.post("/api/marketing-survey/coupon-calc")
 def coupon_calc_endpoint(req: CouponCalcRequest):
     """쿠폰 슬라이더(예산·할인액) 가 움직일 때마다 부른다 — 계산은 전부 coupon_calc.calc()."""
@@ -265,6 +301,14 @@ def coupon_calc_endpoint(req: CouponCalcRequest):
 def approve(req: ApproveRequest):
     """승인 처리. H_REPEAT 의 fix_first 를 승인했을 때만 재주문 쿠폰 질문(예산부터)으로 이어진다."""
     state = req.state
+    edit_failed = {
+        key: reasons
+        for key, text in req.edited_texts.items()
+        if (reasons := _check_edited_text(text))
+    }
+    if edit_failed:
+        return {"follow_up": False, "state": state, "edit_failed": edit_failed}
+
     if state.mode not in _SURVEY_MODES:
         return {"follow_up": False, "state": state}
     strategy = _resolve_strategy(state)
