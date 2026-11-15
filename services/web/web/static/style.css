@@ -344,6 +344,139 @@ details[open] > summary { margin-bottom: 8px; }
 .paste-foot .ghost { min-height: 34px; padding: 4px 12px; border-color: var(--line-strong); font-size: .875rem; color: var(--ink-2); }
 .an-joined { margin: 12px 0 0; }
 
+/* ── 캡처로 넣기 (리뷰 붙여넣기 탭, 11/15): 파일 고르기 → 진행 → 후보 목록(글·별점·표시·선택) → 저장 ───────── */
+.cap.drop { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }   /* 파일을 끌어 올렸을 때 */
+.cap-lead { margin: -6px 0 14px; }
+.cap-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.cap-file-name { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cap-status { margin: 12px 0 0; color: var(--ink-2); font-size: .875rem; }
+.cap-status:empty { margin: 0; }
+.cap-status.busy { display: flex; align-items: flex-start; gap: 10px; }
+.cap-status.busy::before { content: ""; flex: 0 0 auto; width: 9px; height: 9px; margin-top: .45em; border-radius: 50%; background: var(--ink-2); animation: drawer-pulse 1.2s ease-in-out infinite; }
+.cap-status.busy > span:first-child { flex: 0 1 auto; min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .cap-status.busy::before { animation: none; } }
+.cap-sec { flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* 오류: 이 칸 안에서만 (서랍 오류와 같은 모양). 빈 동안은 자리를 차지하지 않음 */
+.cap-error { position: relative; margin: 12px 0 0; padding: 8px 12px 8px 30px; border-radius: 12px; background: var(--bad-bg); color: var(--bad);
+  font-size: .875rem; font-weight: 500; line-height: 1.5; }
+.cap-error::before { content: ""; position: absolute; left: 13px; top: 15px; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.cap-error:empty { margin: 0; padding: 0; }
+.cap-error:empty::before { display: none; }
+.cap-result { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.cap-result > * + * { margin-top: 12px; }
+/* 예시 결과 표시: 시험용 띠와 같은 모양 (회색 면 + 주황 세모, 글자로 뜻을 알림) */
+.cap-demo { position: relative; margin: 0; padding: 10px 14px 10px 34px; border-radius: 12px; background: var(--surface); color: var(--ink-2); font-size: .875rem; }
+.cap-demo::before { content: ""; position: absolute; left: 15px; top: 17px; width: 9px; height: 8px; background: var(--warn-dot); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.cap-demo b { display: block; color: var(--ink); font-weight: 600; }
+.cap-warnings { margin: 0; padding: 0 0 0 18px; border: 0; }
+.cap-star { margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn); font-size: .875rem; }
+.cap-star b { font-weight: 700; }
+.cap-shot { margin: 0; }
+.cap-shot img { display: block; max-width: 100%; max-height: 420px; margin-top: 4px; border: 1px solid var(--line); border-radius: 12px; }
+.cap-list { display: grid; gap: 10px; }
+.cap-item { padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); }
+.cap-item.dup { background: var(--surface); }
+.cap-item.saved { border-color: var(--ok); }
+.cap-item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
+.cap-check { display: inline-flex; align-items: center; gap: 8px; margin-right: 4px; font-size: .875rem; font-weight: 600; cursor: pointer; }
+.cap-check input { width: 18px; height: 18px; margin: 0; }
+.cap-item textarea { display: block; width: 100%; min-height: 72px; padding: 8px 12px; border: 1px solid var(--field-line); border-radius: 12px;
+  background: var(--panel); color: var(--ink); font-size: .9375rem; line-height: 1.6; resize: vertical; }
+.cap-item textarea:disabled, .cap-item select:disabled { color: var(--muted); background: var(--surface); cursor: not-allowed; }
+.cap-item-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; }
+.cap-item select { min-height: 36px; padding: 4px 10px; border: 1px solid var(--field-line); border-radius: 999px; background: var(--panel); color: var(--ink); font-size: .875rem; }
+.cap-item-msg { margin: 6px 0 0; color: var(--bad); font-size: .875rem; font-weight: 500; }
+.cap-item-msg:empty { display: none; }
+.cap-foot { margin-top: 14px; }
+.cap-save-msg { margin: 8px 0 0; color: var(--ink-2); }
+.cap-save-msg:empty { margin: 0; }
+
+/* ── 종합 리포트 (#/report, 11/15): 오늘 요약 · 응대 점수 · 월간 보고서 · 상권 요약 · 마케팅 요약 ───────── */
+.rp-head-row { margin-top: 8px; }
+.rp-head-row .ghost { min-height: 34px; padding: 4px 12px; border-color: var(--line-strong); font-size: .875rem; color: var(--ink-2); }
+.rp-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap); }
+.rp-grid > .panel { margin: 0; min-width: 0; }
+@container (min-width: 720px) {
+  .rp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rp-month { grid-column: 1 / -1; }
+  .rp-month .rp-nums { grid-template-columns: repeat(4, minmax(0, 1fr)); }   /* 넓은 월간 칸만 한 줄에 4개 (좁은 칸은 2×2) */
+}
+.rp-state { margin: 0 0 8px; color: var(--muted); font-size: .875rem; }
+.rp-state.bad { position: relative; padding: 8px 12px 8px 30px; border-radius: 12px; background: var(--bad-bg); color: var(--bad); font-weight: 500; }
+.rp-state.bad::before { content: ""; position: absolute; left: 13px; top: 15px; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.rp-summary { margin: 0 0 12px; font-weight: 600; }
+.rp-nums { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 0 0 12px; background: var(--line);
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.rp-nums > div { padding: 10px 12px; background: var(--panel); }
+.rp-nums dt { color: var(--muted); font-size: var(--meta); font-weight: 500; }
+.rp-nums dd { margin: 2px 0 0; font-size: 1.0625rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rp-line { margin: 0 0 6px; font-size: .9375rem; }
+.rp-line b { font-variant-numeric: tabular-nums; }
+.rp-delta { display: inline-block; min-width: 2.6em; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.rp-delta.neg { color: var(--bad); } .rp-delta.pos { color: var(--ok); }
+.rp-reasons { display: grid; gap: 4px; margin: 0 0 12px; font-size: .875rem; }
+.rp-reasons li { display: flex; gap: 8px; align-items: baseline; }
+.rp-todo { display: grid; gap: 2px; margin: 4px 0 10px; padding: 10px 14px; border-radius: 12px; background: var(--surface); }
+.rp-todo-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--meta); font-weight: 600; color: var(--ink-2); }
+.rp-todo-label::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); }
+.rp-todo strong { font-weight: 600; }
+.rp-daily .small.muted, .rp-score .small.muted, .rp-month .small.muted { margin: 6px 0 0; }
+.rp-score-top { display: flex; flex-wrap: wrap; gap: 6px 24px; align-items: flex-start; }
+.rp-score-top .rp-reasons { flex: 1 1 200px; margin-top: 8px; }
+.rp-big { margin: 0; line-height: 1; }
+.rp-big-n { font-size: 3.25rem; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.rp-big-unit { margin-left: 6px; color: var(--ink-2); font-size: 1rem; font-weight: 500; }
+.rp-peak { margin: 4px 0 8px; padding: 8px 12px; border-radius: 12px; background: var(--surface); color: var(--ink-2); font-size: .875rem; }
+.rp-h3 { margin: 14px 0 8px; font-size: .9375rem; font-weight: 600; }
+.rp-pending { display: grid; gap: 2px; }
+.rp-p { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.rp-p-main { flex: 1 1 220px; min-width: 0; }
+.rp-p-text { margin: 0; font-size: .875rem; color: var(--ink); overflow-wrap: anywhere; }
+.rp-p .small.muted { margin: 2px 0 0; }
+/* 남은 시간: 알약 + 글자. 기한 넘김 = 빨간 네모, 5분 안 = 주황 세모, 멈춤 = 빈 동그라미 (색만으로 뜻을 알리지 않음) */
+.rp-clock { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border: 1px solid var(--line-strong); border-radius: 999px;
+  font-size: var(--meta); font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.rp-clock.over { border-color: var(--bad-bg); background: var(--bad-bg); color: var(--bad); }
+.rp-clock.over::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.rp-clock.soon { background: var(--warn-bg); border-color: var(--warn-bg); color: var(--warn); }
+.rp-clock.soon::before { content: ""; width: 8px; height: 7px; background: currentColor; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.rp-clock.paused { color: var(--muted); }
+.rp-clock.paused::before { content: ""; width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; }
+.rp-untimed { margin: 10px 0 0; font-size: .875rem; }
+.rp-month-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.rp-month-nav .ghost { min-height: 34px; padding: 4px 10px; font-size: .875rem; color: var(--ink-2); }
+.rp-month-nav strong { min-width: 6.5em; text-align: center; font-size: .9375rem; font-variant-numeric: tabular-nums; }
+.rp-print { min-height: 34px; padding: 4px 14px; font-size: .875rem; }
+.rp-chart { margin: 0 0 4px; }
+.rp-trend { display: block; width: 100%; height: auto; max-height: 220px; }
+.rp-trend .rp-gl { stroke: var(--line-strong); stroke-width: 1; }
+.rp-trend .rp-line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }   /* 흰 바탕 4.8:1 */
+.rp-trend .rp-pt { fill: var(--accent); }
+.rp-trend .rp-ax { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.rp-trend .rp-now { fill: var(--ink); font-weight: 700; }
+.rp-table-wrap { overflow-x: auto; margin: 0 0 4px; border: 1px solid var(--line); border-radius: 12px; }
+.rp-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: .875rem; }
+.rp-table th, .rp-table td { padding: 8px 10px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.rp-table thead th { border-top: 0; background: var(--surface); color: var(--muted); font-size: var(--meta); font-weight: 600; white-space: nowrap; }
+.rp-table tbody th { font-weight: 600; }
+.rp-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rp-sugg { margin: 0; padding-left: 20px; font-size: .9375rem; }
+.rp-sugg li + li { margin-top: 4px; }
+.rp-store { margin: 0 0 10px; color: var(--ink-2); font-size: .875rem; font-weight: 500; }
+.rp-snaps { display: grid; gap: 10px; margin-bottom: 8px; }
+.rp-snaps li { display: flex; gap: 12px; align-items: flex-start; }
+.rp-snap-v { flex: 0 0 auto; min-width: 5.5em; font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.rp-snap-v.neg { color: var(--bad); }
+.rp-snap-t { display: grid; gap: 2px; min-width: 0; font-size: .875rem; overflow-wrap: anywhere; }
+.rp-snap-t b { font-weight: 600; }
+.rp-snap-t .badge { justify-self: start; white-space: normal; }
+.rp-ask { min-height: 34px; margin-top: 4px; padding: 4px 12px; border-color: var(--line-strong); font-size: .875rem; color: var(--ink-2); }
+.rp-mkt-title { margin: 0 0 4px; }
+.rp-mkt-reason { margin: 0 0 6px; color: var(--ink-2); font-size: .9375rem; white-space: pre-line; }
+.rp-mkt-st { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 8px 0; }
+.rp-mkt-none { margin: 0 0 8px; }
+#rp-approvals { margin: 8px 0 0; }
+
 /* ── 서랍 = AI에게 묻기 (상권 채팅, 11/15): 넓은 화면 = 화면 오른쪽에 고정된 400px 칸 (위에서 아래까지) ── */
 /* 서랍이 열리면 본문(상단 바·main·바닥)이 남은 폭으로 줄어든다 (:has를 못 쓰는 브라우저에서는 서랍이 본문 위에 겹침).
    카드 2열·숫자 4칸은 화면 폭이 아니라 main 폭을 보고 바뀐다 (컨테이너 쿼리) */

@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Callable, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -142,7 +143,7 @@ def make_routers(classifier: Callable, error: Callable, check_token) -> tuple[AP
         data = await file.read(capture.max_bytes() + 1)
         await file.close()
         try:
-            result = main.reader().read(data, kind="menu")
+            result = await run_in_threadpool(main.reader().read, data, kind="menu")     # 막히는 읽기는 스레드에서 (리뷰 캡처와 같은 이유)
         except capture.CaptureError as e:
             return error(e.status, e.code, e.message, e.details, e.retryable)
         finally:
