@@ -55,6 +55,15 @@ def test_accepts_png_jpg_webp(fmt):
     assert len(prepare(image(fmt=fmt))) == 1
 
 
+def test_accepts_phone_camera_jpg_saved_as_mpo():
+    """휴대폰·카카오톡 jpg 는 Pillow 가 MPO 로 읽는다 (11/15 실제 시험에서 막혔던 경우)."""
+    buf = io.BytesIO()
+    Image.new("RGB", (600, 900), "white").save(buf, format="MPO", save_all=True, append_images=[Image.new("RGB", (600, 900))])
+    assert Image.open(io.BytesIO(buf.getvalue())).format == "MPO"
+    (piece,) = prepare(buf.getvalue())
+    assert Image.open(io.BytesIO(piece)).format == "JPEG"
+
+
 def test_rejects_other_formats_and_non_images():
     for data in (image(fmt="GIF"), b"not an image", b""):
         with pytest.raises(CaptureError) as e:
@@ -116,7 +125,9 @@ def test_live_sends_image_as_data_uri_and_reads_reviews(tmp_path):
     r = live(hcx(['[{"text": "제육 양이 많아요", "rating": 5}]'], seen=seen)).read(image())
     assert r.demo is False and r.reviews == [{"text": "제육 양이 많아요", "rating": 5}] and r.warnings == []
     content = seen[0]["messages"][0]["content"]
-    assert content[0]["type"] == "image_url" and base64.b64decode(content[0]["dataUri"]["data"])[:2] == b"\xff\xd8"
+    uri = content[0]["dataUri"]["data"]
+    assert content[0]["type"] == "image_url" and uri.startswith("data:image/jpeg;base64,")      # 앞머리 없으면 400 (11/15 확인)
+    assert base64.b64decode(uri.split(",", 1)[1])[:2] == b"\xff\xd8"
     assert content[1]["type"] == "text" and "보이는 그대로" in content[1]["text"]
     assert seen[0]["maxTokens"] <= 4096
     # 사용 기록에는 이미지·글이 없다

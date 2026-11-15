@@ -8,6 +8,7 @@
 5. 분류는 하지 않는다. 사장님이 후보를 확인·수정한 뒤 기존 POST /reviews 로 저장할 때 분류된다
 
 - 이미지는 메모리에서만 쓰고 디스크·로그에 남기지 않는다. 사용 기록에는 조각 수·후보 수·토큰·시간만 남긴다.
+- dataUri 의 data 는 "data:image/jpeg;base64,<base64>" 앞머리가 있어야 한다 (앞머리 없으면 400 Invalid parameter, 11/15 실제 호출로 확인).
 - 키는 분류와 같은 CLOVASTUDIO_API_KEY. APP_MODE=mock 이거나 키가 없으면 실제 호출 없이 예시 후보를 돌려준다(demo).
 - 모델이 화면에 없는 글을 지어내거나 리뷰를 빠뜨릴 수 있고, 원문 글자가 따로 없어 코드로 대조할 수 없다.
   그래서 저장 전에 사장님 확인 단계를 반드시 거친다 (README '정직하게 밝힐 것').
@@ -35,7 +36,8 @@ USAGE_LOG = ROOT / "logs" / "llm_usage.jsonl"        # 분류와 같은 파일, 
 ENDPOINT = "https://clovastudio.stream.ntruss.com/v3/chat-completions/{model}"
 KST = timezone(timedelta(hours=9))
 
-FORMATS = {"PNG": "png", "JPEG": "jpg", "WEBP": "webp"}
+# MPO = 휴대폰 카메라·카카오톡이 저장하는 jpg (사진 여러 장이 든 JPEG). 확장자는 .jpg 이고 첫 장만 쓴다
+FORMATS = {"PNG": "png", "JPEG": "jpg", "MPO": "jpg", "WEBP": "webp"}
 LONG_SIDE = 2240           # HCX-005 이미지: 긴 변 이하
 MAX_RATIO = 5.0            # 가로세로 1:5 ~ 5:1
 PIECE_RATIO = 4.5          # 자를 때 조각 하나의 세로/가로 (5 보다 조금 작게)
@@ -48,7 +50,7 @@ PROMPT = """이 이미지는 배달앱이나 지도앱의 리뷰 화면 캡처�
 1. 글을 요약·수정·맞춤법 교정·추측하지 않는다. 오타와 이모티콘도 보이는 그대로 적는다.
 2. 화면 위아래에서 잘려 끝까지 안 보이는 리뷰는 적지 않는다.
 3. 닉네임, 날짜, 주문 메뉴 목록, 주문번호, 사장님 답글, 버튼·광고·메뉴 글자는 적지 않는다.
-4. 별점은 별 아이콘이나 숫자로 보이면 1~5 정수, 보이지 않으면 null.
+4. 별점은 리뷰마다 따로 센다. 색이 채워진 별(★)만 세고 빈 별(☆)은 세지 않는다. 숫자로 보이면 그 숫자. 1~5 정수, 확실하지 않으면 null.
 5. 답은 JSON 배열 하나만 쓴다. 다른 글은 쓰지 않는다. 리뷰가 없으면 [].
 형식: [{"text": "리뷰 글", "rating": 5}]"""
 
@@ -105,7 +107,8 @@ def prepare(data: bytes) -> list[bytes]:
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
         raise CaptureError(400, "VALIDATION_ERROR", "png·jpg·webp 이미지만 올릴 수 있습니다") from None
     if fmt not in FORMATS:
-        raise CaptureError(400, "VALIDATION_ERROR", "png·jpg·webp 이미지만 올릴 수 있습니다", details={"format": fmt})
+        raise CaptureError(400, "VALIDATION_ERROR", f"png·jpg·webp 이미지만 올릴 수 있습니다 (이 파일은 {fmt or '알 수 없는'} 형식)",
+                           details={"format": fmt})
     img = img.convert("RGB")
     w, h = img.size
     if w < 4 or h < 4:
@@ -282,7 +285,7 @@ class CaptureReader:
     def _ask(self, piece: bytes, n: int, total: int, prompt: str = PROMPT, parser=parse_reviews,
              purpose: str = "review_capture") -> tuple[list[dict], bool]:
         body = {"messages": [{"role": "user", "content": [
-                    {"type": "image_url", "dataUri": {"data": base64.b64encode(piece).decode("ascii")}},
+                    {"type": "image_url", "dataUri": {"data": "data:image/jpeg;base64," + base64.b64encode(piece).decode("ascii")}},
                     {"type": "text", "text": prompt}]}],
                 "topP": 0.8, "topK": 0, "temperature": 0.0, "maxTokens": MAX_TOKENS,
                 "repetitionPenalty": 1.0, "seed": 0, "includeAiFilters": True}

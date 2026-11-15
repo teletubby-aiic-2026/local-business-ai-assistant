@@ -134,6 +134,7 @@ GET /api/review-insight/reviews?store_id=store_ongi&since=2026-11-14T19:00:00%2B
 - 숫자는 모두 코드가 계산하고, 문장(`summary`, `todo.text`, `suggestions[].text`)은 **틀 문장에 숫자만 넣은 것**입니다 (`summary_method: "template"`). AI 문장이 아닙니다.
 - 날짜는 한국 시간. 새 리뷰는 받은 날, 합성 샘플은 작성 날(10/13~11/8)로 셉니다.
 - 일일: `review_count`, `complaint_count`, `by_source`, `replied_on_time`, `replied_late`, `pending_count`, `score_start`→`score_end`, `changes`(점수가 바뀐 이유, 합이 변동과 같음), `todo`(내일 먼저 할 일 1개), `summary`.
+- 월간 인쇄: `GET /report/monthly/print?month=` → A4 HTML (숫자 카드 4개, 점수 그래프, 점수가 바뀐 이유, 반복 불만 표, **체크 칸이 있는 개선 할 일**). 프록시 허용 목록에 들어 있음.
 - 월간: `score_trend`(날마다 점수), `repeated_issues`(묶음별 전체·이번 달 건수, 답글 수, 상태 `recurred_after_reply`·`no_recurrence`·`replied_watching`·`no_reply`), `suggestions`(최대 3개, 원인을 단정하지 않음).
 
 ### 2-7. 가게 정보 (11/15 추가) `GET·PUT·DELETE /profile`, `POST·DELETE /profile/notices`, `POST·DELETE /profile/answers`, `POST /profile/menu/capture`

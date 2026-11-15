@@ -243,3 +243,18 @@ def test_monthly_report(client):
     assert client.get(f"{API}/report/monthly", params={"month": "2026-13"}).status_code == 400
     assert client.get(f"{API}/report/monthly", params={"month": "2030-01", "now": iso(at(12))}).status_code == 400
     assert client.get(f"{API}/report/daily", params={"date": "11월"}).status_code == 400
+
+
+def test_monthly_print_is_a4_with_todo_checklist(client):
+    first = add(when=at(15))
+    service.set_status("store_ongi", None, first.review_id, "replied", reply_text="다음엔 꼭 챙길게요", at=at(15, 10))
+    add("반찬이 또 빠졌네요", when=at(15, day=2))
+    r = client.get(f"{API}/report/monthly/print", params={"month": "2026-11", "now": iso(at(20, day=2))})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    page = r.text
+    m = client.get(f"{API}/report/monthly", params={"month": "2026-11", "now": iso(at(20, day=2))}).json()
+    assert "size: A4" in page and "2026년 11월 응대 보고서" in page and 'class="box"' in page
+    assert f"{m['score_start']} → {m['score_end']}" in page and f"{m['review_count']}건" in page     # 숫자는 JSON 과 같음
+    assert all(s["text"].split("'")[1] in page for s in m["suggestions"] if "'" in s["text"])
+    assert "답글 뒤 재발" in page and "<script" not in page
+    assert client.get(f"{API}/report/monthly/print", params={"month": "2026-13"}).status_code == 400

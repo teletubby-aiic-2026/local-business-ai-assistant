@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.security import APIKeyHeader
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -181,6 +181,20 @@ def get_daily(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
         return report.daily(service.Timeline(classifier(), store_id, visitor_id), report.parse_day(date, at), at)
     except ValueError as e:
         return error(400, "VALIDATION_ERROR", str(e))
+
+
+@router.get("/report/monthly/print", response_class=HTMLResponse)
+def print_monthly(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
+                  month: Optional[str] = Query(None, description="YYYY-MM. 비우면 이번 달"), now: Optional[str] = NowQ):
+    """월간 보고서 인쇄용 A4 (HTML). 브라우저 인쇄 → 'PDF로 저장'. 개선 제안은 체크 칸 할 일 목록."""
+    try:
+        at = _now(now)
+        y, m = report.parse_month(month, at)
+        data = report.monthly(service.Timeline(classifier(), store_id, visitor_id), y, m, at)
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
+    name = service.store(store_id).get("name", store_id)
+    return HTMLResponse(report.render_monthly(data, name, service.datetime.now(service.KST)), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/report/monthly")

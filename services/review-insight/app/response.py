@@ -114,6 +114,13 @@ def _late_penalty(due: datetime, end: datetime, p: Policy) -> int:
     return min(p.late_cap, p.late_base + steps * p.late_step)
 
 
+def _duration(minutes: int) -> str:
+    """3630 → '2일 12시간 30분', 60 → '1시간', 25 → '25분'."""
+    d, rest = divmod(max(0, minutes), 1440)
+    h, m = divmod(rest, 60)
+    return " ".join(x for x in (f"{d}일" if d else "", f"{h}시간" if h else "", f"{m}분" if m or not (d or h) else "") if x)
+
+
 def _short(text: str, n: int = 40) -> str:
     text = " ".join(text.split())
     return text if len(text) <= n else text[:n - 1] + "…"
@@ -157,7 +164,7 @@ def evaluate(reviews: list[dict], negative: dict[str, list[str]], groups: list[d
         if penalty and due >= since:
             late_min = int((end - due).total_seconds() // 60)
             reasons.append({"key": f"late:{rid}", "kind": "late", "delta": -penalty, "at": due.isoformat(timespec="seconds"),
-                            "review_id": rid, "message": f"'{names}' 불만 답글 기한을 {late_min}분 넘김"})
+                            "review_id": rid, "message": f"'{names}' 불만 답글 기한을 {_duration(late_min)} 넘김"})
             if replied is not None:
                 back = penalty // 2
                 if back:

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import calendar
+import html
 from collections import Counter
 from datetime import date, datetime, timedelta
 
@@ -180,3 +181,76 @@ def _suggestions(issues: list[dict], late: int) -> list[dict]:
         out.append({"text": "이번 달은 크게 고칠 응대가 보이지 않아요. 지금 방식을 이어 가세요"})
     return out[:3]
 
+
+
+_STATE = {"recurred_after_reply": "답글 뒤 재발", "no_recurrence": "답글 뒤 7일 재발 없음",
+          "replied_watching": "답글 달고 지켜보는 중", "no_reply": "답글 없음"}
+_SOURCE = {"sample": "합성 리뷰", "paste": "붙여넣기", "capture": "캡처", "app": "가상 배달앱", "memo": "매장 메모"}
+
+
+def render_monthly(m: dict, store_name: str, printed_at: datetime) -> str:
+    """월간 보고서 인쇄용 A4 한 장. 숫자는 m 그대로(코드 계산), 문장은 틀 문장. 개선 제안은 체크 칸이 있는 할 일 목록."""
+    e = html.escape
+    y, mo = m["month"].split("-")
+    trend = m["score_trend"]
+    svg = ""
+    if trend:
+        W, H, P = 640, 150, 28
+        lo = min(min(t["score"] for t in trend), 80)
+        x = lambda i: P + (W - 2 * P) * (0.5 if len(trend) == 1 else i / (len(trend) - 1))
+        yv = lambda v: H - P - (H - 2 * P) * (v - lo) / max(1, 100 - lo)
+        pts = " ".join(f"{x(i):.1f},{yv(t['score']):.1f}" for i, t in enumerate(trend))
+        last = trend[-1]
+        svg = (f'<svg viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="날마다 점수">'
+               f'<line x1="{P}" x2="{W - P}" y1="{yv(100):.1f}" y2="{yv(100):.1f}" stroke="#ccc"/>'
+               f'<text x="{P}" y="{yv(100) - 4:.1f}" font-size="11" fill="#777">100</text>'
+               f'<polyline points="{pts}" fill="none" stroke="#0a6b43" stroke-width="2.5"/>'
+               f'<circle cx="{x(len(trend) - 1):.1f}" cy="{yv(last["score"]):.1f}" r="4" fill="#0a6b43"/>'
+               f'<text x="{x(len(trend) - 1) - 6:.1f}" y="{yv(last["score"]) - 8:.1f}" font-size="12" font-weight="700" text-anchor="end">{last["score"]}점</text>'
+               f'<text x="{P}" y="{H - 6}" font-size="11" fill="#777">{e(trend[0]["date"][5:])}</text>'
+               f'<text x="{W - P}" y="{H - 6}" font-size="11" fill="#777" text-anchor="end">{e(last["date"][5:])}</text></svg>')
+    sign = f"+{m['score_change']}" if m["score_change"] > 0 else str(m["score_change"])
+    src = " · ".join(f"{_SOURCE.get(k, k)} {v}" for k, v in m["by_source"].items()) or "없음"
+    changes = "".join(f'<tr><td class="num {"neg" if c["delta"] < 0 else "pos"}">{"+" if c["delta"] > 0 else ""}{c["delta"]}</td><td>{e(c["message"])}</td></tr>'
+                      for c in m["changes"]) or '<tr><td colspan="2" class="muted">이번 달 점수가 바뀐 일이 없어요</td></tr>'
+    rows_html = []
+    for i in m["repeated_issues"]:
+        state = _STATE.get(i["state"], i["state"]) + (f" ({i['recurred_after_reply']}건)" if i["recurred_after_reply"] else "")
+        rows_html.append(f'<tr><td>{e(i["topic_name"])}{" <b>반복</b>" if i["is_repeated"] else ""}</td>'
+                         f'<td class="num">{i["review_count"]}</td><td class="num">{i["count_this_month"]}</td>'
+                         f'<td class="num">{i["replied_count"]}</td><td>{e(state)}</td><td>{e(i["main_time_band"] or "-")}</td></tr>')
+    issues = "".join(rows_html) or '<tr><td colspan="6" class="muted">묶음이 없어요</td></tr>'
+    todos = "".join(f'<li><span class="box"></span><div>{e(t["text"])}<div class="memo">메모 / 한 날짜: ______________________</div></div></li>'
+                    for t in m["suggestions"])
+    return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{e(store_name)} {int(mo)}월 응대 보고서</title>
+<style>
+  @page {{ size: A4; margin: 12mm; }}
+  * {{ box-sizing:border-box; }}
+  body {{ margin:0; background:#fff; color:#111; font:13.5px/1.5 "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }}
+  .page {{ max-width:186mm; margin:0 auto; padding:8px; }}
+  header {{ display:flex; justify-content:space-between; align-items:flex-end; border-bottom:3px solid #111; padding-bottom:6px; }}
+  h1 {{ font-size:22px; margin:0; }} h2 {{ font-size:15px; margin:14px 0 6px; }} .muted {{ color:#777; }}
+  .kpi {{ display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-top:10px; }}
+  .kpi div {{ border:1px solid #ddd; border-radius:8px; padding:8px 10px; }} .kpi b {{ display:block; font-size:22px; }} .kpi span {{ font-size:12px; color:#555; }}
+  table {{ width:100%; border-collapse:collapse; }} td, th {{ border-bottom:1px solid #e5e5e5; padding:5px 6px; text-align:left; vertical-align:top; }}
+  th {{ font-size:12px; color:#555; font-weight:600; }} .num {{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }}
+  .neg {{ color:#b42318; font-weight:700; }} .pos {{ color:#0a6b43; font-weight:700; }}
+  ol.todo {{ list-style:none; padding:0; margin:0; }} ol.todo li {{ display:flex; gap:10px; border:1.5px solid #111; border-radius:8px; padding:10px; margin-bottom:8px; break-inside:avoid; }}
+  .box {{ flex:none; width:18px; height:18px; border:2px solid #111; border-radius:3px; margin-top:2px; }}
+  .memo {{ margin-top:6px; font-size:12px; color:#666; }}
+  footer {{ margin-top:12px; font-size:11px; color:#666; border-top:1px solid #ddd; padding-top:6px; }}
+  section {{ break-inside:avoid; }}
+</style></head><body><div class="page">
+<header><div><h1>{e(store_name)} · {y}년 {int(mo)}월 응대 보고서</h1>
+<div class="muted">{e(m["month"])}-01 ~ {e(m["until"][:10])} 기준</div></div><div class="muted">뽑은 날 {e(printed_at.strftime("%Y-%m-%d"))}</div></header>
+<div class="kpi"><div><span>리뷰</span><b>{m["review_count"]}건</b><span>{e(src)}</span></div>
+<div><span>불만</span><b>{m["complaint_count"]}건</b><span>불만 주제가 있는 리뷰</span></div>
+<div><span>응대 점수</span><b>{m["score_end"]}점</b><span>{m["score_start"]} → {m["score_end"]} ({sign})</span></div>
+<div><span>기한 넘긴 답글</span><b>{m["late_count"]}건</b><span>30분 기한 (피크 멈춤)</span></div></div>
+<section><h2>날마다 응대 점수</h2>{svg}</section>
+<section><h2>점수가 바뀐 이유</h2><table><tbody>{changes}</tbody></table></section>
+<section><h2>반복 불만과 재발 여부</h2><table><thead><tr><th>불만</th><th class="num">전체</th><th class="num">이번 달</th><th class="num">답글</th><th>상태</th><th>많은 시간대</th></tr></thead><tbody>{issues}</tbody></table></section>
+<section><h2>다음 달 개선 할 일 <span class="muted" style="font-weight:400">— 한 것은 체크해 주세요</span></h2><ol class="todo">{todos}</ol></section>
+<footer>숫자는 리뷰 기록으로 코드가 계산했고, 문장은 정해 둔 틀에 숫자만 넣었어요 (AI 문장 아님). 원인을 단정하지 않으니 매장에서 확인해 주세요. 시연용 합성 데이터(가상 가게)입니다.</footer>
+</div></body></html>"""

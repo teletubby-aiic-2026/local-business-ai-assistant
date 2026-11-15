@@ -46,7 +46,7 @@ MAX_UPLOAD = 12 * 1024 * 1024                   # 서비스 캡처 상한 10MB +
 ALLOWED: list[tuple[str, re.Pattern]] = [(m, re.compile(p)) for m, p in [
     ("GET", r"/reviews"), ("POST", r"/reviews"), ("POST", r"/reviews/capture"), ("POST", r"/reviews/[A-Za-z0-9_-]+/status"),
     ("GET", r"/reviews/[A-Za-z0-9_-]+"),
-    ("GET", r"/insight"), ("GET", r"/response"), ("GET", r"/report/daily"), ("GET", r"/report/monthly"),
+    ("GET", r"/insight"), ("GET", r"/response"), ("GET", r"/report/daily"), ("GET", r"/report/monthly"), ("GET", r"/report/monthly/print"),
     ("GET", r"/profile"), ("PUT", r"/profile"), ("DELETE", r"/profile"),
     ("POST", r"/profile/notices"), ("DELETE", r"/profile/notices/[A-Za-z0-9_-]+"),
     ("POST", r"/profile/answers"), ("DELETE", r"/profile/answers/[A-Za-z0-9_-]+"), ("POST", r"/profile/menu/capture"),
