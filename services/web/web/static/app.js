@@ -1079,6 +1079,7 @@ const chat = {
   started: false, loading: false, ready: false, busy: false,
   setupTried: false,          // 조건 자동 저장(setup)은 페이지마다 한 번만. '다시 확인'을 누르면 다시
   label: "",                  // 상태의 setup.label ("온기한식 · 장승배기역 · 한식음식점")
+  atHome: false,              // 지금 분석 조건이 우리 가게 기본 조건과 같은지 (서버가 준 conditions.is_store_default 가 true 일 때만)
   latest: null,               // 마지막 답의 선택지 묶음 (이것만 누를 수 있음)
   chips: { list: [], starters: false },
   armed: null, tick: null,
@@ -1092,9 +1093,15 @@ function chatValue(value, unit) {
     : value.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });   // 비율은 늘 소수 둘째 자리 (카드 문장과 같게)
   return unit ? text + unit : text;
 }
-const chatCondText = (c) => (c ? [c.area_name ? `${c.area_name} 상권` : null, c.industry_name, c.period_label].filter(Boolean).join(" · ") : "");
+// 분기 코드(20262 · 2026Q2)를 '2026년 2분기'로. 서버(assistant_proxy.py 의 QUARTER_IN_TEXT)와 같은 정규식이다 (시험이 글자 그대로 같은지 확인).
+// 서버가 먼저 바꿔 주지만, 서버가 놓친 글자도 날것으로 보이지 않게 화면에서 한 번 더 본다. 금액·개수(20262원, 20,262, 120262)는 그대로 둔다
+const CHAT_QUARTER = /(^|[^0-9A-Za-z_,.\-])(20[0-9]{2})(?:Q([1-4])(?![0-9A-Za-z])|([1-4])(?![0-9A-Za-z_\-]|[,.][0-9]|원|건|명|개|곳|호|번|위|배|회|세|살|대|가구|만|억|천|조|년|월|일|시|초|분(?!기)|평|점|%|퍼센트)(?: ?분기)?)/g;
+const chatQuarter = (t) => (typeof t === "string" ? t.replace(CHAT_QUARTER, (_, pre, y, q, n) => `${pre}${y}년 ${q || n}분기`) : t);
+// 조건 줄의 분기: 이름이 코드 그대로(20262)이면 바꾸고, 이름이 없으면 코드(period)로 만든다
+const chatPeriod = (c) => { const p = String(c.period_label || c.period || ""); return /^[0-9]{4}[1-4]$/.test(p) ? `${p.slice(0, 4)}년 ${p[4]}분기` : chatQuarter(p); };
+const chatCondText = (c) => (c ? [c.area_name ? `${c.area_name} 상권` : null, c.industry_name, chatPeriod(c)].filter(Boolean).join(" · ") : "");
 const chatId = () => "web-" + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
-const chatSuggest = (reply) => (Array.isArray(reply?.suggestions) ? reply.suggestions : []).filter((s) => typeof s === "string" && s.trim()).slice(0, 3);
+const chatSuggest = (reply) => (Array.isArray(reply?.suggestions) ? reply.suggestions : []).filter((s) => typeof s === "string" && s.trim()).map(chatQuarter).slice(0, 3);
 const chatSameKey = (a, b) => JSON.stringify(a || {}, Object.keys(a || {}).sort()) === JSON.stringify(b || {}, Object.keys(b || {}).sort());
 
 // 서랍 전용 호출: 같은 출처 쿠키·JSON, 90초가 넘으면 끊는다. 실패하면 message·state 를 담은 Error (화면 띠에는 아무것도 띄우지 않음)
@@ -1150,7 +1157,7 @@ function chatInput() {
   $("assistant-send").disabled = off || !q.value.trim();
   $("assistant-clear").hidden = !chat.ready || !$("assistant-log").children.length;
   $("assistant-clear").disabled = chat.busy;
-  $("assistant-home").disabled = off;
+  $("assistant-home").disabled = off || chat.atHome;   // 이미 우리 가게 기본 조건이면 누를 것이 없다
   $("assistant-chips").querySelectorAll("button").forEach((b) => (b.disabled = off));
   if (chat.latest) chat.latest.querySelectorAll("button").forEach((b) => (b.disabled = off));
   $("assistant-count").textContent = q.value.length >= 900 ? `${q.value.length} / 1000자` : "";
@@ -1179,10 +1186,20 @@ function chatReveal(el, where = "start") {
   box.scrollTo({ top: Math.max(0, y - 12), behavior: smooth });
 }
 
+// '우리 가게 조건으로' 버튼: 지금 조건이 우리 가게 기본 조건이면 누를 수 없는 '우리 가게 기준 적용 중', 다른 상권·업종·분기를 보고 있으면 되돌리기 버튼
+function chatHomeButton() {
+  const b = $("assistant-home");
+  b.textContent = chat.atHome ? "우리 가게 기준 적용 중" : "우리 가게 조건으로";
+  b.classList.toggle("on", chat.atHome);
+  b.disabled = chat.atHome || !chat.ready || chat.busy;
+}
+// 같은지는 서버(프록시)만 판단한다. 값이 없으면(기본 조건이 없는 가게 등) 버튼은 누를 수 있는 채로 둔다
 function chatConditions(c) {
   const text = chatCondText(c);
   $("assistant-cond").hidden = !text;
   $("assistant-cond-text").textContent = text;
+  chat.atHome = !!c && c.is_store_default === true;
+  chatHomeButton();
 }
 // 추천 질문 칩: 대화가 비었으면 고정 질문, 그 뒤에는 마지막 답의 suggestions
 function chatChips(list, starters = false) {
@@ -1217,7 +1234,7 @@ function chatEvidence(cards) {
     head.append(mk("span", "ev-id", c.id), mk("span", "ev-topic", CHAT_TOPICS[c.topic] || c.topic || ""));
     if (CHAT_STATUS[c.status]) head.append(mk("span", "ev-st", CHAT_STATUS[c.status]));
     li.append(head);
-    if (c.text) li.append(mk("p", "ev-text", c.text));
+    if (c.text) li.append(mk("p", "ev-text", chatQuarter(c.text)));
     const nums = (Array.isArray(c.values) ? c.values : []).filter((v) => v && typeof v.value === "number");
     if (nums.length) {
       const table = mk("table", "ev-table");
@@ -1226,7 +1243,7 @@ function chatEvidence(cards) {
       thead.append(tr0);
       const tbody = mk("tbody");
       nums.slice(0, 12).forEach((v) => {
-        const tr = mk("tr"), th = mk("th", "", v.group ? `${v.group} ${v.label}` : v.label);
+        const tr = mk("tr"), th = mk("th", "", chatQuarter(v.group ? `${v.group} ${v.label}` : v.label));
         th.scope = "row";
         tr.append(th, mk("td", "", chatValue(v.value, v.unit)), mk("td", "share", typeof v.share_percent === "number" ? chatValue(v.share_percent, "%") : ""));
         tbody.append(tr);
@@ -1236,7 +1253,7 @@ function chatEvidence(cards) {
       if (nums.length > 12) li.append(mk("p", "ev-more", `숫자 ${nums.length}개 중 12개만 보여요.`));
     }
     const warnings = (Array.isArray(c.warnings) ? c.warnings : []).filter((w) => typeof w === "string" && w);
-    if (warnings.length) { const ul = mk("ul", "ev-warn"); warnings.forEach((w) => ul.append(mk("li", "", w))); li.append(ul); }
+    if (warnings.length) { const ul = mk("ul", "ev-warn"); warnings.forEach((w) => ul.append(mk("li", "", chatQuarter(w)))); li.append(ul); }
     const src = c.source_ref || {};
     if (src.source_title || src.data_version) {
       const p = mk("p", "ev-src");
@@ -1269,11 +1286,11 @@ function chatEvidence(cards) {
 function chatLine(into, line, cite) {
   let last = 0;
   for (const m of line.matchAll(/\[(F\d+)\]/g)) {
-    if (m.index > last) into.append(line.slice(last, m.index));
+    if (m.index > last) into.append(chatQuarter(line.slice(last, m.index)));
     into.append(cite(m[1]) || m[0]);
     last = m.index + m[0].length;
   }
-  if (last < line.length) into.append(line.slice(last));
+  if (last < line.length) into.append(chatQuarter(line.slice(last)));
 }
 // 비서 답 하나: 글(목록·참고·해석·다음으로) → 선택지 → 근거 n개 → 자료 기준 안내. live = 마지막 답 (선택지를 누를 수 있음)
 function chatBot(data, live) {
@@ -1314,7 +1331,7 @@ function chatBot(data, live) {
     group.setAttribute("role", "group");
     group.setAttribute("aria-label", "선택지");
     actions.forEach((a) => {
-      const b = mk("button", "pick", a.label);
+      const b = mk("button", "pick", chatQuarter(a.label));
       b.type = "button";
       b.disabled = !live || !chat.ready || chat.busy;
       b.addEventListener("click", () => chatChoose(group, b, a));
@@ -1327,7 +1344,7 @@ function chatBot(data, live) {
   if (notes.length) {
     const d = mk("details", "msg-fold msg-notes");
     const ul = mk("ul");
-    notes.forEach((n) => ul.append(mk("li", "", n)));
+    notes.forEach((n) => ul.append(mk("li", "", chatQuarter(n))));
     d.append(mk("summary", "", "자료 기준 안내"), ul);
     msg.append(d);
   }
@@ -1350,8 +1367,8 @@ function chatHistory(turns) {
     if (t.user_text) chatUser(t.user_text);
     else if (t.action) {
       const picked = (prev?.reply?.actions || []).find((a) => chatSameKey(a.payload, t.action));
-      chatUser(picked ? `선택: ${picked.label}` : "선택했어요");
-      const b = picked && prevMsg && [...prevMsg.querySelectorAll(".pick")].find((x) => x.textContent === picked.label);
+      chatUser(picked ? `선택: ${chatQuarter(picked.label)}` : "선택했어요");
+      const b = picked && prevMsg && [...prevMsg.querySelectorAll(".pick")].find((x) => x.textContent === chatQuarter(picked.label));
       if (b) b.setAttribute("aria-current", "true");
     }
     const m = chatBot(t, i === turns.length - 1);
@@ -1401,7 +1418,7 @@ async function chatChoose(group, button, action) {
   const chips = chat.chips;
   chatError(""); chatDisarm();
   button.setAttribute("aria-current", "true");
-  const mine = chatUser(`선택: ${action.label}`);
+  const mine = chatUser(`선택: ${chatQuarter(action.label)}`);
   chatChips([]);
   chatBusy(true, "자료를 확인하고 있어요");
   chatReveal(null, "end");
@@ -1462,11 +1479,12 @@ async function chatHome() {
   } catch (e) { chatError(e.message); }
   finally {
     chatBusy(false);
-    if (document.activeElement === document.body && !$("assistant").hidden && !$("assistant-cond").hidden) b.focus();   // 누르는 동안 막혀서 잃은 포커스
+    // 누르는 동안 막혀서 잃은 포커스. 맞춘 뒤 버튼이 '적용 중'으로 막히면 입력칸으로 보낸다
+    if (document.activeElement === document.body && !$("assistant").hidden && !$("assistant-cond").hidden) { if (b.disabled) chatFocus(); else b.focus(); }
     if (done) {
       chatStatus("우리 가게 조건으로 맞췄어요", false, true);
-      b.textContent = "✓ 맞췄어요";   // 조건이 이미 같으면 표시줄이 그대로라, 눌렀다는 것을 버튼 글자로 잠깐 알린다
-      setTimeout(() => (b.textContent = "우리 가게 조건으로"), 2000);
+      // 서버가 같은지 알려 주지 않는 가게에서는 버튼 글자가 그대로라, 눌렀다는 것을 잠깐 알린다 ('적용 중'으로 바뀌면 그 글자가 알림)
+      if (!chat.atHome) { b.textContent = "✓ 맞췄어요"; setTimeout(chatHomeButton, 2000); }
     }
   }
 }
