@@ -77,6 +77,56 @@ function applyTheme() {
   else delete document.documentElement.dataset.theme;
 }
 
+// ── 왼쪽 메뉴 접기 (11/16) ─────────────────────────────────────────
+// 상단 바의 #menu-toggle 로 왼쪽 메뉴를 접고 편다. 상태는 <html data-menu="open|closed"> 하나로만 알리고, 모양·배치는 style.css 가 정한다.
+//   1025px 이상   펼친 채 시작. 접으면 본문이 넓어지고, 접었는지를 localStorage(ic26.menu)에 기억한다
+//   761~1024px   늘 접힌 채 시작 (기억한 값과 상관없음). 펼치면 본문을 밀지 않고 위에 덮는다 → 바깥·Esc·메뉴 항목을 누르면 닫힘
+//   760px 이하    메뉴가 상단 바 아래 가로줄이라 접지 않는다 (토글 버튼이 없음)
+const MENU_KEY = "ic26.menu";
+const menuMid = window.matchMedia("(min-width: 761px) and (max-width: 1024px)");
+const menuPhone = window.matchMedia("(max-width: 760px)");
+// 창 폭이 소수일 때(화면 배율) 구간 사이 1px 틈은 style.css 와 같이 넓은 화면으로 본다
+const menuBandNow = () => (menuMid.matches ? "mid" : menuPhone.matches ? "phone" : "wide");
+let menuBand = "";       // 지금 폭 구간. 구간이 바뀔 때만 그 구간의 처음 상태로 되돌린다
+let menuPref = "open";   // localStorage 를 못 쓰는 환경(사생활 보호 모드 등)에서는 이 값으로만 기억한다 (새로고침하면 처음으로)
+function menuRead() { try { return localStorage.getItem(MENU_KEY) || menuPref; } catch (e) { return menuPref; } }
+function menuWrite(v) { menuPref = v; try { localStorage.setItem(MENU_KEY, v); } catch (e) { /* 저장하지 못해도 이번 화면에서는 그대로 동작 */ } }
+const menuIsOpen = () => document.documentElement.dataset.menu !== "closed";
+const menuOverlayOpen = () => menuBand === "mid" && menuIsOpen();   // 본문 위에 덮인 메뉴가 열려 있는지
+function setMenu(open) {
+  document.documentElement.dataset.menu = open ? "open" : "closed";
+  const b = $("menu-toggle"), label = open ? "왼쪽 메뉴 접기" : "왼쪽 메뉴 펼치기";
+  b.setAttribute("aria-expanded", String(open));
+  b.setAttribute("aria-label", label);
+  b.title = label;
+  setTopH();   // 접으면 상단 바에 로고가 들어와 높이가 달라질 수 있다 (덮는 메뉴는 상단 바 바로 아래에서 시작)
+}
+function applyMenu() {
+  menuBand = menuBandNow();
+  setMenu(menuBand === "mid" ? false : menuBand === "wide" ? menuRead() !== "closed" : true);
+}
+function toggleMenu() {
+  const open = !menuIsOpen();
+  setMenu(open);
+  if (menuBand !== "mid") { menuWrite(open ? "open" : "closed"); return; }
+  // 덮는 메뉴: 기억하지 않는다. 열면 포커스를 메뉴(지금 화면의 항목)로, 닫으면 토글 버튼으로
+  if (open) (document.querySelector('.side .menu a[aria-current="page"]') || document.querySelector(".side .menu a")).focus();
+  else $("menu-toggle").focus();
+}
+// 덮는 메뉴 닫기. 포커스가 메뉴 안에 있었으면(또는 잃었으면) 토글 버튼으로 돌려준다. 이미 다른 곳으로 옮겨 갔으면 건드리지 않는다
+function closeMenuOverlay() {
+  const a = document.activeElement;
+  const back = !a || a === document.body || !!a.closest(".side");
+  setMenu(false);
+  if (back) $("menu-toggle").focus();
+}
+// 메뉴가 접혀 있는 동안 토글 버튼 위에 보이는 승인 대기 수 (renderDash 가 #nav-draft-count 와 같이 맞춘다)
+function syncMenuCount(n) {
+  const c = $("menu-toggle-count");
+  c.hidden = !n;
+  c.innerHTML = n ? `<span aria-hidden="true">${esc(n)}</span><span class="sr">승인 대기 ${esc(n)}개</span>` : "";
+}
+
 // ── 맨 위 띠·바닥 ─────────────────────────────────────────────────
 function renderHealth(h) {
   // 시험용 실행(mock)일 때만 띄운다. live 에서는 보이지 않는다.
@@ -240,6 +290,7 @@ function renderDash() {
   const waiting = all.filter((d) => !state.approved.has(d.draft_id)).length;
   $("nav-draft-count").hidden = !waiting;
   $("nav-draft-count").textContent = waiting;
+  syncMenuCount(waiting);   // 메뉴가 접혀 있을 때는 토글 버튼 위에
   const staff = (prefix, list) => {
     const made = list.some((t) => t.st[0] !== "none");
     const done = list.length && list.every((t) => t.st[0] === "done");
@@ -1570,6 +1621,29 @@ async function boot() {
 
 applyTheme(); // ?theme=light 는 서버 응답을 기다리지 않고 바로
 mountLater(); // 준비 중 메뉴·화면을 첫 route() 전에
+applyMenu();  // 왼쪽 메뉴: 넓은 폭은 기억한 상태로, 761~1024px 은 접힌 채로 (첫 화면 전에)
+
+// 왼쪽 메뉴 접기
+$("menu-toggle").addEventListener("click", toggleMenu);
+// 창 폭이 구간(760px 이하 · 761~1024px · 1025px 이상)을 넘으면 그 구간의 처음 상태로
+window.addEventListener("resize", () => { if (menuBandNow() !== menuBand) applyMenu(); });
+if (window.ResizeObserver) new ResizeObserver(setTopH).observe(document.querySelector(".top"));   // 상단 바가 두 줄이 되면 덮는 메뉴도 그 아래로
+// 덮는 메뉴(761~1024px)가 열려 있는 동안: 바깥(어두운 배경)이나 메뉴 항목을 누르면 닫는다
+document.addEventListener("click", (e) => {
+  if (!menuOverlayOpen() || e.target.closest("#menu-toggle")) return;
+  if (e.target.closest(".side") && !e.target.closest(".side a[href]")) return;   // 메뉴 안의 빈 곳
+  closeMenuOverlay();
+});
+// Esc 로 닫고(캡처 단계에서 받아 서랍의 Esc 처리보다 먼저, 서랍은 그대로 둔다), Tab 은 토글 버튼과 메뉴 항목 안에서만 돈다
+document.addEventListener("keydown", (e) => {
+  if (!menuOverlayOpen() || e.isComposing) return;
+  if (e.key === "Escape") { e.stopPropagation(); closeMenuOverlay(); return; }
+  if (e.key !== "Tab") return;
+  const stops = [$("menu-toggle"), ...document.querySelectorAll(".side a[href]")].filter((x) => x.getClientRects().length);
+  const i = stops.indexOf(document.activeElement);
+  e.preventDefault();
+  stops[e.shiftKey ? (i <= 0 ? stops.length - 1 : i - 1) : (i + 1) % stops.length].focus();
+}, true);
 
 $("start").addEventListener("click", () => go("cards"));
 $("paste-send").addEventListener("click", paste);
