@@ -1,0 +1,137 @@
+{
+ "store_id": "store_basak",
+ "data_origin": "synthetic",
+ "_note": "가상 가게의 응대용 가게 정보 예시 (합성). 실제 가게 정보가 아님",
+ "basic": {
+  "hours": {
+   "mon": "휴무",
+   "tue": "16:00-01:00",
+   "wed": "16:00-01:00",
+   "thu": "16:00-01:00",
+   "fri": "16:00-01:00",
+   "sat": "16:00-01:00",
+   "sun": "16:00-01:00"
+  },
+  "break_time": null,
+  "last_order": "00:30",
+  "holidays": "매주 월요일",
+  "address": "서울 관악구 (가상 주소)",
+  "parking": "주차 공간이 없어요",
+  "phone": null
+ },
+ "order": {
+  "delivery_area": "가게 반경 3km",
+  "min_order": 16000,
+  "takeout": true,
+  "group_order": null
+ },
+ "menu": [
+  {
+   "name": "후라이드",
+   "price": 18000,
+   "ingredients": [
+    "닭고기",
+    "밀가루"
+   ],
+   "spicy": 0,
+   "allergens": [
+    "닭고기",
+    "밀"
+   ],
+   "recommended": true,
+   "sold_out": false
+  },
+  {
+   "name": "양념치킨",
+   "price": 19000,
+   "ingredients": [
+    "닭고기",
+    "밀가루",
+    "고추장",
+    "물엿"
+   ],
+   "spicy": 1,
+   "allergens": [
+    "닭고기",
+    "밀",
+    "대두"
+   ],
+   "recommended": true,
+   "sold_out": false
+  },
+  {
+   "name": "반반",
+   "price": 19000,
+   "ingredients": [
+    "닭고기",
+    "밀가루",
+    "고추장"
+   ],
+   "spicy": 1,
+   "allergens": [
+    "닭고기",
+    "밀",
+    "대두"
+   ],
+   "recommended": false,
+   "sold_out": false
+  },
+  {
+   "name": "순살 치킨",
+   "price": 20000,
+   "ingredients": [
+    "닭고기",
+    "밀가루"
+   ],
+   "spicy": 0,
+   "allergens": [
+    "닭고기",
+    "밀"
+   ],
+   "recommended": false,
+   "sold_out": false
+  },
+  {
+   "name": "치즈볼",
+   "price": 5000,
+   "ingredients": [
+    "치즈",
+    "찹쌀가루"
+   ],
+   "spicy": 0,
+   "allergens": [
+    "우유",
+    "밀"
+   ],
+   "recommended": false,
+   "sold_out": false
+  },
+  {
+   "name": "콜라",
+   "price": 2000,
+   "ingredients": [],
+   "spicy": 0,
+   "allergens": [],
+   "recommended": false,
+   "sold_out": false
+  }
+ ],
+ "policy": {
+  "remake": "덜 익었거나 잘못 온 메뉴는 다시 보내 드려요",
+  "refund": null,
+  "reservation": null,
+  "pets": null,
+  "extra": []
+ },
+ "reply": {
+  "tone": "friendly",
+  "sign_off": "바삭치킨 사장 올림",
+  "peak_hours": "18-22",
+  "sla_minutes": 30
+ },
+ "foreign": {
+  "languages": []
+ },
+ "notices": [],
+ "answers": []
+}

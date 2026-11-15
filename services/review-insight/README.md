@@ -80,6 +80,36 @@ reviews = json.load(open("services/review-insight/data/synthetic/store_ongi/revi
 | GET | `/api/review-insight/store?store_id=` | 가게 정보 (이름, 업종, 메뉴) | 화면 |
 | GET | `/api/health` | 켜져 있는지, 실행 모드, 규격 버전 | 확인용 |
 
+**새 API (11/14, 고객응대 1~4단계)** — 자세한 요청·응답 예시와 통합 담당이 할 일은 [`docs/handoff.md`](docs/handoff.md)
+
+| 메서드 | 주소 | 하는 일 |
+|---|---|---|
+| POST | `/api/review-insight/reviews/capture` | **캡처 입력** multipart `file`(png·jpg·webp, 10MB 이하) + `store_id`·`visitor_id` → HCX-005 가 옮겨 적은 리뷰 후보 `{candidates:[{text, rating, pii_masked, duplicate}], count, demo, warnings}`. **저장하지 않음** |
+| POST | `/api/review-insight/reviews` | 기존 붙여넣기에 `source`(`paste`·`capture`·`app`·`memo`) 추가. 계약의 `input_method` 는 모두 `paste` 로 저장 |
+| GET | `/api/review-insight/reviews?since=&source=` | `since`(ISO 시각) 뒤에 실제로 받은 리뷰만, 받은 순서로 + `server_time`. 항목마다 `source`, `received_at`, `reply` |
+| POST | `/api/review-insight/reviews/{review_id}/status` | `{status, reply_text?, at?}` 상태·시각·답글 기록 (`new`·`analyzed`·`drafted`·`replied`·`skipped`) |
+| GET | `/api/review-insight/response?store_id=` | 답글 대기 불만별 `due_at`·남은 시간, 응대 점수(0~100)와 이유 목록. 규칙으로만 계산 |
+| GET | `/api/review-insight/report/daily?store_id=&date=` | 일일 요약: 리뷰·불만 수, 기한 안 답글, 점수 변동과 이유, 내일 먼저 할 일 1개 |
+| GET | `/api/review-insight/report/monthly?store_id=&month=` | 월간 보고서: 날마다 점수, 반복 불만별 건수·재발 여부, 다음 달 개선 제안 (최대 3개) |
+| GET | `/api/review-insight/report/monthly/print?month=` | 월간 보고서 인쇄용 A4 (개선 제안은 체크 칸 할 일 목록). 브라우저 인쇄 → PDF |
+
+확인 화면(`http://127.0.0.1:8020/`)에 **캡처 입력 · 응대 기한·점수 · 보고서** 탭을 시안으로 붙였습니다 (통합 화면에는 넣지 않음).
+
+**고객응대 확장 (11/15)** — 리뷰 관리에서 고객응대 전체로. 구조는 상권 서비스와 같게: 이 서비스가 혼자 돌고 자체 화면(`/`)을 가지며, 비서 화면 서버는 `/api/care/*` 프록시로 불러 씀 (`integration/care_proxy.py`, [`docs/handoff.md`](docs/handoff.md) 9절)
+
+| 메서드 | 주소 | 하는 일 |
+|---|---|---|
+| GET·PUT·DELETE | `/api/review-insight/profile` | 응대용 가게 정보 (처음 설정 상태·오늘 영업시간·품절 포함). PUT 은 바꿀 묶음만 |
+| POST·DELETE | `/api/review-insight/profile/notices[/{id}]` | 임시 공지 (임시휴무·품절·시간 변경). 끝나는 날이 지나면 저절로 빠짐 |
+| POST·DELETE | `/api/review-insight/profile/answers[/{id}]` | 배운 답 |
+| POST | `/api/review-insight/profile/menu/capture` | 메뉴판 사진 → 메뉴·가격 후보 (HCX-005, 저장 안 함) |
+| GET | `/api/review-insight/inbox` | 리뷰 + 손님 문의 한 목록. 사장님 확인 필수(알레르기·위생·환불·직원)가 맨 위 |
+| POST | `/api/review-insight/inquiries/{id}/status` · `/draft` | 문의 답장(배운 답 저장 선택) · 답 초안 (가게 정보 사실만, 코드 검사) |
+| GET | `/api/review-insight/promises` | 약속 장부: 답글의 약속과 그 뒤 재발 여부 |
+| GET·POST | `/api/review-insight/public/{가게}/info · inquiries · inquiries/{code}` | **손님용 (토큰 없음)**. 가게 정보로 바로 답하거나 사장님에게 전달. 횟수 제한 |
+| GET | `/s/{가게}` | 손님 문의 페이지 (휴대폰 화면) |
+| GET | `/api/review-insight/menu/foreign?lang=` · `/menu/foreign/print` | 다국어 메뉴판 초안과 인쇄용 A4 페이지. 12개 언어: en·ja·zh-CN(확인한 사전 + Papago), zh-TW·vi·th·id·fr·es·ru·de·it(Papago, 키 없으면 영어로 대신) |
+
 - `store_id`를 빼면 발표용 가게 `store_ongi`입니다. 없는 가게는 404 `STORE_NOT_FOUND`.
 - 오류는 규격 7절 모양입니다: `{"error": {"code", "message", "retryable", "details", "request_id"}}`
 - 모든 응답에 `X-Request-Id` 헤더가 붙습니다. 오류를 물어볼 때 이 번호를 알려 주세요.
@@ -297,6 +327,13 @@ pytest -q                         # 시험 (키 필요 없음, CLOVA 응답은 �
 
 | `.env` | 기본값 | 뜻 |
 |---|---|---|
+| `CAPTURE_MAX_BYTES` | `10485760` (10MB) | 캡처 이미지 크기 상한 |
+| `CAPTURE_TIMEOUT_SECONDS` | `40` | 캡처 한 조각을 읽는 HCX-005 호출 시간 제한 |
+| `LLM_MODEL_CAPTURE` | `HCX-005` | 캡처를 읽는 모델 (이미지 입력은 HCX-005 만 됨) |
+| `REVIEW_PEAK_HOURS` | `11-14,17-21` | 응대 기한 타이머가 멈추는 피크 시간. 끄려면 `off` |
+| `REVIEW_REPLY_SLA_MINUTES` | `30` | 불만 리뷰 답글 기한 (분) |
+| `PAPAGO_CLIENT_ID`, `PAPAGO_CLIENT_SECRET` | 비움 | 다국어 메뉴판 번역 (네이버클라우드 Papago Translation). 비우면 확인한 사전만 씀 (demo) |
+| `LLM_MODEL_CARE` | `HCX-005` | 문의 답 초안 모델 |
 | `CLOVASTUDIO_API_KEY` | (없음) | CLOVA Studio 키. 상권 비서가 쓰는 `CLOVA_STUDIO_API_KEY`도 읽음 |
 | `LLM_MODEL_REVIEW` | `HCX-005` | 분류 모델 |
 | `LLM_TIMEOUT_SECONDS` | `20` | AI 호출 한 번의 시간 제한 |
@@ -389,7 +426,26 @@ httpx.get("http://<서버>:8020/api/review-insight/insight", headers={"X-Access-
   c3-v2에서 '매장 환경' 주제를 더하면서 '주제 없음'이던 정답 4건을 `atmosphere`로 바꿨습니다.
 - 와우 숫자(불만 12 · 3묶음 · 단발 5)는 AI 분류 결과에 따라 달라질 수 있습니다. 발표에서는 HCX-005 결과를 재생본(C9)으로 고정합니다.
 
+- **캡처 입력은 실제 HCX-005 로 한 번도 불러 보지 않았습니다 (11/14).** 요청 모양은 API 가이드대로 만들고 가짜 응답으로만 시험했습니다.
+  dataUri 에 `data:image/...;base64,` 앞머리가 필요한지, 실제 캡처를 얼마나 정확히 옮겨 적는지, 걸리는 시간은 아직 모릅니다.
+- **캡처: 모델이 화면에 없는 글을 지어내거나 리뷰를 빠뜨릴 수 있습니다.** 원문 글자가 따로 없어 코드로 대조할 수 없습니다.
+  그래서 후보만 돌려주고 저장하지 않으며, 사장님이 확인·수정한 뒤 `POST /reviews` 로 저장합니다. 긴 캡처를 조각으로 나누면 경계의 리뷰가 빠지거나 겹칠 수 있습니다.
+- 키가 없거나 `APP_MODE=mock` 이면 캡처는 **이미지를 읽지 않고 예시 후보**를 돌려주며 `"demo": true` 로 표시합니다.
+- **응대 점수 수식은 첫 안입니다** (11/14 사용자 확인, 개선 예정). 실제 사장님 행동으로 검증한 숫자가 아닙니다.
+- 합성 샘플 리뷰는 받은 시각이 없어 30분 기한을 걸지 않고 "기한 없는 미답변 n건"으로만 셉니다. 반복 묶음 감점에는 들어갑니다.
+- 보고서 문장은 AI 가 아니라 정해 둔 틀 문장입니다. 개선 제안은 원인을 단정하지 않고 "확인해 보세요"로만 씁니다.
+- 문의 분류(질문 유형·사장님 확인 필수·의도)는 **규칙**입니다. 표현이 다르면 놓칠 수 있어, 모르면 사장님에게 넘기는 쪽으로 만들었습니다. 정확도를 잰 적은 없습니다.
+- 가게 정보 3곳의 값(영업시간·메뉴 재료·알레르기 등)은 **가상 예시**입니다. 실제 가게 정보가 아닙니다.
+- 다국어 메뉴판의 사전 번역은 이건영·Claude 가 쓴 것이고 원어민 검수를 받지 않았습니다. Papago 는 실제로 불러 보지 않았습니다 (키 없음). 로마자는 기본 규칙만 (자음 동화 등은 하지 않음).
+- 공개 API 횟수 제한은 서버 메모리라 서버마다 따로 셉니다.
+- 받은 시각·상태·답글 기록(`app/records.py`)은 **DB 모드에서도 파일**에 저장합니다 (DB 표가 아직 없음). 서버가 2대면 서버마다 내용이 달라집니다.
+- `/response`·보고서는 규칙 계산이지만, 리뷰 분류 결과를 다시 씁니다. 분류는 저장할 때 끝나 저장본에 있으므로 보통 모델을 부르지 않으나,
+  저장본이 없는 리뷰가 있으면(예: 서버 재시작 뒤 live 모드) 분류 호출이 생길 수 있습니다.
+
 ## 10. 남은 일
+
+- [ ] 캡처 입력을 실제 키로 한 번 시험 (배달앱 캡처 2~3장, 긴 캡처 1장) → dataUri 형식·정확도·시간 기록
+- [ ] 응대 점수 수식 다듬기, 가게별 피크 시간 설정
 
 - [ ] 서버에서 `APP_MODE=live`(c3-v5)로 kiwi 참고 자료 켠 것·끈 것 평가, 온기한식 와우 숫자 확인, `data/replay/classify.json` 올리기
 - [ ] C1 데이터 계약이 나오면 `app/models.py`를 그 형식으로 맞추기

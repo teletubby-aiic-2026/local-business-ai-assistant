@@ -7,4 +7,7 @@ python-dotenv>=1.1,<2
 psycopg[binary,pool]>=3.2,<4
 # 형태소 분석 (규칙 분류 대비책). 상권 비서(PR #13)와 같은 버전, Apache-2.0. 없어도 글자 규칙으로 돎
 kiwipiepy==0.24.1
+# 캡처 입력: 이미지 검사·줄이기·자르기(메모리에서만), multipart 업로드
+pillow>=10,<13
+python-multipart>=0.0.9,<1
 pytest>=8,<9

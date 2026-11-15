@@ -14,17 +14,18 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.security import APIKeyHeader
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
-from app import service, storage  # noqa: E402  (.env 를 먼저 읽어야 함)
+from app import report, service, storage  # noqa: E402  (.env 를 먼저 읽어야 함)
 from app.classify import Classifier  # noqa: E402
+from app.sources import capture  # noqa: E402
 
 SPEC_VERSION = "0.1"   # docs/module-io-spec.md 의 공통 규칙(3·6·7·9절)을 따름. C3 내용은 결정안 v0.4
 _token_header = APIKeyHeader(name="X-Access-Token", auto_error=False,
@@ -52,6 +53,16 @@ def request_id() -> str:
     return _request_id.get() or f"req_{uuid.uuid4().hex[:6]}"
 
 
+_reader: capture.CaptureReader | None = None
+
+
+def reader() -> capture.CaptureReader:
+    global _reader
+    if _reader is None:
+        _reader = capture.CaptureReader()
+    return _reader
+
+
 def classifier() -> Classifier:
     global _classifier
     if _classifier is None:
@@ -76,6 +87,24 @@ class PasteIn(BaseModel):
     channel: Optional[str] = Field(None, description="baemin | coupangeats | yogiyo | naver_place, 모르면 비움")
     store_id: str = Field(service.DEFAULT_STORE, description="가게 ID")
     visitor_id: Optional[str] = Field(None, pattern=VISITOR_PATTERN, description=VISITOR_DESC)
+    source: Optional[str] = Field(None, description="어디서 들어왔나: paste(기본) | capture(캡처 후보 확인) | app(가상 배달앱) | memo(매장 메모). "
+                                                    "계약의 input_method 는 모두 paste 로 저장하고 이 값은 source 칸에 따로 둔다")
+    input_method: Optional[str] = Field(None, description="source 와 같은 뜻 (paste | capture | app | memo). 둘 다 주면 source 가 우선")
+
+
+class StatusIn(BaseModel):
+    status: str = Field(..., description="new | analyzed | drafted | replied | skipped (계약의 REVIEW_STATUSES)")
+    reply_text: Optional[str] = Field(None, description="답글 글 (status=replied 일 때, 1~1000자). 리뷰 조회 응답의 reply 로 돌려줌")
+    at: Optional[str] = Field(None, description="상태가 바뀐 시각 ISO 8601. 비우면 지금 (승인 시각을 따로 가진 화면 서버가 넘길 때)")
+    store_id: str = Field(service.DEFAULT_STORE, description="가게 ID")
+    visitor_id: Optional[str] = Field(None, pattern=VISITOR_PATTERN, description=VISITOR_DESC)
+
+
+NowQ = Query(None, description="계산 기준 시각 ISO 8601 (시연·시험용). 비우면 지금")
+
+
+def _now(value: str | None):
+    return service.parse_time(value, "now") or service.datetime.now(service.KST)
 
 
 StoreQ = Query(service.DEFAULT_STORE, description="가게 ID (기본: 발표 시나리오 가게 store_ongi)")
@@ -94,9 +123,17 @@ def get_store(store_id: str = StoreQ):
 
 
 @router.get("/reviews")
-def list_reviews(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ):
-    rows = service.all_reviews(store_id, visitor_id)
-    return {"items": [r.to_dict() for r in sorted(rows, key=lambda r: r.created_at, reverse=True)], "count": len(rows)}
+def list_reviews(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
+                 since: Optional[str] = Query(None, description="이 시각(ISO 8601) 뒤에 실제로 받은 리뷰만, 받은 순서로. 응답의 server_time 을 다음 since 로 쓰면 됨"),
+                 source: Optional[str] = Query(None, description="sample | paste | capture | app | memo 중 하나만")):
+    """리뷰 목록. 항목마다 source(어디서), received_at(실제로 받은 시각, 합성 샘플은 null), reply(사장님 답글)가 붙는다."""
+    server_time = service.datetime.now(service.KST).isoformat(timespec="seconds")
+    try:
+        rows = service.list_reviews(store_id, visitor_id, since=since, source=source)
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
+    out = {"items": rows, "count": len(rows)}
+    return out | {"server_time": server_time} if since is not None else out      # 규격의 목록 모양 {items,count} 은 그대로
 
 
 @router.get("/reviews/{review_id}")
@@ -106,8 +143,70 @@ def get_review(review_id: str, store_id: str = StoreQ, visitor_id: Optional[str]
     if review is None:
         return error(404, "REVIEW_NOT_FOUND", f"없는 리뷰입니다: {review_id}")
     c = classifier().classify([review])[0]
-    d = review.to_dict() | {"status": "analyzed"}
+    meta = service.records.load(store_id, visitor_id).get(review_id)
+    d = service.decorate(review, meta)
+    if not (meta or {}).get("status"):
+        d["status"] = "analyzed"
     return {"review": d, "classification": c.to_dict()}
+
+
+@router.post("/reviews/{review_id}/status")
+def set_review_status(review_id: str, body: StatusIn):
+    """답글 승인(replied)·건너뜀(skipped) 등 상태와 시각, 답글 글을 기록. 응대 기한·점수가 이 기록으로 계산된다."""
+    try:
+        review = service.set_status(body.store_id, body.visitor_id, review_id, body.status, reply_text=body.reply_text, at=body.at)
+    except LookupError:
+        return error(404, "REVIEW_NOT_FOUND", f"없는 리뷰입니다: {review_id}")
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
+    return {"review": review}
+
+
+@router.get("/response")
+def get_response(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ, now: Optional[str] = NowQ):
+    """응대 기한과 점수 (규칙으로만 계산). 답글 대기 불만별 due_at·남은 시간, 점수(0~100)와 이유 목록."""
+    try:
+        at = _now(now)
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
+    return {"store_id": store_id} | service.Timeline(classifier(), store_id, visitor_id).at(at)
+
+
+@router.get("/report/daily")
+def get_daily(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
+              date: Optional[str] = Query(None, description="YYYY-MM-DD (한국 날짜). 비우면 오늘"), now: Optional[str] = NowQ):
+    """일일 요약: 그날 리뷰·불만 수, 기한 안 답글 수, 점수 변동과 이유, 내일 먼저 할 일 1개. 숫자·문장 모두 코드(틀 문장)."""
+    try:
+        at = _now(now)
+        return report.daily(service.Timeline(classifier(), store_id, visitor_id), report.parse_day(date, at), at)
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
+
+
+@router.get("/report/monthly/print", response_class=HTMLResponse)
+def print_monthly(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
+                  month: Optional[str] = Query(None, description="YYYY-MM. 비우면 이번 달"), now: Optional[str] = NowQ):
+    """월간 보고서 인쇄용 A4 (HTML). 브라우저 인쇄 → 'PDF로 저장'. 개선 제안은 체크 칸 할 일 목록."""
+    try:
+        at = _now(now)
+        y, m = report.parse_month(month, at)
+        data = report.monthly(service.Timeline(classifier(), store_id, visitor_id), y, m, at)
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
+    name = service.store(store_id).get("name", store_id)
+    return HTMLResponse(report.render_monthly(data, name, service.datetime.now(service.KST)), headers={"Cache-Control": "no-store"})
+
+
+@router.get("/report/monthly")
+def get_monthly(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
+                month: Optional[str] = Query(None, description="YYYY-MM. 비우면 이번 달"), now: Optional[str] = NowQ):
+    """월간 보고서: 날마다 점수 추이, 반복 불만별 건수와 답글 뒤 재발 여부, 다음 달 개선 제안 (최대 3개)."""
+    try:
+        at = _now(now)
+        y, m = report.parse_month(month, at)
+        return report.monthly(service.Timeline(classifier(), store_id, visitor_id), y, m, at)
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
 
 
 @router.get("/insight")
@@ -119,14 +218,17 @@ def get_insight(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ):
 @router.post("/reviews", status_code=201)
 def paste_review(body: PasteIn):
     """S2 직접 붙여넣기 → 바로 분류 → 반복 묶음 다시 계산."""
+    source = body.source or body.input_method or "paste"
     try:
-        review = service.add_pasted(body.text, body.rating, body.channel, store_id=body.store_id, visitor_id=body.visitor_id)
+        review = service.add_review(body.text, body.rating, body.channel, store_id=body.store_id,
+                                    visitor_id=body.visitor_id, source=source)
     except ValueError as e:
         return error(400, "VALIDATION_ERROR", str(e))
     insight = service.analyze(classifier(), body.store_id, body.visitor_id)
     mine = next((c for c in insight.classifications if c.review_id == review.review_id), None)
     joined = [g.issue_id for g in insight.groups if review.review_id in g.review_ids]
-    return {"review": review.to_dict() | ({"status": "analyzed"} if mine else {}), "classification": mine.to_dict() if mine else None,
+    shown = service.decorate(review, service.records.load(body.store_id, body.visitor_id).get(review.review_id))
+    return {"review": shown | ({"status": "analyzed"} if mine else {}), "classification": mine.to_dict() if mine else None,
             "joined_issues": joined, "review_count": insight.review_count, "complaint_count": insight.complaint_count,
             "groups": [g.to_dict() for g in insight.groups],
             "repeated_issues": [i.to_dict() for i in insight.repeated_issues],
@@ -134,9 +236,40 @@ def paste_review(body: PasteIn):
             "top_issue_id": insight.top_issue.issue_id if insight.top_issue else None}
 
 
+@router.post("/reviews/capture")
+async def capture_reviews(file: UploadFile = File(..., description="리뷰 화면 캡처 1장 (png·jpg·webp)"),
+                          store_id: str = Form(service.DEFAULT_STORE),
+                          visitor_id: Optional[str] = Form(None, pattern=VISITOR_PATTERN),
+                          q_store: Optional[str] = Query(None, alias="store_id", description="쿼리로 주면 폼보다 우선 (화면 서버 프록시용)"),
+                          q_visitor: Optional[str] = Query(None, alias="visitor_id", pattern=VISITOR_PATTERN)):
+    """캡처 → HCX-005 가 옮겨 적은 리뷰 후보. 저장하지 않음: 사장님이 확인·수정한 뒤 POST /reviews 로 저장."""
+    store_id, visitor_id = q_store or store_id, q_visitor or visitor_id
+    limit = capture.max_bytes()
+    data = await file.read(limit + 1)          # 메모리에서만 씀. 디스크·로그에 남기지 않음
+    await file.close()
+    try:
+        result = reader().read(data)
+    except capture.CaptureError as e:
+        return error(e.status, e.code, e.message, e.details, e.retryable)
+    finally:
+        del data
+    saved = {" ".join(r.text.split()) for r in service.all_reviews(store_id, visitor_id)}
+    candidates = []
+    for r in result.reviews:
+        text, masked = service.mask_pii(r["text"][:1000])
+        candidates.append({"text": text, "rating": r["rating"], "pii_masked": masked,
+                           "duplicate": " ".join(text.split()) in saved or " ".join(r["text"].split()) in saved})
+    return {"candidates": candidates, "count": len(candidates), "demo": result.demo, "pieces": result.pieces,
+            "warnings": result.warnings, "engine": "demo" if result.demo else reader().model,
+            "next": "후보를 확인·수정한 뒤 POST /api/review-insight/reviews 로 한 건씩 저장하세요"}
+
+
 @router.delete("/reviews/pasted")
 def reset_pasted(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ):
     """데모 다시 하기: 그 가게에 (그 방문자가) 붙여넣은 리뷰를 모두 지움 (합성 리뷰는 그대로)."""
+    from app import inquiry
+    if service.clean_visitor(visitor_id) == service.COMMON_VISITOR:
+        inquiry.clear(store_id)              # 공용으로 부를 때만 손님 문의도 지움 (시연자 한 명의 '다시 하기'는 가게 공용 문의를 건드리지 않음)
     return {"deleted": service.clear_pasted(store_id, visitor_id)}
 
 
@@ -147,8 +280,12 @@ async def _lifespan(_: FastAPI):
     storage.close()
 
 
-app = FastAPI(title="리뷰 분석 (C2·C3·S2)", lifespan=_lifespan)
+app = FastAPI(title="리뷰 분석 · 고객응대 (C2·C3·S2)", lifespan=_lifespan)
 app.include_router(router)
+from app.care_api import make_routers  # noqa: E402
+_care, _public = make_routers(classifier, error, check_token)
+app.include_router(_care)
+app.include_router(_public)
 
 
 @app.middleware("http")
@@ -189,6 +326,13 @@ async def _bad_request(_: Request, exc: RequestValidationError):
 @app.get("/")
 def page():
     return FileResponse(ROOT / "app" / "static" / "index.html")
+
+
+@app.get("/s/{store_id}")
+def inquiry_page(store_id: str):
+    """손님용 문의 페이지 (시연용). 통합 화면에서는 Nginx·화면 서버가 이 페이지와 /api/review-insight/public/* 만 밖에 연다."""
+    service._dir(store_id)
+    return FileResponse(ROOT / "app" / "static" / "inquiry.html")
 
 
 @app.get("/health")

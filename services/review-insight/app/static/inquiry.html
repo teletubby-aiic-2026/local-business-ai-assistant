@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 통합 화면 서버가 이 페이지를 넘겨줄 때 이 값을 자기 경로(/api/care/public)로 바꾼다 (integration/care_proxy.py) -->
+<meta name="care-api" content="/api/review-insight/public">
+<title>가게 문의</title>
+<style>
+  :root { --ink:#1d1d1f; --sub:#6b6b70; --line:#e6e6ea; --bg:#f6f7f9; --card:#fff; --acc:#0a7d4f; --acc-bg:#e8f5ee; --warn:#9a5b00; --warn-bg:#fff6e5; --err:#b42318; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink:#f2f2f4; --sub:#a4a4ab; --line:#33343a; --bg:#141518; --card:#1d1e22; --acc:#3ccf8e; --acc-bg:#143325; --warn:#f0b85c; --warn-bg:#33270f; --err:#ff8a80; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:20px 16px 48px; }
+  .demo { font-size:13px; background:var(--warn-bg); color:var(--warn); border-radius:10px; padding:8px 12px; margin-bottom:14px; }
+  h1 { font-size:24px; margin:0 0 2px; letter-spacing:-0.02em; }
+  .sub { color:var(--sub); font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-top:14px; }
+  .today { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-top:10px; }
+  .pill { display:inline-block; background:var(--acc-bg); color:var(--acc); border-radius:999px; padding:2px 10px; font-weight:700; font-size:14px; }
+  .notice { margin:8px 0 0; padding-left:18px; color:var(--warn); font-weight:600; }
+  details { border-top:1px solid var(--line); padding:10px 0; } details:first-of-type { border-top:0; }
+  summary { cursor:pointer; font-weight:600; list-style:none; } summary::-webkit-details-marker { display:none; }
+  summary::before { content:"Q. "; color:var(--acc); }
+  details p { margin:6px 0 0; color:var(--sub); }
+  label { font-weight:700; display:block; margin-bottom:6px; }
+  textarea, input { width:100%; font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  textarea { min-height:96px; resize:vertical; }
+  button { font:inherit; font-weight:700; border:0; border-radius:10px; padding:11px 16px; background:var(--acc); color:#fff; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--acc); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; margin-top:10px; }
+  .answer { background:var(--acc-bg); border-radius:12px; padding:12px 14px; margin-top:12px; }
+  .wait { background:var(--warn-bg); border-radius:12px; padding:12px 14px; margin-top:12px; }
+  .code { font-family:ui-monospace, Menlo, monospace; font-weight:800; letter-spacing:.06em; }
+  .err { color:var(--err); margin-top:8px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .chips button { background:transparent; color:var(--ink); border:1px solid var(--line); font-weight:500; padding:6px 10px; font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="demo" id="demo">시연용 가상 가게입니다. 연락처·주문번호는 적지 마세요 (적으면 가립니다).</div>
+  <h1 id="name">가게 문의</h1>
+  <div class="sub" id="kind"></div>
+  <div class="today" id="today"></div>
+  <ul class="notice" id="notices" hidden></ul>
+
+  <section class="card" aria-labelledby="askTitle">
+    <label id="askTitle" for="q">무엇이 궁금하세요?</label>
+    <textarea id="q" maxlength="500" placeholder="예: 주차 되나요? / 토요일 저녁 6명 예약 되나요?"></textarea>
+    <div class="chips" id="chips"></div>
+    <div class="row"><button id="send">문의 남기기</button></div>
+    <div id="result" aria-live="polite"></div>
+  </section>
+
+  <section class="card" aria-labelledby="faqTitle">
+    <div id="faqTitle" style="font-weight:700">자주 묻는 질문</div>
+    <div id="faq" class="sub">불러오는 중…</div>
+  </section>
+
+  <section class="card" aria-labelledby="checkTitle">
+    <label id="checkTitle" for="code">답 확인하기</label>
+    <div class="row" style="margin-top:0"><input id="code" placeholder="확인 번호 8자리" maxlength="12"><button class="ghost" id="check">확인</button></div>
+    <div id="checked" aria-live="polite"></div>
+  </section>
+</main>
+<script>
+const API = document.querySelector('meta[name="care-api"]').content.replace(/\/$/, '');
+const STORE = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || 'store_ongi');
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+async function call(path, opts = {}) {
+  const r = await fetch(API + path, { ...opts, headers: { 'Content-Type': 'application/json' } });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error?.message || `요청 실패 (${r.status})`);
+  return d;
+}
+function show(el, d) {
+  if (d.answer) el.innerHTML = `<div class="answer"><b>${esc(d.answered_by)}</b> · ${esc((d.answered_at || '').slice(11, 16))}<div>${esc(d.answer)}</div></div>`;
+  else el.innerHTML = `<div class="wait">사장님께 전달했어요. 답이 오면 아래 '답 확인하기'에서 볼 수 있어요.<br>확인 번호 <span class="code">${esc(d.code)}</span></div>`;
+}
+async function load() {
+  try {
+    const d = await call(`/${encodeURIComponent(STORE)}/info`);
+    document.title = `${d.name} 문의`;
+    $('name').textContent = d.name; $('kind').textContent = d.business_type_name || '';
+    $('today').innerHTML = `<span class="pill">오늘 ${esc(d.today.hours === '휴무' ? '쉬어요' : (d.today.hours || '영업시간 미등록'))}</span>`;
+    if (d.notices.length) { $('notices').hidden = false; $('notices').innerHTML = d.notices.map(n => `<li>${esc(n)}</li>`).join(''); }
+    $('faq').innerHTML = d.faq.length ? d.faq.map(f => `<details><summary>${esc(f.q)}</summary><p>${esc(f.a)}</p></details>`).join('') : '아직 없어요.';
+    $('chips').innerHTML = ['주차 되나요?', '오늘 몇 시까지 해요?', '포장 되나요?'].map(q => `<button type="button">${esc(q)}</button>`).join('');
+  } catch (e) { $('faq').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+$('chips').onclick = e => { if (e.target.tagName === 'BUTTON') { $('q').value = e.target.textContent; $('q').focus(); } };
+$('send').onclick = async () => {
+  const text = $('q').value.trim(); if (text.length < 2) { $('result').innerHTML = '<div class="err">두 글자 이상 적어 주세요.</div>'; return; }
+  $('send').disabled = true;
+  try {
+    const d = await call(`/${encodeURIComponent(STORE)}/inquiries`, { method: 'POST', body: JSON.stringify({ text }) });
+    show($('result'), d); if (!d.answer) $('code').value = d.code; $('q').value = '';
+  } catch (e) { $('result').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  $('send').disabled = false;
+};
+$('check').onclick = async () => {
+  const code = $('code').value.trim(); if (!code) return;
+  try { show($('checked'), await call(`/${encodeURIComponent(STORE)}/inquiries/${encodeURIComponent(code)}`)); }
+  catch (e) { $('checked').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+};
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+{
+ "store_id": "store_ongi",
+ "data_origin": "synthetic",
+ "_note": "가상 가게의 응대용 가게 정보 예시 (합성). 실제 가게 정보가 아님",
+ "basic": {
+  "hours": {
+   "mon": "11:00-21:00",
+   "tue": "11:00-21:00",
+   "wed": "11:00-21:00",
+   "thu": "11:00-21:00",
+   "fri": "11:00-21:00",
+   "sat": "11:00-21:00",
+   "sun": "휴무"
+  },
+  "break_time": "15:00-17:00",
+  "last_order": "20:30",
+  "holidays": "매주 일요일",
+  "address": "서울 동작구 장승배기역 근처 (가상 주소)",
+  "parking": "가게 앞 2대 가능 (점심에는 자리가 없을 수 있어요)",
+  "phone": null
+ },
+ "order": {
+  "delivery_area": "장승배기역 반경 2km",
+  "min_order": 12000,
+  "takeout": true,
+  "group_order": "10인분 이상은 하루 전에 예약해 주세요"
+ },
+ "menu": [
+  {
+   "name": "제육볶음 정식",
+   "price": 9500,
+   "ingredients": [
+    "돼지고기",
+    "고추장",
+    "양파",
+    "대파"
+   ],
+   "spicy": 2,
+   "allergens": [
+    "돼지고기",
+    "대두",
+    "밀"
+   ],
+   "recommended": true,
+   "sold_out": false
+  },
+  {
+   "name": "된장찌개",
+   "price": 8000,
+   "ingredients": [
+    "된장",
+    "두부",
+    "애호박",
+    "감자"
+   ],
+   "spicy": 0,
+   "allergens": [
+    "대두"
+   ],
+   "recommended": false,
+   "sold_out": false
+  },
+  {
+   "name": "김치찌개",
+   "price": 8000,
+   "ingredients": [
+    "김치",
+    "돼지고기",
+    "두부"
+   ],
+   "spicy": 2,
+   "allergens": [
+    "돼지고기",
+    "대두"
+   ],
+   "recommended": true,
+   "sold_out": false
+  },
+  {
+   "name": "순두부찌개",
+   "price": 8500,
+   "ingredients": [
+    "순두부",
+    "바지락",
+    "달걀"
+   ],
+   "spicy": 2,
+   "allergens": [
+    "대두",
+    "조개류",
+    "달걀"
+   ],
+   "recommended": false,
+   "sold_out": false
+  },
+  {
+   "name": "불고기 덮밥",
+   "price": 9000,
+   "ingredients": [
+    "소고기",
+    "간장",
+    "양파"
+   ],
+   "spicy": 0,
+   "allergens": [
+    "소고기",
+    "대두",
+    "밀"
+   ],
+   "recommended": false,
+   "sold_out": false
+  },
+  {
+   "name": "계란말이",
+   "price": 6000,
+   "ingredients": [
+    "달걀",
+    "대파",
+    "당근"
+   ],
+   "spicy": 0,
+   "allergens": [
+    "달걀"
+   ],
+   "recommended": false,
+   "sold_out": false
+  }
+ ],
+ "policy": {
+  "remake": "음식에 문제가 있으면 사진과 함께 알려 주시면 다시 만들어 드려요",
+  "refund": null,
+  "reservation": "4인 이상은 전화나 문의로 예약해 주세요",
+  "pets": "매장 안에는 반려동물이 들어올 수 없어요",
+  "extra": []
+ },
+ "reply": {
+  "tone": "polite",
+  "sign_off": "온기한식 드림",
+  "peak_hours": "11-14,17-21",
+  "sla_minutes": 30
+ },
+ "foreign": {
+  "languages": []
+ },
+ "notices": [],
+ "answers": []
+}
