@@ -64,7 +64,7 @@ curl -s http://localhost:8000/api/health
 - 1부. API 9개
   - 1.0 한눈에 보기
   - 1.1 `GET /api/health` · 1.2 `GET /api/briefing` · 1.3 `GET /api/insight` · 1.4 `GET /api/cards`
-  - 1.5 `POST /api/cards/{card_id}/run` · 1.6 `POST /api/drafts/{draft_id}/approve` · 1.7 `GET /api/approvals`
+  - 1.5 `POST /api/cards/{card_id}/run` · 1.6 `POST /api/drafts/{draft_id}/approve` · 1.7 `GET /api/approvals` · 1.7.1 `DELETE /api/approvals`
   - 1.8 `POST /api/reviews` · 1.9 `DELETE /api/reviews/pasted`
   - 1.10 `/api/assistant/*` (상권 채팅 서랍. 상권 서비스 프록시)
   - 1.11 `/api/care/*` (캡처 입력·응대 점수·보고서. 리뷰 분석 서비스의 고객응대 프록시)
@@ -151,13 +151,13 @@ curl -s http://localhost:8000/api/health
 |---|---|
 | `200` | 성공 (대부분) |
 | `201` | `POST /api/reviews` 성공 |
-| `400` | `live`에서 글 만들기 실패 (키 없음, 모르는 재발 방지 조치 등) |
-| `404` | 카드 id가 지금 화면의 카드가 아님, 저장 예시가 이 카드에 안 맞음 |
+| `400` | `live`에서 글 만들기 실패 (키 없음, 모르는 재발 방지 조치 등). 개별 다시 만들기(1.5)에서 그 카드가 만들지 않는 글 종류를 보냄, 답글인데 `review_id`가 없음 |
+| `404` | 카드 id가 지금 화면의 카드가 아님, 저장 예시가 이 카드에 안 맞음. 개별 다시 만들기(1.5)에서 그 리뷰가 이 카드의 답글 대상이 아님 |
 | `405` | 허용하지 않는 메서드 |
 | `422` | 요청 형식·범위 오류 |
 | `500` | 예기치 못한 오류 |
 | `502` | `live`에서 글을 만들다가 HCX 호출 쪽에서 예상 못한 오류가 남 (11/14. 화면 알림 띠로 보임. 다시 누르면 됨) |
-| `503` | 리뷰 분석 서버에 연결하지 못함 또는 그 서버가 오류를 돌려줌 |
+| `503` | 리뷰 분석 서버에 연결하지 못함 또는 그 서버가 오류를 돌려줌. 승인 기록 지우기(1.7.1)에서 저장소(DB)에 닿지 못함 |
 
 ---
 
@@ -165,7 +165,7 @@ curl -s http://localhost:8000/api/health
 
 ### 1.0 한눈에 보기
 
-경로 9개는 `services/web/web/main.py`와 같습니다.
+경로 9개는 `services/web/web/main.py`와 같습니다. **11/16 덧붙임**: 승인 기록을 지우는 `DELETE /api/approvals`(7-1, 1.7.1절)가 생겨 지금은 10개입니다. 5번은 본문에 `generator`를 보내면 글 한 건만 다시 만듭니다(1.5절 '개별 다시 만들기').
 
 | # | 메서드와 경로 | 하는 일 | 쓰는 화면 | 성공 |
 |---|---|---|---|---|
@@ -173,9 +173,10 @@ curl -s http://localhost:8000/api/health
 | 2 | `GET /api/briefing` | 오늘의 브리핑 (숫자, 묶음, 리뷰 원문, 상권 지표) | 홈 `#/today`, 상단 가게 이름 | 200 |
 | 3 | `GET /api/insight` | 리뷰 분석 (감정·주제 건수, 묶음), 읽기 전용 | 리뷰 분석 `#/analysis` | 200 |
 | 4 | `GET /api/cards` | 오늘의 추천 카드 최대 2장 | 추천 카드 `#/cards`, 홈 '오늘 할 일' | 200 |
-| 5 | `POST /api/cards/{card_id}/run` | 카드에 맞는 글 만들기 | 카드 버튼, 홈 '오늘 할 일', 초안 '다시 만들기' | 200 |
+| 5 | `POST /api/cards/{card_id}/run` | 카드에 맞는 글 만들기. 본문에 `generator`가 있으면 그 글 한 건만 | 카드 버튼, 홈 '오늘 할 일', 초안 '카드 전체 다시 만들기' · 초안 상자의 '다시 만들기'(한 건) | 200 |
 | 6 | `POST /api/drafts/{draft_id}/approve` | 글 승인 기록 | 초안 `#/draft` '승인' | 200 |
 | 7 | `GET /api/approvals` | 서버의 승인 기록 목록 | 처리 완료 `#/done` '서버 처리 기록' | 200 |
+| 7-1 | `DELETE /api/approvals` | 이 방문자의 승인 기록 지우기 (11/16) | 처리 완료 `#/done` '처음부터 다시' | 200 |
 | 8 | `POST /api/reviews` | 리뷰 한 건 붙여넣기, 바로 분류 | 리뷰 분석 '리뷰 붙여넣기' 탭 | 201 |
 | 9 | `DELETE /api/reviews/pasted` | 붙여넣은 리뷰 모두 지우기 | 같은 탭 '붙여넣은 리뷰 지우기' | 200 |
 
@@ -688,7 +689,7 @@ curl -s http://localhost:8000/api/health
 - live: HCX-005가 실시간으로 씁니다. 시간이 걸립니다 (저장 예시에 기록된 시간은 글 하나에 2.5~4.6초, 카드 하나에 6.8초. 배포 계획서는 글 생성이 14초를 넘을 때가 있다고 적음). 결과를 파일에 저장하지 않습니다.
 - 응답은 **승인 전의 초안**입니다.
 
-**쓰는 화면**: 추천 카드의 버튼(`[data-run]`), 홈 '오늘 할 일' 항목(아직 안 만든 글), 초안 화면의 '다시 만들기'.
+**쓰는 화면**: 추천 카드의 버튼(`[data-run]`), 홈 '오늘 할 일' 항목(아직 안 만든 글), 초안 화면 진행줄 옆의 '카드 전체 다시 만들기'(`[data-rerun]`). 초안 상자 안의 '다시 만들기'(`[data-regen]`)는 같은 경로에 `generator`를 보내 **그 글 한 건만** 다시 만듭니다 (아래 '개별 다시 만들기').
 
 **요청**: `POST /api/cards/{card_id}/run`
 
@@ -703,9 +704,9 @@ curl -s http://localhost:8000/api/health
 |---|---|---|
 | `measures` | 문자열 목록, 또는 생략·`null` | 사장님이 고른 재발 방지 조치 id. 허용값은 그 카드의 `measures.options[].id` (`M1`~`M5`). 생략·`null`이면 카드의 `measures.default`를 씀. `[]`이면 고른 것 없음 |
 
-- mock은 `measures` 값을 **무시**합니다. 틀린 id(`"M9"`)를 보내도 오류가 나지 않습니다 (확인함).
+- mock은 글을 바꾸지 않습니다(저장 예시 그대로). 다만 **11/16부터** 응답의 `chosen_measures`에는 사장님이 고른 조치를 싣습니다 (화면이 '오늘부터 실천할 주방 점검 수칙'으로 보여 줌). 틀린 id(`"M9"`)는 오류 없이 뺍니다 (확인함). 저장 예시 글이 그 조치를 담고 있다는 뜻은 아닙니다.
 - live는 모르는 id를 보내면 `400` ("모르는 재발 방지 조치예요: M9", 확인함). 카드 ⓑ는 `measures`를 쓰지 않습니다.
-- 고른 조치만 공지·답글에 들어갑니다. 고르지 않은 조치를 글이 지어내면 점검에서 걸립니다.
+- 고른 조치는 **재발 방지 공지**에 들어갑니다. 고르지 않은 조치를 글이 지어내면 점검에서 걸립니다. 답글은 고른 조치와 상관없이 글 만드는 코드가 늘 `M1`(주문서 대조) 문장을 붙입니다 (`c6/reply.py`). 그래서 화면은 "공지에 반영"이라고만 적습니다.
 
 **응답 `200`, 카드 ⓐ** (줄임: `drafts` 4개 중 첫 답글과 재발 방지 공지만 남김. 답글 3개와 공지 1개가 실제 응답):
 
@@ -851,7 +852,7 @@ curl -s http://localhost:8000/api/health
 | `reason_text` | 카드 이유 문장. mock은 이 서버가 만든 카드 문장으로 바꿔 줌 | 안 씀 |
 | `basis_label` | 홍보글의 근거 한 줄 (카드 ⓑ). 카드 ⓐ는 `null` | 안 씀 |
 | `drafts[]` | 만든 글 목록 (아래 표) | 초안 화면 |
-| `chosen_measures[]` | 사장님이 고른 조치 `{id, text}` | 초안 화면 위 "사장님이 고른 재발 방지 조치: …" |
+| `chosen_measures[]` | 사장님이 고른 조치 `{id, text}`. mock도 고른 값을 실음 (11/16) | 초안 화면 위 "오늘부터 실천할 주방 점검 수칙: …", 완료 화면의 같은 이름 목록 |
 | `elapsed_ms` | 글을 만드는 데 걸린 시간(밀리초). mock에서는 저장된 값 | 안 씀 |
 | `won` | 모델 호출에 든 돈. 호출 응답의 `won` 값을 더한 것 (mock에서는 저장된 값) | 안 씀 |
 | `source` | `"seed"`(시험용 저장 예시) 또는 `"live"`(실시간) | 초안 화면 위 배지: seed는 "시험용 저장 예시 (실제 AI 결과 아님)", live는 "실시간 HCX-005" |
@@ -928,6 +929,7 @@ curl -s http://localhost:8000/api/health
 | `502` | live에서 HCX 호출 중 예상 못한 오류. 문장은 "글을 만들다가 문제가 생겼어요. 잠시 뒤 다시 눌러 주세요." HCX가 느리거나 실패해도 보통은 이 오류가 아니라 `200`으로 오고, 글에 `needs_input`(AI 호출 실패 안내)이 붙어 '확인 필요'로 보임. HCX 1회 호출은 30초 안에 끝나지 않으면 한 번만 다시 부름 | ① 모양 |
 | `422` | `measures`가 목록이 아님 | ② 모양 |
 | `503` | 리뷰 분석 서버 문제 | ① 모양 |
+| `400` · `404` | 개별 다시 만들기의 입력 오류 (아래 '개별 다시 만들기'의 표) | ① 모양 |
 
 카드 id가 틀렸을 때 `404` (실제로 뽑음):
 
@@ -976,9 +978,82 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 }
 ```
 
+**개별 다시 만들기 (11/16)**: 본문에 `generator`를 보내면 카드 전체가 아니라 **그 글 한 건만** 다시 만듭니다. 초안 상자 안의 '다시 만들기'가 씁니다. 예전에는 이 버튼이 카드 전체를 다시 만들어, 다른 글에서 고치던 내용과 승인까지 날렸습니다.
+
+```json
+{"generator": "reply_draft", "review_id": "rv_ongi_002", "measures": ["M1"]}
+```
+
+| 칸 | 형식·범위 | 뜻 |
+|---|---|---|
+| `generator` | 문자열(40자 이하), 생략·`null`이면 카드 전체 | 다시 만들 글 종류. 카드 ⓐ는 `"reply_draft"`·`"prevention_notice"`, 카드 ⓑ는 `"coupon_promo"`. 그 카드가 만들지 않는 종류면 `400` |
+| `review_id` | 문자열(100자 이하) | `reply_draft`일 때 **필수**: 그 답글이 가리키는 리뷰(`drafts[].target_review_id`). 카드 묶음의 리뷰이거나, 답글을 함께 만든 붙여넣은 리뷰여야 함. 아니면 `404`. 다른 종류에서는 무시 |
+| `measures` | 위와 같음 | 화면은 처음 만들 때 고른 조치(`chosen_measures`의 id)를 그대로 보냄 |
+| `reply_texts` | 문자열 목록(20개 이하), 선택 | `prevention_notice`일 때만 씀: 지금 화면에 있는 묶음 답글들의 글. 새 공지가 답글과 너무 비슷한지(`checks.notice_vs_reply`) 견주는 데만 쓰고 모델에 넘기지 않음. 안 보내면 그 점검은 늘 통과 |
+
+- 응답은 전체 실행과 **같은 모양**이고 `drafts`에 그 한 건만 있습니다. 맨 위에 `"partial": true`와 `"regenerated": {"generator", "review_id", "pasted"}`가 붙습니다 (`pasted`: 붙여넣은 리뷰의 답글이면 `true`). `flagged_count`·`elapsed_ms`·`won`은 이 한 건의 값입니다 (mock의 `elapsed_ms`·`won`은 저장된 카드 값 그대로).
+- **묶음 리뷰의 답글**은 전체 실행 때와 같은 자리(순서)로 만듭니다. 글 만드는 코드가 답글 순서대로 조치·요청사항 문장을 돌려 쓰기 때문에, 자리가 같아야 다른 답글과 문장이 겹치지 않습니다. **붙여넣은 리뷰의 답글**도 전체 실행과 같은 방식이고, 응답에 `pasted_reply_review_ids: [그 리뷰]`가 붙습니다.
+- 한 건만 만든 답글의 `checks`에는 `not_too_similar`(다른 답글과 표현이 겹치는지)가 **없습니다**. 그 비교는 답글들의 AI가 쓴 부분끼리 하는데 한 건만 만들어서 견줄 수 없기 때문입니다. 참고용 점검이라 글 상태(점검 통과·실패)는 달라지지 않습니다.
+- mock은 저장 예시에서 그 한 건을 골라 줍니다 (글과 `draft_id`가 전과 같음). 붙여넣은 리뷰는 글이 똑같은 저장 예시가 있을 때만 되고, 없으면 `404`.
+- 카드 ⓑ는 글이 하나라 `coupon_promo` 한 건 다시 만들기가 카드 전체 실행과 같습니다.
+- 다시 만든 글도 서버가 기억해서, 승인하면 승인 기록에 카드·종류가 붙습니다 (1.6). 다른 글의 기억은 그대로입니다.
+- 화면은 받은 글을 종류와 `target_review_id`가 같은 자리의 글과 바꾸고, **그 글의** 승인 표시와 고치던 내용만 지웁니다.
+
+mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실제로 뽑음. `checks`는 줄임):
+
+```json
+{
+  "card_id": "card_ongi_a",
+  "kind": "complaint",
+  "reason_text": "포장 누락 불만이 3건 반복됐고, 모두 17~21시에 들어왔어요",
+  "basis_label": null,
+  "drafts": [
+    {
+      "draft_id": "d_b320f984",
+      "card_id": "card_ongi_a",
+      "store_id": "store_ongi",
+      "generator": "prevention_notice",
+      "target_review_id": null,
+      "text": "[안내] 포장 누락 관련\n온기한식을 찾아 주시는 분들께\n최근 공깃밥, 수저와 젓가락, 계란말이가 빠진 상태로 배달된 일이 있었습니다.\n불편을 드려 죄송합니다.\n오늘부터 포장 마감 전에 주문서와 한 번 더 대조하겠습니다.\n이외에도 필요한 게 있으면 요청사항에 적어 주세요.\n늘 찾아 주셔서 감사합니다. 온기한식 드림",
+      "evidence_ids": ["F_rv_ongi_001", "F_rv_ongi_002", "F_rv_ongi_003", "M1"],
+      "checks": {"…": true},
+      "failed_reasons": [],
+      "rewrites": 2,
+      "needs_input": [],
+      "status": "draft",
+      "edited_text": null,
+      "model": "HCX-005",
+      "elapsed_ms": 7362,
+      "data_origin": "synthetic",
+      "style": null,
+      "c7_flags": []
+    }
+  ],
+  "chosen_measures": [{"id": "M1", "text": "포장 마감 전 주문서 대조"}],
+  "elapsed_ms": 11958,
+  "won": 54.04,
+  "source": "seed",
+  "source_note": "김수현 저장본(c6_cache_best.json, 샘플 카드 card_sample_a로 생성한 글). 이유 문장은 이 화면의 카드 문장으로 바꿈",
+  "flagged_count": 0,
+  "partial": true,
+  "regenerated": {"generator": "prevention_notice", "review_id": null, "pasted": false}
+}
+```
+
+개별 다시 만들기의 오류 (모두 ① 모양. 문장은 실제로 뽑음):
+
+| 코드 | 언제 | `error.message` |
+|---|---|---|
+| `400` | 그 카드가 만들지 않는 글 종류 (예: 카드 ⓐ에 `coupon_promo`), 모르는 종류, 빈 문자열 | "이 카드에서 만드는 글이 아니에요: coupon_promo" |
+| `400` | `reply_draft`인데 `review_id`가 없음 | "어느 리뷰의 답글을 다시 만들지(review_id) 알려 주세요." |
+| `404` | `review_id`가 카드 묶음의 리뷰도, 답글을 만드는 붙여넣은 리뷰도 아님 | "그 리뷰는 이 카드에서 답글을 만드는 리뷰가 아니에요. 새로 고침 하세요." |
+| `404` | mock에서 그 붙여넣은 리뷰와 글이 같은 저장 예시가 없음 | "이 리뷰의 답글은 지금 다시 만들 수 없어요 (…)" |
+| `400` · `502` · `503` | 전체 실행과 같음 (live에서 키 없음·모르는 `measures`, HCX 쪽 예상 못한 오류, 리뷰 분석 서버 문제) | 전체 실행과 같은 문장 |
+| `422` | `generator`가 40자를 넘음, `reply_texts`가 목록이 아님 | ② 모양 |
+
 **참고**
 - 화면은 서버가 준 글 순서(답글들, 공지)와 상관없이 **공지 → 홍보글 → 답글** 순서로 보여 줍니다 (`app.js`의 `GEN_ORDER`).
-- 다시 만들면 그 카드의 예전 글과 승인 표시는 화면에서 버려집니다.
+- '카드 전체 다시 만들기'를 하면 그 카드의 예전 글과 승인 표시는 화면에서 버려집니다. 초안 상자의 '다시 만들기'는 그 글 한 건의 것만 버립니다.
 - 이 API는 글을 서버에 저장하지 않습니다. 화면(브라우저 메모리)에만 있습니다.
 
 ---
@@ -1117,6 +1192,35 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 **참고**
 - 이 목록은 **서버 메모리**입니다. 서버를 다시 켜면 비어 있습니다. 파일(`approvals.jsonl`)에 남은 줄을 다시 읽지 않습니다 (3.1).
 - 방문자를 구분하지 않으므로 모든 방문자의 승인이 한 목록에 섞입니다.
+
+---
+
+### 1.7.1 `DELETE /api/approvals` (11/16)
+
+**하는 일**: **이 방문자**(쿠키 `visitor_id`)의 승인 기록을 모두 지웁니다. 다른 방문자의 기록은 건드리지 않습니다.
+**쓰는 화면**: 처리 완료 `#/done`의 보조 버튼 '처음부터 다시'(`#restart`). 화면의 진행을 비우면서 같이 부릅니다. 그래서 다시 카드 → 승인 → 완료로 왔을 때 '서버 처리 기록'에 예전 승인이 남아 있지 않습니다. (주 버튼 '홈으로'는 아무것도 지우지 않고 API도 부르지 않습니다.)
+
+**요청**: `DELETE /api/approvals`. 본문 없음.
+
+**응답 `200`** (실제로 뽑음. 글 4건을 승인한 뒤):
+
+```json
+{"deleted": 4}
+```
+
+| 칸 | 뜻 | 화면 |
+|---|---|---|
+| `deleted` | 지운 승인 기록 수. 지울 것이 없으면 `0` (그래도 `200`) | 안 씀 |
+
+- 지우는 곳: 서버 메모리의 목록(기본) 또는 DB의 `approvals` 표에서 이 가게·이 방문자의 줄(`DB_HOST`가 있을 때). DB에 아직 못 써서 이 서버가 들고 있던 승인도 같이 버립니다.
+- **지우지 않는 것**: 메모리 방식의 기록 파일 `approvals.jsonl`(덧붙이기만 하는 기록이라 그대로 둠), 답글 승인 때 리뷰 분석 서비스에 남긴 '답글 달았음' 기록(1.6, 응대 점수·보고서에 계속 반영됨).
+- 지운 뒤 `GET /api/approvals`는 `{"items": []}`입니다.
+
+**오류**
+
+| 코드 | 언제 | 본문 |
+|---|---|---|
+| `503` | 저장소(DB)에 닿지 못해 지우지 못함. 이때는 아무것도 지우지 않음. 화면은 진행을 비우고 알림 띠에 "화면은 처음으로 돌렸지만 서버의 승인 기록은 지우지 못했어요. …"를 보임 | ① 모양 ("승인 기록을 지우지 못했어요. 잠시 뒤 다시 눌러 주세요.") |
 
 ---
 
@@ -1605,7 +1709,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 |---|---|
 | `draft` | 초안 화면 전체. JS가 통째로 채움 (제목, 글 고르기, 편집 칸, 승인 버튼) |
 | `done` | 완료 화면 전체. JS가 통째로 채움 |
-| `restart` | (JS가 만듦) 완료 화면의 '처음으로' 버튼 |
+| `restart` | (JS가 만듦) 완료 화면의 보조 버튼 '처음부터 다시' (화면 진행을 비우고 `DELETE /api/approvals`). 주 버튼 '홈으로'는 id 없이 `data-home` |
 | `approvals` | (JS가 만듦) 완료 화면 '서버 처리 기록' 목록 |
 
 **리뷰 분석 `#/analysis`**
@@ -1747,7 +1851,10 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `data-measure` | JS가 만든 재발 방지 조치 체크박스 | 카드 id (`value`가 조치 id) |
 | `data-text` | JS가 만든 글 편집 칸 | 글 id |
 | `data-card` · `data-pick` | JS가 만든 카드 고르기·글 고르기 버튼 | 카드 id · 글 id |
-| `data-approve` · `data-copy` · `data-rerun` | JS가 만든 '승인'·'복사'·'다시 만들기' 버튼 | 글 id · 글 id · 카드 id |
+| `data-approve` · `data-copy` · `data-regen` | JS가 만든 초안 상자의 '승인'·'복사'·'다시 만들기'(그 글 한 건만, 11/16) 버튼 | 글 id |
+| `data-rerun` | JS가 만든 진행줄 옆 '카드 전체 다시 만들기' 버튼 (11/16에 초안 상자 밖으로 옮김) | 카드 id |
+| `data-rerun-note` | '카드 전체 다시 만들기'의 안내 한 줄 (`role="status"`. 한 번 눌렀을 때 "한 번 더 누르면 …") | (값 없음) |
+| `data-home` | JS가 만든 완료 화면의 주 버튼 '홈으로' | (값 없음) |
 | `data-sample` | JS가 만든 예시 문장 버튼 | 예시 번호 |
 | `data-cap-pick` · `data-cap-text` · `data-cap-rate` · `data-cap-msg` | JS가 만든 캡처 후보의 체크 칸 · 글 칸 · 별점 · 오류 줄 | 후보 번호 |
 | `data-clock` | JS가 만든 남은 시간 표시 | `pending` 순번 |
@@ -1788,8 +1895,8 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | 홈 '오늘 할 일' | `todo-item`(+`urgent`, +`done`·`wait`·`none`), `todo-check`, `todo-text`, `todo-urgent`, `todo-st` |
 | AI 직원 한 줄 | `dot`(+`ok`·`warn`), `muted` |
 | 추천 카드 | `card`, `kind`, `agent`, `reason`, `measures`, `more`, `ev`, `primary` |
-| 초안 | `page-head`, `eyebrow`, `badge`(+`ok`·`warn`·`bad`), `seg`, `progress`, `track`, `draft-list`, `st`(+`ok`·`warn`·`bad`), `draft`(+`approved`), `draft-head`, `rv`, `rv-title`, `rv-list`, `rv-meta`, `rv-text`, `stars`, `reply`, `reply-label`, `ico`, `issues`(+`bad`), `row`, `ghost`, `model` |
-| 완료 | `log`, `plain`, `big`, `panel`, `more` |
+| 초안 | `page-head`, `eyebrow`, `badge`(+`ok`·`warn`·`bad`), `seg`, `progress`, `track`, `draft-list`, `st`(+`ok`·`warn`·`bad`), `draft`(+`approved`), `draft-head`, `rv`, `rv-title`, `rv-list`, `rv-meta`, `rv-text`, `stars`, `reply`, `reply-label`, `ico`, `issues`(+`bad`), `row`, `ghost`, `model`, `draft-note` |
+| 완료 | `log`, `plain`, `big`, `panel`, `more`, `done-rules`, `row`, `done-actions`, `ghost`, `done-hint` |
 | 리뷰 분석 | `kw-row`, `kw-title`, `kw-chip`(+`pos`·`neg`), `box`, `n`, `arrow`, `group`(+`repeated`·`new`), `group-head`, `badge`(+`rep`·`ok`), `an-note`, `an-bands`, `topic-bars`, `quote`, `an-joined`, `panel`, `panel-head` |
 | 캡처로 넣기 | `cap-item`(+`dup`·`saved`), `cap-item-head`, `cap-check`, `cap-saved`, `cap-item-foot`, `cap-item-msg`, `cap-sec`, `badge`(+`warn`·`ok`), `sr` · 상태 클래스 `busy`(`#cap-status`), `drop`(`#cap`) |
 | 종합 리포트 | `rp-summary`, `rp-nums`, `rp-line`, `rp-delta`(+`neg`·`pos`), `rp-reasons`, `rp-todo`, `rp-todo-label`, `rp-score-top`, `rp-big`, `rp-big-n`, `rp-big-unit`, `rp-peak`, `rp-h3`, `rp-pending`, `rp-p`(+`over`), `rp-p-main`, `rp-p-text`, `rp-clock`(+`over`·`soon`·`paused`), `rp-untimed`, `rp-chart`, `rp-trend`, `rp-gl`, `rp-ax`, `rp-now`, `rp-line`, `rp-pt`, `rp-table-wrap`, `rp-table`, `num`, `rp-sugg`, `rp-store`, `rp-snaps`, `rp-snap-v`(+`neg`), `rp-snap-t`, `rp-ask`, `rp-mkt-title`, `rp-mkt-reason`, `rp-mkt-st`, `rp-mkt-none`, 손님 칭찬 요약의 `rp-praise-body`, `rp-praise-topics`, `kw-chip pos`, `rp-menus`, `rp-rank`, `rp-menu-n`, `rp-quote`, `rp-quote-none`, `rp-screen`(인쇄에서 빼는 화면용 문구) · 상태 클래스 `bad`(`#rp-*-state`) |
@@ -1839,6 +1946,12 @@ const on = new Set(m.default || []);
 - `test_care_proxy.py` (29건, 화면 파일은 읽지 않음): 1.11절의 허용 목록·덮어쓰기·손님용 경로·상태·413·500 없음·막히지 않음, 1.6의 답글 승인 기록, 1.8의 `source`.
 - `test_report_praise_print_static.py` (16건, 11/16): 손님 칭찬 요약 칸의 자리(응대 점수 다음·월간 보고서 앞)와 id(`rp-`), 월간 응답의 `praise`로만 그리고 `careApi` 호출이 네 개 그대로인지, 서버 글에 `esc()`, `#rp-pdf`와 `window.print()` 한 곳, `#rp-print` 유지, 인쇄 CSS(`@page` A4 · 모든 규칙이 `html.rp-view` 아래 · 리포트만 보이게 하는 규칙과 `:has` 대체 · 다크에서 바뀌는 색 토큰을 모두 다시 정함 · `break-inside: avoid` · `print-color-adjust: exact`), 프록시가 `praise`를 그대로 넘김.
 
+**11/16에 더한 시험**
+
+- `test_draft_done_static.py` (화면 파일을 글자로 읽음): 초안 상자의 '다시 만들기'(`data-regen`)가 `generator`·`review_id`를 보내고 그 글의 승인·고친 내용만 지움, 진행줄 옆 '카드 전체 다시 만들기'(`data-rerun`, `RERUN_LABEL`)는 승인했거나 고친 글이 있으면 두 번 눌러야 실행(`confirm(` 없음), 완료 화면의 주 버튼 `<button type="button" class="primary big" data-home>홈으로</button>`과 보조 버튼 `id="restart"`('처음부터 다시', `DELETE /api/approvals`), 문구 `오늘부터 실천할 주방 점검 수칙`(`RULES_TITLE`)과 완료 화면의 수칙 목록.
+- `test_regen_one.py` (화면 파일은 읽지 않음): 1.5의 개별 다시 만들기 (mock, 가짜 HCX로 돌린 진짜 글 만드는 코드, 입력 오류 400/404, 다시 만든 글의 승인 기록).
+- `test_storage_web.py`·저장소 루트 `tests/test_storage.py`: 1.7.1의 승인 기록 지우기 (다른 방문자 것은 그대로, 서버가 들고 있던 것 포함).
+
 **조심할 점**
 
 - `replay`와 `c9`는 **주석, 문자열, SVG 경로 데이터, 색 코드(`#c9…`), 인코딩된 그림 데이터까지** 어디에 있든 걸립니다. 지금 두 파일에는 없습니다 (확인함). 아이콘 SVG를 붙일 때 경로 데이터에 `c9`가 우연히 들어가지 않았는지 확인하세요.
@@ -1859,7 +1972,7 @@ const on = new Set(m.default || []);
 | `#/today` | `today` | 홈 | 대시보드. 숫자 타일, 차트, 오늘 할 일 | `index.html` |
 | `#/cards` | `cards` | 추천 카드 | "무엇을 할까요?" 카드 2장 | `index.html` |
 | `#/draft` | `draft` | 승인할 글 | 초안 보기·고치기·승인 | `index.html`의 껍데기 + JS가 채움 |
-| `#/done` | `done` | 처리 완료 | 승인 결과, 처음으로 | `index.html`의 껍데기 + JS가 채움 |
+| `#/done` | `done` | 처리 완료 | 승인 결과, 고른 주방 점검 수칙, '홈으로'(진행 그대로) · '처음부터 다시' | `index.html`의 껍데기 + JS가 채움 |
 | `#/analysis` | `analysis` | 리뷰 분석 | 탭 3개 (요약·불만 묶음·리뷰 붙여넣기) | `index.html` |
 | `#/report` | `report` | 종합 리포트 | 오늘 요약 · 응대 점수 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약 (11/15, 칭찬 요약·PDF 저장은 11/16) | `index.html` |
 | `#/market` | `market` | 상권 (준비 중) | 빈 자리 | `app.js`의 `LATER`가 만듦 |
@@ -1882,9 +1995,11 @@ const on = new Set(m.default || []);
 | 이미 만든 글을 다시 보기 | 없음 | 브라우저에 있는 결과로 `#/draft` |
 | 초안의 '승인' | `POST /api/drafts/{id}/approve` (`{text, original}`) | 다음 미승인 글, 다 끝나면 `#/done` |
 | 초안의 '복사' | 없음 | 클립보드 |
-| 초안의 '다시 만들기' | `POST /api/cards/{id}/run` | 그 카드의 예전 글·승인·고친 내용 버림 |
+| 초안 상자의 '다시 만들기' (11/16) | `POST /api/cards/{id}/run` `{generator, review_id?, measures?, reply_texts?}` (1.5 개별 다시 만들기) | 지금 보는 글 한 건만 새 글로 바꿈. 그 글의 승인·고친 내용만 버리고 다른 글은 그대로 |
+| 진행줄 옆 '카드 전체 다시 만들기' (11/16) | `POST /api/cards/{id}/run` | 그 카드의 예전 글·승인·고친 내용 버림. 승인했거나 고치는 중인 글이 있으면 첫 누름은 안내만 하고 5초 안에 한 번 더 눌러야 실행 |
 | `#/done` 열기 | `GET /api/approvals` | '서버 처리 기록' (접은 목록) |
-| '처음으로' | 없음 | 브라우저의 만든 글·승인 표시만 비움. 서버 기록은 그대로 |
+| 완료의 '홈으로' (주 버튼, 11/16) | 없음 | 만든 글·승인 표시를 그대로 두고 `#/today`로 |
+| 완료의 '처음부터 다시' (보조 버튼, 11/16) | `DELETE /api/approvals` | 브라우저의 만든 글·승인 표시·고친 내용을 비우고 서버의 이 방문자 승인 기록도 지움. 서버가 실패해도 화면은 비우고 `#alert`로 알림 |
 | 붙여넣기 '분류하기' | `POST /api/reviews` → 성공하면 `briefing`, `cards`, `insight` 다시 | 분류 결과 패널, 홈·카드·분석 갱신 |
 | '붙여넣은 리뷰 지우기' | `DELETE /api/reviews/pasted` → `briefing`, `cards`, `insight` 다시 | 위와 같음 |
 | 캡처로 넣기 '캡처 읽기' | `POST /api/care/reviews/capture` (multipart, 최대 110초 기다림) | 후보 목록 (저장하지 않음). 오류는 `#cap-error`에만 |
@@ -1904,7 +2019,7 @@ const on = new Set(m.default || []);
 | 색, 글꼴, 글자 크기, 간격, 모서리, 그림자 | 색은 `style.css` 맨 위 `:root` 변수(`--bg`, `--panel`, `--ink`, `--accent`, `--brand` 등)에 모여 있고, 다크 값은 `@media (prefers-color-scheme: dark)` 안에 따로 있음. 라이트·다크 둘 다 챙기세요. CSS 주석에 따르면 글자 대비를 WCAG AA(4.5:1)에 맞춰 둔 값이 있으니, 색을 바꿀 때 대비를 다시 확인하세요 |
 | 배치 (flex·grid), 화면 폭별 모양 | 지금은 760px 이하에서 모바일 배치(왼쪽 메뉴가 위쪽 가로 메뉴로, 서랍이 아래 시트로)이고 `main`의 컨테이너 쿼리(600·640·720px)도 씀. 375px 폭에서 가로 스크롤이 생기지 않게 |
 | 아이콘 (인라인 SVG) | `index.html`·`app.js` 안에 있음. **`c9`, `replay`가 들어가면 시험이 깨짐** (2.4). `aria-hidden="true"`로 장식 표시 |
-| 문구 (버튼 글자, 제목, 안내문) | 2.4에 적은 문구(`mode_notice`, `실제 AI 결과 아님`, `회의에서 정한 뒤 넣을 자리입니다`, `LATER`의 `"상권"`, `준비 중`, 캡처의 "예시 결과 — 이미지를 실제로 읽지 않았어요"·별점 확인 문구·`선택한 리뷰 저장`, 종합 리포트 제목)와 시험 6의 일곱 줄만 빼고 자유 |
+| 문구 (버튼 글자, 제목, 안내문) | 2.4에 적은 문구(`mode_notice`, `실제 AI 결과 아님`, `회의에서 정한 뒤 넣을 자리입니다`, `LATER`의 `"상권"`, `준비 중`, 캡처의 "예시 결과 — 이미지를 실제로 읽지 않았어요"·별점 확인 문구·`선택한 리뷰 저장`, 종합 리포트 제목, 11/16의 `홈으로`·`처음부터 다시`·`카드 전체 다시 만들기`·`오늘부터 실천할 주방 점검 수칙`)와 시험 6의 일곱 줄만 빼고 자유 |
 | CSS 클래스의 **스타일** | 2.3(7)에 적은 클래스의 모양은 자유. 이름은 `app.js`와 같이 바꿔야 함. `index.html`에만 있는 클래스(`bar`, `brand`, `logo`, `dash-grid` 등)는 `style.css`와 `index.html`만 맞추면 됨 |
 | HTML 요소 더하기·순서 바꾸기·감싸기 | 2.2의 id와 2.3(1)의 구조(`.top`, `.side .menu`, `.shell > main`, `#staff li`, `data-*`)를 지키는 한 자유. 태그 종류는 2.3(5)를 지킴 |
 | 애니메이션, 호버, 포커스 모양 | 자유. 키보드 포커스가 보이게 유지 |

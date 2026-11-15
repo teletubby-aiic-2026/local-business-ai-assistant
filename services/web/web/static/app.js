@@ -273,13 +273,21 @@ async function runTodo(t, button) {
   if (currentRoute() === "draft") renderDraft(); else go("draft");
 }
 
-// 불만 카드: 공지에 넣을 재발 방지 조치를 사장님이 고른다 (C6 목록, 고르지 않은 조치는 글에 못 들어감)
+// 불만 카드: 오늘부터 가게에서 실천할 점검 수칙을 사장님이 고른다 (C6 조치 목록). 문서용 옵션이 아니라 현장에서 할 일로 보이게 쓴다.
+// 고른 수칙만 재발 방지 공지에 들어가고, 고르지 않은 것은 글에 못 들어간다. (답글은 C6 가 늘 같은 조치 문장을 붙여서 '공지에 반영'이라고만 적는다)
+const RULES_TITLE = "오늘부터 실천할 주방 점검 수칙";
 function measureBox(p) {
   const m = p.measures || {};
   if (!(m.options || []).length) return "";
   const on = new Set(m.default || []);
-  return `<fieldset class="measures"><legend class="small">공지에 넣을 재발 방지 조치</legend>
-    ${m.options.map((o) => `<label class="small"><input type="checkbox" data-measure="${esc(p.card.card_id)}" value="${esc(o.id)}"${on.has(o.id) ? " checked" : ""}> ${esc(o.text)}</label>`).join("")}
+  // 이미 만든 카드는 그때 고른 수칙을 체크해 둔다. 카드를 다시 그릴 때 기본값으로 돌아가면 '카드 전체 다시 만들기'가 고른 수칙을 잃는다
+  const made = state.results[p.card.card_id]?.chosen_measures;
+  const picked = made ? new Set(made.map((x) => x.id)) : on;
+  // 시험용 실행(mock)은 저장 예시 글을 그대로 보여 주므로 '공지에 반영'이라고 말하지 않는다
+  const mock = state.health?.mode === "mock";
+  return `<fieldset class="measures"><legend class="small">${RULES_TITLE}${mock ? "" : " (공지에 반영)"}</legend>
+    ${m.options.map((o) => `<label class="small"><input type="checkbox" data-measure="${esc(p.card.card_id)}" value="${esc(o.id)}"${picked.has(o.id) ? " checked" : ""}> ${esc(o.text)}</label>`).join("")}
+    ${mock ? '<p class="small muted">시험용 실행에서는 저장 예시 글이 그대로 나와요. 고른 수칙은 화면에만 표시돼요.</p>' : ""}
   </fieldset>`;
 }
 
@@ -295,8 +303,11 @@ async function runCard(cardId, button) {
     const boxes = [...document.querySelectorAll(`[data-measure="${CSS.escape(cardId)}"]`)];
     const body = boxes.length ? JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) }) : undefined;
     const result = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body });
-    // 다시 만들면 그 카드의 예전 글 승인·고친 내용은 버린다
-    (state.results[cardId]?.drafts || []).forEach((d) => { state.approved.delete(d.draft_id); delete state.pending[d.draft_id]; });
+    // 다시 만들면 그 카드의 예전 글 승인·고친 내용은 버린다 (완료 화면의 승인 목록에서도 뺀다)
+    const gone = new Set((state.results[cardId]?.drafts || []).map((d) => d.draft_id));
+    gone.forEach((id) => { dropBox(id); state.approved.delete(id); delete state.pending[id]; });
+    state.approvedLog = state.approvedLog.filter((x) => !gone.has(x.id));
+    draftNote = null;
     state.results[cardId] = result;
     state.current = cardId; state.draftId = null;
     renderCards({ cards: state.cards, no_card_b: $("no-card-b").textContent });
@@ -337,6 +348,93 @@ function saveEdits() {
   // 다시 그리기 전에, 아직 승인하지 않은 글에서 고친 내용을 보존한다
   document.querySelectorAll("textarea[data-text]").forEach((box) => (state.pending[box.dataset.text] = box.value));
 }
+// 새 글로 바꿔 버린 글의 편집 칸이 아직 화면에 있으면, 다음 saveEdits 가 그 내용을 새 글에 다시 담지 않게 뗀다 (mock 은 새 글 id 가 예전과 같다)
+const dropBox = (id) => document.querySelectorAll(`textarea[data-text="${CSS.escape(id)}"]`).forEach((box) => box.removeAttribute("data-text"));
+
+// ── 다시 만들기 두 가지 (11/16) ─────────────────────────────────────
+// 초안 상자의 '다시 만들기'(data-regen = 글 id)는 지금 보는 글 한 건만 새로 만든다: 같은 API 에 generator(+review_id)를 보낸다.
+//   그 글의 승인·고친 내용만 지우고, 다른 글의 승인·고친 내용은 그대로 둔다.
+// 진행줄 옆 '카드 전체 다시 만들기'(data-rerun = 카드 id)는 그 카드의 글을 모두 새로 만든다 (runCard). 승인했거나 고치는 중인 글이
+//   있으면 한 번 더 눌러야 실행한다 (대화상자 대신, 서랍의 '대화 지우기'와 같은 방식).
+const RERUN_LABEL = "카드 전체 다시 만들기";
+const RERUN_ARM_MS = 5000;
+const rerunArm = { card: null, timer: null };   // 한 번 눌러 둔 카드 (RERUN_ARM_MS 안에 한 번 더 누르면 실행)
+const regenBusy = new Set();                    // 지금 다시 만드는 중인 글. 화면을 다시 그려도 '만드는 중…'으로 남는다
+let draftNote = null;                           // 초안 상자 아래 한 줄 안내 { id: 글 id, text }
+const regenKey = (cardId, d) => [cardId, d.generator, d.target_review_id || ""].join("|");
+const sameSlot = (a, b) => a.generator === b.generator && (a.target_review_id || "") === (b.target_review_id || "");
+const isEdited = (d) => state.pending[d.draft_id] != null && state.pending[d.draft_id] !== (d.edited_text ?? d.text);
+const touchedOf = (cardId) => draftsOf(cardId).filter((d) => state.approved.has(d.draft_id) || isEdited(d)).length;
+
+async function regenDraft(id) {
+  const cardId = state.current, r = state.results[cardId];
+  const p = state.cards.find((x) => x.card.card_id === cardId);
+  const d = (r?.drafts || []).find((x) => x.draft_id === id);
+  if (!p || !d) return;
+  const key = regenKey(cardId, d);
+  if (regenBusy.has(key)) return;
+  const body = { generator: d.generator };
+  if (d.target_review_id) body.review_id = d.target_review_id;
+  // 불만 카드: 처음 만들 때 고른 수칙을 그대로 보낸다. 공지는 지금 화면의 묶음 답글도 보낸다 (공지가 답글과 너무 비슷한지 서버가 견줌)
+  if (p.card.kind === "complaint") body.measures = (r.chosen_measures || []).map((m) => m.id);
+  if (d.generator === "prevention_notice") {
+    const pasted = new Set(r.pasted_reply_review_ids || []);
+    body.reply_texts = r.drafts.filter((x) => x.generator === "reply_draft" && !pasted.has(x.target_review_id)).map((x) => x.text);
+  }
+  regenBusy.add(key); draftNote = null;
+  renderDraft();
+  try {
+    const made = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body: JSON.stringify(body) });
+    const fresh = (made.drafts || [])[0];
+    if (!fresh) throw new Error("새 글을 받지 못했어요. 다시 눌러 주세요.");
+    const at = state.results[cardId] === r ? r.drafts.findIndex((x) => sameSlot(x, d)) : -1;
+    if (at < 0) return;   // 기다리는 동안 카드 전체를 다시 만들었거나 카드가 바뀌었다: 늦게 온 이 글은 버린다
+    const gone = r.drafts[at].draft_id;
+    // 바꾼 글의 승인·고친 내용만 지운다. 다른 글의 것은 건드리지 않는다
+    dropBox(gone); state.approved.delete(gone); delete state.pending[gone];
+    state.approvedLog = state.approvedLog.filter((x) => x.id !== gone);
+    r.drafts[at] = fresh;
+    r.flagged_count = r.drafts.filter((x) => failedOf(x).length || checksOf(x).length).length;
+    if (state.draftId === gone) state.draftId = fresh.draft_id;
+    draftNote = { id: fresh.draft_id, text: (made.source === "seed" ? "이 글만 다시 불러왔어요. 시험용 실행이라 저장 예시 글 그대로예요." : "이 글만 새로 만들었어요.")
+      + " 다른 글의 승인과 고친 내용은 그대로예요." };
+  } catch (e) { showAlert(e.message); }
+  finally {
+    regenBusy.delete(key);
+    renderDash();
+    if (currentRoute() === "draft") {
+      // 다시 그려도 고치던 글 칸의 포커스·커서 자리는 지킨다 (기다리는 동안 다른 글을 고치고 있을 수 있다)
+      const box = document.activeElement?.matches?.("textarea[data-text]") ? document.activeElement : null;
+      const keep = box && { id: box.dataset.text, start: box.selectionStart, end: box.selectionEnd, top: box.scrollTop };
+      renderDraft();
+      const again = keep && document.querySelector(`textarea[data-text="${CSS.escape(keep.id)}"]`);
+      if (again) { again.focus({ preventScroll: true }); again.setSelectionRange(keep.start, keep.end); again.scrollTop = keep.top; }
+      else if (document.activeElement === document.body) $("draft").querySelector("[data-regen]")?.focus({ preventScroll: true });   // 버튼이 다시 그려져 잃은 포커스
+    }
+  }
+}
+
+function rerunDisarm() { clearTimeout(rerunArm.timer); rerunArm.card = null; rerunArm.timer = null; }
+// 버튼 글자와 안내 한 줄만 지금 상태에 맞춘다. 화면을 통째로 다시 그리지 않는다 (글을 고치는 중일 수 있어서)
+function rerunPaint() {
+  const button = $("draft").querySelector("[data-rerun]"), note = $("draft").querySelector("[data-rerun-note]");
+  if (!button || !note) return;
+  const armed = rerunArm.card === button.dataset.rerun;
+  button.textContent = armed ? "한 번 더 눌러 실행" : RERUN_LABEL;
+  note.textContent = armed ? `한 번 더 누르면 이 카드의 글을 모두 다시 만들어요. 승인했거나 고친 글 ${touchedOf(rerunArm.card)}개도 새 글로 바뀌어요.` : "";
+}
+async function rerunCard(cardId, button) {
+  saveEdits();
+  if (touchedOf(cardId) && rerunArm.card !== cardId) {
+    rerunDisarm();
+    rerunArm.card = cardId;
+    rerunArm.timer = setTimeout(() => { rerunDisarm(); rerunPaint(); }, RERUN_ARM_MS);
+    rerunPaint();
+    return;
+  }
+  rerunDisarm(); rerunPaint();
+  await runCard(cardId, button);
+}
 
 function renderDraft() {
   saveEdits();
@@ -360,6 +458,7 @@ function renderDraft() {
   const approved = d && state.approved.has(d.draft_id);
   const [, statusText] = d ? statusOf(d) : [];
   const srcLabel = SOURCE_NAMES[r.source] || r.source || "";
+  const busy = !!d && regenBusy.has(regenKey(state.current, d));   // 이 글을 다시 만드는 중
 
   const name = GEN_NAMES[d?.generator] || d?.generator || "";
   el.innerHTML = `
@@ -369,8 +468,10 @@ function renderDraft() {
     </div>
     ${made.length > 1 ? `<div class="seg" role="group" aria-label="카드">${made.map((q) => `<button type="button" data-card="${esc(q.card.card_id)}"${q.card.card_id === state.current ? ' aria-current="true"' : ""}>${state.cards.indexOf(q) === 0 ? "ⓐ" : "ⓑ"} ${esc(KIND_NAMES[q.card.kind] || q.card.kind)}</button>`).join("")}</div>` : ""}
     ${r.source_note ? `<p class="small muted">${esc(r.source_note)}</p>` : ""}
-    ${(r.chosen_measures || []).length ? `<p class="small">사장님이 고른 재발 방지 조치: ${r.chosen_measures.map((m) => esc(m.text)).join(", ")}</p>` : ""}
-    <div class="progress"><span>승인 ${done} / ${drafts.length}</span><span class="track" aria-hidden="true"><i style="width:${drafts.length ? Math.round((done / drafts.length) * 100) : 0}%"></i></span></div>
+    ${(r.chosen_measures || []).length ? `<p class="small">${RULES_TITLE}: ${r.chosen_measures.map((m) => esc(m.text)).join(", ")} <span class="muted">· ${r.source === "seed" ? "시험용 저장 예시 글은 고른 수칙과 상관없이 그대로예요" : "공지에 반영"}</span></p>` : ""}
+    <div class="progress"><span>승인 ${done} / ${drafts.length}</span><span class="track" aria-hidden="true"><i style="width:${drafts.length ? Math.round((done / drafts.length) * 100) : 0}%"></i></span>
+      <button type="button" class="ghost" data-rerun="${esc(state.current)}">${RERUN_LABEL}</button></div>
+    <p class="small muted draft-note" role="status" data-rerun-note></p>
     <ol class="draft-list" aria-label="글 ${drafts.length}개">${drafts.map((x, i) => {
       const [tone, text] = statusOf(x);
       return `<li><button type="button" data-pick="${esc(x.draft_id)}"${x.draft_id === state.draftId ? ' aria-current="true"' : ""}>${i + 1}. ${esc(GEN_NAMES[x.generator] || x.generator)} <span class="st ${tone}">${text}</span></button></li>`;
@@ -384,23 +485,26 @@ function renderDraft() {
       ${sourceBlock(p, d)}
       <div class="reply">
         <label class="reply-label" for="text-${esc(d.draft_id)}">${ICON_AI}AI ${esc(name)} 초안<span class="sr"> (${esc(statusText)})</span></label>
-        <textarea id="text-${esc(d.draft_id)}" rows="7" data-text="${esc(d.draft_id)}">${esc(state.pending[d.draft_id] ?? d.edited_text ?? d.text)}</textarea>
+        <textarea id="text-${esc(d.draft_id)}" rows="7" data-text="${esc(d.draft_id)}"${busy ? " readonly" : ""}>${esc(state.pending[d.draft_id] ?? d.edited_text ?? d.text)}</textarea>
         ${failed.length ? `<ul class="issues bad">${failed.map((x) => `<li><b>점검 실패</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
         ${checks.length ? `<ul class="issues">${checks.map((x) => `<li><b>확인 필요</b> ${esc(x)}</li>`).join("")}</ul>` : ""}
       </div>
       <div class="row">
-        <button type="button" class="primary" data-approve="${esc(d.draft_id)}">${approved ? "다시 승인" : "승인"}</button>
+        <button type="button" class="primary" data-approve="${esc(d.draft_id)}"${busy ? " disabled" : ""}>${approved ? "다시 승인" : "승인"}</button>
         <button type="button" data-copy="${esc(d.draft_id)}">복사</button>
-        <button type="button" class="ghost" data-rerun="${esc(state.current)}">다시 만들기</button>
+        <button type="button" class="ghost" data-regen="${esc(d.draft_id)}"${busy ? " disabled" : ""}>${busy ? "만드는 중…" : "다시 만들기"}</button>
       </div>
+      <p class="small muted draft-note" role="status">${busy ? "이 글만 다시 만들고 있어요. 다른 글의 승인과 고친 내용은 그대로예요." : draftNote?.id === d.draft_id ? esc(draftNote.text) : ""}</p>
       <p class="small muted model">${esc(d.model || "")}${d.elapsed_ms ? " · " + (d.elapsed_ms / 1000).toFixed(1) + "초" : ""}</p>
     </article>` : '<div class="panel"><p class="muted">이 카드에서 만든 글이 없어요.</p></div>'}`;
 
-  el.querySelectorAll("[data-card]").forEach((b) => b.addEventListener("click", () => { saveEdits(); state.current = b.dataset.card; state.draftId = null; renderDraft(); }));
-  el.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => { saveEdits(); state.draftId = b.dataset.pick; renderDraft(); }));
+  el.querySelectorAll("[data-card]").forEach((b) => b.addEventListener("click", () => { saveEdits(); draftNote = null; state.current = b.dataset.card; state.draftId = null; renderDraft(); }));
+  el.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => { saveEdits(); draftNote = null; state.draftId = b.dataset.pick; renderDraft(); }));
   el.querySelectorAll("[data-approve]").forEach((b) => b.addEventListener("click", () => approve(b.dataset.approve)));
   el.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => copyDraft(b.dataset.copy, b)));
-  el.querySelectorAll("[data-rerun]").forEach((b) => b.addEventListener("click", () => runCard(b.dataset.rerun, b)));
+  el.querySelectorAll("[data-regen]").forEach((b) => b.addEventListener("click", () => regenDraft(b.dataset.regen)));
+  el.querySelectorAll("[data-rerun]").forEach((b) => b.addEventListener("click", () => rerunCard(b.dataset.rerun, b)));
+  rerunPaint();
 }
 
 function findDraft(id) {
@@ -447,6 +551,13 @@ function renderDone() {
     return;
   }
   const total = Object.values(state.results).flatMap((r) => r.drafts || []).length;
+  // 불만 카드를 만들 때 사장님이 고른 수칙 (서버 응답의 chosen_measures). 글 승인과 함께 오늘부터 현장에서 할 일로 다시 보여 준다
+  const care = state.cards.find((p) => p.card.kind === "complaint");
+  const made = care ? state.results[care.card.card_id] : null;
+  const rules = made?.chosen_measures || [];
+  const noticeDone = (made?.drafts || []).some((d) => d.generator === "prevention_notice" && state.approved.has(d.draft_id));
+  const rulesNote = made?.source === "seed" ? "시험용 저장 예시 글은 고른 수칙과 상관없이 그대로예요."
+    : noticeDone ? "승인한 재발 방지 공지에 넣어 만든 수칙이에요." : "재발 방지 공지에 넣어 만든 수칙이에요. 공지는 아직 승인 전이에요.";
   el.innerHTML = `
     <div class="page-head"><h1 tabindex="-1">처리 완료</h1>
       <p class="muted">승인한 글 ${log.length}개 / 만든 글 ${total}개 · 게시는 복사해서 직접 올려요</p></div>
@@ -454,9 +565,17 @@ function renderDone() {
       <div class="progress"><span>승인 ${log.length} / ${total}</span><span class="track" aria-hidden="true"><i style="width:${total ? Math.round((log.length / total) * 100) : 0}%"></i></span></div>
       <ul class="plain log">${log.map((a) => `<li><span class="badge ok">승인 완료</span> ${esc(a.name)} <span class="small muted">· ${esc(a.card)} · ${esc(String(a.at).slice(11, 19))}${a.edited ? " · 사장님이 고침" : ""}</span></li>`).join("")}</ul>
     </div>
-    <button type="button" class="primary big" id="restart">처음으로</button>
+    ${rules.length ? `<div class="panel done-rules"><h2>${RULES_TITLE}</h2>
+      <ul>${rules.map((m) => `<li>${esc(m.text)}</li>`).join("")}</ul>
+      <p class="small muted">사장님이 카드에서 고른 수칙 ${rules.length}가지예요. ${rulesNote}</p></div>` : ""}
+    <div class="row done-actions">
+      <button type="button" class="primary big" data-home>홈으로</button>
+      <button type="button" class="ghost" id="restart">처음부터 다시</button>
+    </div>
+    <p class="small muted done-hint">‘홈으로’는 만든 글과 승인 표시를 그대로 둬요. ‘처음부터 다시’는 만든 글과 승인 기록을 모두 지워요.</p>
     <details class="more"><summary class="small">서버 처리 기록</summary><ul id="approvals" class="plain small"></ul></details>`;
-  $("restart").addEventListener("click", restart);
+  el.querySelector("[data-home]").addEventListener("click", () => go("today"));
+  $("restart").addEventListener("click", (e) => restart(e.currentTarget));
   loadApprovals().catch(() => {});
 }
 
@@ -466,12 +585,21 @@ async function loadApprovals() {
   if (ul) ul.innerHTML = data.items.map((a) => `<li>${esc(a.approved_at.slice(11, 19))} · ${esc(a.draft_id)} 승인${a.edited ? " (사장님이 고침)" : ""}</li>`).join("") || "<li>기록 없음</li>";
 }
 
-// 처음으로: 이 브라우저의 진행만 비운다 (서버 기록은 그대로)
-function restart() {
+// 처음부터 다시: 이 브라우저의 진행(만든 글·승인 표시·고친 내용)을 비우고, 서버에 남은 이 방문자의 승인 기록도 지운다 (DELETE /api/approvals).
+// 다시 카드 → 승인 → 완료로 왔을 때 예전 승인이 '서버 처리 기록'에 남아 있지 않게 한다. 서버가 못 지워도 화면은 비우고 알림 띠로 알린다.
+// (진행을 그대로 두고 대시보드로 가는 것은 주 버튼 '홈으로')
+async function restart(button) {
+  if (button) { button.disabled = true; button.textContent = "지우는 중…"; }
+  let failed = "";
+  try { await api("/api/approvals", { method: "DELETE" }); }
+  catch (e) { failed = e.message; }
+  rerunDisarm(); regenBusy.clear(); draftNote = null;
   state.results = {}; state.approved.clear(); state.approvedLog = []; state.pending = {};
   state.current = null; state.draftId = null;
+  $("draft").replaceChildren();   // 숨은 초안 화면에 남은 편집 칸도 치운다 (다음에 그릴 때 saveEdits 가 예전 글을 다시 담지 않게)
   renderCards({ cards: state.cards, no_card_b: $("no-card-b").textContent });
   go("today");
+  if (failed) showAlert(`화면은 처음으로 돌렸지만 서버의 승인 기록은 지우지 못했어요. ${failed}`);
 }
 
 // ── 리뷰 분석: 요약 · 불만 묶음 · 리뷰 붙여넣기 (탭 3개) ─────────────────
