@@ -2,6 +2,7 @@
 
 AI 는 본문만 쓴다. 쿠폰 값(메뉴·할인 금액·유효기간·시간대 조건)은 숫자이므로 코드가 글 끝에 한 줄로
 붙이고, 근거(snapshot_id · coupon:메뉴)도 코드가 정한다 — AI 가 준 근거 문자열은 쓰지 않는다.
+쿠폰 메뉴는 가격 있는 메뉴 가운데 손님 칭찬 리뷰에 가장 많이 언급된 것이다 (shared.praise.pick_praised_menu, 카드 ⓑ 근거와 같은 기준).
 매출·하락 같은 상권 지표는 손님용 글에 넣지 않는다 — reason_text(사장님용)에만 남긴다.
 
 네이버 플레이스 소식 형식이라 공지(c6.notice)와 같은 합니다체로 쓴다 — 사장님 개인 말투(ToneProfile)
@@ -19,6 +20,7 @@ from c6 import checks
 from c6 import parsing
 from c6.output import CALL_FAILED_NOTE_NO_TEXT, DraftOutput, CardResult
 from common.korean import display_name, eul
+from shared.praise import menu_mentions, pick_praised_menu, praise_reviews
 
 _MAX_REWRITES = 2  # 답글·공지와 같은 한도 — 이만큼 다시 써도 점검을 못 넘으면 코드 템플릿으로 바꿔 넣는다
 
@@ -118,12 +120,25 @@ def _fallback_text(store, coupon_menu: str | None) -> str:
     )
 
 
-def _praise_reviews(ctx, n=2):
-    """칭찬할 만한 리뷰. sentiment=='positive' 우선, 없으면 평점 4 이상인 것만(없는 복합을 칭찬으로 꾸미지 않는다)."""
+def _praise_reviews(ctx, n=2, coupon_menu=None):
+    """칭찬할 만한 리뷰. sentiment=='positive' 우선, 없으면 평점 4 이상인 것만(없는 복합을 칭찬으로 꾸미지 않는다).
+
+    쿠폰 메뉴를 칭찬한 리뷰가 있으면 그 리뷰를 맨 앞에 두고, 다른 메뉴만 말한 칭찬 리뷰는 뺀다 — '손님 반응'이 쿠폰 메뉴
+    이야기여야 글이 그 메뉴 하나만 소개한다 (전에는 쿠폰이 제육볶음 정식인데 "순두부찌개 얼큰하고 맛있어요"가 손님 반응으로
+    들어갔다). 쿠폰 메뉴를 칭찬한 리뷰가 없으면 예전 순서 그대로다."""
     positive = [r for r in ctx.reviews if r.sentiment == "positive"]
     if not positive:
         positive = [r for r in ctx.reviews if (r.rating or 0) >= 4]
         positive.sort(key=lambda r: (r.rating or 0), reverse=True)
+    if coupon_menu:
+        menu = ctx.store.menu
+        mine = {rid for row in menu_mentions(menu, praise_reviews(ctx.reviews)) if row["menu"] == coupon_menu
+                for rid in row["review_ids"]}
+        if mine:
+            others = {rid for row in menu_mentions(menu, positive) if row["menu"] != coupon_menu
+                      for rid in row["review_ids"]} - mine
+            positive = ([r for r in positive if r.review_id in mine]
+                        + [r for r in positive if r.review_id not in mine and r.review_id not in others])
     return positive[:n]
 
 
@@ -157,13 +172,16 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
         needs_input.append("상권 지표 수치 미확정: reason_text에 자리표시자(-X%)가 남아 있어요")
 
     if coupon_menu is None:
-        coupon_menu = next((m for m in store.menu if m in store.menu_prices), None)
+        # 가격 있는 메뉴 가운데 손님 칭찬 리뷰에 가장 많이 언급된 것. 같은 수거나 언급이 없으면 메뉴판 순서 (전에는 늘
+        # 메뉴판 첫 메뉴였다). 카드 ⓑ(services/web/web/cards.py)도 같은 함수로 골라, 카드가 말한 메뉴와 쿠폰 메뉴가 같다.
+        picked = pick_praised_menu(store.menu, ctx.reviews, priced=store.menu_prices)
+        coupon_menu = picked["menu"] if picked else None
     if not store.menu_prices or coupon_menu is None:
         needs_input.append("menu_prices 없음: 쿠폰 메뉴·금액을 정할 수 없어요")
 
     menu_section = f"- {coupon_menu}" if coupon_menu else "(메뉴 정보 없음)"
 
-    praise = _praise_reviews(ctx)
+    praise = _praise_reviews(ctx, coupon_menu=coupon_menu)
     if praise:
         praise_lines = "\n".join(f'- "{r.text}" (★{r.rating or "?"})' for r in praise)
         praise_section = f"\n## 손님 반응 (참고용, 그대로 베끼지 말고 느낌만)\n{praise_lines}"
