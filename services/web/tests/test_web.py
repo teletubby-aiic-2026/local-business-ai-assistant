@@ -556,10 +556,12 @@ class AnalysisScreen(unittest.TestCase):
             self.assertIn(key, js)
 
     def test_later_menu_slots(self):
+        """준비 중 자리는 '상권' 하나만 남았다. 종합 리포트는 11/15 진짜 화면(#/report)이 됐다 (test_care_ui_static.py)."""
         js = (STATIC / "app.js").read_text(encoding="utf-8")
         self.assertIn("회의에서 정한 뒤 넣을 자리입니다", js)
-        for name in ('"종합 "', '"리포트"', '"상권"'):
-            self.assertIn(name, js)
+        later = js[js.index("const LATER = ["):js.index("];", js.index("const LATER = ["))]
+        self.assertIn('"상권"', later)
+        self.assertNotIn('route: "report"', later)
         self.assertIn("준비 중", js)
 
     def test_every_id_the_script_uses_exists(self):

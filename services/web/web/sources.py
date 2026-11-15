@@ -27,10 +27,14 @@ class SourceError(RuntimeError):
 class ReviewSource:
     """C3(PR #14) /api/review-insight/* 를 부르는 얇은 클라이언트."""
 
-    def __init__(self, base_url: str, token: str = "", timeout: float = 10.0, client: httpx.Client | None = None):
+    def __init__(self, base_url: str, token: str = "", timeout: float = 10.0, client: httpx.Client | None = None,
+                 paste_timeout: float = 45.0):
         headers = {"X-Access-Token": token} if token else {}
         self._client = client or httpx.Client(base_url=base_url, headers=headers, timeout=timeout)
         self.base_url = base_url
+        # 리뷰 저장(POST /reviews)은 리뷰 분석 서버가 그 자리에서 HCX 로 분류한다 (호출 20초 제한 + 1번 다시). 10초만 기다리면
+        # 저장은 됐는데 화면에는 실패로 보여, 다시 누르면 같은 리뷰가 두 번 들어간다 (11/15 실시간: 분류 한 번 23.8초)
+        self.paste_timeout = paste_timeout
         self.visitor_id: str | None = None
 
     def for_visitor(self, visitor_id: str | None) -> "ReviewSource":
@@ -79,14 +83,18 @@ class ReviewSource:
     def insight(self, store_id: str) -> dict:
         return self._get("/insight", store_id=store_id, **self._visitor())
 
-    def paste(self, store_id: str, text: str, rating: int | None = None, channel: str | None = None) -> dict:
+    def paste(self, store_id: str, text: str, rating: int | None = None, channel: str | None = None,
+              source: str | None = None) -> dict:
+        """source: 비우면 붙여넣기(paste). capture 면 캡처 후보를 확인해 저장한 것 (리뷰 분석 서비스의 source 칸)."""
         body = {"store_id": store_id, "text": text, **self._visitor()}
         if rating is not None:
             body["rating"] = rating
         if channel:
             body["channel"] = channel
+        if source:
+            body["source"] = source
         try:
-            res = self._client.post("/api/review-insight/reviews", json=body)
+            res = self._client.post("/api/review-insight/reviews", json=body, timeout=self.paste_timeout)
         except httpx.HTTPError as exc:
             raise SourceError(f"리뷰 분석 서비스({self.base_url})에 연결하지 못했습니다: {exc.__class__.__name__}") from None
         return self._json(res)

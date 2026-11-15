@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import threading
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
@@ -49,7 +50,8 @@ class Demo:
         """storage: 승인 기록·카드 이유·보고서를 둘 곳 (shared.storage). 안 주면 서버 메모리.
         서버는 create_app 이 환경 변수(DB_HOST)를 보고 정해서 넘긴다. 직접 만든 Demo 가 환경 변수에 끌려가 DB 에 붙지 않게 여기서는 읽지 않는다."""
         self.s = settings
-        self.source = source if source is not None else ReviewSource(settings.review_url, settings.review_token)
+        self.source = source if source is not None else ReviewSource(settings.review_url, settings.review_token,
+                                                                            paste_timeout=settings.review_paste_timeout)
         self.c6 = c6_available(settings.marketing_dir)
         self.seed = load_seed(settings.marketing_dir)
         self.pasted_examples = load_pasted_examples(settings.marketing_dir)   # mock: 붙여넣은 리뷰 답글 저장 예시
@@ -60,7 +62,8 @@ class Demo:
         # DB 에 쓰지 못한 승인 기록 (방문자, 기록, 카드 id, 초안 종류). 승인한 순서대로 들고 있다가 DB 가 돌아오면 쓴다 (DB 를 쓸 때만)
         self._pending: list[tuple[str, dict, str | None, str | None]] = []
         self._flush_lock = threading.Lock()   # 밀린 승인 기록은 한 번에 한 요청만 쓴다 (순서가 섞이지 않게)
-        self._drafts: OrderedDict[str, tuple[str, str | None]] = OrderedDict()   # 초안 id → (카드 id, 초안 종류). 승인 기록에 붙임
+        # 초안 id → (카드 id, 초안 종류, 답글이 가리키는 리뷰 id). 승인 기록에 붙이고, 답글 승인을 리뷰 분석 서비스에 알릴 때 쓴다
+        self._drafts: OrderedDict[str, tuple[str, str | None, str | None]] = OrderedDict()
 
     # ── 방문자 ──────────────────────────────────────────────────────
     def _src(self, visitor: str | None):
@@ -351,7 +354,7 @@ class Demo:
         with self._lock:
             for draft in made.get("drafts", []):
                 if draft.get("draft_id"):
-                    self._drafts[draft["draft_id"]] = (card_id, draft.get("generator"))
+                    self._drafts[draft["draft_id"]] = (card_id, draft.get("generator"), draft.get("target_review_id"))
             while len(self._drafts) > DRAFT_MAX:
                 self._drafts.popitem(last=False)
 
@@ -366,11 +369,23 @@ class Demo:
         edited = text is not None and original is not None and text.strip() != original.strip()
         entry = {"draft_id": draft_id, "status": "approved", "edited": edited,
                  "text": text if text is not None else original, "approved_at": now_kst(), "mode": self.s.mode}
-        known = self._drafts.get(draft_id, (None, None))
+        known = self._drafts.get(draft_id, (None, None, None))
         warning = self._save_approval(clean_visitor_id(visitor), entry, card_id or known[0], kind or known[1])
         if warning:
             entry["warning"] = warning
         return entry
+
+    REVIEW_ID = re.compile(r"[A-Za-z0-9_-]{1,100}")
+
+    def reply_target(self, draft_id: str, kind: str | None = None, review_id: str | None = None) -> str | None:
+        """승인한 글이 리뷰 답글이면 그 리뷰 id, 아니면 None. 이 서버가 ③ 에서 기억한 값이 먼저이고,
+        모르는 초안(다른 서버가 만든 것)이면 화면이 보낸 종류·리뷰 id 를 쓴다. 형식이 틀린 값은 무시한다."""
+        _, generator, target = self._drafts.get(draft_id, (None, None, None))
+        if generator is None:
+            generator, target = kind, review_id
+        if generator != "reply_draft" or not isinstance(target, str) or not self.REVIEW_ID.fullmatch(target):
+            return None
+        return target
 
     def _save_approval(self, visitor_id: str, entry: dict, card_id: str | None, kind: str | None) -> str | None:
         """승인 기록을 남긴다. 못 남기면 이유 문장을 돌려준다 (기록은 화면에만 남는다)."""
@@ -437,9 +452,13 @@ class Demo:
         return self.list_approvals()
 
     # ── S2 붙여넣기 ─────────────────────────────────────────────────
-    def paste(self, text: str, rating: int | None, channel: str | None, visitor: str | None = None) -> dict:
+    def paste(self, text: str, rating: int | None, channel: str | None, visitor: str | None = None,
+              source: str = "paste") -> dict:
+        """source: paste(붙여넣기) | capture(캡처 후보를 사장님이 확인해 저장). 리뷰 분석 서비스는 둘 다 계약대로 input_method="paste" 로
+        저장하고 source 칸만 다르다. 붙여넣기는 예전과 똑같이 부른다 (source 를 보내지 않음)."""
+        extra = {"source": source} if source != "paste" else {}
         try:
-            return self._src(visitor).paste(self.s.store_id, text, rating, channel)
+            return self._src(visitor).paste(self.s.store_id, text, rating, channel, **extra)
         except SourceError as exc:
             raise DemoError(str(exc), 503) from None
 

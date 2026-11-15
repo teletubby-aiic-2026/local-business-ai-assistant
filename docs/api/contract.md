@@ -4,6 +4,7 @@
 > 기준: main `d7c1305` (2026-11-14, PR #43 병합) · 작성일 2026-11-14
 > 응답 예시는 그 직전 커밋 `28aed61`에서 뽑았습니다. 그 뒤 main에서 바뀐 것은 붙여넣기 글자 수 제한(4000 → 1000자)과 그 시험 1건뿐이고, 화면 파일 세 개는 같습니다.
 > 이 문서는 코드를 읽고 실제 응답을 뽑아서 썼습니다. 코드는 바꾸지 않았습니다.
+> **11/15 덧붙임 (`feat/connect-care-ui`)**: 고객응대 프록시 `/api/care/*`(1.11절), 리뷰 붙여넣기 탭의 '캡처로 넣기', 왼쪽 메뉴 '종합 리포트'(`#/report`)가 생겼습니다. 1.6(승인)·1.8(붙여넣기)에 선택 칸이 하나씩 늘었고, 2부의 id 표·개수·시험 표를 지금 코드에 맞춰 고쳤습니다.
 
 ## 요약
 
@@ -11,7 +12,7 @@
 
 화면은 파일 세 개(`index.html`, `app.js`, `style.css`)이고, 서버(`services/web`)는 JSON만 줍니다. 이 문서는 세 가지를 적었습니다.
 
-1. **1부**: 서버가 주는 API 9개. 요청, 실제 응답 예시, 칸마다 뜻, 오류.
+1. **1부**: 서버가 주는 API 9개와 프록시 두 묶음(1.10 상권 채팅, 1.11 고객응대). 요청, 실제 응답 예시, 칸마다 뜻, 오류.
 2. **2부**: 화면을 다듬을 때 **바꿔도 되는 것**과 **바꾸면 깨지는 것**. 바꾸면 화면이 멈추거나 기존 시험 69건이 깨집니다.
 3. **3부**: 데이터가 지금 어디에 저장되는지, 앞으로 무엇이 바뀔 예정인지.
 
@@ -46,7 +47,7 @@ curl -s http://localhost:8000/api/health
 > **화면을 바꾸기 전에 지킬 규칙 (LLM에게 먼저 읽히세요)**
 >
 > 1. 화면 파일은 `services/web/web/static/`의 세 개뿐입니다. 서버가 `/`로 `index.html`을, `/static/…`으로 나머지를 줍니다. 파일을 더하면 이 폴더 안에 두고 `/static/…` 주소로 부릅니다.
-> 2. `app.js`가 `$("…")`로 찾는 `id` 82개를 지우거나 이름을 바꾸지 않습니다 (2.2). 지우면 화면이 멈춥니다.
+> 2. `app.js`가 찾는 `id`(11/15 기준 114개, 2.2)를 지우거나 이름을 바꾸지 않습니다. 지우면 화면이 멈춥니다.
 > 3. `app.js` 안의 문장 일곱 군데는 글자 그대로 둡니다 (2.4 표의 시험 6). 코드 정리 도구가 따옴표·괄호를 바꾸면 시험이 깨집니다.
 > 4. `index.html`과 `app.js`(주석 포함)에 `replay`, `c9`, `/api/review-insight` 같은 글자가 들어가면 시험이 깨집니다 (2.4). 인라인 SVG 경로 데이터에 `c9`가 우연히 들어가는 경우를 조심하세요.
 > 5. API 경로와 요청·응답의 칸 이름은 바꾸지 않습니다. 필요하면 서버 담당(박건영)에게 요청하세요.
@@ -64,6 +65,7 @@ curl -s http://localhost:8000/api/health
   - 1.5 `POST /api/cards/{card_id}/run` · 1.6 `POST /api/drafts/{draft_id}/approve` · 1.7 `GET /api/approvals`
   - 1.8 `POST /api/reviews` · 1.9 `DELETE /api/reviews/pasted`
   - 1.10 `/api/assistant/*` (상권 채팅 서랍. 상권 서비스 프록시)
+  - 1.11 `/api/care/*` (캡처 입력·응대 점수·보고서. 리뷰 분석 서비스의 고객응대 프록시)
 - 2부. 화면을 다듬을 때 유지해야 하는 것
   - 2.1 파일 세 개와 정적 파일 경로 · 2.2 `id` 목록 · 2.3 id 말고도 app.js가 기대하는 것
   - 2.4 시험이 직접 확인하는 것 · 2.5 화면 주소 · 2.6 화면 흐름과 부르는 API
@@ -1002,6 +1004,10 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 |---|---|---|
 | `text` | 문자열 또는 `null` | 사장님이 고친 글. 안 고쳤으면 원문과 같은 글 |
 | `original` | 문자열 또는 `null` | 생성된 원문 (`drafts[].text`) |
+| `card_id` · `kind` | 문자열, 선택 | 어느 카드의 어떤 글인지. 안 보내면 서버가 ③ 에서 기억한 값 |
+| `review_id` | 문자열, 선택 (11/15) | 리뷰 답글(`kind: "reply_draft"`)이 가리키는 리뷰(`drafts[].target_review_id`). 화면은 답글일 때만 `kind`와 함께 보냄 |
+
+**답글 승인 기록 (11/15)**: 승인한 글이 리뷰 답글이면(서버가 ③ 에서 기억한 `generator`가 `reply_draft`, 서버가 모르는 초안이면 본문의 `kind`·`review_id`) 서버가 리뷰 분석 서비스의 `POST /reviews/{review_id}/status`에 `{"status": "replied", "reply_text": 승인한 글, "at": approved_at, "visitor_id": 방문자}`를 **따로** 보냅니다. 응대 점수·기한(1.11)이 이 기록으로 계산됩니다. 승인 응답은 이것을 기다리지 않고(스레드 2개, 2초 제한), 실패해도 승인은 그대로 성공하며 응답 모양도 같습니다(서버 로그에만 남음). 형식이 틀린 `review_id`는 무시합니다.
 
 - 길이 제한은 코드에 없습니다.
 - `edited`(고쳤는지)는 `text`와 `original`이 **둘 다 `null`이 아니고**, 앞뒤 공백을 뺀 두 글이 다를 때만 `true`입니다.
@@ -1128,6 +1134,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `text` | 문자열, **1~1000자**, 필수 | 리뷰 글 |
 | `rating` | 정수 1~5, 생략·`null` 가능 | 별점. 모르면 비움 |
 | `channel` | `"baemin"`, `"coupangeats"`, `"yogiyo"`, `"naver_place"` 중 하나, 생략·`null` 가능 | 배달앱. **지금 화면은 보내지 않음** |
+| `source` | `"paste"` 또는 `"capture"`, 생략·`null` 가능 (11/15) | `capture` = '캡처로 넣기' 후보를 사장님이 확인·수정해 저장한 것. 리뷰 분석 서비스는 계약대로 `input_method: "paste"`로 저장하고 `source` 칸만 다름. 그 밖의 값은 `422`. 생략하면 예전과 똑같이 보냄 |
 
 > **글자 수는 1~1000자입니다.** 비서 화면 서버, 리뷰 분석 서버, 화면 입력칸(`textarea`의 `maxlength="1000"`)이 모두 1000자입니다. 1001자 이상이나 빈 글은 `422`가 옵니다. 11/14 이전에는 비서 화면 서버만 4000자를 통과시켜 1001~4000자가 `503`으로 왔는데, main `d7c1305`에서 고쳤습니다.
 
@@ -1421,13 +1428,76 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 
 ---
 
+### 1.11 `/api/care/*` — 캡처 입력·응대 점수·보고서 (리뷰 분석 서비스의 고객응대 프록시)
+
+**쓰는 화면**: 리뷰 분석 '리뷰 붙여넣기' 탭의 '캡처로 넣기'와 왼쪽 메뉴 '종합 리포트'(`#/report`). 비서 화면 서버가 리뷰 분석 서비스(`127.0.0.1:8020`, `/api/review-insight/*`)의 고객응대 API를 **대신 불러 주는** 길입니다 (`services/web/web/care_proxy.py`). 브라우저는 8020에 가지 않고, 화면 파일에는 `/api/care`만 씁니다 (2.4 시험 2).
+
+| 메서드 · 경로 | 서비스 경로 | 하는 일 | 실패하면 |
+|---|---|---|---|
+| `GET /api/care/status` | `/api/health` | 고객응대를 쓸 수 있는지 (`ready`·`off`·`down`·`error`) | 항상 `200` |
+| `POST /api/care/reviews/capture` | `…/reviews/capture` | 리뷰 화면 캡처 1장(multipart `file`, png·jpg·webp) → 리뷰 후보. **저장하지 않음** | `400`·`413`·`422`·`502`·`503` |
+| `POST /api/care/reviews/{review_id}/status` | `…/reviews/{id}/status` | 리뷰 상태·답글 기록 (`{"status", "reply_text", "at"}`) | `400`·`404`·`503` |
+| `GET /api/care/response` | `…/response` | 응대 점수(0~100)·이유·답글 기다리는 불만의 기한 | `503` |
+| `GET /api/care/report/daily?date=` | `…/report/daily` | 일일 요약 (비우면 오늘, 한국 날짜) | `400`·`503` |
+| `GET /api/care/report/monthly?month=` | `…/report/monthly` | 월간 보고서 (비우면 이번 달) | `400`·`503` |
+| `GET /api/care/report/monthly/print?month=` | `…/report/monthly/print` | 월간 보고서 인쇄용 A4 **HTML** (화면의 '인쇄용 보기'가 새 탭으로 엶) | `400`·`503` |
+
+- **이 표 밖은 모두 `404`** (`{"error": {"state": "not_found"}}`, 서비스에 보내지 않음). 가게 정보(`/profile*`)는 가게 공용이라 아무 방문자나 고치거나 지울 수 있어서(임시 공지 101개면 저장본이 깨지는 알려진 버그도 있음) 열지 않았고, 문의(`/inquiries*`)·받은함(`/inbox`)·약속 장부(`/promises`)·다국어 메뉴판(`/menu/foreign*`)은 이 화면이 아직 쓰지 않습니다. 리뷰 목록·`insight`·붙여넣기 지우기는 1.3·1.8·1.9가 맡습니다.
+- **손님용 문의 페이지 `/s/{가게}`와 `/api/care/public/*`는 기본으로 없습니다.** `CARE_PUBLIC=1`일 때만 붙고(우리 가게 하나만), 손님 주소는 Nginx가 넣는 `X-Real-IP`(없으면 접속한 쪽)를 씁니다. 보안 검토 전까지 켜지 않습니다.
+- **캡처 후보의 저장은 1.8 `POST /api/reviews`에 `"source": "capture"`** 를 붙여 한 건씩 합니다. 그래서 붙여넣은 리뷰와 똑같이 이 방문자의 요약·불만 묶음·홈 숫자·추천 카드에 들어갑니다.
+- 서버가 `store_id`는 `DEMO_STORE_ID`, `visitor_id`는 방문자 쿠키로 **덮어씁니다** (쿼리·JSON 본문. 캡처 업로드는 쿼리). 쿼리는 `date`·`month`·`now`만 넘기고, 리뷰 분석 서비스의 토큰(`REVIEW_INSIGHT_TOKEN`)은 서버가 붙입니다.
+- 본문 상한: JSON 64KB, 캡처 업로드 12MB → 넘으면 `413` (`state: "too_big"`). 리뷰 분석 서비스 자체 상한은 10MB(넘으면 `400`). Nginx는 캡처 경로만 12MB(배포 README 9절).
+- 서비스 호출은 서버 스레드에서 돌아서 캡처가 20초 걸려도 다른 API는 기다리지 않습니다 (시험으로 확인). 캡처는 100초(`CARE_TIMEOUT_SEC`), 그 밖은 15초까지 기다립니다.
+
+**`capture` 응답 `200`** (시험용 실행, 이미지를 읽지 않은 예시)
+
+```json
+{"candidates": [{"text": "제육볶음 양이 넉넉하고 맛있어요. 또 시킬게요!", "rating": 5, "pii_masked": false, "duplicate": false},
+                {"text": "공깃밥이 또 빠져 있었어요. 다음엔 꼭 챙겨 주세요", "rating": 2, "pii_masked": false, "duplicate": false}],
+ "count": 2, "demo": true, "pieces": 1, "warnings": ["예시 결과입니다. 키가 없거나 APP_MODE=mock 이라 이미지를 실제로 읽지 않았습니다"],
+ "engine": "demo", "next": "…"}
+```
+
+| 칸 | 화면 |
+|---|---|
+| `candidates[].text` · `rating` | 고칠 수 있는 글 칸과 별점 고르기 (못 읽은 별점은 `null` → "별점 모름") |
+| `pii_masked` · `duplicate` | "개인정보 가림" · "이미 있는 리뷰" 표시. `duplicate`면 처음에 고르지 않음 |
+| `demo` | `true`면 "예시 결과 — 이미지를 실제로 읽지 않았어요"를 꼭 보임 |
+| `warnings[]` · `pieces` | 받은 문장 그대로 목록으로. 조각 수는 진행 안내 줄에 |
+
+화면은 별점을 잘못 읽을 수 있다는 안내를 늘 붙입니다 (실시간 시험에서 1~2점 리뷰를 3점으로 읽은 적이 절반쯤).
+
+**`response` 응답 `200`** (줄임): `{"score": 91, "reasons": [{"delta": -2, "message": "'포장 누락' 불만이 3건 반복 중", …}], "pending": [{"review_id", "text", "topic_names", "source", "due_at", "remaining_seconds", "overdue", "paused", "penalty"}], "pending_count", "overdue_count", "untimed_unanswered": 12, "peak_now": false, "policy": {"sla_minutes": 30, "peak_hours": ["11-14", "17-21"]}}`. 화면은 `reasons[].message`를 그대로 보이고, 남은 시간은 `due_at`으로 1초마다 셉니다(브라우저 시계 차이는 `remaining_seconds`로 맞춤). `paused`이거나 `peak_now`면 "멈춤", `untimed_unanswered`는 "지난 불만 n건".
+
+**`report/daily`** 화면이 쓰는 칸: `summary`, `review_count`, `complaint_count`, `replied_on_time`, `replied_late`, `score_start`→`score_end`, `score_change`, `changes[]`(`delta`, `message`), `todo.text`, `by_source`, `pending_count`, `overdue_count`. **`report/monthly`**: `month`, `review_count`, `complaint_count`, `score_start`→`score_end`, `late_count`, `score_trend[]`(`date`, `score`, 화면이 SVG 선 그래프로), `repeated_issues[]`(`topic_name`, `review_count`, `count_this_month`, `replied_count`, `recurred_after_reply`, `state`, `main_time_band`, `is_repeated`), `suggestions[].text`, `changes[]`. 숫자는 리뷰 분석 서비스가 규칙으로 계산하고 문장은 틀 문장입니다 (`summary_method: "template"`, AI 문장 아님).
+
+**오류 모양**
+
+```json
+{"error": {"message": "리뷰 분석 서비스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요.", "state": "down"}}
+```
+
+| 상태 코드 | `state` | 언제 |
+|---|---|---|
+| `503` | `off` · `down` · `slow` · `busy` · `error` | 이 서버에서 꺼 둠(`CARE_URL=off`) · 연결 못 함 · 너무 오래 걸림 · 동시 요청 8개 초과 · 그 밖 (서비스의 `500`·이상한 응답·토큰 거절·우리 쪽 버그도 여기) |
+| `413` | `too_big` | 본문 상한 초과 |
+| `404` | `not_found` | 허용 목록 밖, 또는 서비스의 `REVIEW_NOT_FOUND` |
+| `422` | `invalid` | 캡처 본문이 multipart가 아님, JSON이 아님 / 서비스의 `CAPTURE_UNREADABLE`(리뷰를 못 찾음) |
+| `400` · `502` | `invalid` · `upstream` | 서비스가 준 오류: 형식·크기·너무 긴 캡처(`CAPTURE_TOO_LONG`) · AI 호출 실패(`LLM_*`, 다시 하면 됨) |
+
+서비스가 준 오류는 본문(`code`, `message`, `retryable`, …)을 그대로 두고 `state`만 더합니다. 화면은 `error.message`를 그 칸 안에만 보이고 맨 위 알림 띠(`#alert`)는 쓰지 않습니다. **이 절의 API는 `500`을 주지 않으며, 리뷰 분석 서비스가 꺼져 있어도 비서 화면의 다른 API(1.1~1.9)는 그대로입니다** (단, 1.2~1.5·1.8·1.9는 원래 같은 리뷰 분석 서비스를 쓰므로 그 서비스 자체가 꺼지면 그쪽은 0.1절대로 `503`).
+
+**인쇄용 페이지**는 이 서버 주소에서 열리므로 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; …`와 `X-Content-Type-Options: nosniff`를 붙여 줍니다 (스크립트·외부 주소 막음).
+
+---
+
 ## 2부. 화면을 다듬을 때 유지해야 하는 것
 
 ### 2.1 파일 세 개와 정적 파일 경로
 
 | 파일 | 서버가 주는 주소 | 하는 일 |
 |---|---|---|
-| `services/web/web/static/index.html` | `/` | 화면의 뼈대. 화면 5개(홈·추천 카드·초안·완료·리뷰 분석)와 서랍, 바닥 |
+| `services/web/web/static/index.html` | `/` | 화면의 뼈대. 화면 6개(홈·추천 카드·초안·완료·리뷰 분석·종합 리포트)와 서랍, 바닥 |
 | `services/web/web/static/style.css` | `/static/style.css` | 모든 모양 |
 | `services/web/web/static/app.js` | `/static/app.js` | 모든 동작. API 호출, 화면 그리기, 화면 전환 |
 
@@ -1439,9 +1509,9 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 
 ### 2.2 `id` 목록
 
-`app.js`가 `$("…")`(= `document.getElementById`)로 찾는 id는 **82개**입니다. 글자로 적힌 72개와, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`)를 합한 수입니다. 그중 `approvals`와 `restart`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 80개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 81개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
+(11/15 `feat/connect-care-ui` 기준으로 다시 셈. 서랍·캡처·종합 리포트 id 포함) `app.js`가 찾는 id는 **114개**입니다. `$("…")`로 글자 그대로 적힌 99개, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`), 종합 리포트의 `RP_STATE` 표로 찾는 5개(`rp-daily-state`·`rp-score-state`·`rp-month-state`·`rp-market-state`·`rp-mkt-state`)를 합한 수입니다. 그중 `approvals`, `restart`, `rp-approvals`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 111개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 112개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
 
-`index.html`에는 id가 84개 있습니다. 81개를 뺀 나머지 3개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`)로만 씁니다 (표의 마지막 묶음).
+`index.html`에는 id가 121개 있습니다. 112개를 뺀 나머지 9개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`)로만 씁니다 (표의 마지막 묶음).
 
 **상단 바와 알림**
 
@@ -1535,6 +1605,40 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `paste-msg` | 붙여넣기 진행·오류 안내 (`role="status"`) |
 | `paste-result` | 분류 결과 패널이 들어가는 칸 |
 
+**리뷰 분석 > 리뷰 붙여넣기 탭 > 캡처로 넣기 (11/15)** (id는 모두 `cap`으로 시작. 시험 `test_care_ui_static.py`가 확인)
+
+| id | 한 줄 설명 |
+|---|---|
+| `cap` | 캡처 칸(`section`). 파일을 끌어 놓으면 받음(`drop` 클래스를 켬) |
+| `cap-file` | 파일 고르기(`input type="file"`, `accept="image/png,image/jpeg,image/webp"`, `hidden`). `#cap-choose`가 `click()`으로 엶 |
+| `cap-choose` | '이미지 고르기' 버튼 |
+| `cap-file-name` | 고른 파일 이름·크기 |
+| `cap-send` | '캡처 읽기' 주 버튼. 파일이 없거나 읽는 중이면 `disabled` |
+| `cap-status` | 진행·결과 안내 (`role="status"`). 읽는 중이면 `busy` 클래스 + 걸린 초 |
+| `cap-error` | 이 칸의 오류 (`role="alert"`). 서버 문장 그대로. 비어 있으면 자리를 차지하지 않음 |
+| `cap-result` | 후보 묶음 전체 (읽기 전에는 `hidden`) |
+| `cap-demo` | "예시 결과 — 이미지를 실제로 읽지 않았어요" (응답 `demo: true`일 때만 보임) |
+| `cap-warnings` | 응답 `warnings[]` 목록 (없으면 `hidden`) |
+| `cap-preview` | '올린 캡처 보기' 안의 이미지 (별점 비교용, 브라우저 안에서만) |
+| `cap-list` | 후보 목록(`ol`). JS가 후보마다 `li.cap-item`을 그림 |
+| `cap-save` | '선택한 리뷰 저장' 주 버튼. 고른 후보가 없으면 `disabled` |
+| `cap-picked` | "n건 고름" |
+| `cap-save-msg` | 저장 진행·결과 (`role="status"`) |
+
+**종합 리포트 `#/report` (11/15)** (id는 모두 `rp-`로 시작)
+
+| id | 한 줄 설명 |
+|---|---|
+| `rp-reload` | '다시 불러오기' (세 응대 칸을 다시 부름) |
+| `rp-daily-state` · `rp-daily` · `rp-daily-date` | 오늘 요약 칸의 상태 안내(`role="status"`, 오류면 `bad` 클래스) · 내용 · 날짜 |
+| `rp-score-state` · `rp-score` | 응대 점수 칸의 상태 안내 · 내용 (큰 숫자, 이유, 답글 기다리는 불만과 남은 시간, 지난 불만) |
+| `rp-month-state` · `rp-month` | 월간 보고서 칸의 상태 안내 · 내용 (숫자, SVG 그래프, 반복 불만 표, 제안) |
+| `rp-month-prev` · `rp-month-label` · `rp-month-next` | 이전 달 · 보고 있는 달 · 다음 달 (이번 달이면 다음 달 `disabled`, 1년 전까지) |
+| `rp-print` | '인쇄용 보기' 링크 (`/api/care/report/monthly/print?month=YYYY-MM`, 새 탭) |
+| `rp-market-state` · `rp-market` | 상권 요약 칸 (브리핑의 상권 지표로만) |
+| `rp-mkt-state` · `rp-mkt` | 마케팅 요약 칸 (추천 카드 ⓑ, 홍보글 승인 상태, 승인 기록 수) |
+| `rp-approvals` | (JS가 만듦) 마케팅 요약 칸의 "서버에 남은 승인 기록 n건" |
+
 **서랍 (AI에게 묻기 자리)과 바닥**
 
 | id | 한 줄 설명 |
@@ -1558,15 +1662,17 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `assistant-count` | 900자를 넘으면 "n / 1000자" |
 | `honesty` | 바닥 '동작·모의 표시'가 들어가는 칸 (`/api/health`의 `parts`) |
 
-**JS가 찾지 않는 id 3개** (접근성 연결. 이름을 바꾸면 연결된 `aria-labelledby`·`for`도 같이 바꿉니다)
+**JS가 찾지 않는 id 9개** (접근성 연결. 이름을 바꾸면 연결된 `aria-labelledby`·`for`도 같이 바꿉니다)
 
 | id | 한 줄 설명 |
 |---|---|
 | `chart-title` | 차트 패널 제목. 패널의 `aria-labelledby`가 가리킴 |
 | `todo-title` | '오늘 할 일' 패널 제목. 패널의 `aria-labelledby`가 가리킴 |
 | `assistant-title` | 서랍 제목. 서랍의 `aria-labelledby`가 가리킴 |
+| `cap-title` | 캡처 칸 제목 (`#cap`의 `aria-labelledby`) |
+| `rp-daily-title` · `rp-score-title` · `rp-month-title` · `rp-market-title` · `rp-mkt-title` | 종합 리포트 다섯 칸의 제목 (칸마다 `aria-labelledby`) |
 
-**`app.js`가 만들어 넣는 id (찾지는 않음)**: `card-(카드 id)`, `draft-(글 id)`, `text-(글 id)`. 편집 칸(`textarea`)의 `id`가 `text-(글 id)`이고 `<label for>`가 이를 가리킵니다. 이 규칙을 바꾸면 라벨과 편집 칸의 연결이 끊어집니다.
+**`app.js`가 만들어 넣는 id (찾지는 않음)**: `card-(카드 id)`, `draft-(글 id)`, `text-(글 id)`, 캡처 후보의 `cap-text-(번호)`·`cap-rate-(번호)`(라벨 `for`가 가리킴). 편집 칸(`textarea`)의 `id`가 `text-(글 id)`이고 `<label for>`가 이를 가리킵니다. 이 규칙을 바꾸면 라벨과 편집 칸의 연결이 끊어집니다.
 
 ### 2.3 id 말고도 app.js가 기대하는 것
 
@@ -1585,6 +1691,9 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `[data-view="analysis"]` 안의 `[data-goto-tab]` | '불만 묶음 보기' 버튼으로 탭 이동 | 버튼의 `data-goto-tab` 값 |
 | `#cards [data-run]` | 카드 버튼 클릭 | JS가 만든 버튼의 `data-run` |
 | `.todo-st` | '오늘 할 일' 항목이 "만드는 중…"으로 바뀜 | 항목 버튼 안의 `todo-st` 클래스 |
+| `#cap-list [data-cap-pick]`, `.cap-item` 안의 `[data-cap-text]`·`[data-cap-rate]`·`[data-cap-msg]`·`.cap-saved` | 캡처 후보 고르기·저장 | JS가 그린 후보 `li.cap-item` |
+| `[data-view="report"]` 안의 `[data-rp-ask]` | 상권 요약의 'AI에게 묻기로 상권 더 보기' → 서랍 | JS가 그린 버튼 |
+| `#rp-score [data-clock]` | 남은 시간을 1초마다 다시 씀 | JS가 그린 `span.rp-clock` |
 
 **(2) `data-*` 속성**
 
@@ -1601,6 +1710,9 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `data-card` · `data-pick` | JS가 만든 카드 고르기·글 고르기 버튼 | 카드 id · 글 id |
 | `data-approve` · `data-copy` · `data-rerun` | JS가 만든 '승인'·'복사'·'다시 만들기' 버튼 | 글 id · 글 id · 카드 id |
 | `data-sample` | JS가 만든 예시 문장 버튼 | 예시 번호 |
+| `data-cap-pick` · `data-cap-text` · `data-cap-rate` · `data-cap-msg` | JS가 만든 캡처 후보의 체크 칸 · 글 칸 · 별점 · 오류 줄 | 후보 번호 |
+| `data-clock` | JS가 만든 남은 시간 표시 | `pending` 순번 |
+| `data-rp-ask` | JS가 만든 상권 요약의 서랍 열기 버튼 | (값 없음) |
 
 **(3) JS가 켜고 끄는 상태.** CSS가 이 상태를 보고 모양을 정하는 곳이 있습니다. 모양은 바꿔도 되지만 JS가 상태를 바꾸는 방식은 그대로 둡니다.
 
@@ -1638,6 +1750,8 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | 초안 | `page-head`, `eyebrow`, `badge`(+`ok`·`warn`·`bad`), `seg`, `progress`, `track`, `draft-list`, `st`(+`ok`·`warn`·`bad`), `draft`(+`approved`), `draft-head`, `rv`, `rv-title`, `rv-list`, `rv-meta`, `rv-text`, `stars`, `reply`, `reply-label`, `ico`, `issues`(+`bad`), `row`, `ghost`, `model` |
 | 완료 | `log`, `plain`, `big`, `panel`, `more` |
 | 리뷰 분석 | `kw-row`, `kw-title`, `kw-chip`(+`pos`·`neg`), `box`, `n`, `arrow`, `group`(+`repeated`·`new`), `group-head`, `badge`(+`rep`·`ok`), `an-note`, `an-bands`, `topic-bars`, `quote`, `an-joined`, `panel`, `panel-head` |
+| 캡처로 넣기 | `cap-item`(+`dup`·`saved`), `cap-item-head`, `cap-check`, `cap-saved`, `cap-item-foot`, `cap-item-msg`, `cap-sec`, `badge`(+`warn`·`ok`), `sr` · 상태 클래스 `busy`(`#cap-status`), `drop`(`#cap`) |
+| 종합 리포트 | `rp-summary`, `rp-nums`, `rp-line`, `rp-delta`(+`neg`·`pos`), `rp-reasons`, `rp-todo`, `rp-todo-label`, `rp-score-top`, `rp-big`, `rp-big-n`, `rp-big-unit`, `rp-peak`, `rp-h3`, `rp-pending`, `rp-p`(+`over`), `rp-p-main`, `rp-p-text`, `rp-clock`(+`over`·`soon`·`paused`), `rp-untimed`, `rp-chart`, `rp-trend`, `rp-gl`, `rp-ax`, `rp-now`, `rp-line`, `rp-pt`, `rp-table-wrap`, `rp-table`, `num`, `rp-sugg`, `rp-store`, `rp-snaps`, `rp-snap-v`(+`neg`), `rp-snap-t`, `rp-ask`, `rp-mkt-title`, `rp-mkt-reason`, `rp-mkt-st`, `rp-mkt-none` · 상태 클래스 `bad`(`#rp-*-state`) |
 | 준비 중 자리 | `later`, `later-title`, `later-badge`, `view`, `narrow`, `page-head`, `eyebrow`, `badge` |
 | 어디서나 | `small`, `muted`, `sr`(화면에는 안 보이고 읽기 프로그램에만 읽힘), `long`(375px 메뉴에서 숨김) |
 
@@ -1650,7 +1764,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | 1 | `test_web.py` · `LiveAndMockOnly.test_screen_shows_the_notice_only_through_health` | `index.html`에 `id="mode-notice"`가 있음. `app.js`에 `mode_notice`와 `실제 AI 결과 아님`이 있음. **`index.html`과 `app.js` 어디에도 `replay`(대소문자 무시), `c9`, `id="record"`가 없음** |
 | 2 | `test_web.py` · `AnalysisScreen.test_no_link_or_call_to_the_old_review_page` | `index.html`과 `app.js`에 **없어야 하는 글자**: `analysis-link`, `리뷰 분석 화면에서`, `/api/review-insight`, `review_service.url}/`. `app.js`에 없어야 하는 글자: `rs.url`. `app.js`의 `api(` 호출 중 첫 글자가 따옴표나 백틱인 것은 모두 주소가 `/api/`로 시작해야 하고, 그중 `/api/insight`가 있어야 함 (정규식 ``api\(\s*[`"']([^`"']+)``) |
 | 3 | `test_web.py` · `AnalysisScreen.test_analysis_has_three_keyboard_tabs` | `index.html`에 `role="tablist"`와 `id="an-tab-summary"`, `id="an-tab-issues"`, `id="an-tab-paste"`, `id="an-summary"`, `id="an-issues"`, `id="an-paste"`가 (따옴표는 큰따옴표) 있음. `app.js`에 `ArrowRight`, `ArrowLeft`, `Home`, `End`가 있음 |
-| 4 | `test_web.py` · `AnalysisScreen.test_later_menu_slots` | `app.js`에 `회의에서 정한 뒤 넣을 자리입니다`, `"종합 "`(큰따옴표 포함, 뒤에 공백 한 칸), `"리포트"`, `"상권"`, `준비 중`이 있음 |
+| 4 | `test_web.py` · `AnalysisScreen.test_later_menu_slots` | `app.js`에 `회의에서 정한 뒤 넣을 자리입니다`, `준비 중`이 있고, `LATER` 목록에 `"상권"`이 있으며 `route: "report"`는 없음 (11/15 종합 리포트가 진짜 화면이 됨) |
 | 5 | `test_web.py` · `AnalysisScreen.test_every_id_the_script_uses_exists` | `app.js`의 `$("…")`로 적힌 id 전부, 그리고 `an-`·`an-tab-`(summary·issues·paste), `dot-`·`staff-`(care·mkt)로 이어 붙인 id가 `index.html` 또는 `app.js`에 `id="…"`(큰따옴표)로 있음. 정규식은 ``\$\(\s*["']([\w-]+)["']\s*\)``와 `id="([\w-]+)"` |
 | 6 | `test_measure_live.py` · `StatusRule.test_rules_are_still_the_ones_in_app_js` | `app.js`(공백·줄바꿈은 한 칸으로 합쳐서 비교)에 아래 일곱 줄이 **글자 그대로** 있음 |
 
@@ -1665,6 +1779,12 @@ reply_draft: "답글", prevention_notice: "재발 방지 공지"
 JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) })
 const on = new Set(m.default || []);
 ```
+
+**11/15에 더한 정적 시험** (화면 파일을 글자로 읽음)
+
+- `test_assistant_drawer_static.py`: 서랍 id(`assistant-`), `/api/assistant/*`만, `drawerApi`만, 90초 끊기, 한글 입력 중 Enter 막기, 첫 추천 질문 4개.
+- `test_care_ui_static.py` (17건): 캡처 칸 id는 `cap`, 리포트 id는 `rp-`로 시작하고 JS가 찾는 것은 모두 HTML에 있음. 두 화면은 `careApi`로만 `/api/care/*`·`/api/reviews`·`/api/approvals`를 부르고 전역 `api()`·`showAlert`·`#alert`를 쓰지 않음. `accept`의 세 형식, 10MB, 이미 있는 리뷰는 처음에 고르지 않음, `source: "capture"`, 예시 결과·`warnings`·별점 확인 문구, 메뉴 자리(리뷰 분석 다음)와 `ROUTES`의 `"report"`, 인쇄 링크(`target="_blank"`, `rel="noopener"`), 남은 시간(`due_at`)·멈춤·지난 불만, 월간 표의 칸 7개와 SVG 그래프, **종합 리포트 덩어리가 `/api/cards`·`/api/briefing`·`/run`·`/api/assistant`·`refresh(`를 부르지 않음**(열어도 AI를 새로 부르지 않음), 외부 스크립트 없음.
+- `test_care_proxy.py` (29건, 화면 파일은 읽지 않음): 1.11절의 허용 목록·덮어쓰기·손님용 경로·상태·413·500 없음·막히지 않음, 1.6의 답글 승인 기록, 1.8의 `source`.
 
 **조심할 점**
 
@@ -1688,11 +1808,11 @@ const on = new Set(m.default || []);
 | `#/draft` | `draft` | 승인할 글 | 초안 보기·고치기·승인 | `index.html`의 껍데기 + JS가 채움 |
 | `#/done` | `done` | 처리 완료 | 승인 결과, 처음으로 | `index.html`의 껍데기 + JS가 채움 |
 | `#/analysis` | `analysis` | 리뷰 분석 | 탭 3개 (요약·불만 묶음·리뷰 붙여넣기) | `index.html` |
-| `#/report` | `report` | 종합 리포트 (준비 중) | 빈 자리 | `app.js`의 `LATER`가 만듦 |
+| `#/report` | `report` | 종합 리포트 | 오늘 요약 · 응대 점수 · 월간 보고서 · 상권 요약 · 마케팅 요약 (11/15) | `index.html` |
 | `#/market` | `market` | 상권 (준비 중) | 빈 자리 | `app.js`의 `LATER`가 만듦 |
 
 - 알 수 없는 해시, 해시가 없는 주소는 `#/today`로 봅니다 (`currentRoute()`가 `ROUTES`에 없는 이름을 홈으로 돌림).
-- `ROUTES` 배열(`["today", "cards", "draft", "done", "analysis", ...LATER의 이름]`)에 없는 화면 이름은 쓸 수 없습니다.
+- `ROUTES` 배열(`["today", "cards", "draft", "done", "analysis", "report", ...LATER의 이름]`)에 없는 화면 이름은 쓸 수 없습니다.
 - **화면을 새로 더하려면** (1) 메뉴 링크 `<a href="#/이름" data-route="이름">`, (2) `<section class="view" data-view="이름" hidden>`, (3) `ROUTES`에 이름 추가, 이 세 가지가 필요합니다 (`LATER`로 만든 자리는 `LATER`에서 빼고 `ROUTES`에 이름을 넣는다고 `app.js` 주석에 적혀 있음).
 - `#/draft`와 `#/done`은 화면을 열 때마다 다시 그립니다. 만든 글이 없으면 "제안 보기" / "초안으로" 링크가 있는 빈 안내가 나옵니다.
 - 주소가 같은 화면으로 `go()`하면 해시는 그대로 두고 `route()`만 다시 부릅니다.
@@ -1714,6 +1834,11 @@ const on = new Set(m.default || []);
 | '처음으로' | 없음 | 브라우저의 만든 글·승인 표시만 비움. 서버 기록은 그대로 |
 | 붙여넣기 '분류하기' | `POST /api/reviews` → 성공하면 `briefing`, `cards`, `insight` 다시 | 분류 결과 패널, 홈·카드·분석 갱신 |
 | '붙여넣은 리뷰 지우기' | `DELETE /api/reviews/pasted` → `briefing`, `cards`, `insight` 다시 | 위와 같음 |
+| 캡처로 넣기 '캡처 읽기' | `POST /api/care/reviews/capture` (multipart, 최대 110초 기다림) | 후보 목록 (저장하지 않음). 오류는 `#cap-error`에만 |
+| '선택한 리뷰 저장' | 고른 후보마다 `POST /api/reviews` `{text, rating, source: "capture"}` → 하나라도 저장되면 `briefing`, `cards`, `insight` 다시 | 후보마다 "저장함" 또는 그 후보 아래 오류, 홈·카드·분석 갱신 |
+| 초안의 '승인' (리뷰 답글) | 위 승인 + 본문에 `kind`·`review_id` | 서버가 리뷰 분석 서비스에 '답글 달았음' 기록 (1.6, 화면은 기다리지 않음) |
+| `#/report` 열기·'다시 불러오기' | `GET /api/care/report/daily`, `/api/care/response`, `/api/care/report/monthly` (따로따로), `GET /api/approvals` | 칸마다 그림. 한 칸이 실패해도 다른 칸은 그대로. 상권·마케팅 요약은 이미 받은 `briefing`·`cards`로만 (새로 부르지 않음, AI 호출 없음). 화면에 있는 동안 1분마다 `response`만 다시 |
+| 월간 '이전 달'·'다음 달' | `GET /api/care/report/monthly?month=YYYY-MM` | 월간 칸, '인쇄용 보기' 주소도 그 달로 |
 
 - 다시 불러온 카드의 id·근거가 이전과 다르면(`refresh()`), 화면에 있던 만든 글·승인 표시·고친 내용을 모두 버립니다.
 - 모든 진행 상태(만든 글, 승인 표시, 고친 글)는 **브라우저 메모리**(`state` 객체)에만 있습니다. 새로고침하면 사라집니다 (3.1).
@@ -1725,7 +1850,7 @@ const on = new Set(m.default || []);
 | 색, 글꼴, 글자 크기, 간격, 모서리, 그림자 | 색은 `style.css` 맨 위 `:root` 변수(`--bg`, `--panel`, `--ink`, `--accent`, `--brand` 등)에 모여 있고, 다크 값은 `@media (prefers-color-scheme: dark)` 안에 따로 있음. 라이트·다크 둘 다 챙기세요. CSS 주석에 따르면 글자 대비를 WCAG AA(4.5:1)에 맞춰 둔 값이 있으니, 색을 바꿀 때 대비를 다시 확인하세요 |
 | 배치 (flex·grid), 화면 폭별 모양 | 지금은 760px 이하에서 모바일 배치(왼쪽 메뉴가 위쪽 가로 메뉴로, 서랍이 아래 시트로)이고 `main`의 컨테이너 쿼리(600·640·720px)도 씀. 375px 폭에서 가로 스크롤이 생기지 않게 |
 | 아이콘 (인라인 SVG) | `index.html`·`app.js` 안에 있음. **`c9`, `replay`가 들어가면 시험이 깨짐** (2.4). `aria-hidden="true"`로 장식 표시 |
-| 문구 (버튼 글자, 제목, 안내문) | 2.4에 적은 문구(`mode_notice`, `실제 AI 결과 아님`, `회의에서 정한 뒤 넣을 자리입니다`, `"종합 "`, `"리포트"`, `"상권"`, `준비 중`)와 시험 6의 일곱 줄만 빼고 자유 |
+| 문구 (버튼 글자, 제목, 안내문) | 2.4에 적은 문구(`mode_notice`, `실제 AI 결과 아님`, `회의에서 정한 뒤 넣을 자리입니다`, `LATER`의 `"상권"`, `준비 중`, 캡처의 "예시 결과 — 이미지를 실제로 읽지 않았어요"·별점 확인 문구·`선택한 리뷰 저장`, 종합 리포트 제목)와 시험 6의 일곱 줄만 빼고 자유 |
 | CSS 클래스의 **스타일** | 2.3(7)에 적은 클래스의 모양은 자유. 이름은 `app.js`와 같이 바꿔야 함. `index.html`에만 있는 클래스(`bar`, `brand`, `logo`, `dash-grid` 등)는 `style.css`와 `index.html`만 맞추면 됨 |
 | HTML 요소 더하기·순서 바꾸기·감싸기 | 2.2의 id와 2.3(1)의 구조(`.top`, `.side .menu`, `.shell > main`, `#staff li`, `data-*`)를 지키는 한 자유. 태그 종류는 2.3(5)를 지킴 |
 | 애니메이션, 호버, 포커스 모양 | 자유. 키보드 포커스가 보이게 유지 |
@@ -1803,27 +1928,26 @@ PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest discover -s t
 |---|---|---|
 | **DB(PostgreSQL)에 저장**: 승인 기록, 붙여넣은 리뷰, 가게별 주간·월간 보고서, 카드 추천 이유 | 위 3.1 표대로 메모리·파일 | 서버 안의 일이라 화면은 그대로여야 합니다. 예를 들어 서버를 다시 켜도 승인 목록(`GET /api/approvals`)이 남게 될 수 있습니다 (정해지지 않음) |
 | **방문자를 구분하는 값** | 없음 | 방식(로그인·쿠키·토큰)은 정해지지 않았습니다. 정해지면 요청에 값을 싣는 방법이 바뀔 수 있습니다 |
-| **보고서 API** (가게 주간·월간 보고서) | 없음 | 종합 리포트 자리(`#/report`)에 들어갈 수 있습니다 (확정 아님). 경로·모양 미정 |
+| **보고서 API** (가게 주간·월간 보고서) | **연결됨 (11/15)**: 리뷰 분석 서비스의 일일·월간 응대 보고서를 `/api/care/report/*`로 (1.11절). 종합 리포트(`#/report`)에 보임. 주간 보고서·DB `reports` 표 저장은 아직 없음 | `#rp-*` |
 | **상권 채팅** (`AI에게 묻기` 서랍) | **연결됨 (`feat/assistant-proxy`)**: 비서 화면 서버가 상권 서비스를 대신 불러 줌(1.10절). 서랍이 질문·선택지·근거 카드·대화 지우기를 함. 공식 상권 자료가 아직 없어 실제 숫자는 자료가 들어온 뒤에 나옴 | 서랍 안(`#assistant-*`)만 바뀜 |
-| **캡처(OCR) 입력** | 없음 | 리뷰를 글로 붙여넣는 대신 화면 캡처로 넣는 입력입니다. 화면의 어디에 들어갈지는 확인하지 못했습니다 |
+| **캡처(OCR) 입력** | **연결됨 (11/15)**: 리뷰 붙여넣기 탭의 '캡처로 넣기' (1.11절, HCX-005가 옮겨 적고 사장님이 확인해 저장) | `#cap-*` |
 
 ### 3.3 지금 화면에 있는 빈 자리
 
-**(1) 준비 중 메뉴 두 개: `app.js`의 `LATER`**
+**(1) 준비 중 메뉴 하나: `app.js`의 `LATER`** (11/15 '종합 리포트'는 진짜 화면이 되어 빠짐)
 
 ```js
 const LATER = [
-  { route: "report", long: "종합 ", short: "리포트", desc: "여러 분석 결과를 한 장으로 모아 볼 화면이에요. …" },
   { route: "market", long: "", short: "상권", desc: "가게 주변 상권 지표를 볼 화면이에요. …" },
 ];
 ```
 
 (`desc`의 뒷부분은 줄여서 적음)
 
-- `LATER` 목록에서 왼쪽 메뉴 링크(`#/report`, `#/market`)와 "회의에서 정한 뒤 넣을 자리입니다" 빈 화면을 만듭니다 (`mountLater()`).
+- `LATER` 목록에서 왼쪽 메뉴 링크(`#/market`)와 "회의에서 정한 뒤 넣을 자리입니다" 빈 화면을 만듭니다 (`mountLater()`).
 - 메뉴에서는 "준비 중" 제목 아래에 나오고, 375px 폭에서는 제목이 숨고 "준비 중" 배지가 보입니다.
 - 채우는 방법: `index.html`에 진짜 화면(`<section data-view="report">`)을 만들고, `LATER`에서 그 항목을 빼고, `ROUTES`에 이름을 넣습니다 (`app.js` 주석). 모양은 `style.css`의 '준비 중 자리' 한 덩어리입니다.
-- 시험 4가 `"종합 "`, `"리포트"`, `"상권"`, `준비 중`, `회의에서 정한 뒤 넣을 자리입니다`가 `app.js`에 있는지 확인합니다. **자리를 채워서 `LATER`에서 항목을 빼면 이 시험도 같이 고쳐야 합니다.**
+- 시험 4가 `LATER`의 `"상권"`, `준비 중`, `회의에서 정한 뒤 넣을 자리입니다`를 확인합니다. **자리를 채워서 `LATER`에서 항목을 빼면 이 시험도 같이 고쳐야 합니다** (11/15 종합 리포트 때 고침).
 - 홈의 '상권 저녁 매출' 타일(`#stat-market`)과 카드 ⓑ의 근거가 지금 상권 지표를 보여 주는 곳입니다.
 
 **(2) 'AI에게 묻기' 서랍 자리**

@@ -1,8 +1,9 @@
 // 텔레토비 AI 비서: 단계별 화면 (1 오늘 → 2 제안 → 3 초안 → 4 완료) + 리뷰 분석. 외부 라이브러리 없이 동작.
-// 화면은 주소 해시로 바꾼다: #/today #/cards #/draft #/done #/analysis (재정비/05 UI 디자인 레퍼런스 15번, 박건영 결정 11/10)
+// 화면은 주소 해시로 바꾼다: #/today #/cards #/draft #/done #/analysis #/report (재정비/05 UI 디자인 레퍼런스 15번, 박건영 결정 11/10)
 // 화면마다 할 일은 하나. API: /api/health, briefing, insight, cards, cards/{id}/run, drafts/{id}/approve, approvals, reviews.
 // 오른쪽 'AI에게 묻기' 서랍은 상권 채팅: /api/assistant/* (서랍 전용 drawerApi, 서랍을 처음 열 때부터).
 // 리뷰 분석(#/analysis)은 따로 떠 있던 리뷰 분석 화면의 세 화면(요약·불만 묶음·붙여넣기)을 옮겨 왔다 (11/13 통합 1차).
+// 붙여넣기 탭의 '캡처로 넣기'와 종합 리포트(#/report)는 고객응대 API(/api/care/*, careApi)를 쓴다 (11/15).
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -20,11 +21,11 @@ const SOURCE_NAMES = { live: "실시간 HCX-005", seed: "시험용 저장 예시
 // 메뉴 링크와 빈 화면을 둘 다 이 목록에서 만든다 (mountLater). 지우려면 여기서 빼면 끝.
 // 채울 때는 index.html 에 진짜 화면(section data-view)을 만들고 여기서 빼서 ROUTES 에 이름을 넣는다. 모양은 style.css '준비 중 자리' 한 덩어리.
 // long: 375px 메뉴에서 숨기는 앞부분 (다른 메뉴의 '추천 '·'처리 '와 같은 방식)
+// 종합 리포트(#/report)는 11/15 진짜 화면으로 채웠다 (index.html section data-view="report", 아래 '종합 리포트' 덩어리)
 const LATER = [
-  { route: "report", long: "종합 ", short: "리포트", desc: "여러 분석 결과를 한 장으로 모아 볼 화면이에요. 무엇을 담을지는 회의에서 정해요." },
-  { route: "market", long: "", short: "상권", desc: "가게 주변 상권 지표를 볼 화면이에요. 지금은 홈의 '상권 저녁 매출' 칸과 추천 카드 ⓑ의 근거에서 볼 수 있어요." },
+  { route: "market", long: "", short: "상권", desc: "가게 주변 상권 지표를 볼 화면이에요. 지금은 홈의 '상권 저녁 매출' 칸, 종합 리포트의 상권 요약, 추천 카드 ⓑ의 근거에서 볼 수 있어요." },
 ];
-const ROUTES = ["today", "cards", "draft", "done", "analysis", ...LATER.map((x) => x.route)];
+const ROUTES = ["today", "cards", "draft", "done", "analysis", "report", ...LATER.map((x) => x.route)];
 
 const state = {
   health: null, briefing: null, cards: [], results: {}, approved: new Set(), approvedLog: [],
@@ -33,6 +34,7 @@ const state = {
   draftId: null,   // 초안 화면에 크게 보이는 글
   insight: null,   // 리뷰 분석 화면 (/api/insight)
   joined: [],      // 방금 붙여넣은 리뷰가 들어간 묶음 id (불만 묶음 탭에서 표시)
+  booted: false, bootError: null,   // 처음 불러오기가 끝났는지·실패 문장 (종합 리포트의 상권·마케팅 요약이 씀)
 };
 // 출처 문자열에서 URL 을 떼어 화면에는 이름만 (URL 은 링크로)
 const sourceUrl = (s) => (String(s || "").match(/https?:\/\/\S+/) || [""])[0];
@@ -57,6 +59,7 @@ function route() {
   if (name === "draft") renderDraft();
   if (name === "done") renderDone();
   if (name === "today") renderDash();
+  if (name === "report") loadReport(); else rpStop();
   document.querySelectorAll("[data-view]").forEach((v) => (v.hidden = v.dataset.view !== name));
   document.querySelectorAll(".menu a").forEach((a) => {
     if (a.dataset.route === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
@@ -409,7 +412,9 @@ function findDraft(id) {
 async function approve(id) {
   const d = findDraft(id); const box = document.querySelector(`[data-text="${CSS.escape(id)}"]`);
   try {
-    const entry = await api(`/api/drafts/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ text: box.value, original: d.text }) });
+    // 리뷰 답글이면 어느 리뷰의 답글인지도 보낸다: 서버가 리뷰 분석 서비스에 '답글 달았음'을 기록 (응대 점수·기한). 서버가 아는 초안이면 서버 값이 먼저
+    const hint = d.target_review_id ? { kind: d.generator, review_id: d.target_review_id } : {};
+    const entry = await api(`/api/drafts/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ text: box.value, original: d.text, ...hint }) });
     d.edited_text = entry.edited ? box.value : null;
     delete state.pending[id];
     state.approved.add(id);
@@ -620,6 +625,415 @@ async function resetPaste() {
     $("paste-msg").textContent = `붙여넣은 리뷰${Number.isFinite(r.deleted) ? ` ${r.deleted}건` : ""}을 지웠어요. 홈 숫자와 추천 카드도 다시 불러왔어요.`;
   } catch (e) { $("paste-msg").textContent = e.message; }
   finally { $("paste-reset").disabled = false; }
+}
+
+// ── 고객응대 호출: 캡처로 넣기 · 종합 리포트 (11/15) ─────────────────────
+// 이 서버의 /api/care/*(리뷰 분석 서비스의 고객응대 API 를 서버가 대신 부름), 캡처 후보 저장용 /api/reviews, 승인 기록 /api/approvals 만 부른다.
+// 호출은 careApi 로만 한다: 전역 api()·showAlert(#alert)를 쓰지 않아서 오류는 그 칸(캡처 칸, 리포트의 각 칸) 안에만 보이고 화면의 다른 곳은 그대로.
+// 서버 글은 esc() 를 거쳐서만 넣는다.
+const CARE_WAIT_MS = 20000;
+const CAP_WAIT_MS = 110000;   // 캡처: 긴 캡처는 최대 5조각으로 나눠 조각마다 HCX 를 부른다 (보통 5~20초). 서버는 100초까지 기다림
+const CAP_MAX_BYTES = 10 * 1024 * 1024;
+const CAP_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const SOURCE_KO = { sample: "합성 리뷰", paste: "붙여넣기", capture: "캡처", app: "가상 배달앱", memo: "매장 메모" };
+
+async function careApi(path, options = {}, waitMs = CARE_WAIT_MS) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), waitMs);
+  const fail = (message, st, status) => Object.assign(new Error(message), { state: st, status });
+  const headers = { Accept: "application/json" };
+  if (typeof options.body === "string") headers["Content-Type"] = "application/json";   // FormData(캡처)는 브라우저가 경계값을 붙인다
+  try {
+    const res = await fetch(path, { credentials: "same-origin", cache: "no-store", ...options, headers, signal: ctl.signal });
+    const body = await res.json().catch(() => null);
+    if (res.ok && body) return body;
+    if (body?.error?.message) throw fail(body.error.message, body.error.state || "error", res.status);
+    if (res.status === 413) throw fail("파일이 너무 커요. 10MB 이하 이미지를 올려 주세요.", "too_big", 413);   // Nginx 가 막으면 HTML 로 옴
+    if (res.status === 422) throw fail("보내는 내용을 다시 확인해 주세요.", "invalid", 422);
+    if (res.status === 404) throw fail("이 서버에는 아직 고객응대 기능이 연결되지 않았어요.", "off", 404);
+    throw fail(res.ok ? "응답을 읽지 못했어요. 잠시 뒤 다시 해 주세요." : `고객응대 기능이 응답하지 않았어요 (${res.status}). 잠시 뒤 다시 해 주세요.`, "error", res.status);
+  } catch (e) {
+    if (e.name === "AbortError") throw fail("응답이 너무 늦어요. 잠시 뒤 다시 해 주세요.", "timeout", 0);
+    if (e instanceof TypeError) throw fail("서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.", "down", 0);
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+
+// ── 캡처로 넣기 (리뷰 붙여넣기 탭) ───────────────────────────────────
+// 파일 고르기(또는 끌어 놓기) → POST /api/care/reviews/capture (저장하지 않고 후보만) → 후보마다 글 고치기·별점·개인정보 가림·이미 있는 리뷰 표시
+// → '선택한 리뷰 저장'이 고른 후보를 한 건씩 POST /api/reviews {text, rating, source: "capture"} 로 저장 (붙여넣기와 같은 길) → 홈·카드·분석 다시 불러오기.
+// demo(예시 결과)와 warnings 는 받은 그대로 꼭 보이고, 별점은 잘못 읽을 수 있다는 안내가 늘 붙는다 (실시간 시험에서 1~2점을 3점으로 읽은 적이 절반쯤).
+const cap = { file: null, url: null, busy: false, tick: null };
+const CAP_RATINGS = [["", "별점 모름"], ["5", "별점 5"], ["4", "별점 4"], ["3", "별점 3"], ["2", "별점 2"], ["1", "별점 1"]];
+function capErr(msg) { $("cap-error").textContent = msg || ""; }
+function capPick(file) {
+  capErr("");
+  if (!file) return;
+  if (file.type && !CAP_TYPES.includes(file.type)) { capErr("png·jpg·webp 이미지만 올릴 수 있어요."); return; }
+  if (file.size > CAP_MAX_BYTES) { capErr("이미지는 10MB 이하로 올려 주세요."); return; }
+  cap.file = file;
+  const size = file.size >= 1048576 ? `${(file.size / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(file.size / 1024))}KB`;
+  $("cap-file-name").textContent = `${file.name || "캡처"} · ${size}`;
+  $("cap-send").disabled = cap.busy;
+}
+// 진행 표시 (#cap-status, role=status): 깜박이는 점 + 글 + 걸린 초 (초는 읽기 프로그램에 읽히지 않게)
+function capBusy(on) {
+  cap.busy = on;
+  $("cap-send").disabled = on || !cap.file;
+  $("cap-choose").disabled = on;
+  $("cap-save").disabled = on || !capPicked().length;
+  clearInterval(cap.tick);
+  const el = $("cap-status");
+  el.classList.toggle("busy", on);
+  el.replaceChildren();
+  if (!on) return;
+  const msg = mk("span", "", "캡처를 읽고 있어요");
+  const sec = mk("span", "cap-sec");
+  sec.setAttribute("aria-hidden", "true");
+  el.append(msg, sec);
+  const t0 = Date.now();
+  cap.tick = setInterval(() => {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    sec.textContent = s >= 2 ? `${s}초` : "";
+    if (s === 6) msg.textContent = "캡처를 읽고 있어요. 긴 캡처는 최대 5조각으로 나눠 읽어서 20초쯤 걸릴 수 있어요";
+  }, 1000);
+}
+async function capRead() {
+  if (!cap.file || cap.busy) return;
+  capErr("");
+  $("cap-save-msg").textContent = "";
+  $("cap-result").hidden = true;          // 앞 캡처의 후보는 치운다 (새 캡처가 실패했을 때 옛 후보를 새 것으로 착각하지 않게)
+  $("cap-list").replaceChildren();
+  capBusy(true);
+  const form = new FormData();
+  form.append("file", cap.file, cap.file.name || "capture.png");
+  try {
+    const r = await careApi("/api/care/reviews/capture", { method: "POST", body: form }, CAP_WAIT_MS);
+    capBusy(false);
+    capRender(r);
+  } catch (e) {
+    capBusy(false);
+    capErr(e.message);   // 400·413·422·502·503 모두 서버(리뷰 분석 서비스·프록시) 문장 그대로
+  }
+}
+function capItem(c, i) {
+  const n = i + 1;
+  return `<li class="cap-item${c.duplicate ? " dup" : ""}">
+    <div class="cap-item-head">
+      <label class="cap-check"><input type="checkbox" data-cap-pick="${i}"${c.duplicate ? "" : " checked"}> 후보 ${n} 저장</label>
+      ${c.pii_masked ? '<span class="badge" title="전화번호·이메일·링크를 [가림]으로 바꿨어요">개인정보 가림</span>' : ""}
+      ${c.duplicate ? '<span class="badge warn" title="이미 저장된 리뷰와 글이 같아서 처음에는 고르지 않았어요">이미 있는 리뷰</span>' : ""}
+      <span class="badge ok cap-saved" hidden>저장함</span>
+    </div>
+    <label class="sr" for="cap-text-${i}">후보 ${n} 리뷰 글</label>
+    <textarea id="cap-text-${i}" data-cap-text="${i}" rows="3" maxlength="1000">${esc(c.text)}</textarea>
+    <div class="cap-item-foot">
+      <label class="small" for="cap-rate-${i}">별점</label>
+      <select id="cap-rate-${i}" data-cap-rate="${i}">${CAP_RATINGS.map(([v, t]) => `<option value="${v}"${String(c.rating ?? "") === v ? " selected" : ""}>${t}</option>`).join("")}</select>
+      <span class="small muted">AI가 읽은 별점: ${Number.isInteger(c.rating) ? `${esc(c.rating)}점` : "못 읽음"}</span>
+    </div>
+    <p class="cap-item-msg" data-cap-msg="${i}"></p>
+  </li>`;
+}
+function capRender(r) {
+  const list = (Array.isArray(r?.candidates) ? r.candidates : []).filter((c) => c && typeof c.text === "string")
+    .map((c) => ({ text: c.text, rating: Number.isInteger(c.rating) && c.rating >= 1 && c.rating <= 5 ? c.rating : null,
+      pii_masked: !!c.pii_masked, duplicate: !!c.duplicate }));
+  const warns = (Array.isArray(r?.warnings) ? r.warnings : []).filter((w) => typeof w === "string" && w.trim());
+  $("cap-result").hidden = false;
+  $("cap-demo").hidden = r?.demo !== true;
+  $("cap-warnings").innerHTML = warns.map((w) => `<li>${esc(w)}</li>`).join("");
+  $("cap-warnings").hidden = !warns.length;
+  if (cap.url) URL.revokeObjectURL(cap.url);
+  cap.url = URL.createObjectURL(cap.file);
+  $("cap-preview").src = cap.url;
+  $("cap-list").innerHTML = list.map(capItem).join("") || '<li class="small muted">옮겨 적은 리뷰가 없어요. 다시 올리거나 붙여넣기를 써 주세요.</li>';
+  capCount();
+  const pieces = Number(r?.pieces) > 1 ? ` · ${Number(r.pieces)}조각으로 나눠 읽음` : "";
+  $("cap-status").textContent = `후보 ${list.length}건${pieces} · ${r?.demo ? "예시 결과" : `읽은 모델 ${r?.engine || ""}`}. 글과 별점을 고치고, 저장할 리뷰를 골라 주세요.`;
+}
+const capPicked = () => [...document.querySelectorAll("#cap-list [data-cap-pick]")].filter((b) => b.checked && !b.disabled);
+function capCount() {
+  const n = capPicked().length;
+  $("cap-picked").textContent = n ? `${n}건 고름` : "고른 리뷰 없음";
+  $("cap-save").disabled = cap.busy || !n;
+}
+async function capSave() {
+  const picks = capPicked();
+  if (cap.busy) return;
+  if (!picks.length) { $("cap-save-msg").textContent = "저장할 리뷰를 골라 주세요."; return; }
+  cap.busy = true;
+  ["cap-save", "cap-send", "cap-choose"].forEach((id) => ($(id).disabled = true));
+  let ok = 0, bad = 0;
+  const joined = new Set();
+  for (const [k, box] of picks.entries()) {
+    const li = box.closest(".cap-item");
+    const text = li.querySelector("[data-cap-text]").value.trim();
+    const rating = li.querySelector("[data-cap-rate]").value;
+    const msg = li.querySelector("[data-cap-msg]");
+    $("cap-save-msg").textContent = `저장하는 중… (${k + 1} / ${picks.length})`;
+    if (!text) { msg.textContent = "글이 비어 있어 저장하지 않았어요."; bad++; continue; }
+    try {
+      const r = await careApi("/api/reviews", { method: "POST", body: JSON.stringify({ text, rating: rating ? Number(rating) : null, source: "capture" }) });
+      (r.joined_issues || []).forEach((id) => joined.add(id));
+      msg.textContent = "";
+      li.classList.add("saved");
+      li.querySelector(".cap-saved").hidden = false;
+      box.checked = false; box.disabled = true;
+      li.querySelectorAll("textarea, select").forEach((x) => (x.disabled = true));
+      ok++;
+    } catch (e) { msg.textContent = `저장하지 못했어요: ${e.message}`; bad++; }
+  }
+  const tail = bad ? ` ${bad}건은 저장하지 못했어요 (후보 아래 이유).` : "";
+  if (ok) {
+    state.joined = [...joined];
+    $("cap-save-msg").textContent = `${ok}건 저장했어요. 홈 숫자와 추천 카드도 다시 불러와요…`;
+    try {
+      await refresh();   // 붙여넣기와 같이 홈 숫자 · 추천 카드 · 리뷰 분석(요약·묶음)을 모두 새로
+      $("cap-save-msg").textContent = `${ok}건 저장했어요. 요약·불만 묶음·홈 숫자·추천 카드에 반영했어요.${tail}`;
+    } catch (e) { $("cap-save-msg").textContent = `${ok}건 저장했어요. 다만 화면을 다시 불러오지 못했어요: ${e.message}${tail}`; }
+  } else $("cap-save-msg").textContent = `저장하지 못했어요.${tail}`;
+  cap.busy = false;
+  $("cap-choose").disabled = false;
+  $("cap-send").disabled = !cap.file;
+  capCount();
+}
+
+// ── 종합 리포트 (#/report) ────────────────────────────────────────────
+// 칸 다섯 개를 따로 그린다: 오늘 요약(/api/care/report/daily) · 응대 점수(/api/care/response) · 월간 보고서(/api/care/report/monthly)
+// · 상권 요약 · 마케팅 요약. 상권·마케팅은 처음 화면을 열 때 이미 받은 브리핑·추천 카드(state)와 /api/approvals 로만 만든다.
+// 이 화면을 열어도 AI(HCX)를 새로 부르지 않는다 (/api/cards·/api/briefing·글 만들기·서랍을 부르지 않음). 한 칸이 실패해도 다른 칸은 그대로.
+// 남은 시간: 서버의 due_at 으로 1초마다 센다 (서버와 브라우저 시계 차이는 응답의 remaining_seconds 로 맞춤). 피크 중이면 '멈춤'.
+const rp = { month: null, maxMonth: null, loading: null, loadedAt: 0, clocks: [], peak: false, tick: null, poll: null };
+const RP_STATE = { daily: "rp-daily-state", score: "rp-score-state", month: "rp-month-state", market: "rp-market-state", mkt: "rp-mkt-state" };
+const RP_ISSUE_STATE = { recurred_after_reply: "답글 뒤 재발", no_recurrence: "답글 뒤 7일 재발 없음", replied_watching: "답글 달고 지켜보는 중", no_reply: "답글 없음" };
+const signed = (n) => (Number(n) > 0 ? `+${n}` : String(n ?? 0));
+const rpDelta = (n) => `<span class="rp-delta ${Number(n) < 0 ? "neg" : Number(n) > 0 ? "pos" : ""}">${esc(signed(n))}</span>`;
+const rpReasons = (list, empty) => `<ul class="plain rp-reasons">${(Array.isArray(list) ? list : []).map((x) => `<li>${rpDelta(x.delta)}<span>${esc(x.message)}</span></li>`).join("")
+  || `<li class="small muted">${esc(empty)}</li>`}</ul>`;
+const monthKo = (m) => { const [y, mo] = String(m || "").split("-"); return y && mo ? `${y}년 ${Number(mo)}월` : "이번 달"; };
+const shiftMonth = (m, d) => { const [y, mo] = m.split("-").map(Number); const t = new Date(Date.UTC(y, mo - 1 + d, 1)); return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}`; };
+const dateKo = (d) => { const m = String(d || "").match(/^\d{4}-(\d{2})-(\d{2})/); return m ? `${Number(m[1])}/${Number(m[2])}` : String(d || ""); };
+const clip = (t, n) => { const s = String(t || ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
+const peakText = (p) => (Array.isArray(p?.peak_hours) ? p.peak_hours : []).map((h) => String(h).replace("-", "~") + "시").join(", ");
+
+function rpState(name, msg, bad = false) {
+  const el = $(RP_STATE[name]);
+  el.hidden = !msg;
+  el.textContent = msg || "";
+  el.classList.toggle("bad", bad);
+}
+function rpStop() { clearInterval(rp.tick); clearInterval(rp.poll); rp.tick = rp.poll = null; }
+// 남은 시간 1초 시계 + 1분마다 점수 다시 부르기 (화면을 보고 있을 때만). restart 면 새로 맞춘다
+function rpTimers(restart = false) {
+  if (restart) rpStop();
+  if (!rp.tick) rp.tick = setInterval(rpTick, 1000);
+  if (!rp.poll) rp.poll = setInterval(() => { if (!document.hidden && currentRoute() === "report") rpScore(true); }, 60000);
+}
+// force: '다시 불러오기'. 처음 열 때 route() 가 두 번 불려도(시작 직후·브리핑을 받은 뒤) 고객응대 칸은 한 번만 부른다
+function loadReport(force = false) {
+  rpMarket();
+  rpMarketing();
+  if (rp.loading) return rp.loading;
+  if (!force && Date.now() - rp.loadedAt < 3000) { rpTimers(); return Promise.resolve(); }   // 방금 불렀으면 시계만 다시 돌린다
+  rp.loading = Promise.all([rpDaily(), rpScore(), rpMonth(rp.month)]).finally(() => { rp.loading = null; rp.loadedAt = Date.now(); });
+  return rp.loading;
+}
+
+async function rpDaily() {
+  rpState("daily", "불러오는 중…");
+  try {
+    const d = await careApi("/api/care/report/daily");
+    const src = Object.entries(d.by_source || {}).map(([k, n]) => `${SOURCE_KO[k] || k} ${n}`).join(" · ");
+    $("rp-daily-date").textContent = d.date ? `${d.date}${d.until ? ` · ${String(d.until).slice(11, 16)}까지` : ""}` : "";
+    $("rp-daily").innerHTML = `
+      <p class="rp-summary">${esc(d.summary)}</p>
+      <dl class="rp-nums">
+        <div><dt>리뷰</dt><dd>${esc(d.review_count ?? 0)}건</dd></div>
+        <div><dt>불만</dt><dd>${esc(d.complaint_count ?? 0)}건</dd></div>
+        <div><dt>기한 안 답글</dt><dd>${esc(d.replied_on_time ?? 0)}건</dd></div>
+        <div><dt>늦은 답글</dt><dd>${esc(d.replied_late ?? 0)}건</dd></div>
+      </dl>
+      <p class="rp-line">응대 점수 <b>${esc(d.score_start)} → ${esc(d.score_end)}</b> ${rpDelta(d.score_change ?? (d.score_end - d.score_start))}</p>
+      ${rpReasons(d.changes, "오늘은 점수가 바뀐 일이 없어요.")}
+      <div class="rp-todo"><span class="rp-todo-label">내일 먼저 할 일</span><strong>${esc(d.todo?.text || "밀린 응대가 없어요")}</strong></div>
+      <p class="small muted">${src ? `들어온 곳: ${esc(src)} · ` : ""}답글 기다림 ${esc(d.pending_count ?? 0)}건${d.overdue_count ? ` (기한 넘김 ${esc(d.overdue_count)}건)` : ""}</p>
+      <p class="small muted">합성 리뷰는 지난 날짜(시나리오 기간)라서, 오늘 숫자에는 오늘 붙여넣기·캡처로 넣은 리뷰만 들어가요. 문장은 정해 둔 틀에 숫자만 넣었어요.</p>`;
+    rpState("daily", "");
+  } catch (e) { $("rp-daily").innerHTML = ""; $("rp-daily-date").textContent = ""; rpState("daily", e.message, true); }
+}
+
+const rpClock = (sec) => {
+  const s = Math.max(0, Math.round(sec)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}시간 ${m}분` : `${m}:${String(s % 60).padStart(2, "0")}`;
+};
+function rpTick() {
+  document.querySelectorAll("#rp-score [data-clock]").forEach((el) => {
+    const c = rp.clocks[Number(el.dataset.clock)];
+    if (!c) return;
+    if (c.paused) { el.textContent = `멈춤 · ${rpClock(c.rem)} 남음`; el.className = "rp-clock paused"; return; }
+    const left = Number.isFinite(c.due) ? (c.due - Date.now()) / 1000 : c.rem;
+    el.textContent = left >= 0 ? `${rpClock(left)} 남음` : `기한 ${rpClock(-left)} 지남`;
+    el.className = "rp-clock" + (left < 0 ? " over" : left < 300 ? " soon" : "");
+  });
+}
+async function rpScore(quiet = false) {
+  if (!quiet) rpState("score", "불러오는 중…");
+  try {
+    const r = await careApi("/api/care/response");
+    const fetched = Date.now();
+    const pending = Array.isArray(r.pending) ? r.pending : [];
+    const peaks = peakText(r.policy);
+    rp.peak = r.peak_now === true;
+    rp.clocks = pending.map((p) => {
+      const rem = Number(p.remaining_seconds), due = Date.parse(p.due_at);
+      const skew = Number.isFinite(rem) && Number.isFinite(due) ? due - (fetched + rem * 1000) : 0;   // 서버 시계 - 브라우저 시계
+      return { due: due - skew, rem, paused: p.paused === true || (rp.peak && rem > 0) };
+    });
+    $("rp-score").innerHTML = `
+      <div class="rp-score-top">
+        <p class="rp-big"><span class="rp-big-n">${esc(r.score)}</span><span class="rp-big-unit">/ 100점</span></p>
+        ${rpReasons(r.reasons, "점수를 깎거나 올린 일이 없어요.")}
+      </div>
+      ${rp.peak ? `<p class="rp-peak">지금은 피크 시간이라 답글 기한이 멈춰 있어요${peaks ? ` (${esc(peaks)})` : ""}.</p>` : ""}
+      <h3 class="rp-h3">답글을 기다리는 불만 ${esc(pending.length)}건${r.overdue_count ? ` · 기한 넘김 ${esc(r.overdue_count)}건` : ""}</h3>
+      <ul class="plain rp-pending">${pending.map((p, i) => `
+        <li class="rp-p${p.overdue ? " over" : ""}">
+          <div class="rp-p-main"><p class="rp-p-text">“${esc(clip(p.text, 90))}”</p>
+            <p class="small muted">${esc((p.topic_names || []).join("·") || "불만")} · ${esc(SOURCE_KO[p.source] || p.source || "")}${Number(p.penalty) < 0 ? ` · 감점 ${esc(p.penalty)}점` : ""}</p></div>
+          <span class="rp-clock" data-clock="${i}"></span>
+        </li>`).join("") || '<li class="small muted">지금 답글을 기다리는 불만이 없어요.</li>'}</ul>
+      <p class="rp-untimed">지난 불만 <b>${esc(r.untimed_unanswered ?? 0)}건</b> <span class="small muted">· 기한 없이 답글을 안 단 지난(합성) 불만 리뷰</span></p>
+      <p class="small muted">기한은 불만 리뷰를 받은 뒤 ${esc(r.policy?.sla_minutes ?? 30)}분${peaks ? `, 피크(${esc(peaks)}) 중에는 멈춤` : ""}. 답글을 승인하면 기록돼요. 점수 이유는 서버 문장 그대로예요.</p>`;
+    rpState("score", "");
+    rpTick();
+    rpTimers(true);
+  } catch (e) {
+    if (quiet) return;     // 1분마다 다시 부르다 실패하면 보이던 값을 그대로 둔다
+    $("rp-score").innerHTML = "";
+    rp.clocks = [];
+    rpState("score", e.message, true);
+  }
+}
+
+// 날마다 점수 선 그래프 (외부 라이브러리 없이 SVG). 색은 CSS(.rp-line 등)가 정해 라이트·다크를 따른다
+function rpTrend(trend) {
+  const pts = (Array.isArray(trend) ? trend : []).filter((t) => Number.isFinite(Number(t?.score)));
+  if (!pts.length) return '<p class="small muted">점수 기록이 없어요.</p>';
+  // 그림 폭 = 칸의 실제 폭 (좁은 화면에서 글자가 같이 줄어들어 안 보이지 않게). 칸이 숨어 있으면 600
+  const W = Math.round(Math.min(860, Math.max(280, $("rp-month").clientWidth || 600))), H = 170, L = 36, R = 16, T = 18, B = 26;
+  const v = pts.map((t) => Number(t.score));
+  const lo = Math.min(80, ...v), last = v.length - 1;
+  const x = (i) => L + (W - L - R) * (pts.length === 1 ? 0.5 : i / last);
+  const y = (s) => T + ((H - T - B) * (100 - s)) / Math.max(1, 100 - lo);
+  const label = `날마다 응대 점수: ${dateKo(pts[0].date)} ${v[0]}점에서 ${dateKo(pts[last].date)} ${v[last]}점, 가장 낮은 날 ${Math.min(...v)}점`;
+  return `<svg class="rp-trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
+    <line class="rp-gl" x1="${L}" x2="${W - R}" y1="${y(100)}" y2="${y(100)}"/>
+    <line class="rp-gl" x1="${L}" x2="${W - R}" y1="${y(lo).toFixed(1)}" y2="${y(lo).toFixed(1)}"/>
+    <text class="rp-ax" x="${L - 8}" y="${y(100) + 4}" text-anchor="end">100</text>
+    <text class="rp-ax" x="${L - 8}" y="${(y(lo) + 4).toFixed(1)}" text-anchor="end">${esc(lo)}</text>
+    <polyline class="rp-line" points="${pts.map((t, i) => `${x(i).toFixed(1)},${y(v[i]).toFixed(1)}`).join(" ")}"/>
+    ${pts.map((t, i) => `<circle class="rp-pt" cx="${x(i).toFixed(1)}" cy="${y(v[i]).toFixed(1)}" r="${i === last ? 4.5 : 2.5}"/>`).join("")}
+    <text class="rp-ax rp-now" x="${x(last).toFixed(1)}" y="${(y(v[last]) - 10).toFixed(1)}" text-anchor="${pts.length === 1 ? "middle" : "end"}">${esc(v[last])}점</text>
+    <text class="rp-ax" x="${L}" y="${H - 6}">${esc(dateKo(pts[0].date))}</text>
+    <text class="rp-ax" x="${W - R}" y="${H - 6}" text-anchor="end">${esc(dateKo(pts[last].date))}</text>
+  </svg>`;
+}
+async function rpMonth(month) {
+  rpState("month", "불러오는 중…");
+  try {
+    const m = await careApi("/api/care/report/monthly" + (month ? `?month=${encodeURIComponent(month)}` : ""));
+    rp.month = m.month;
+    if (!month || !rp.maxMonth) rp.maxMonth = rp.maxMonth && rp.maxMonth > m.month ? rp.maxMonth : m.month;   // 달 없이 부른 값 = 서버의 이번 달
+    const issues = Array.isArray(m.repeated_issues) ? m.repeated_issues : [];
+    $("rp-month").innerHTML = `
+      <dl class="rp-nums">
+        <div><dt>리뷰</dt><dd>${esc(m.review_count ?? 0)}건</dd></div>
+        <div><dt>불만</dt><dd>${esc(m.complaint_count ?? 0)}건</dd></div>
+        <div><dt>응대 점수</dt><dd>${esc(m.score_start)} → ${esc(m.score_end)} ${rpDelta(m.score_change)}</dd></div>
+        <div><dt>기한 넘긴 답글</dt><dd>${esc(m.late_count ?? 0)}건</dd></div>
+      </dl>
+      <figure class="rp-chart">${rpTrend(m.score_trend)}<figcaption class="small muted">날마다 응대 점수 (그날 끝 기준${m.until ? ` · ${esc(String(m.until).slice(0, 10))}까지` : ""})</figcaption></figure>
+      <h3 class="rp-h3">반복 불만과 재발 여부</h3>
+      <div class="rp-table-wrap"><table class="rp-table">
+        <thead><tr><th scope="col">불만</th><th scope="col" class="num">전체</th><th scope="col" class="num">이번 달</th><th scope="col" class="num">답글</th><th scope="col" class="num">답글 뒤 재발</th><th scope="col">상태</th><th scope="col">많은 시간대</th></tr></thead>
+        <tbody>${issues.map((i) => `<tr><th scope="row">${esc(i.topic_name)}${i.is_repeated ? ' <span class="badge rep">반복</span>' : ""}</th>
+          <td class="num">${esc(i.review_count)}</td><td class="num">${esc(i.count_this_month)}</td><td class="num">${esc(i.replied_count)}</td>
+          <td class="num">${esc(i.recurred_after_reply)}</td><td>${esc(RP_ISSUE_STATE[i.state] || i.state)}</td><td>${esc(i.main_time_band || "–")}</td></tr>`).join("")
+          || '<tr><td colspan="7" class="muted">이 달에 묶인 불만이 없어요.</td></tr>'}</tbody>
+      </table></div>
+      <h3 class="rp-h3">다음 달 개선 제안</h3>
+      <ol class="rp-sugg">${(Array.isArray(m.suggestions) ? m.suggestions : []).map((s) => `<li>${esc(s.text)}</li>`).join("") || '<li class="muted">제안이 없어요.</li>'}</ol>
+      ${(m.changes || []).length ? `<details class="more"><summary class="small">이 달에 점수가 바뀐 이유 ${esc(m.changes.length)}개</summary>${rpReasons(m.changes, "")}</details>` : ""}
+      <p class="small muted">숫자는 코드가 계산하고, 제안은 정해 둔 틀에 숫자만 넣었어요 (AI 문장 아님). 원인을 단정하지 않으니 매장에서 확인해 주세요.</p>`;
+    rpState("month", "");
+  } catch (e) {
+    if (month) rp.month = month;
+    $("rp-month").innerHTML = "";
+    rpState("month", e.message, true);
+  } finally {
+    $("rp-month-label").textContent = monthKo(rp.month);
+    $("rp-print").href = "/api/care/report/monthly/print" + (rp.month ? `?month=${encodeURIComponent(rp.month)}` : "");
+    $("rp-month-prev").disabled = !rp.month || (rp.maxMonth && rp.month <= shiftMonth(rp.maxMonth, -11));   // 1년 전까지
+    $("rp-month-next").disabled = !rp.month || !rp.maxMonth || rp.month >= rp.maxMonth;
+  }
+}
+async function rpMoveMonth(step, button) {
+  if (!rp.month) return;
+  await rpMonth(shiftMonth(rp.month, step));
+  if (button.disabled && document.activeElement === button) $(step < 0 ? "rp-month-next" : "rp-month-prev").focus();   // 끝에 닿아 막힌 버튼의 포커스를 옆으로
+}
+
+// 상권 요약: 브리핑의 상권 지표 (홈 '상권 저녁 매출' 칸과 같은 자료). 서버를 다시 부르지 않는다
+function rpMarket() {
+  const b = state.briefing;
+  if (!b) {
+    $("rp-market").innerHTML = "";
+    rpState("market", state.booted ? "브리핑을 불러오지 못해 상권 요약을 만들 수 없어요. 홈에서 다시 불러와 주세요." : "불러오는 중…", !!state.booted);
+    return;
+  }
+  const snaps = (b.snapshots || []).filter((s) => s && typeof s.value === "number");
+  $("rp-market").innerHTML = `
+    <p class="rp-store">${esc([b.store?.name, b.store?.business_type_name, b.store?.area_name ? `${b.store.area_name} 상권` : ""].filter(Boolean).join(" · "))}</p>
+    <ul class="plain rp-snaps">${snaps.map((s) => `
+      <li><span class="rp-snap-v${s.value < 0 ? " neg" : ""}">${esc(`${s.value > 0 ? "+" : ""}${s.value.toFixed(2)}${s.unit || ""}`)}</span>
+        <span class="rp-snap-t"><b>${esc(s.metric_name)}</b>
+          <span class="small muted">${esc([s.area_name, s.compared_with_quarter ? "전년 같은 분기 대비" : "", shortBasis(s.basis_label)].filter(Boolean).join(" · "))}${sourceUrl(s.source) ? ` · <a href="${esc(sourceUrl(s.source))}" target="_blank" rel="noopener">원본</a>` : ""}</span>
+          ${s.dev_fake ? '<span class="badge bad">개발용 가짜 값 · 발표에 쓰지 마세요</span>' : ""}</span></li>`).join("")
+      || '<li class="small muted">상권 지표가 없어요.</li>'}</ul>
+    <p class="small muted">상권 통계는 상권·업종 전체의 추정치예요. 우리 가게 매출이 아니에요.</p>
+    <button type="button" class="ghost rp-ask" data-rp-ask>AI에게 묻기로 상권 더 보기</button>`;
+  rpState("market", "");
+}
+// 마케팅 요약: 추천 카드 ⓑ(쿠폰 홍보)와 이 브라우저에서 만든 홍보글의 승인 상태, 서버 승인 기록 수 (/api/approvals 는 저장된 기록만 읽음)
+async function rpMarketing() {
+  if (!state.booted && !state.cards.length) { $("rp-mkt").innerHTML = ""; rpState("mkt", "불러오는 중…"); return; }
+  const promo = state.cards.find((p) => p.card.kind === "promo");
+  let html;
+  if (promo) {
+    const id = promo.card.card_id, made = !!state.results[id];
+    const ds = draftsOf(id).filter((d) => d.generator === "coupon_promo");
+    const ok = ds.filter((d) => state.approved.has(d.draft_id)).length;
+    const st = !made ? ["", "홍보글을 아직 만들지 않았어요"] : ds.length && ok === ds.length ? ["ok", "홍보글 승인 완료"] : ["warn", `홍보글 승인 대기 ${ds.length - ok}개`];
+    html = `<p class="rp-mkt-title"><b>${esc(promo.title)}</b></p>
+      <p class="rp-mkt-reason">${esc(promo.card.reason_text)}</p>
+      <p class="small muted">근거: ${esc(sourceLine(promo))}</p>
+      <p class="rp-mkt-st"><span class="badge ${st[0]}">${esc(st[1])}</span><a class="small" href="#/cards">추천 카드에서 보기</a></p>`;
+    rpState("mkt", "");
+  } else if (state.cards.length || !state.bootError) {
+    const why = $("no-card-b").textContent;
+    html = `<p class="muted rp-mkt-none">오늘은 쿠폰 홍보 카드(ⓑ)가 없어요.${why ? ` ${esc(why)}` : ""}</p>`;
+    rpState("mkt", "");
+  } else {
+    html = "";
+    rpState("mkt", "추천 카드를 불러오지 못해 마케팅 요약을 만들 수 없어요. 홈에서 다시 불러와 주세요.", true);
+  }
+  $("rp-mkt").innerHTML = `${html}<p id="rp-approvals" class="small muted">승인 기록을 불러오는 중…</p>`;
+  try {
+    const a = await careApi("/api/approvals");
+    const el = $("rp-approvals");
+    if (el) el.textContent = `서버에 남은 승인 기록 ${(a.items || []).length}건 (답글·공지·홍보글 합계, 이 방문자 기준)`;
+  } catch (e) { const el = $("rp-approvals"); if (el) el.textContent = `승인 기록을 불러오지 못했어요: ${e.message}`; }
 }
 
 // ── 준비 중 자리: LATER 목록으로 왼쪽 메뉴 링크와 빈 화면을 만든다 ─────────────
@@ -1148,7 +1562,8 @@ async function boot() {
     await refresh();
     $("start").disabled = false;
     $("start").textContent = "무엇을 할까요?";
-  } catch (e) { showAlert(e.message); $("start").textContent = "불러오지 못했어요"; anStatus(`리뷰 분석을 불러오지 못했어요: ${e.message}`, true); }
+  } catch (e) { showAlert(e.message); $("start").textContent = "불러오지 못했어요"; anStatus(`리뷰 분석을 불러오지 못했어요: ${e.message}`, true); state.bootError = e.message; }
+  state.booted = true;   // 종합 리포트의 상권·마케팅 요약이 '불러오는 중'과 '못 불러옴'을 가린다
   setTopH();
   route();
 }
@@ -1172,6 +1587,23 @@ document.querySelectorAll('[role="tab"][data-tab]').forEach((t) => {
 document.querySelector('[data-view="analysis"]').addEventListener("click", (e) => {
   const b = e.target.closest("[data-goto-tab]");
   if (b) showTab(b.dataset.gotoTab, true);
+});
+// 캡처로 넣기: 버튼으로 파일 고르기, 또는 칸에 끌어 놓기
+$("cap-choose").addEventListener("click", () => $("cap-file").click());
+$("cap-file").addEventListener("change", (e) => { capPick(e.target.files[0]); e.target.value = ""; });
+$("cap-send").addEventListener("click", capRead);
+$("cap-save").addEventListener("click", capSave);
+$("cap-list").addEventListener("change", (e) => { if (e.target.matches("[data-cap-pick]")) capCount(); });
+$("cap").addEventListener("dragover", (e) => { e.preventDefault(); $("cap").classList.add("drop"); });
+$("cap").addEventListener("dragleave", () => $("cap").classList.remove("drop"));
+$("cap").addEventListener("drop", (e) => { e.preventDefault(); $("cap").classList.remove("drop"); if (!cap.busy) capPick(e.dataTransfer?.files?.[0]); });
+// 종합 리포트
+$("rp-reload").addEventListener("click", () => loadReport(true));
+$("rp-month-prev").addEventListener("click", (e) => rpMoveMonth(-1, e.currentTarget));
+$("rp-month-next").addEventListener("click", (e) => rpMoveMonth(1, e.currentTarget));
+document.querySelector('[data-view="report"]').addEventListener("click", (e) => {
+  const b = e.target.closest("[data-rp-ask]");
+  if (b) toggleAssistant(true, b);
 });
 $("ask-ai").addEventListener("click", (e) => toggleAssistant(undefined, e.currentTarget));
 $("ask-open").addEventListener("click", (e) => toggleAssistant(true, e.currentTarget));
