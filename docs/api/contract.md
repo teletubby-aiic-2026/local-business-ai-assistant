@@ -1344,7 +1344,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 |---|---|---|
 | `GET /api/assistant/status` | 상권 비서를 쓸 수 있는지 | 항상 `200` (`state`로 알림) |
 | `POST /api/assistant/setup` | 우리 가게(온기한식) 분석 조건을 자동으로 맞춤. `?force=1`이면 다른 곳을 보고 있어도 우리 가게 조건으로 되돌림 | 항상 `200` |
-| `POST /api/assistant/messages` | 질문 1개 → 답, 근거 카드, 선택지 | `503`·`422` |
+| `POST /api/assistant/messages` | 질문 1개 → 답, 근거 카드, 선택지. 가게 자체를 묻는 질문(이름·메뉴, 리뷰·답글을 어디서 보는지)은 이 서버가 가게 프로필로 답함 (아래 "가게 기본 질문") | `503`·`422` |
 | `POST /api/assistant/actions` | 선택지 버튼을 눌렀을 때 (직전 답의 `reply.actions[i].payload`를 그대로) | `503`·`422` |
 | `GET /api/assistant/conversation` | 이 세션의 대화와 분석 조건 | `503` |
 | `DELETE /api/assistant/conversation` | 대화 지우기 (분석 조건은 남음) | `503` |
@@ -1374,7 +1374,8 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 ```json
 {"status": "ok", "state": "ready", "message": null,
  "conditions": {"area_code": "3110826", "area_name": "장승배기역 4번", "industry_code": "CS100001",
-                "industry_name": "한식음식점", "period": "20262", "period_label": "2026년 2분기", "location_label": "장승배기역"}}
+                "industry_name": "한식음식점", "period": "20262", "period_label": "2026년 2분기", "location_label": "장승배기역",
+                "is_store_default": true}}
 ```
 
 | `status` | 뜻 |
@@ -1384,6 +1385,16 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `unavailable` | 맞추지 못함. `state`와 `message`로 이유(`down`, `disabled`, `no_data`, `error` 등) |
 
 우리 가게 기본 조건은 `온기한식` = 장승배기역(7호선) · 한식음식점(`CS100001`) · 장승배기역 4번 상권(`3110826`) · 가장 최근 분기(2026년 2분기가 있으면 그것). 위치는 역 코드로 저장하므로 서울시 지도(Naver) 검색을 부르지 않습니다. 서랍을 처음 열 때 화면이 한 번 부르면, 사용자가 "어디를 볼까요?"를 다시 묻지 않고 바로 질문할 수 있습니다.
+
+**`conditions.is_store_default`** (11/16): 지금 분석 조건이 우리 가게 기본 조건과 같은지입니다. `conditions`가 실리는 모든 응답(`setup`, `conversation` 조회, `messages`, `actions`)에 서버가 붙입니다. 상권 서비스가 준 칸이 아니라 이 서버가 더한 칸입니다.
+
+| 값 | 뜻 | 서랍의 `#assistant-home` 버튼 |
+|---|---|---|
+| `true` | 상권·업종·분기 코드가 우리 가게 기본 조건과 같음 | "우리 가게 기준 적용 중" (누를 수 없음) |
+| `false` | 대화 중에 다른 상권·업종·분기로 바뀜 | "우리 가게 조건으로" (누르면 `setup?force=1`) |
+| `null` | 모름 (기본 조건이 없는 가게이거나 조건에 코드가 없음) | "우리 가게 조건으로" (예전처럼 누를 수 있음) |
+
+비교는 서버 한 곳에서만 합니다(`area_code`·`industry_code`·`period`를 정해 둔 값과 비교). 정해 둔 분기나 상권이 자료에 없어 `setup`이 가장 최근 분기·다른 상권으로 맞췄다면, 그렇게 맞춘 조건도 기본 조건으로 봅니다(서버가 마지막으로 맞춘 값을 메모리에 기억함. 서버를 다시 켠 직후에는 정해 둔 값과 똑같을 때만 `true`이고, `setup`이 한 번 돌면 다시 기억함). 화면은 이 값만 믿고 따로 비교하지 않습니다.
 
 **`messages` 요청** `{"text": "1~1000자", "client_message_id": "web-…"}` (두 번째 칸은 선택. 같은 번호로 다시 보내면 지난 답을 돌려줌)
 
@@ -1397,7 +1408,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
  "cards": [{"id": "F2", "topic": "sales_total", "status": "available", "text": "분기 추정매출은 1,000원입니다.",
             "values": [{"label": "분기 추정매출", "value": 1000, "unit": "원"}], "warnings": [],
             "source_ref": {"source_title": "합성 추정매출", "source_url": "https://example.test/s", "data_version": "b2_synthetic"}}],
- "conditions": {"area_name": "장승배기역 4번", "industry_name": "한식음식점", "period_label": "2026년 2분기"}}
+ "conditions": {"area_name": "장승배기역 4번", "industry_name": "한식음식점", "period_label": "2026년 2분기", "is_store_default": true}}
 ```
 
 | 칸 | 뜻 |
@@ -1407,7 +1418,49 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `reply.actions[]` | 선택지 `{label, payload}`. 누르면 `payload`를 `POST /api/assistant/actions`에 그대로 보냄. 없을 수 있음 |
 | `reply.notes[]` · `reply.suggestions[]` | 자료 기준 안내 · 이어서 물어볼 질문(최대 3개). 없을 수 있음 |
 | `cards[]` | 근거 카드. `values[]` 중 숫자인 것만 표로 보임. 출처는 `source_ref` |
-| `conditions` | 지금 분석 조건. 없을 수 있음 |
+| `conditions` | 지금 분석 조건(`is_store_default` 포함, 위 `setup` 참고). 없을 수 있음. 가게 기본 질문의 답에는 없음(조건 줄을 그대로 둠) |
+
+**분기 표기** (11/16): 상권 서비스의 분기 코드는 `20262`(2026년 2분기)입니다. 조건에 분기 이름이 빠지면 이 코드가 답 문장에 그대로 들어오기도 합니다("20262 자료로 볼게요"). 서버는 화면에 넘기기 전에 **보이는 글자만** `2026년 2분기` 모양으로 바꿉니다(추천 카드의 `2026Q2` → `2026년 2분기`와 같은 모양. `2026Q2`도 같이 바꿈).
+
+| 바꾸는 칸 (보이는 글자) | 그대로 두는 칸 (상권 서비스로 되돌아가거나 코드인 값) |
+|---|---|
+| `conditions.period_label` (이름이 없으면 `period`로 만듦) | `conditions.period` · `area_code` · `industry_code` |
+| `reply.text` · `reply.notes[]` · `reply.suggestions[]` · `reply.actions[].label` | `reply.actions[].payload` (누르면 그대로 `actions`에 보냄) |
+| `cards[].text` · `cards[].warnings[]` · `cards[].values[].label` · 글자인 `cards[].values[].value` | `cards[].values[].code` · 숫자인 `value` · `cards[].source_ref` |
+| `turns[]` 안의 `reply`·`cards` (위와 같음) | `turns[].user_text`(사용자가 쓴 글) · `turns[].action` |
+
+금액·개수는 바꾸지 않습니다. 앞뒤에 숫자·영문·쉼표·점·`-`·`_`가 붙었거나(`120262`, `20,262`, `20262.5`, `v-20262`) 바로 뒤에 단위가 오면(`20262원`·`20262건`·`20262명`·`20262개`·`20262%` 등) 그대로 둡니다. 문장 속에서는 `20`으로 시작하는 연도만 보고, `period_label`처럼 칸 전체가 코드(`^\d{4}[1-4]$`)이면 연도를 가리지 않습니다. 화면(`app.js`의 `CHAT_QUARTER`·`chatQuarter`)도 같은 정규식으로 한 번 더 봅니다(서버가 놓친 글자 대비. 2.4 시험이 두 정규식이 글자 그대로 같은지 확인).
+
+**가게 기본 질문** (11/16): 서랍은 동네 상권·업종 매출 상담이지만 "우리 가게 이름 뭐야?", "우리 가게 메뉴 뭐야?", "리뷰 답글은 어디서 봐?" 같은 질문도 들어옵니다. 이런 질문은 상권 서비스로 보내지 않고 이 서버가 가게 프로필(리뷰 분석 서비스의 가게 정보 + 상권 지표 파일의 상권 이름, ③ 생성이 쓰는 것과 같은 값)로 답합니다. 응답 모양은 상권 서비스의 답과 같고 `answered_by`만 더 있습니다.
+
+```json
+{"schema_version": "assistant-reply-v1",
+ "reply": {"kind": "store_profile",
+           "text": "우리 가게 이름은 '온기한식 (가상)'이에요.\n- 업종: 한식음식점\n- 상권: 장승배기역 4번\n- 메뉴: 제육볶음 정식, 된장찌개, 김치찌개, 순두부찌개, 불고기 덮밥, 계란말이\n참고: 리뷰는 화면 메뉴 '리뷰 분석', 답글·공지·홍보 글은 '추천 카드' → '승인할 글', 전체 요약은 '종합 리포트'에서 볼 수 있어요.",
+           "cited": [], "actions": [], "notes": ["가게 이름·업종·메뉴는 저장된 가게 프로필이에요. 상권 통계가 아니에요."],
+           "suggestions": ["우리 가게 상권 매출은 어때?", "주변에 같은 업종 점포는 몇 개야?"]},
+ "model_used": false, "cards": [], "topics": [],
+ "classification": {"domain": "store", "turn_type": "name", "topics": [], "needs_user_choice": false, "needs_model": false, "analyzer": "web_proxy"},
+ "pending": null, "answered_by": "store_profile"}
+```
+
+| 칸 | 값 |
+|---|---|
+| `answered_by` | `"store_profile"`. 이 서버가 답했다는 표시. 상권 서비스의 답에는 이 칸이 없음 |
+| `reply.kind` | `store_profile`(가게 정보) · `store_guide`(화면 위치 안내) · `store_unavailable`(가게 정보를 못 읽음: "가게 정보를 지금 불러오지 못했어요…") |
+| `classification.turn_type` | 질문 종류: `name` · `industry` · `area` · `menu` · `price` · `profile` · `unknown`(프로필에 없는 것) · `menu_sales` · `where` |
+| `conditions` | 없음. 화면의 조건 줄과 `#assistant-home` 버튼은 그대로 |
+
+고르는 규칙은 보수적입니다 (`assistant_proxy.store_question`, 공백·기호를 뺀 40자 이하인 글만 봄).
+
+1. 상권 낱말(매출·점포·유동인구·주변·동네·평균·비교·추천·어때·월세…)이 하나라도 있으면 **상권 서비스로** 보냅니다. 가게 질문과 섞여 있어도 그렇습니다("우리 가게 이름이랑 상권 매출 같이 알려줘", "우리 가게 업종 평균 매출"). 낱말이 `상권` 하나뿐이고 가게의 상권 이름을 묻는 모양("우리 가게 어느 상권이야?")일 때만 가게 질문입니다.
+2. 화면 위치: 화면에 있는 것(리뷰·답글·공지·홍보·리포트…) + 어디서 보는지("어디서 봐", "어디 있어", "보여줘"). 글을 써 달라는 말("답글 써줘")은 아닙니다.
+3. 가게 정보: "우리 가게…"·"가게…"·"메뉴…"로 시작하거나 그 말이 있고, 이름·업종·메뉴·가격·위치 낱말 바로 뒤에 묻는 말이 올 때만("이름 뭐야", "메뉴 좀 알려줘"). 일을 시키는 말(써줘·바꿔·지어줘…)과 고민을 묻는 말("메뉴 뭐 넣을까?")은 아닙니다.
+4. 우리 가게의 메뉴별 매출("우리 가게 메뉴별 매출 알려줘")은 1번보다 먼저 봅니다. 어디에도 없는 자료라 "이 화면에는 메뉴별 매출·판매량 정보가 없어요"라고 답합니다.
+
+프로필에 없는 것(영업시간·전화번호·주소·사장님 이름 등)은 지어내지 않고 "이 화면에는 그 정보가 없어요."로 답합니다. 메뉴 가격은 프로필에 있을 때만 적습니다. 가게 정보를 읽지 못해도(리뷰 분석 서비스 꺼짐) `200`으로 "가게 정보를 지금 불러오지 못했어요…"라고 답하고 상권 서비스로 넘기지 않습니다. 상권 서비스가 꺼져 있어도 이 답은 나옵니다(다만 서랍은 상권 비서가 `ready`가 아니면 입력칸을 막습니다). 이 서버에서 상권 비서를 꺼 두었으면(`off`) 다른 질문과 똑같이 `503`입니다.
+
+**알려진 한계**: 이 서버가 답한 문답은 상권 서비스의 대화 기록에 남지 않습니다. 페이지를 새로 고치면 그 문답은 서랍에 다시 나오지 않습니다(`conversation` 조회에 없음).
 
 **오류 모양** (이 절의 모든 API 공통)
 
@@ -1648,7 +1701,7 @@ live에서 모르는 조치 id를 보낼 때 `400` (실제로 뽑음, 키 없는
 | `assistant-clear` | 서랍 머리의 "대화 지우기" (4초 안에 두 번 눌러 확인). 대화가 있을 때만 보임 |
 | `assistant-cond` | 분석 조건 줄 (조건이 없으면 `hidden`) |
 | `assistant-cond-text` | 조건 줄의 글 ("장승배기역 4번 상권 · 한식음식점 · 2026년 2분기") |
-| `assistant-home` | 조건 줄의 "우리 가게 조건으로" 버튼 (`POST /api/assistant/setup?force=1`) |
+| `assistant-home` | 조건 줄의 "우리 가게 조건으로" 버튼 (`POST /api/assistant/setup?force=1`). 서버가 준 `conditions.is_store_default`가 `true`이면 JS가 글자를 "우리 가게 기준 적용 중"으로 바꾸고 `disabled`·`.on`을 붙임 (1.10) |
 | `assistant-scroll` | 서랍 본문. 이 안에서만 스크롤됨 |
 | `assistant-state` | 상태 안내 카드 (`off`·`down`·`disabled`·`no_data`·`error`일 때만 보임. 이때 입력칸은 막힘) |
 | `assistant-state-title` · `assistant-state-msg` | 상태 카드의 제목 · 서버가 준 안내 문장(그대로 보임) |
@@ -1783,6 +1836,8 @@ const on = new Set(m.default || []);
 **11/15에 더한 정적 시험** (화면 파일을 글자로 읽음)
 
 - `test_assistant_drawer_static.py`: 서랍 id(`assistant-`), `/api/assistant/*`만, `drawerApi`만, 90초 끊기, 한글 입력 중 Enter 막기, 첫 추천 질문 4개.
+- `test_assistant_ux_static.py` (11/16): 서랍 부제·첫 안내의 역할 문구("동네 상권·업종 매출 상담"), `#assistant-home`의 두 글자와 `is_store_default`만 믿는지(화면에서 조건을 비교하지 않음), 분기 표시 정규식이 서버와 글자 그대로 같은지와 서버 글자를 넣는 자리마다 `chatQuarter`를 쓰는지. `node`가 있으면 화면 함수를 실제로 돌려 서버 함수와 결과를 맞춰 봄(없으면 그 한 건만 건너뜀).
+- `test_assistant_ux.py` (11/16, 화면 파일은 메뉴 이름·추천 질문만 읽음): 1.10절의 분기 표기(바뀌는 글자·바뀌지 않는 금액과 코드 표), `is_store_default`, 가게 기본 질문(가게 질문·상권 질문 표, 응답 칸이 상권 서비스의 답과 같은지, 상권 서비스를 부르지 않는지, 가게 정보를 못 읽을 때).
 - `test_care_ui_static.py` (17건): 캡처 칸 id는 `cap`, 리포트 id는 `rp-`로 시작하고 JS가 찾는 것은 모두 HTML에 있음. 두 화면은 `careApi`로만 `/api/care/*`·`/api/reviews`·`/api/approvals`를 부르고 전역 `api()`·`showAlert`·`#alert`를 쓰지 않음. `accept`의 세 형식, 10MB, 이미 있는 리뷰는 처음에 고르지 않음, `source: "capture"`, 예시 결과·`warnings`·별점 확인 문구, 메뉴 자리(리뷰 분석 다음)와 `ROUTES`의 `"report"`, 인쇄 링크(`target="_blank"`, `rel="noopener"`), 남은 시간(`due_at`)·멈춤·지난 불만, 월간 표의 칸 7개와 SVG 그래프, **종합 리포트 덩어리가 `/api/cards`·`/api/briefing`·`/run`·`/api/assistant`·`refresh(`를 부르지 않음**(열어도 AI를 새로 부르지 않음), 외부 스크립트 없음.
 - `test_care_proxy.py` (29건, 화면 파일은 읽지 않음): 1.11절의 허용 목록·덮어쓰기·손님용 경로·상태·413·500 없음·막히지 않음, 1.6의 답글 승인 기록, 1.8의 `source`.
 
