@@ -168,7 +168,10 @@ def write_report(results, path, mode):
                 labels = ", ".join(_REFERENCE_LABELS[k] for k in ref_keys)
                 lines.append(f"- 참고: {labels}")
             if d.checks.get("used_fallback"):
-                lines.append("- 대체 문장 사용: 예 (공감 부분을 코드 템플릿으로 교체)")
+                # 답글(reply_draft)은 AI 가 쓰는 부분이 공감·사과뿐이라 그 부분만 교체되고,
+                # 공지·쿠폰(prevention_notice/coupon_promo)은 AI 가 본문 전체를 쓰므로 본문이 교체된다.
+                replaced = "공감 부분" if d.generator == "reply_draft" else "본문"
+                lines.append(f"- 대체 문장 사용: 예 ({replaced}을 코드 템플릿으로 교체)")
             lines.append(f"- 다시 쓴 횟수: {d.rewrites}")
             if d.needs_input:
                 lines.append(f"- ⚠ needs_input: {d.needs_input}")
@@ -333,6 +336,294 @@ class TestNoticeAiOverlapMock(unittest.TestCase):
         self.assertIn("오늘부터 포장 마감 전에", notice_draft.text)
 
 
+class TestPromoNoCustomerQuoteMock(unittest.TestCase):
+    """홍보글(coupon_promo)은 손님 후기를 인용하지 않는다 — 따옴표로 손님 말을 옮기거나
+    '손님들께서 ...라고' 형태로 쓰면 점검 실패. 리뷰 원문을 그대로 베끼면(not_quote_review) 도 실패."""
+
+    def test_quote_marks_are_caught(self):
+        self.assertTrue(checks.quotes_customer_speech("손님들이 '양이 넉넉하다'고 해 주셨습니다."))
+        self.assertTrue(checks.quotes_customer_speech('맛이 "정말 좋다"는 말씀을 들었습니다.'))
+        self.assertFalse(checks.quotes_customer_speech("제육볶음 정식은 양이 넉넉합니다."))
+
+    def test_customer_quote_phrase_is_caught(self):
+        self.assertTrue(checks.quotes_customer_speech("손님들께서 양이 넉넉하다라고 해 주셨습니다."))
+        self.assertTrue(checks.quotes_customer_speech("손님이 맛있다라고 해 주셨습니다."))
+        self.assertFalse(checks.quotes_customer_speech("오늘도 든든하게 준비하고 있습니다."))
+
+    def test_opinion_sentence_with_nearby_quote_word_is_not_false_positive(self):
+        # "손님"과 "라고"가 가까이 있어도, 뒤에 전달 동사(해/하셨/하시/말씀/했)가 없으면
+        # 사장님 자신의 의견("~라고 생각합니다")일 뿐 손님 인용이 아니다.
+        self.assertFalse(checks.quotes_customer_speech(
+            "손님께 드리는 든든한 한 끼라고 생각합니다.",
+        ))
+
+    def test_fix_hint_mentions_no_quote(self):
+        hints = checks.fix_hints(["no_customer_quote"])
+        self.assertIn("인용", hints[0])
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_quoted_review_response_fails_and_is_rewritten(self):
+        from c6.promo import generate_coupon_promo
+
+        card = next(c for c in CTX.cards if c.kind == "promo")
+        calls = {"n": 0}
+
+        def _mock_quote(key, system, messages, model="HCX-005", **kw):
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                return _ok('손님들께서 "양이 정말 넉넉하다"고 해 주신 제육볶음 정식을 준비하고 있습니다.')
+            return _ok(PROMO_GOOD_BODY)
+
+        with patch("clova.call", side_effect=_mock_quote):
+            result = generate_coupon_promo(CTX, card, "fake-key")
+
+        draft = result.drafts[0]
+        self.assertTrue(draft.checks["no_customer_quote"], draft.checks)
+        self.assertNotIn('"', draft.text)
+        self.assertFalse(draft.failed_reasons, draft.failed_reasons)
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_exact_review_text_quote_fails_not_quote_review(self):
+        from c6.promo import generate_coupon_promo
+
+        card = next(c for c in CTX.cards if c.kind == "promo")
+        quoted_review_text = REVIEW_MAP["rv_ongi_002"].text  # "수저랑 젓가락이 빠져 있었어요"
+        calls = {"n": 0}
+
+        def _mock_exact_quote(key, system, messages, model="HCX-005", **kw):
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                return _ok(f"리뷰에 {quoted_review_text} 라는 말이 있었습니다. 늘 신경 쓰고 있습니다.")
+            return _ok(PROMO_GOOD_BODY)
+
+        with patch("clova.call", side_effect=_mock_exact_quote):
+            result = generate_coupon_promo(CTX, card, "fake-key")
+
+        draft = result.drafts[0]
+        self.assertTrue(draft.checks["not_quote_review"], draft.checks)
+        self.assertNotIn(quoted_review_text, draft.text)
+
+
+class TestPromoFallbackTemplateMock(unittest.TestCase):
+    """홍보글(coupon_promo)도 답글·공지의 used_fallback 과 같은 방식: 두 번 다시 써도 점검을
+    못 넘으면(해요체·가게 사정·쿠폰 값을 직접 써서) 코드 템플릿으로 바꿔 넣고 통과 처리한다."""
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_always_bad_promo_response_falls_back_and_still_passes(self):
+        card = next(c for c in CTX.cards if c.kind == "promo")
+
+        def _always_bad(key, system, messages, model="HCX-005", **kw):
+            # 해요체 + 가게 사정(매출) + 쿠폰 값까지 섞인, 절대 점검을 못 넘는 홍보글
+            return _ok("저희 가게 매출이 줄어서 반값 코드로 드려요, 최고의 한 끼로 모실게요!")
+
+        with patch("clova.call", side_effect=_always_bad):
+            result = run_card(CTX, card, "fake-key")
+
+        promo_draft = result.drafts[0]
+        self.assertTrue(promo_draft.checks["used_fallback"], promo_draft.checks)
+        self.assertEqual(promo_draft.rewrites, 2)
+        self.assertFalse(promo_draft.failed_reasons, promo_draft.failed_reasons)
+        self.assertTrue(promo_draft.checks["promo_formal"], promo_draft.checks)
+        self.assertTrue(promo_draft.checks["no_store_circumstance"], promo_draft.checks)
+        self.assertTrue(promo_draft.checks["no_coupon_invented"], promo_draft.checks)
+        self.assertNotIn("매출", promo_draft.text)
+        self.assertNotIn("최고", promo_draft.text)
+        self.assertIn("🎟", promo_draft.text)  # 코드가 붙인 쿠폰 값 한 줄은 그대로 남아 있다
+        # 템플릿은 배달 주문 기준: "들러"·"방문" 같이 가게에 오는 걸 전제한 표현이 없다
+        self.assertNotIn("들러", promo_draft.text)
+        self.assertNotIn("방문", promo_draft.text)
+        self.assertIn("제육볶음 정식", promo_draft.text)  # 쿠폰 메뉴 이름은 본문에 그대로 들어간다
+
+    def test_fallback_text_is_three_sentences_no_visit_wording(self):
+        from c6.promo import _fallback_text
+
+        text = _fallback_text(SAMPLE_STORE, "제육볶음 정식")
+
+        sentences = [s for s in text.split(". ") if s]
+        self.assertEqual(len(sentences), 3, text)
+        self.assertNotIn("들러", text)
+        self.assertNotIn("방문", text)
+        self.assertIn("제육볶음 정식", text)
+        self.assertIn("주문", text)
+        self.assertTrue(checks.promo_formal(text), text)
+
+
+class TestPromoStoreCircumstanceMock(unittest.TestCase):
+    """홍보글 본문에 '매출 감소'·'손님이 줄어' 같은 가게 사정이 섞이면 점검에 걸려 다시 써야 한다
+    (근거는 reason_text/basis_label 에만 남고, 손님용 글에는 쓰지 않는다)."""
+
+    def test_store_circumstance_words_are_caught(self):
+        self.assertTrue(checks.store_circumstance_leaked("요즘 매출이 줄어서 걱정이 많아요."))
+        self.assertTrue(checks.store_circumstance_leaked("손님이 줄어 속상하지만 메뉴는 정성껏 준비합니다."))
+        self.assertFalse(checks.store_circumstance_leaked("제육볶음 정식은 매콤달콤한 양념이 매력입니다."))
+
+    def test_fix_hint_mentions_store_circumstance(self):
+        hints = checks.fix_hints(["no_store_circumstance"])
+        self.assertIn("가게 사정", hints[0])
+
+
+class TestPromoExaggerationAndFormalMock(unittest.TestCase):
+    """홍보글은 '최고'·'무조건'·'100%' 같은 과장 표현이 없어야 하고, 합니다체로 써야 한다."""
+
+    def test_exaggeration_words_are_caught(self):
+        self.assertTrue(checks.has_exaggeration("우리 가게가 최고예요!"))
+        self.assertTrue(checks.has_exaggeration("무조건 만족하실 거예요."))
+        self.assertTrue(checks.has_exaggeration("맛이 100% 보장됩니다."))
+        self.assertFalse(checks.has_exaggeration("제육볶음 정식은 든든한 한 상입니다."))
+
+    def test_promo_formal_requires_hamnida(self):
+        self.assertTrue(checks.promo_formal("오늘도 든든하게 준비하고 있습니다. 편하게 들러 주시기 바랍니다."))
+        self.assertFalse(checks.promo_formal("오늘도 든든하게 준비해 뒀어요. 편하게 들러 주세요."))
+
+
+class TestPromoCouponNumberConsistencyMock(unittest.TestCase):
+    """쿠폰 줄은 AI 가 아니라 코드가 붙이므로, 함수에 넘긴 할인액·기간 값이 최종 글에 그대로
+    들어 있어야 한다(숫자 불일치를 잡는 회귀 점검) — 시간대 조건도 snapshot 에서 가져와 붙는다."""
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_final_text_has_exact_code_values_and_time_window(self):
+        from c6.promo import generate_coupon_promo
+
+        card = next(c for c in CTX.cards if c.kind == "promo")
+
+        with patch("clova.call", side_effect=lambda *a, **kw: _ok(PROMO_GOOD_BODY)):
+            result = generate_coupon_promo(CTX, card, "fake-key", coupon_discount=2000, coupon_days=7)
+
+        draft = result.drafts[0]
+        self.assertIn("2,000원", draft.text)
+        self.assertIn("7일", draft.text)
+        # SAMPLE_SNAPSHOTS[0].metric_name 에 "저녁 시간대"가 있으니 "저녁 5~9시 주문 시"가 붙는다
+        self.assertIn("저녁 5~9시 주문 시", draft.text)
+
+
+class TestPromoCouponMenuOnlyMock(unittest.TestCase):
+    """홍보글은 쿠폰 메뉴 하나만 소개한다. coupon_menu 가 아닌 다른 메뉴 이름이 섞이면 점검 실패."""
+
+    def test_other_menu_name_fails_check(self):
+        self.assertFalse(checks.only_coupon_menu_mentioned(
+            "제육볶음 정식과 된장찌개 모두 든든합니다.", list(SAMPLE_STORE.menu), "제육볶음 정식",
+        ))
+        self.assertTrue(checks.only_coupon_menu_mentioned(
+            "제육볶음 정식은 든든한 한 상입니다.", list(SAMPLE_STORE.menu), "제육볶음 정식",
+        ))
+
+    def test_no_coupon_menu_is_not_checked(self):
+        self.assertTrue(checks.only_coupon_menu_mentioned(
+            "된장찌개 이야기입니다.", list(SAMPLE_STORE.menu), None,
+        ))
+
+    def test_generic_short_menu_word_is_not_a_false_positive(self):
+        # 다른 메뉴 이름이 "밥"처럼 2글자 이하로 짧으면, 일반 낱말과 겹쳐도(예: "든든한 밥 한 끼")
+        # 다른 메뉴를 소개한 것으로 보지 않는다.
+        menu_names = ["제육볶음 정식", "밥", "국"]
+        self.assertTrue(checks.only_coupon_menu_mentioned(
+            "제육볶음 정식과 든든한 밥 한 끼를 준비하고 있습니다.", menu_names, "제육볶음 정식",
+        ))
+        # 3글자 이상인 진짜 다른 메뉴는 그대로 잡는다
+        self.assertFalse(checks.only_coupon_menu_mentioned(
+            "제육볶음 정식과 된장찌개 모두 준비하고 있습니다.", list(SAMPLE_STORE.menu), "제육볶음 정식",
+        ))
+
+    def test_fix_hint_mentions_coupon_menu_only(self):
+        hints = checks.fix_hints(["only_coupon_menu"])
+        self.assertIn("쿠폰 메뉴만", hints[0])
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_other_menu_in_ai_body_triggers_retry_and_is_fixed(self):
+        from c6.promo import generate_coupon_promo
+
+        card = next(c for c in CTX.cards if c.kind == "promo")
+        calls = {"n": 0}
+
+        def _mock_other_menu(key, system, messages, model="HCX-005", **kw):
+            calls["n"] += 1
+            if calls["n"] <= 3:  # 처음 2개(동시 후보) + 1번째 재시도까지는 다른 메뉴(된장찌개) 언급
+                return _ok("제육볶음 정식과 된장찌개 모두 정성껏 준비하고 있습니다. 편하게 들러 주시기 바랍니다.")
+            return _ok(PROMO_GOOD_BODY)
+
+        with patch("clova.call", side_effect=_mock_other_menu):
+            result = generate_coupon_promo(CTX, card, "fake-key")
+
+        draft = result.drafts[0]
+        self.assertTrue(draft.checks["only_coupon_menu"], draft.checks)
+        self.assertNotIn("된장찌개", draft.text)
+        self.assertFalse(draft.failed_reasons, draft.failed_reasons)
+
+
+class TestPromoReasonPlaceholderMock(unittest.TestCase):
+    """reason_text 의 변화율은 snapshot.value 에서 가져온다. 값이 있으면 "-X%" 자리표시자를
+    실제 값으로 바꾸고, 값이 없으면(자리표시자가 그대로 남으면) 점검 실패(needs_input)로 남긴다."""
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_default_sample_value_is_filled_v0_4(self):
+        # 팀 결정 v0.4: SAMPLE_SNAPSHOTS[0].value = -19.31 (더 이상 자리표시자가 아니다)
+        from c6.promo import generate_coupon_promo
+
+        card = next(c for c in CTX.cards if c.kind == "promo")
+        with patch("clova.call", side_effect=lambda *a, **kw: _ok(PROMO_GOOD_BODY)):
+            result = generate_coupon_promo(CTX, card, "fake-key")
+
+        self.assertIn("-19.31%", result.reason_text)
+        self.assertNotIn("-X%", result.reason_text)
+        self.assertNotIn("수치 확정 전", result.reason_text)
+        self.assertFalse(result.drafts[0].needs_input, result.drafts[0].needs_input)
+        # 수치는 본문에 한 번만(괄호 안은 basis_label만, 수치가 중복되어 또 붙지 않는다)
+        self.assertEqual(result.reason_text.count("-19.31%"), 1, result.reason_text)
+        self.assertIn("(기준: 2026 2분기 · 추정 · 출처 서울시)", result.reason_text)
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_snapshot_value_fills_placeholder(self):
+        from shared.contracts import AnalysisSnapshot
+        from c6.promo import generate_coupon_promo
+
+        card = next(c for c in CTX.cards if c.kind == "promo")
+        snap = SNAPSHOT_MAP[card.snapshot_ids[0]]
+        filled_snap = AnalysisSnapshot(
+            snapshot_id=snap.snapshot_id, area_name=snap.area_name, metric_name=snap.metric_name,
+            value=-19.31, unit=snap.unit, basis_quarter=snap.basis_quarter, is_estimate=snap.is_estimate,
+            source=snap.source, compared_with_quarter=snap.compared_with_quarter,
+        )
+        filled_ctx = build_context(
+            store=SAMPLE_STORE, reviews=list(SAMPLE_REVIEWS), tone=SAMPLE_TONE,
+            cards=list(SAMPLE_CARDS), snapshots=[filled_snap],
+            owner_replies=OWNER_REPLIES, policies=POLICIES,
+        )
+
+        with patch("clova.call", side_effect=lambda *a, **kw: _ok(PROMO_GOOD_BODY)):
+            result = generate_coupon_promo(filled_ctx, card, "fake-key")
+
+        self.assertIn("-19.31%", result.reason_text)
+        self.assertNotIn("-X%", result.reason_text)
+        self.assertFalse(result.drafts[0].needs_input, result.drafts[0].needs_input)
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_missing_value_keeps_placeholder_as_needs_input(self):
+        # SAMPLE_SNAPSHOTS[0].value 는 팀 결정 v0.4(-19.31)로 이미 채워져 있으니, 수치가 아직
+        # 없는 경우를 따로 만들어 자리표시자가 남는지 본다.
+        from shared.contracts import AnalysisSnapshot
+        from c6.promo import generate_coupon_promo
+
+        card = next(c for c in CTX.cards if c.kind == "promo")
+        snap = SNAPSHOT_MAP[card.snapshot_ids[0]]
+        unfilled_snap = AnalysisSnapshot(
+            snapshot_id=snap.snapshot_id, area_name=snap.area_name, metric_name=snap.metric_name,
+            value=None, unit=snap.unit, basis_quarter=snap.basis_quarter, is_estimate=snap.is_estimate,
+            source=snap.source, compared_with_quarter=snap.compared_with_quarter,
+        )
+        unfilled_ctx = build_context(
+            store=SAMPLE_STORE, reviews=list(SAMPLE_REVIEWS), tone=SAMPLE_TONE,
+            cards=list(SAMPLE_CARDS), snapshots=[unfilled_snap],
+            owner_replies=OWNER_REPLIES, policies=POLICIES,
+        )
+
+        with patch("clova.call", side_effect=lambda *a, **kw: _ok(PROMO_GOOD_BODY)):
+            result = generate_coupon_promo(unfilled_ctx, card, "fake-key")
+
+        self.assertIn("-X%", result.reason_text)
+        self.assertIn("상권 지표 수치 미확정: reason_text에 자리표시자(-X%)가 남아 있어요",
+                      result.drafts[0].needs_input)
+
+
 class TestBrokenEndingMock(unittest.TestCase):
     """checks.no_broken_ending: '적어해주세요'처럼 동사 뒤에 '해'가 잘못 붙은 깨진 어미를 잡는다."""
 
@@ -458,11 +749,11 @@ NOTICE_BODY = (
 )
 
 # 처음 2번(동시 생성되는 후보 2개)은 '반값·코드'가 섞인 본문(coupon_invented 로 둘 다 걸려야 함)
-# -> 다시 쓰기 1회 -> 3번째 호출은 정상
-PROMO_BAD_BODY = "온기한식 제육볶음 정식을 반값 코드로 만나보세요! 알싸한 양념이 매력적인 메뉴예요."
+# -> 다시 쓰기 1회 -> 3번째 호출은 정상(합니다체)
+PROMO_BAD_BODY = "온기한식 제육볶음 정식을 반값 코드로 만나보세요! 알싸한 양념이 매력적인 메뉴입니다."
 PROMO_GOOD_BODY = (
-    "온기한식 제육볶음 정식은 매콤달콤한 양념과 두툼한 건더기가 매력이에요. "
-    "뚝배기째 든든하게 즐기실 수 있는 한 상이니 편하게 들러 맛보세요."
+    "온기한식 제육볶음 정식은 매콤달콤한 양념과 두툼한 건더기가 매력입니다. "
+    "뚝배기째 든든하게 즐기실 수 있는 한 상이니 편하게 들러 맛보시기 바랍니다."
 )
 
 _reply_calls_seen = []  # 어떤 review_id 로 몇 번 호출됐는지 (스레드 안전하게 lock 으로 보호)

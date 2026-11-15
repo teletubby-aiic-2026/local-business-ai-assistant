@@ -15,6 +15,8 @@ _PHONE = re.compile(r"01[016789]-?\d{3,4}-?\d{4}")
 _ADDR = re.compile(r"[가-힣]+(시|도|구|군|동|로|길)\s*\d")
 _NICK = re.compile(r"[가-힣]{2,4}\s*(님|씨)")
 _COUPON_WORDS = re.compile(r"할인|쿠폰|코드|반값|%|원")
+_EXAGGERATION = re.compile(r"최고|무조건|100%")
+_STORE_CIRCUMSTANCE = re.compile(r"매출|손님이\s*줄|경기가?\s*안\s*좋|장사가?\s*안\s*돼|하락세|매출\s*감소|감소세")
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _ALL_MEASURE_TEXTS = [m["text"] for m in MEASURES]
 _OVERPROMISE = re.compile(r"없을\s*거예요|절대|다시는\s*없|완벽|도입했|마련했|이미\s*(도입|마련|적용)")
@@ -198,6 +200,56 @@ def notice_not_personal(text: str) -> bool:
     return not bool(_PERSONAL_ADDRESS.search(text))
 
 
+def has_exaggeration(text: str) -> bool:
+    """'최고'·'무조건'·'100%' 같은 과장 표현이 있으면 True. 홍보글(coupon_promo) 전용."""
+    return bool(_EXAGGERATION.search(text))
+
+
+def store_circumstance_leaked(text: str) -> bool:
+    """'매출 감소'·'손님이 줄어' 같은 가게 사정(상권 지표)이 손님용 글에 섞여 있으면 True.
+    이런 사정은 reason_text(사장님용)에만 남기고, 홍보글 본문에는 쓰지 않는다."""
+    return bool(_STORE_CIRCUMSTANCE.search(text))
+
+
+_QUOTE_MARKS = re.compile(r"[\"'“”‘’].{1,40}[\"'“”‘’]")
+# "라고" 뒤에 실제 전달 동사(해/하셨/하시/말씀/했)가 와야 인용으로 본다 — "~라고 생각합니다"처럼
+# 손님 얘기가 아니라 사장님 자신의 의견을 말할 때(문장 안에 "손님"이 그냥 섞여 있는 경우)까지
+# 걸리는 걸 막는다.
+_CUSTOMER_QUOTE_PHRASE = re.compile(r"손님(?:들)?(?:께서|이)?\s*[^.?!]{0,20}라고\s*(?:해|하셨|하시|말씀|했)")
+
+
+def quotes_customer_speech(text: str) -> bool:
+    """따옴표('…'·"…")로 감싼 손님 말 인용이나 '손님들께서 …라고 해 주셨다' 형태가 있으면 True.
+    quotes_review(원문 그대로 베낌)와 달리, 문장을 바꿔 인용해도 잡는다. 홍보글(coupon_promo)은
+    손님 후기를 인용하지 않는다."""
+    if _QUOTE_MARKS.search(text):
+        return True
+    return bool(_CUSTOMER_QUOTE_PHRASE.search(text))
+
+
+def only_coupon_menu_mentioned(text: str, menu_names: list[str], coupon_menu: str | None) -> bool:
+    """홍보글은 쿠폰 메뉴 하나만 소개한다. coupon_menu 가 아닌 다른 메뉴 이름이 글에 있으면 False.
+    coupon_menu 가 없으면(메뉴를 못 정함) 점검 대상이 아니므로 True. 2글자 이하 메뉴 이름("밥"·
+    "국" 등)은 일반 낱말과 겹치기 쉬워 substring 비교에서 뺀다(진짜 다른 메뉴는 보통 3글자 이상)."""
+    if not coupon_menu:
+        return True
+    others = [m for m in menu_names if m != coupon_menu and len(m) > 2]
+    return not any(m in text for m in others)
+
+
+def promo_formal(text: str) -> bool:
+    """홍보글이 합니다체 위주면 True. 공지(notice_formal)는 줄바꿈된 한 줄 = 한 문장이지만,
+    홍보글은 여러 문장이 한 줄에 이어지므로 문장 단위(_SENT_SPLIT)로 끝을 본다."""
+    if not text or not text.strip():
+        return False
+    sentences = [s.strip() for s in _SENT_SPLIT.split(text.strip()) if s.strip()]
+    if not sentences:
+        return False
+    formal = sum(1 for s in sentences if _FORMAL_END.search(s))
+    informal = sum(1 for s in sentences if _INFORMAL_END.search(s) and not _FORMAL_END.search(s))
+    return formal > 0 and formal >= informal
+
+
 def notice_formal(text: str) -> bool:
     """공지 문장이 합니다체 위주면 True. 문장마다 줄바꿈된 줄을 한 줄 = 한 문장으로 본다."""
     lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
@@ -334,6 +386,12 @@ def fix_hints(failed: list[str], formal: bool = False) -> list[str]:
         "no_unknown_menu": "메뉴에 있는 음식 이름만 써 주세요.",
         "no_markdown": "마크다운 기호(**, #, ` 등) 없이 일반 문장으로 써 주세요.",
         "no_broken_ending": "'적어해주세요'처럼 깨진 어미 대신 '적어 주세요'처럼 띄어 쓰는 바른 형태로 써 주세요.",
+        "no_exaggeration": "'최고'·'무조건'·'100%' 같은 과장 표현은 빼 주세요.",
+        "no_store_circumstance": "'매출 감소'·'손님이 줄어' 같은 가게 사정 얘기는 빼고, 메뉴의 실제 특징만 써 주세요.",
+        "only_coupon_menu": "쿠폰 메뉴만 소개해 주세요. 다른 메뉴 이름은 쓰지 마세요.",
+        "no_customer_quote": "손님 후기를 인용하지 않는다. 따옴표로 손님 말을 옮기거나 '손님들께서 ...라고' 처럼 "
+                              "쓰지 말고, 메뉴 특징을 직접 설명해 주세요.",
+        "promo_formal": "해요체 대신 합니다체로 써 주세요.",
     }
     if formal:
         mapping["no_stiff_words"] = "사전에 있는 딱딱한 표현을 더 자연스러운 표현으로 바꿔 주세요(합니다체는 유지)."

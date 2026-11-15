@@ -1,52 +1,5 @@
 [
   {
-    "card_id": "card_sample_b",
-    "kind": "promo",
-    "reason_text": "이 상권의 저녁 시간대 추정매출이 전년 동기 대비 -X% 줄었습니다. (기준: 2026 2분기 · 추정 · 출처 서울시, 수치 확정 전)",
-    "basis_label": "기준: 2026 2분기 · 추정 · 출처 서울시",
-    "drafts": [
-      {
-        "draft_id": "d_9018bf15",
-        "card_id": "card_sample_b",
-        "store_id": "store_ongi",
-        "generator": "coupon_promo",
-        "target_review_id": null,
-        "text": "저녁 메뉴 아직 못 정했다면 이거 어때요? 손님들 사이에서 인기 폭발 중인 제육볶음이랑 언제 먹어도 맛있는 된장찌개를 준비했거든요. 밥 두 공기도 거뜬히 비우게 만드는 맛이라니까요!\n🎟 제육볶음 정식 1,000원 할인 쿠폰 · 받은 날 포함 14일",
-        "evidence_ids": [
-          "snap_sample_01",
-          "coupon:제육볶음 정식"
-        ],
-        "checks": {
-          "no_bad_number": true,
-          "no_personal_info": true,
-          "no_coupon_invented": true,
-          "no_stiff_words": true,
-          "no_fewshot_copy": true,
-          "no_bad_promise": true,
-          "no_unknown_menu": false,
-          "no_markdown": true,
-          "length_ok": true,
-          "no_forbidden_phrase": true
-        },
-        "failed_reasons": [
-          "메뉴에 있는 음식 이름만 써 주세요."
-        ],
-        "rewrites": 1,
-        "needs_input": [
-          "사장님 확인 필요"
-        ],
-        "status": "draft",
-        "edited_text": null,
-        "model": "HCX-005",
-        "elapsed_ms": 4614,
-        "data_origin": "synthetic"
-      }
-    ],
-    "chosen_measures": [],
-    "elapsed_ms": 4614,
-    "won": 12.51
-  },
-  {
     "card_id": "card_sample_a",
     "kind": "complaint",
     "reason_text": "포장 누락을 말한 리뷰가 3건 반복됐고, 공깃밥·수저·계란말이처럼 주문한 품목이나 구성품이 빠졌다는 내용입니다.",
@@ -232,5 +185,57 @@
     ],
     "elapsed_ms": 11958,
     "won": 54.04
+  },
+  {
+    "card_id": "card_sample_b",
+    "kind": "promo",
+    "reason_text": "이 상권의 저녁 시간대 추정매출이 전년 동기 대비 -19.31% 줄었습니다. (기준: 2026 2분기 · 추정 · 출처 서울시)",
+    "basis_label": "기준: 2026 2분기 · 추정 · 출처 서울시",
+    "drafts": [
+      {
+        "draft_id": "d_a1bc0bc4",
+        "card_id": "card_sample_b",
+        "store_id": "store_ongi",
+        "generator": "coupon_promo",
+        "target_review_id": null,
+        "text": "제육볶음 정식은 저희 식당의 대표 메뉴입니다. 고소한 참깨와 향긋한 파채를 곁들여 더욱 풍성한 맛을 느끼실 수 있습니다. 많은 분들께 사랑받고 있는 이 메뉴를 집에서 편하게 즐겨보시기 바랍니다.\n🎟 제육볶음 정식 1,000원 할인 쿠폰 · 받은 날 포함 14일 · 저녁 5~9시 주문 시",
+        "evidence_ids": [
+          "snap_sample_01",
+          "coupon:제육볶음 정식"
+        ],
+        "checks": {
+          "no_bad_number": true,
+          "no_personal_info": true,
+          "no_broken_ending": true,
+          "no_coupon_invented": true,
+          "no_stiff_words": true,
+          "no_fewshot_copy": true,
+          "no_bad_promise": true,
+          "no_unknown_menu": true,
+          "only_coupon_menu": true,
+          "not_quote_review": true,
+          "no_customer_quote": true,
+          "no_markdown": true,
+          "no_exaggeration": true,
+          "no_store_circumstance": true,
+          "promo_formal": true,
+          "length_ok": true,
+          "no_forbidden_phrase": true,
+          "used_fallback": false
+        },
+        "failed_reasons": [],
+        "rewrites": 2,
+        "needs_input": [],
+        "status": "draft",
+        "edited_text": null,
+        "model": "HCX-005",
+        "elapsed_ms": 6656,
+        "data_origin": "synthetic",
+        "style": null
+      }
+    ],
+    "chosen_measures": [],
+    "elapsed_ms": 6657,
+    "won": 21.08
   }
 ]
