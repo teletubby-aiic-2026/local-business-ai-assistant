@@ -15,6 +15,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, File, Form, Query, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import APIKeyHeader
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -248,12 +249,15 @@ async def capture_reviews(file: UploadFile = File(..., description="리뷰 화�
     data = await file.read(limit + 1)          # 메모리에서만 씀. 디스크·로그에 남기지 않음
     await file.close()
     try:
-        result = reader().read(data)
+        # 읽기(Pillow·HCX 호출·재시도 대기)는 막히는 코드라 스레드에서 돌린다. 여기서 바로 부르면 캡처 하나가 끝날 때까지(5~20초)
+        # 이 서비스의 다른 요청(/api/health 포함)이 모두 멈춘다 (11/15 통합 점검에서 4.8~18.1초 멈춤을 잼)
+        result = await run_in_threadpool(reader().read, data)
     except capture.CaptureError as e:
         return error(e.status, e.code, e.message, e.details, e.retryable)
     finally:
         del data
-    saved = {" ".join(r.text.split()) for r in service.all_reviews(store_id, visitor_id)}
+    reviews = await run_in_threadpool(service.all_reviews, store_id, visitor_id)
+    saved = {" ".join(r.text.split()) for r in reviews}
     candidates = []
     for r in result.reviews:
         text, masked = service.mask_pii(r["text"][:1000])

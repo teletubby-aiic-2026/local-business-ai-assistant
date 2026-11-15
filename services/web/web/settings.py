@@ -44,6 +44,10 @@ class Settings:
     market_url: str = "http://127.0.0.1:8766"
     market_host: str = "127.0.0.1:8766"
     market_timeout: float = 75.0
+    # 고객응대 프록시 (care_proxy.py: 캡처 입력·응대 점수·보고서). 비우면 리뷰 분석 서버(review_url)와 같은 곳, off 면 끈다
+    care_url: str = ""
+    care_timeout: float = 100.0      # 캡처 하나를 기다리는 최대 시간(초). 긴 캡처는 조각(최대 5)마다 HCX 를 부름. Nginx 120초보다 짧게
+    care_public: bool = False        # 손님용 문의 페이지(/s/…)·/api/care/public/* 를 열지. 보안 검토 전까지 꺼 둠 (팀장 결정 11/15)
 
     def __post_init__(self) -> None:
         if str(self.mode).lower() == "replay":
@@ -75,4 +79,7 @@ class Settings:
             market_url=env("MARKET_URL", "http://127.0.0.1:8766").strip(),
             market_host=env("MARKET_HOST", "127.0.0.1:8766").strip() or "127.0.0.1:8766",
             market_timeout=_seconds(env("MARKET_TIMEOUT_SEC", ""), 75.0),
+            care_url=env("CARE_URL", "").strip(),
+            care_timeout=_seconds(env("CARE_TIMEOUT_SEC", ""), 100.0),
+            care_public=env("CARE_PUBLIC", "").strip().lower() in ("1", "true", "yes", "on"),
         )

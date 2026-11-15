@@ -79,12 +79,16 @@ class ReviewSource:
     def insight(self, store_id: str) -> dict:
         return self._get("/insight", store_id=store_id, **self._visitor())
 
-    def paste(self, store_id: str, text: str, rating: int | None = None, channel: str | None = None) -> dict:
+    def paste(self, store_id: str, text: str, rating: int | None = None, channel: str | None = None,
+              source: str | None = None) -> dict:
+        """source: 비우면 붙여넣기(paste). capture 면 캡처 후보를 확인해 저장한 것 (리뷰 분석 서비스의 source 칸)."""
         body = {"store_id": store_id, "text": text, **self._visitor()}
         if rating is not None:
             body["rating"] = rating
         if channel:
             body["channel"] = channel
+        if source:
+            body["source"] = source
         try:
             res = self._client.post("/api/review-insight/reviews", json=body)
         except httpx.HTTPError as exc:

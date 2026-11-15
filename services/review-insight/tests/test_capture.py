@@ -230,3 +230,44 @@ def test_api_requires_token_when_set(client, monkeypatch):
     c, _ = client
     monkeypatch.setenv("APP_ACCESS_TOKEN", "team-secret")
     assert post(c, image()).status_code == 401
+
+
+# ── 캡처가 서비스 전체를 멈추지 않는지 (11/15 통합 점검: 읽는 동안 /api/health 가 4.8~18.1초 멈췄음) ──
+class SlowReader:
+    """읽기에 오래 걸리는 가짜 (실제로는 Pillow + HCX 호출 + 재시도 대기). 읽기를 시작하면 started 를 켠다."""
+    model = "HCX-005"
+
+    def __init__(self, seconds=1.5):
+        import threading
+        self.seconds, self.started = seconds, threading.Event()
+
+    def read(self, data, kind="reviews"):
+        import time
+        self.started.set()
+        time.sleep(self.seconds)
+        rows = [{"name": "느린 메뉴", "price": 9000}] if kind == "menu" else [{"text": "느리게 읽은 리뷰", "rating": 4}]
+        return capture.CaptureResult(reviews=rows, pieces=1)
+
+
+@pytest.mark.parametrize("path", ["/api/review-insight/reviews/capture", "/api/review-insight/profile/menu/capture"])
+def test_health_stays_fast_while_a_capture_is_being_read(monkeypatch, path):
+    import threading
+    import time
+    from app import main
+    slow = SlowReader()
+    monkeypatch.setattr(main, "_classifier", Classifier("mock"))
+    monkeypatch.setattr(main, "_reader", slow)
+    done = {}
+    # with 로 연 TestClient 는 이벤트 루프 하나를 같이 쓴다 (실제 서버의 워커 1개와 같음). 막히는 코드가 루프에서 돌면 health 도 기다린다
+    with TestClient(main.app) as c:
+        worker = threading.Thread(target=lambda: done.setdefault(
+            "r", c.post(path, files={"file": ("cap.png", image(), "image/png")})))
+        worker.start()
+        assert slow.started.wait(5), "캡처 읽기가 시작되지 않음"
+        t0 = time.perf_counter()
+        health = c.get("/api/health")
+        waited = time.perf_counter() - t0
+        worker.join(10)
+    assert health.status_code == 200
+    assert waited < 0.7, f"캡처를 읽는 동안 /api/health 가 {waited:.2f}초 기다림"
+    assert done["r"].status_code == 200 and done["r"].json()["count"] == 1

@@ -39,6 +39,7 @@
       <a href="#/draft" data-route="draft"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg><span>승인<span class="long">할 글</span></span><span id="nav-draft-count" class="nav-count" hidden></span></a>
       <a href="#/done" data-route="done"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><span class="long">처리 </span>완료</span></a>
       <a href="#/analysis" data-route="analysis"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg><span><span class="long">리뷰 </span>분석</span></a>
+      <a href="#/report" data-route="report"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h4"/></svg><span><span class="long">종합 </span>리포트</span></a>
     </div>
     <div class="staff">
       <p class="staff-title">AI 직원</p>
@@ -194,6 +195,83 @@
           </div>
         </div>
         <div id="paste-result"></div>
+
+        <!-- 캡처로 넣기 (11/15): 리뷰 화면 캡처 1장 → AI(HCX-005)가 옮겨 적은 후보 → 사장님이 고치고 고른 것만 저장.
+             읽기는 이 서버의 /api/care/reviews/capture, 저장은 붙여넣기와 같은 /api/reviews (source=capture) 라서 붙여넣은 리뷰와 똑같이
+             요약·불만 묶음·홈 숫자·추천 카드에 들어간다. 오류는 이 칸 안(#cap-error)에만 보이고 화면 맨 위 알림 띠는 쓰지 않는다 -->
+        <section id="cap" class="panel cap" aria-labelledby="cap-title">
+          <div class="panel-head"><h2 id="cap-title">캡처로 넣기</h2><span class="small muted">png·jpg·webp 1장 · 10MB 이하</span></div>
+          <p class="small muted cap-lead">배달앱 리뷰 화면을 캡처해 올리면 AI가 글과 별점을 옮겨 적어요. 바로 저장하지 않고, 사장님이 고치고 고른 것만 저장해요.</p>
+          <div class="cap-pick">
+            <!-- 파일 칸은 화면에서 숨기고(키보드 순서에서도 뺌) 옆 버튼이 click() 으로 연다. display:none 이면 일부 브라우저가 click() 을 막아서 sr 로 숨김 -->
+            <input id="cap-file" class="sr" type="file" accept="image/png,image/jpeg,image/webp" tabindex="-1" aria-hidden="true">
+            <button id="cap-choose" type="button">이미지 고르기</button>
+            <span id="cap-file-name" class="small muted cap-file-name">고른 파일 없음</span>
+            <button id="cap-send" type="button" class="primary" disabled>캡처 읽기</button>
+          </div>
+          <p id="cap-status" class="cap-status" role="status"></p>
+          <p id="cap-error" class="cap-error" role="alert"></p>
+          <div id="cap-result" class="cap-result" hidden>
+            <p id="cap-demo" class="cap-demo" hidden><b>예시 결과 — 이미지를 실제로 읽지 않았어요</b><span>키가 없거나 시험용 실행이라 미리 정해 둔 예시 후보를 보여 줘요.</span></p>
+            <ul id="cap-warnings" class="issues cap-warnings" aria-label="확인할 점" hidden></ul>
+            <p class="cap-star"><b>별점은 꼭 캡처와 비교해 주세요.</b> AI가 별점을 잘못 읽을 때가 있어요 (실제 시험에서 1~2점 리뷰를 3점으로 읽은 적이 절반쯤 있었어요).</p>
+            <details class="more cap-shot"><summary class="small">올린 캡처 보기</summary><img id="cap-preview" alt="올린 리뷰 화면 캡처"></details>
+            <ol id="cap-list" class="cap-list plain" aria-label="옮겨 적은 리뷰 후보"></ol>
+            <div class="row cap-foot">
+              <button id="cap-save" type="button" class="primary">선택한 리뷰 저장</button>
+              <span id="cap-picked" class="small muted"></span>
+            </div>
+            <p id="cap-save-msg" class="small cap-save-msg" role="status"></p>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- 종합 리포트 (11/15): 오늘 요약 · 응대 점수 · 월간 보고서 · 상권 요약 · 마케팅 요약.
+         응대 칸 세 개는 이 서버의 /api/care/* (리뷰 분석 서비스가 규칙으로 계산, AI 문장 아님). 상권·마케팅 요약은 홈을 열 때 이미 받은
+         브리핑·추천 카드와 /api/approvals 로만 만든다. 이 화면을 열어도 AI(HCX)를 새로 부르지 않는다.
+         칸마다 따로 불러서, 고객응대 서비스가 꺼져 있어도 그 칸에만 안내가 보이고 나머지는 그대로 뜬다 -->
+    <section class="view" data-view="report" hidden>
+      <div class="page-head">
+        <p class="eyebrow"><span class="agent">고객 응대 비서</span><span class="agent">마케팅 에이전트</span></p>
+        <h1 tabindex="-1">종합 리포트</h1>
+        <p class="small muted">응대 점수와 보고서는 리뷰 기록으로 코드가 계산해요 (AI 문장 아님). 이 화면을 열어도 AI를 새로 부르지 않아요.</p>
+        <div class="row rp-head-row"><button id="rp-reload" type="button" class="ghost">다시 불러오기</button></div>
+      </div>
+      <div class="rp-grid">
+        <section class="panel rp-daily" aria-labelledby="rp-daily-title">
+          <div class="panel-head"><h2 id="rp-daily-title">오늘 요약</h2><span id="rp-daily-date" class="small muted"></span></div>
+          <p id="rp-daily-state" class="rp-state" role="status">불러오는 중…</p>
+          <div id="rp-daily"></div>
+        </section>
+        <section class="panel rp-score" aria-labelledby="rp-score-title">
+          <div class="panel-head"><h2 id="rp-score-title">응대 점수</h2><span class="small muted">최근 28일 · 100점에서 시작</span></div>
+          <p id="rp-score-state" class="rp-state" role="status">불러오는 중…</p>
+          <div id="rp-score"></div>
+        </section>
+        <section class="panel rp-month" aria-labelledby="rp-month-title">
+          <div class="panel-head">
+            <h2 id="rp-month-title">월간 보고서</h2>
+            <div class="rp-month-nav" role="group" aria-label="달 고르기">
+              <button id="rp-month-prev" type="button" class="ghost"><span aria-hidden="true">‹</span> 이전 달</button>
+              <strong id="rp-month-label" aria-live="polite">이번 달</strong>
+              <button id="rp-month-next" type="button" class="ghost" disabled>다음 달 <span aria-hidden="true">›</span></button>
+              <a id="rp-print" class="button rp-print" href="/api/care/report/monthly/print" target="_blank" rel="noopener">인쇄용 보기<span class="sr"> (새 탭)</span></a>
+            </div>
+          </div>
+          <p id="rp-month-state" class="rp-state" role="status">불러오는 중…</p>
+          <div id="rp-month"></div>
+        </section>
+        <section class="panel rp-market" aria-labelledby="rp-market-title">
+          <div class="panel-head"><h2 id="rp-market-title">상권 요약</h2><span class="small muted">서울시 공개 상권 자료</span></div>
+          <p id="rp-market-state" class="rp-state" role="status"></p>
+          <div id="rp-market"></div>
+        </section>
+        <section class="panel rp-mkt" aria-labelledby="rp-mkt-title">
+          <div class="panel-head"><h2 id="rp-mkt-title">마케팅 요약</h2><span class="small muted">추천 카드 ⓑ · 승인 기록</span></div>
+          <p id="rp-mkt-state" class="rp-state" role="status"></p>
+          <div id="rp-mkt"></div>
+        </section>
       </div>
     </section>
   </main>
