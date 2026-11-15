@@ -30,17 +30,21 @@ def check_no_invented_facts(text: str, source: str) -> bool:
     return True
 
 
+INSTAGRAM_HASHTAGS = "#동네맛집 #오늘의한끼 #단골환영"
+
+
 def build_story_drafts(reason: str, keep: str) -> dict[str, str]:
-    """사장님 답(reason·keep) 을 고정 틀에 넣어 네이버 플레이스·인스타 두 버전을 만든다."""
+    """사장님 답(reason·keep) 을 고정 틀에 넣어 네이버 플레이스(3~4문장)·인스타(2문장+해시태그) 두 버전을 만든다."""
     reason = reason.strip()
     keep = keep.strip()
 
     naver_place = (
         f"{reason}로 가게를 시작했습니다. "
         f"{keep}을 꼭 지키며 음식을 만듭니다. "
+        "손님 한 분 한 분께 정성을 다하고 있습니다. "
         "앞으로도 같은 마음으로 손님을 맞이하겠습니다."
     )
-    instagram = f"{reason} 🍚 {keep}, 그 마음으로 만듭니다."
+    instagram = f"{reason} 🍚 {keep}, 그 마음으로 만듭니다.\n{INSTAGRAM_HASHTAGS}"
 
     return {"naver_place": naver_place, "instagram": instagram}
 
@@ -56,15 +60,22 @@ def build_story_plan(raw: dict, today: date | None = None) -> dict:
         if not check_no_invented_facts(text, source):
             raise ValueError("가게 이야기 글에 사장님 답에 없는 사실이 들어갔어요.")
 
-    step = PlaybookStep(
-        "story_post", _date_label(today, 0), "가게 이야기 글 올리기",
-        _channel_where("naver_place") + " / 인스타그램", 5,
-        tip="사장님이 답한 내용만 들어갔는지 확인해요", cost_krw=0,
-    )
+    steps = [
+        PlaybookStep(
+            "naver_place_intro", _date_label(today, 0), "네이버 플레이스 소개 글 올리기",
+            _channel_where("naver_place"), 5,
+            tip="사장님이 답한 내용만 들어갔는지 확인해요", channel="naver_place", cost_krw=0,
+        ),
+        PlaybookStep(
+            "instagram_intro", _date_label(today, 0), "인스타그램에 올리기",
+            "인스타그램 앱 > 새 게시물 (앱 화면은 바뀔 수 있어요)", 5,
+            tip="사장님이 답한 내용만 들어갔는지 확인해요", cost_krw=0,
+        ),
+    ]
     return {
         "title": "가게 이야기 글",
-        "total_minutes": step.minutes,
-        "steps": [step.to_dict()],
+        "total_minutes": sum(s.minutes for s in steps),
+        "steps": [s.to_dict() for s in steps],
         "drafts": {"naver_place_intro": drafts["naver_place"], "instagram_intro": drafts["instagram"]},
         "measure": "측정: 게시물 반응(조회·문의)",
         "total_cost_krw": 0,

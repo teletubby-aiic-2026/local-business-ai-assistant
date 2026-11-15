@@ -223,15 +223,22 @@ function buildCouponCard(coupon) {
       <span>유효기간</span><span>발급일 포함 ${coupon.days}일</span>
     </div>
   `;
+  if (coupon.breakeven_orders != null) {
+    const tile = document.createElement("div");
+    tile.className = "basis";
+    tile.textContent = `본전이 되려면 ${coupon.breakeven_orders}건이 필요해요`;
+    box.appendChild(tile);
+  }
   return box;
 }
 
 function buildStepCard(step, index, draftText) {
   const el = document.createElement("div");
   el.className = "step-card";
+  const whereHtml = step.where && step.where !== "-" ? ` <span class="where-text">· ${step.where}</span>` : "";
   el.innerHTML = `
     <div class="step-head">${index + 1}. ${step.what}</div>
-    <div class="step-meta">${step.when} <span class="where-text">· ${step.where}</span></div>
+    <div class="step-meta">${step.when}${whereHtml}</div>
   `;
   if (draftText) {
     const box = document.createElement("div");
@@ -266,34 +273,50 @@ function buildStepCard(step, index, draftText) {
   return el;
 }
 
-/* 광고비 점검 전용 — 채널별 표(광고비·주문 수·건당 광고비·점검 필요 여부) */
-function buildAdspendTable(rows, thresholdWon) {
+/* 광고비 점검 전용 — 채널별 표(광고비·주문 수·건당 광고비·건당 이익·판정 배지) */
+function buildAdspendTable(data) {
+  const box = document.createElement("div");
+
+  if (data.summary) {
+    const summary = document.createElement("div");
+    summary.className = "why-box";
+    summary.textContent = data.summary;
+    box.appendChild(summary);
+  }
+
   const wrap = document.createElement("div");
   wrap.className = "kv";
-  wrap.style.gridTemplateColumns = "repeat(4, 1fr)";
-  const headers = ["채널", "광고비", "주문 수", "건당 광고비"];
+  wrap.style.gridTemplateColumns = "repeat(5, 1fr)";
+  const headers = ["채널", "광고비", "주문 수", "건당 광고비", "판정"];
   headers.forEach((h) => {
     const span = document.createElement("span");
     span.style.fontWeight = "700";
     span.textContent = h;
     wrap.appendChild(span);
   });
-  rows.forEach((r) => {
-    wrap.appendChild(Object.assign(document.createElement("span"), {
-      textContent: r.needs_check ? `${r.label} (점검 필요)` : r.label,
-    }));
+  data.table.forEach((r) => {
+    wrap.appendChild(Object.assign(document.createElement("span"), { textContent: r.label }));
     wrap.appendChild(Object.assign(document.createElement("span"), { textContent: fmtWon(r.spend_won) }));
     wrap.appendChild(Object.assign(document.createElement("span"), { textContent: `${r.orders}건` }));
     wrap.appendChild(Object.assign(document.createElement("span"), {
       textContent: r.cost_per_order_won == null ? "-" : fmtWon(r.cost_per_order_won),
     }));
+    wrap.appendChild(Object.assign(document.createElement("span"), { textContent: r.verdict || "-" }));
   });
+  box.appendChild(wrap);
+
   const note = document.createElement("div");
   note.className = "basis";
-  note.textContent = `기준: 대표 메뉴 가격의 15%(${fmtWon(thresholdWon)}) 초과 시 점검 필요`;
-  const box = document.createElement("div");
-  box.appendChild(wrap);
+  note.textContent = `건당 이익(추정): ${fmtWon(data.profit_per_order_won)} ` +
+    `(평균 주문 금액 ${fmtWon(data.avg_order_won)} x 남는 비율 ${data.margin_pct}%)`;
   box.appendChild(note);
+
+  if (data.todos && data.todos.length) {
+    const todos = document.createElement("div");
+    todos.className = "basis";
+    todos.textContent = `할 일: ${data.todos.join(", ")}` + (data.todo_note ? ` (${data.todo_note})` : "");
+    box.appendChild(todos);
+  }
   return box;
 }
 
@@ -331,14 +354,54 @@ async function showDecision() {
   }
 
   if (data.table) {
-    card.appendChild(buildAdspendTable(data.table, data.threshold_won));
+    card.appendChild(buildAdspendTable(data));
   }
 
   data.steps.forEach((step, i) => {
     card.appendChild(buildStepCard(step, i, data.drafts[step.step_id]));
   });
 
+  const hasPreventionNotice = data.steps.some((s) => s.generator === "prevention_notice");
+
   if (data.coupon_card) card.appendChild(buildCouponCard(data.coupon_card));
+
+  if (data.breakeven_orders != null) {
+    const tile = document.createElement("div");
+    tile.className = "basis";
+    tile.textContent = `본전이 되려면 ${data.breakeven_orders}건이 필요해요`;
+    card.appendChild(tile);
+  }
+
+  if (data.next_condition) {
+    const cond = document.createElement("div");
+    cond.className = "step-card";
+    cond.style.borderStyle = "dashed";
+    const d = data.next_condition;
+    cond.innerHTML = `<div class="step-head">다음 쿠폰 조건</div>
+      <div class="step-meta">할인액 ${fmtWon(d.discount_won)} · ${d.note}</div>`;
+    const genBtn = document.createElement("button");
+    genBtn.className = "btn-secondary";
+    genBtn.textContent = "이 조건으로 쿠폰 글 만들기";
+    genBtn.onclick = async () => {
+      genBtn.disabled = true;
+      try {
+        const g = await postJSON(`${API}/generate`, { state });
+        if (g.text) {
+          const box = document.createElement("div");
+          box.className = "draft-box";
+          box.textContent = g.text;
+          cond.appendChild(box);
+        }
+        if (g.coupon) cond.appendChild(buildCouponCard(g.coupon));
+      } catch (e) {
+        /* 실패하면 버튼을 다시 눌러 볼 수 있게 둔다 */
+      }
+      genBtn.disabled = false;
+    };
+    cond.appendChild(genBtn);
+    card.appendChild(cond);
+  }
+
   if (data.demo) {
     const tagEl = document.createElement("div");
     tagEl.className = "basis";
@@ -382,9 +445,51 @@ async function showDecision() {
       renderPrompt(a);
     } else {
       addBotBubble("여기까지 도와드릴게요. 감사합니다!");
+      if (hasPreventionNotice) renderNoticeFollowupDemo();
     }
   };
   actions.querySelector('[data-act="approve"]').onclick = approveClick;
+
+  /* 개선 인증 소식(데모) — 공지 기준일 앞뒤 14일의 같은 불만 리뷰 수를 서버(코드)가 세어
+     "이전 N건 -> 이후 M건" 타일을 보여준다. 줄었을 때만 소식 글을 만든다. */
+  function renderNoticeFollowupDemo() {
+    const row = document.createElement("div");
+    row.className = "row bot";
+    row.innerHTML = `<div class="icon">${icon("spark", 16)}</div>`;
+    chatEl.appendChild(row);
+
+    const btn = document.createElement("button");
+    btn.className = "opt-btn";
+    btn.textContent = "2주 뒤 확인해 보기";
+    btn.onclick = async () => {
+      btn.disabled = true;
+      let f;
+      try {
+        f = await postJSON(`${API}/notice-followup`, { state });
+      } catch (e) {
+        btn.disabled = false;
+        return;
+      }
+      const box = document.createElement("div");
+      box.className = "step-card";
+      box.innerHTML = `<div class="step-head">공지 전후 불만 리뷰 수</div>
+        <div class="step-meta">이전 ${f.window_days}일 ${f.before}건 → 이후 ${f.window_days}일 ${f.after}건 (${f.basis})</div>`;
+      if (f.improved && f.text) {
+        const draft = document.createElement("div");
+        draft.className = "draft-box";
+        draft.textContent = f.text;
+        box.appendChild(draft);
+      } else if (f.todo) {
+        const tip = document.createElement("div");
+        tip.className = "basis";
+        tip.textContent = f.todo;
+        box.appendChild(tip);
+      }
+      row.appendChild(box);
+      btn.remove();
+    };
+    optionsEl.appendChild(btn);
+  }
 
   chatEl.scrollTop = chatEl.scrollHeight;
 }

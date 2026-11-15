@@ -56,4 +56,6 @@ def answers_from_raw(raw: dict) -> SurveyAnswers:
         channels=list(raw.get("channels", []) or []),
         discount_allowed=bool(raw.get("discount_allowed", True)),
         weekly_hours=int(raw.get("weekly_hours", DEFAULT_WEEKLY_HOURS) or 0),
+        avg_order_won=int(raw.get("survey_avg_order_won", 0) or 0),
+        margin_pct=int(raw.get("survey_margin_pct", 0) or 0),
     )

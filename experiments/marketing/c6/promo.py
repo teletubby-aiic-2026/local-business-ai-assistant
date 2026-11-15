@@ -272,6 +272,7 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
             "no_store_circumstance": not checks.store_circumstance_leaked(text),
             "promo_formal": checks.promo_formal(text),
             "no_invented_ingredient": not checks.invented_ingredient(text, menu_descriptions),
+            "no_unverified_claim": not checks.has_unverified_claim(text),
             "length_ok": checks.length_ok(text, 60, 160),
         }
         if forbidden_phrases:
@@ -463,6 +464,7 @@ def generate_review_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
             "no_store_circumstance": not checks.store_circumstance_leaked(text),
             "promo_formal": checks.promo_formal(text),
             "no_invented_ingredient": not checks.invented_ingredient(text, menu_descriptions),
+            "no_unverified_claim": not checks.has_unverified_claim(text),
             "length_ok": checks.length_ok(text, 60, 160),
         }
         if forbidden_phrases:

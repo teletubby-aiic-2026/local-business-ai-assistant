@@ -8,10 +8,11 @@
 
 import unittest
 from datetime import date
+from types import SimpleNamespace
 
 from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
-from marketing_survey import adspend, coupon_result, flow, leftover, playbooks, story
+from marketing_survey import adspend, coupon_result, flow, leftover, notice_followup, playbooks, story
 from marketing_survey.decide import build_follow_up_strategy, decide
 from marketing_survey.execute import build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
@@ -434,6 +435,24 @@ class TestBuildPlan(unittest.TestCase):
         self.assertIsNotNone(out["coupon_card"])
         self.assertEqual(out["coupon_card"]["menu"], "제육볶음 정식")
         self.assertIn("coupon_promo_post", out["drafts"])
+        # 8. 평균 주문 금액·남는 비율을 안 물었으면(기본 0) 건당 이익이 0 -> 본전 주문 수는 못 구함
+        self.assertIsNone(out["coupon_card"]["breakeven_orders"])
+
+    def test_coupon_plan_breakeven_orders_uses_avg_order_and_margin(self):
+        """8. 본전 주문 수 = ceil(최대 할인 비용(=strategy.budget_won) ÷ 건당 이익)."""
+        answers = SurveyAnswers(
+            budget_won=100_000, goal="재주문", discount_menu="제육볶음 정식", max_discount_won=5_000,
+            avg_order_won=15_000, margin_pct=30,
+        )
+        plan = decide(DEFAULT_CTX, answers, confirms={})
+        strategy = plan.strategies[0]
+
+        out = build_plan(DEFAULT_CTX, strategy, answers, None, today=self._TODAY)
+
+        profit_per_order_won = adspend.profit_per_order(15_000, 30)
+        expected = adspend.breakeven_orders(strategy.budget_won, profit_per_order_won)
+        self.assertIsNotNone(expected)
+        self.assertEqual(out["coupon_card"]["breakeven_orders"], expected)
 
     def test_h_repeat_plan_has_notice_and_reply_drafts_from_replay(self):
         answers = SurveyAnswers(budget_won=100_000, goal="새 손님", discount_allowed=True)
@@ -658,9 +677,10 @@ class TestChatFlowPaths(unittest.TestCase):
         )
         self.assertEqual(stopped_at, "max_discount")
         max_discount_options = flow.node_options("max_discount", DEFAULT_CTX, follow_up_state)
+        avg_amount_options = flow.node_options("coupon_avg_amount", DEFAULT_CTX, follow_up_state)
         _walk(
             DEFAULT_CTX, "max_discount", follow_up_state,
-            [max_discount_options[0]["label"], "충분", ["네이버 플레이스"]],
+            [max_discount_options[0]["label"], avg_amount_options[0]["label"], "20%", "충분", ["네이버 플레이스"]],
         )
         follow_up_answers = answers_from_raw(follow_up_state["raw"])
         strategy, note = build_follow_up_strategy(DEFAULT_CTX, follow_up_answers)
@@ -705,10 +725,21 @@ class TestChatFlowReachesEnd(unittest.TestCase):
     def test_every_node_is_reachable_and_terminates(self):
         visited: set[str] = set()
 
+        # adspend_apps 뒤는 고른 앱 수에 따라 adspend_spend_entry/orders_entry 를 오가는 동적
+        # 루프라(흐름 데이터 자체가 사이클), 이 재귀 탐색으로는 못 따라간다 — 도달 가능한 노드로만
+        # 바로 표시한다(실제 동작은 TestAdSpendFeature 의 서버 경로 테스트가 따로 확인한다).
+        _ADSPEND_DYNAMIC_NODES = {
+            "adspend_apps", "adspend_spend_entry", "adspend_orders_entry",
+            "adspend_avg_amount", "adspend_avg_amount_custom", "adspend_margin",
+        }
+
         def _explore(node_id: str, state: dict, depth: int = 0):
             self.assertLess(depth, 20, "사이클 의심(깊이 초과)")
             visited.add(node_id)
             node = flow.NODES[node_id]
+            if node_id in _ADSPEND_DYNAMIC_NODES:
+                visited.update(_ADSPEND_DYNAMIC_NODES)
+                return
             if node.get("free_input"):
                 nxt = node["next"]
                 if nxt != flow.DECISION:
@@ -948,35 +979,120 @@ class TestLeftoverFeature(unittest.TestCase):
 
 
 class TestAdSpendFeature(unittest.TestCase):
-    """3. 광고비 점검 — 건당 광고비 계산, 15% 초과면 점검 필요. AI 없음."""
+    """3. 광고비 점검 — 고른 앱만 묻고, 건당 광고비 vs 건당 이익으로 손해/주의/괜찮음을 가른다. AI 없음."""
 
     def test_cost_per_order_basic(self):
         self.assertEqual(adspend.cost_per_order(150_000, 30), 5_000)
         self.assertIsNone(adspend.cost_per_order(150_000, 0))
 
-    def test_high_cost_channel_is_flagged_and_low_cost_is_not(self):
-        store = DEFAULT_CTX.store
-        menu = playbooks.default_menu(store)
-        price = store.menu_prices[menu]
+    def test_profit_per_order_uses_avg_amount_and_margin(self):
+        self.assertEqual(adspend.profit_per_order(15_000, 30), 4_500)
 
+    def test_judge_loss_caution_ok_thresholds(self):
+        profit = 2_000
+        self.assertEqual(adspend.judge(2_000, profit), adspend.VERDICT_LOSS)   # 건당 광고비 >= 이익
+        self.assertEqual(adspend.judge(1_200, profit), adspend.VERDICT_CAUTION)  # 이익의 50~100%
+        self.assertEqual(adspend.judge(500, profit), adspend.VERDICT_OK)
+        self.assertIsNone(adspend.judge(None, profit))  # 주문 수 0 등 계산 불가
+
+    def test_breakeven_orders_ceils_and_handles_zero_profit(self):
+        """8. 본전 주문 수 = ceil(비용 ÷ 건당 이익). 예측 문장이 아니라 "본전이 되려면 N건"에만 쓴다."""
+        self.assertEqual(adspend.breakeven_orders(20_000, 4_500), 5)  # ceil(4.44) = 5
+        self.assertEqual(adspend.breakeven_orders(0, 4_500), 0)
+        self.assertIsNone(adspend.breakeven_orders(20_000, 0))
+
+    def test_only_chosen_apps_appear_in_table(self):
         raw = {
-            "adspend_baemin_spend": price * 1000, "adspend_baemin_orders": 1,  # 건당 광고비 = 메뉴값*1000 (매우 높음)
-            "adspend_coupangeats_spend": 0, "adspend_coupangeats_orders": 0,
-            "adspend_yogiyo_spend": 100, "adspend_yogiyo_orders": 1000,  # 건당 0.1원 (매우 낮음)
+            "adspend_apps": ["baemin", "yogiyo"],
+            "adspend_baemin_spend": 150_000, "adspend_baemin_orders": 20,
+            "adspend_yogiyo_spend": 10_000, "adspend_yogiyo_orders": 50,
+            "adspend_coupangeats_spend": 999_999, "adspend_coupangeats_orders": 1,  # 안 고름 -> 무시돼야 함
+            "adspend_avg_amount_won": 15_000, "adspend_margin_pct": 30,
+        }
+        out = adspend.build_adspend_table(DEFAULT_CTX, raw)
+        channels = {r["channel"] for r in out["table"]}
+        self.assertEqual(channels, {"baemin", "yogiyo"})
+
+    def test_high_cost_channel_is_flagged_and_low_cost_is_not(self):
+        raw = {
+            "adspend_apps": ["baemin", "yogiyo"],
+            "adspend_baemin_spend": 100_000, "adspend_baemin_orders": 10,  # 건당 10,000원 (손해)
+            "adspend_yogiyo_spend": 1_000, "adspend_yogiyo_orders": 1_000,  # 건당 1원 (괜찮음)
+            "adspend_avg_amount_won": 15_000, "adspend_margin_pct": 30,  # 건당 이익 4,500원
         }
         out = adspend.build_adspend_table(DEFAULT_CTX, raw)
         by_channel = {r["channel"]: r for r in out["table"]}
 
-        self.assertTrue(by_channel["baemin"]["needs_check"])
-        self.assertFalse(by_channel["yogiyo"]["needs_check"])
-        self.assertIn("높은 채널 광고 조건 다시 보기", out["todos"])
-        self.assertIn("예산을 낮은 채널로 옮기기(추정)", out["todos"])
+        self.assertEqual(by_channel["baemin"]["verdict"], adspend.VERDICT_LOSS)
+        self.assertEqual(by_channel["yogiyo"]["verdict"], adspend.VERDICT_OK)
+        self.assertIn(adspend.TODO_LOWER_BID, out["todos"])
+        self.assertIn("배민", out["summary"])
 
     def test_no_flag_when_all_channels_within_threshold(self):
-        raw = {f"adspend_{c}_spend": 0 for c in adspend.AD_CHANNELS}
-        raw.update({f"adspend_{c}_orders": 0 for c in adspend.AD_CHANNELS})
+        raw = {
+            "adspend_apps": ["baemin"],
+            "adspend_baemin_spend": 1_000, "adspend_baemin_orders": 1_000,
+            "adspend_avg_amount_won": 15_000, "adspend_margin_pct": 30,
+        }
         out = adspend.build_adspend_table(DEFAULT_CTX, raw)
         self.assertEqual(out["todos"], [])
+
+    def test_adspend_chat_path_validates_min_spend_and_orders(self):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        client = TestClient(app)
+        data = client.post("/api/marketing-survey/step", json={"state": None, "answer": None}).json()
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "광고비 점검"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "adspend_apps")
+
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": ["baemin"]},
+        ).json()
+        self.assertEqual(data["state"]["node"], "adspend_spend_entry")
+
+        # 1,000원 미만 -> 같은 질문을 다시 받는다
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "500"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "adspend_spend_entry")
+        self.assertIn("1,000원 이상", data["bot_messages"][0])
+
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "150000"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "adspend_orders_entry")
+
+        # 주문 수 0 -> 같은 질문을 다시 받는다
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "0"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "adspend_orders_entry")
+
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "20"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "adspend_avg_amount")
+
+        avg_options = [o["label"] for o in data["options"]]
+        self.assertIn("직접 입력", avg_options)
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": avg_options[0]},
+        ).json()
+        self.assertEqual(data["state"]["node"], "adspend_margin")
+
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "30%"},
+        ).json()
+        self.assertTrue(data["done"])
+
+        res = client.post("/api/marketing-survey/plan", json={"state": data["state"]})
+        body = res.json()
+        self.assertEqual(body["table"][0]["channel"], "baemin")
+        self.assertEqual(body["table"][0]["spend_won"], 150_000)
+        self.assertEqual(body["table"][0]["orders"], 20)
 
 
 class TestStoryFeature(unittest.TestCase):
@@ -1005,6 +1121,12 @@ class TestStoryFeature(unittest.TestCase):
         self.assertIn("instagram_intro", out["drafts"])
         self.assertIn("부모님 식당을 물려받은 것", out["drafts"]["naver_place_intro"])
         self.assertIn("국산 재료만 쓰는 것", out["drafts"]["naver_place_intro"])
+        self.assertIn("#", out["drafts"]["instagram_intro"])  # 해시태그 포함
+
+        # 결과 카드의 글 상자는 step_id -> drafts[step_id] 로 이어 붙는다 — step_id 가 drafts 키와
+        # 어긋나면(예전 버그: step_id="story_post", drafts 키="naver_place_intro") 글 상자가 비어 보인다.
+        step_ids = {s["step_id"] for s in out["steps"]}
+        self.assertEqual(step_ids, set(out["drafts"].keys()))
 
     def test_story_chat_path_through_server_reaches_decision(self):
         from fastapi.testclient import TestClient
@@ -1031,19 +1153,52 @@ class TestStoryFeature(unittest.TestCase):
 
 
 class TestCouponResultFeature(unittest.TestCase):
-    """5. 쿠폰 결과 확인 — 사용률 계산, 30% 기준으로 할 일이 바뀐다. AI 없음."""
+    """5. 쿠폰 결과 확인 — 발급·사용·할인액·평균 금액으로 사용률·효율을 계산하고, 사용률로
+    다음 쿠폰 조건(할인액 조정)을 코드가 정한다. AI 없음."""
 
     def test_usage_rate_basic(self):
         self.assertAlmostEqual(coupon_result.usage_rate(100, 25), 0.25)
         self.assertIsNone(coupon_result.usage_rate(0, 0))
 
-    def test_low_usage_suggests_raising_discount_or_timing(self):
-        out = coupon_result.build_coupon_result_plan({"coupon_issued": 100, "coupon_used": 20})
-        self.assertEqual(out["steps"][0]["what"], coupon_result.TODO_LOW_USAGE)
+    def test_cost_and_revenue_and_ratio(self):
+        self.assertEqual(coupon_result.total_discount_cost(20, 2_000), 40_000)
+        self.assertEqual(coupon_result.coupon_order_revenue(20, 15_000), 300_000)
+        self.assertAlmostEqual(coupon_result.revenue_per_discount_won(300_000, 40_000), 7.5)
+        self.assertIsNone(coupon_result.revenue_per_discount_won(300_000, 0))
 
-    def test_high_usage_suggests_repeat(self):
-        out = coupon_result.build_coupon_result_plan({"coupon_issued": 100, "coupon_used": 40})
+    def test_low_usage_suggests_raising_discount_or_timing(self):
+        out = coupon_result.build_coupon_result_plan({
+            "coupon_issued": 100, "coupon_used": 10, "coupon_discount_won": 2_000,
+            "coupon_avg_order_won": 15_000,
+        })
+        self.assertEqual(out["steps"][0]["what"], coupon_result.TODO_LOW_USAGE)
+        self.assertEqual(out["next_condition"]["discount_won"], 2_500)
+        self.assertEqual(out["next_condition"]["delta_won"], 500)
+
+    def test_mid_usage_keeps_same_condition(self):
+        out = coupon_result.build_coupon_result_plan({
+            "coupon_issued": 100, "coupon_used": 30, "coupon_discount_won": 2_000,
+            "coupon_avg_order_won": 15_000,
+        })
+        self.assertEqual(out["steps"][0]["what"], coupon_result.TODO_MID_USAGE)
+        self.assertEqual(out["next_condition"]["discount_won"], 2_000)
+        self.assertEqual(out["next_condition"]["delta_won"], 0)
+
+    def test_high_usage_suggests_lowering_discount(self):
+        out = coupon_result.build_coupon_result_plan({
+            "coupon_issued": 100, "coupon_used": 60, "coupon_discount_won": 2_000,
+            "coupon_avg_order_won": 15_000,
+        })
         self.assertEqual(out["steps"][0]["what"], coupon_result.TODO_HIGH_USAGE)
+        self.assertEqual(out["next_condition"]["discount_won"], 1_500)
+        self.assertEqual(out["next_condition"]["delta_won"], -500)
+
+    def test_next_discount_never_goes_negative(self):
+        out = coupon_result.build_coupon_result_plan({
+            "coupon_issued": 100, "coupon_used": 60, "coupon_discount_won": 200,
+            "coupon_avg_order_won": 15_000,
+        })
+        self.assertEqual(out["next_condition"]["discount_won"], 0)
 
     def test_coupon_result_chat_path_through_server_reaches_decision(self):
         from fastapi.testclient import TestClient
@@ -1055,18 +1210,92 @@ class TestCouponResultFeature(unittest.TestCase):
             "/api/marketing-survey/step", json={"state": data["state"], "answer": "쿠폰 결과 확인"},
         ).json()
         data = client.post(
-            "/api/marketing-survey/step", json={"state": data["state"], "answer": "50"},
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "100"},
         ).json()
         self.assertEqual(data["state"]["node"], "coupon_used")
         data = client.post(
             "/api/marketing-survey/step", json={"state": data["state"], "answer": "10"},
         ).json()
+        self.assertEqual(data["state"]["node"], "coupon_discount_won")
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "2000"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "coupon_avg_order_won")
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "15000"},
+        ).json()
+        self.assertEqual(data["state"]["node"], "coupon_result_margin")
+        data = client.post(
+            "/api/marketing-survey/step", json={"state": data["state"], "answer": "30%"},
+        ).json()
         self.assertTrue(data["done"])
 
         res = client.post("/api/marketing-survey/plan", json={"state": data["state"]})
         body = res.json()
-        self.assertEqual(body["usage_rate"], 0.2)
+        self.assertEqual(body["usage_rate"], 0.1)
         self.assertEqual(body["steps"][0]["what"], coupon_result.TODO_LOW_USAGE)
+        self.assertEqual(body["next_condition"]["discount_won"], 2_500)
+        # 본전 주문 수 = ceil(20,000 ÷ 4,500) = 5 (비용=10x2,000, 건당이익=15,000x30%)
+        self.assertEqual(body["breakeven_orders"], 5)
+
+        res = client.post("/api/marketing-survey/generate", json={"state": data["state"]})
+        self.assertEqual(res.status_code, 200, res.text)
+        gen = res.json()
+        self.assertTrue(gen["demo"])
+        self.assertIsNotNone(gen["text"])
+        self.assertEqual(gen["coupon"]["discount_won"], 2_500)
+
+
+class TestNoticeFollowup(unittest.TestCase):
+    """10. 개선 인증 소식(데모) — 공지 기준일 앞뒤 14일의 같은 불만 리뷰 수를 코드가 센다.
+    줄었으면 코드 템플릿 소식 글(숫자는 코드 값만, '리뷰 기준'), 아니면 원인 재점검 안내만."""
+
+    def test_sample_card_counts_before_after_with_explicit_today(self):
+        # SAMPLE_REVIEWS(rv_ongi_001~003)는 2026-10-27~11-06 사이 — 2026-11-10 기준으로 전부 "이전".
+        card = next(c for c in SAMPLE_CARDS if c.card_id == "card_sample_a")
+        out = notice_followup.build_notice_followup(DEFAULT_CTX, card, today=date(2026, 11, 10))
+
+        self.assertEqual(out["before"], 3)
+        self.assertEqual(out["after"], 0)
+        self.assertTrue(out["improved"])
+        self.assertIsNotNone(out["text"])
+        self.assertIn("리뷰 기준", out["text"])
+        self.assertIn("3건", out["text"])
+        self.assertIn("0건", out["text"])
+        self.assertIsNone(out["todo"])
+
+    def test_not_improved_skips_text_and_asks_to_recheck_cause(self):
+        reviews = [
+            ReviewRecord(review_id="rv_a", store_id="s", text="늦음1", created_at="2026-11-05T19:00:00+09:00"),
+            ReviewRecord(review_id="rv_b", store_id="s", text="늦음2", created_at="2026-11-12T19:00:00+09:00"),
+            ReviewRecord(review_id="rv_c", store_id="s", text="늦음3", created_at="2026-11-13T19:00:00+09:00"),
+        ]
+        ctx = build_context(
+            store=SAMPLE_STORE, reviews=reviews, tone=SAMPLE_TONE, cards=[], snapshots=[],
+            owner_replies=OWNER_REPLIES, policies=POLICIES,
+        )
+        card = SimpleNamespace(review_ids=["rv_a", "rv_b", "rv_c"])
+        out = notice_followup.build_notice_followup(ctx, card, today=date(2026, 11, 11))
+
+        self.assertEqual(out["before"], 1)  # rv_a만 이전 14일
+        self.assertEqual(out["after"], 2)   # rv_b·rv_c는 이후 14일 -> 줄지 않음
+        self.assertFalse(out["improved"])
+        self.assertIsNone(out["text"])
+        self.assertEqual(out["todo"], notice_followup.TODO_RECHECK_CAUSE)
+
+    def test_server_endpoint_returns_followup_shape(self):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        client = TestClient(app)
+        res = client.post(
+            "/api/marketing-survey/notice-followup",
+            json={"state": {"node": "DECISION", "raw": {}, "confirms": {}, "mode": "survey"}},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        for key in ("before", "after", "window_days", "basis", "improved", "text", "todo"):
+            self.assertIn(key, body)
 
 
 if __name__ == "__main__":

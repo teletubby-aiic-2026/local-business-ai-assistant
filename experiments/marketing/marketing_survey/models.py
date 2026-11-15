@@ -24,6 +24,8 @@ class SurveyAnswers:
     channels: list[str] = field(default_factory=list)   # 손님에게 알리는 채널(복수, 비우면 가게 채널 전부)
     discount_allowed: bool = True               # 할인 가능 여부(False면 쿠폰 대신 review_promo)
     weekly_hours: int = 0                       # 사장님이 마케팅에 쓸 수 있는 주당 시간(참고용)
+    avg_order_won: int = 0                      # 평균 주문 금액(원) — 쿠폰 손익(본전 주문 수) 계산용
+    margin_pct: int = 0                         # 재료비·포장비·수수료 빼고 남는 비율(%) — 같이 쓰임
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +34,7 @@ class SurveyAnswers:
             "capacity": self.capacity, "apps": list(self.apps),
             "channels": list(self.channels), "discount_allowed": self.discount_allowed,
             "weekly_hours": self.weekly_hours,
+            "avg_order_won": self.avg_order_won, "margin_pct": self.margin_pct,
         }
 
     @classmethod

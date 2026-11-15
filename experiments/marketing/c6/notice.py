@@ -135,12 +135,30 @@ def _notice_fallback_item_groups(target_reviews, menu_names):
     return [_missing_items(rv.text, menu_names) for rv in target_reviews]
 
 
+def _notice_missing_item_phrase(target_reviews, menu_names) -> tuple[str, str]:
+    """공지 대상 리뷰에서 빠진 품목 목록(item)과 그 조사(particle)를 뽑는다."""
+    groups = [g for g in _notice_fallback_item_groups(target_reviews, menu_names) if g]
+    item = join_item_groups(groups) if groups else "포장 품목"
+    return item, josa(item, "이", "가")
+
+
+def _notice_first_sentence(target_reviews, menu_names) -> str:
+    """공지 첫 문장은 항상 코드가 넣는다 — AI 가 품목을 빠뜨리거나 지어내지 못하도록."""
+    item, particle = _notice_missing_item_phrase(target_reviews, menu_names)
+    return f"최근 {item}{particle} 빠진 상태로 배달된 일이 있었습니다."
+
+
+def _replace_first_line(body: str, new_first: str) -> str:
+    lines = [ln for ln in body.strip().splitlines() if ln.strip()]
+    if not lines:
+        return new_first
+    return "\n".join([new_first] + lines[1:])
+
+
 def _notice_fallback_text(target_reviews, menu_names, chosen_measures, start_label):
     """두 번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿 본문 (c6.reply._fallback_sentence 와 같은 방식).
     "주문하신" 처럼 손님 한 명을 가리키는 말은 notice_not_personal 에 걸리니 기본값으로 쓰지 않는다."""
-    groups = [g for g in _notice_fallback_item_groups(target_reviews, menu_names) if g]
-    item = join_item_groups(groups) if groups else "포장 품목"
-    particle = josa(item, "이", "가")
+    item, particle = _notice_missing_item_phrase(target_reviews, menu_names)
     if chosen_measures:
         measure_sentence = MEASURE_FALLBACK_SENTENCES.get(
             chosen_measures[0]["id"], chosen_measures[0]["text"],
@@ -215,6 +233,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
             "notice_not_personal": checks.notice_not_personal(text),
             "notice_formal": checks.notice_formal(body),
             "notice_vs_reply": checks.notice_vs_reply(text, reply_texts),
+            "notice_no_complaint_word": checks.notice_no_complaint_word(text),
         }
         if forbidden_phrases:
             result["no_forbidden_phrase"] = not checks.forbidden_phrase(text, forbidden_phrases)
@@ -285,6 +304,10 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
     if used_fallback:
         body = _notice_fallback_text(target_reviews, menu_names, chosen_measures, start_label)
         text, check_results, failed = _check(body)
+
+    # 공지 첫 문장은 AI 가 아니라 늘 코드가 넣는다 — 빠진 품목을 빠뜨리거나 지어내지 못하도록
+    body = _replace_first_line(body, _notice_first_sentence(target_reviews, menu_names))
+    text, check_results, failed = _check(body)
     check_results["used_fallback"] = used_fallback
 
     elapsed_ms = round((time.perf_counter() - start) * 1000)

@@ -19,10 +19,11 @@ from pydantic import BaseModel, Field
 from c6.contract import build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
 from common.korean import display_name
-from marketing_survey import adspend, coupon_result, flow, leftover, story
+from marketing_survey import adspend, coupon_result, flow, leftover, notice_followup, playbooks, story
 from marketing_survey.decide import build_follow_up_strategy, decide
-from marketing_survey.execute import COUPON_DAYS, build_plan, execute_strategy
+from marketing_survey.execute import COUPON_DAYS, NOTICE_CARD, build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
+from marketing_survey.models import Strategy
 from marketing_survey.survey import answers_from_raw
 from shared.sample_scenario import (
     SAMPLE_CARDS, SAMPLE_REVIEWS, SAMPLE_SNAPSHOTS, SAMPLE_STORE, SAMPLE_TONE,
@@ -124,8 +125,8 @@ def step(req: StepRequest):
         if node.get("multi"):
             if not isinstance(req.answer, list):
                 raise HTTPException(400, "이 질문은 여러 개를 배열로 골라야 해요.")
-            flow.apply_channels(scratch, req.answer)
-            node_id = flow.DECISION
+            flow.apply_multi(scratch, state.node, req.answer)
+            node_id = flow.multi_next_node(state.node, scratch["raw"])
         else:
             if not isinstance(req.answer, str):
                 raise HTTPException(400, "이 질문은 보기 중 하나(문자열)를 골라야 해요.")
@@ -161,13 +162,37 @@ def result(req: StateOnlyRequest):
     return {"strategy": strategy.to_dict(), "explain": explain_strategy(strategy)}
 
 
+def _coupon_result_next_strategy(raw: dict) -> Strategy:
+    """쿠폰 결과 확인의 "다음 쿠폰 조건" 카드 -> coupon_promo 로 넘길 임시 Strategy.
+    할인액은 코드(coupon_result.next_coupon_condition)가 정한 값만 쓰고, 메뉴는 대표 메뉴를 쓴다."""
+    out = coupon_result.build_coupon_result_plan(raw)
+    condition = out.get("next_condition")
+    if not condition:
+        raise HTTPException(400, "사용률을 계산할 수 없어 다음 쿠폰 조건을 만들 수 없어요.")
+    return Strategy(
+        type="reorder_coupon", title="다음 쿠폰", reason="쿠폰 결과 기준",
+        discount_won=condition["discount_won"], menu=playbooks.default_menu(CTX.store) or "",
+    )
+
+
 @app.post("/api/marketing-survey/generate")
 def generate(req: StateOnlyRequest):
     """execute 로 C6 글을 만든다. 키가 없으면 c6 저장본을 쓰고 demo:true 를 남긴다."""
+    key = os.environ.get("CLOVA_API_KEY")
+    if req.state.mode == "coupon_result":
+        strategy = _coupon_result_next_strategy(req.state.raw)
+        _, draft, todo = execute_strategy(CTX, strategy, key)
+        coupon = {
+            "menu": strategy.menu, "discount_won": strategy.discount_won,
+            "timing": strategy.timing, "days": COUPON_DAYS,
+        }
+        return {
+            "draft_id": uuid.uuid4().hex, "text": draft.text if draft else None,
+            "todo": todo, "demo": key is None, "coupon": coupon,
+        }
     if req.state.mode not in _SURVEY_MODES:
         raise HTTPException(400, "이 기능은 글을 /plan 으로 바로 받아요.")
     strategy = _resolve_strategy(req.state)
-    key = os.environ.get("CLOVA_API_KEY")
     _, draft, todo = execute_strategy(CTX, strategy, key)
 
     coupon = None
@@ -231,3 +256,10 @@ def approve(req: ApproveRequest):
         }
 
     return {"follow_up": False, "state": state}
+
+
+@app.post("/api/marketing-survey/notice-followup")
+def notice_followup_endpoint(req: StateOnlyRequest):
+    """개선 인증 소식(데모) — H_REPEAT 공지(card_sample_a) 기준일 앞뒤 14일의 같은 불만 리뷰 수를
+    코드로 센다. 줄었으면 코드 템플릿 소식 글을, 아니면 '원인 다시 보기' 안내만 돌려준다."""
+    return notice_followup.build_notice_followup(CTX, NOTICE_CARD)

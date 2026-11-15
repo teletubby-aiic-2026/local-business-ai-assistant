@@ -32,7 +32,9 @@ follow_up(재주문 쿠폰 질문)은 FOLLOW_UP_START("budget")에서 같은 체
 
 import re
 
+from marketing_survey import adspend as _adspend
 from marketing_survey.hypotheses import _area_drop_snapshot
+from marketing_survey.playbooks import default_menu as _default_menu
 
 DECISION = "DECISION"
 FOLLOW_UP_START = "budget"
@@ -68,7 +70,7 @@ NODES = {
             for label, next_id in (
                 ("맞춤 홍보 제안", "repeat_complaint"),
                 ("남은 재료 팔기", "leftover_ingredient"),
-                ("광고비 점검", "adspend_baemin_spend"),
+                ("광고비 점검", "adspend_apps"),
                 ("가게 이야기 글", "story_reason"),
                 ("쿠폰 결과 확인", "coupon_issued"),
             )
@@ -92,35 +94,37 @@ NODES = {
             {"label": "아니요", "set": {"leftover_discount_allowed": False}, "next": DECISION},
         ],
     },
-    "adspend_baemin_spend": {
-        "free_input": {"key": "adspend_baemin_spend", "type": "number"},
-        "text": "배민 — 이번 달 광고비는 얼마였나요? (원)",
-        "next": "adspend_baemin_orders",
+    "adspend_apps": {
+        "text": "광고를 하고 있는 배달앱을 모두 골라 주세요.",
+        "multi": True,
+        "multi_key": "adspend_apps",
+        "options": [
+            {"label": _adspend.AD_APP_LABELS[a], "value": a} for a in _adspend.AD_APPS
+        ],
     },
-    "adspend_baemin_orders": {
-        "free_input": {"key": "adspend_baemin_orders", "type": "number"},
-        "text": "배민 — 그 광고로 온 주문 수는 몇 건인가요?",
-        "next": "adspend_coupangeats_spend",
+    "adspend_spend_entry": {
+        "free_input": {"key": "_adspend_spend_entry", "type": "number"},
+        "dynamic_text": True,
     },
-    "adspend_coupangeats_spend": {
-        "free_input": {"key": "adspend_coupangeats_spend", "type": "number"},
-        "text": "쿠팡이츠 — 이번 달 광고비는 얼마였나요? (원)",
-        "next": "adspend_coupangeats_orders",
+    "adspend_orders_entry": {
+        "free_input": {"key": "_adspend_orders_entry", "type": "number"},
+        "dynamic_text": True,
     },
-    "adspend_coupangeats_orders": {
-        "free_input": {"key": "adspend_coupangeats_orders", "type": "number"},
-        "text": "쿠팡이츠 — 그 광고로 온 주문 수는 몇 건인가요?",
-        "next": "adspend_yogiyo_spend",
+    "adspend_avg_amount": {
+        "text": "평균 주문 금액은 얼마인가요?",
+        "dynamic_options": True,
     },
-    "adspend_yogiyo_spend": {
-        "free_input": {"key": "adspend_yogiyo_spend", "type": "number"},
-        "text": "요기요 — 이번 달 광고비는 얼마였나요? (원)",
-        "next": "adspend_yogiyo_orders",
+    "adspend_avg_amount_custom": {
+        "free_input": {"key": "adspend_avg_amount_won", "type": "number"},
+        "text": "평균 주문 금액을 숫자로 입력해 주세요. (원)",
+        "next": "adspend_margin",
     },
-    "adspend_yogiyo_orders": {
-        "free_input": {"key": "adspend_yogiyo_orders", "type": "number"},
-        "text": "요기요 — 그 광고로 온 주문 수는 몇 건인가요?",
-        "next": DECISION,
+    "adspend_margin": {
+        "text": "재료비·포장비·수수료 빼고 남는 비율은 어느 정도인가요?",
+        "options": [
+            {"label": f"{pct}%", "set": {"adspend_margin_pct": pct}, "next": DECISION}
+            for pct in (20, 30, 40)
+        ],
     },
     "story_reason": {
         "free_input": {"key": "story_reason", "type": "text"},
@@ -140,7 +144,24 @@ NODES = {
     "coupon_used": {
         "free_input": {"key": "coupon_used", "type": "number"},
         "text": "그 중 몇 장이 사용됐나요?",
-        "next": DECISION,
+        "next": "coupon_discount_won",
+    },
+    "coupon_discount_won": {
+        "free_input": {"key": "coupon_discount_won", "type": "number"},
+        "text": "쿠폰 할인액은 얼마였나요? (원)",
+        "next": "coupon_avg_order_won",
+    },
+    "coupon_avg_order_won": {
+        "free_input": {"key": "coupon_avg_order_won", "type": "number"},
+        "text": "쿠폰을 쓴 주문의 평균 금액은 얼마였나요? (원)",
+        "next": "coupon_result_margin",
+    },
+    "coupon_result_margin": {
+        "text": "재료비·포장비·수수료 빼고 남는 비율은 어느 정도인가요? (본전 주문 수 계산용)",
+        "options": [
+            {"label": f"{pct}%", "set": {"coupon_margin_pct": pct}, "next": DECISION}
+            for pct in (20, 30, 40)
+        ],
     },
     "repeat_complaint": {
         "text": "최근 반복되는 불만이 있나요?",
@@ -199,6 +220,22 @@ NODES = {
         "dynamic_options": True,
         "text": "최대 할인 금액을 골라 주세요.",
     },
+    "coupon_avg_amount": {
+        "text": "쿠폰 손익(본전 주문 수)을 보여드리려고 해요. 평균 주문 금액은 얼마인가요?",
+        "dynamic_options": True,
+    },
+    "coupon_avg_amount_custom": {
+        "free_input": {"key": "survey_avg_order_won", "type": "number"},
+        "text": "평균 주문 금액을 숫자로 입력해 주세요. (원)",
+        "next": "coupon_margin",
+    },
+    "coupon_margin": {
+        "text": "재료비·포장비·수수료 빼고 남는 비율은 어느 정도인가요?",
+        "options": [
+            {"label": f"{pct}%", "set": {"survey_margin_pct": pct}, "next": "capacity"}
+            for pct in (20, 30, 40)
+        ],
+    },
     "capacity": {
         "text": "지금보다 주문이 더 오면 감당되시나요?",
         "options": [
@@ -247,7 +284,7 @@ def _max_discount_options(ctx, raw: dict) -> list[dict]:
         options.append({
             "label": f"{amount:,}원 (가격의 {pct}%)",
             "set": {"max_discount_won": amount},
-            "next": "capacity",
+            "next": "coupon_avg_amount",
         })
     return options
 
@@ -259,10 +296,60 @@ def _channel_options(ctx) -> list[dict]:
     ]
 
 
+def _adspend_selected_apps(raw: dict) -> list[str]:
+    return [a for a in _adspend.AD_APPS if a in (raw.get("adspend_apps") or [])]
+
+
+def _adspend_app_label(app: str | None) -> str:
+    return _adspend.AD_APP_LABELS.get(app, app or "")
+
+
+def _adspend_entry_text(state: dict, question: str) -> str:
+    raw = state.get("raw", {})
+    label = _adspend_app_label(raw.get("_adspend_current_app"))
+    retry = raw.get("_adspend_retry_msg")
+    base = f"{label} — {question}"
+    return f"{retry}\n{base}" if retry else base
+
+
+def _menu_price_avg_amount_options(ctx, amount_key: str, next_id: str, custom_next_id: str) -> list[dict]:
+    """평균 주문 금액 보기(대표 메뉴 가격 / 15,000원 / 20,000원 / 직접 입력) — adspend·메인 설문
+    (쿠폰 손익) 양쪽이 같은 모양으로 쓴다."""
+    store = ctx.store
+    menu = _default_menu(store)
+    price = store.menu_prices.get(menu, 0) if menu else 0
+    options = []
+    if price:
+        options.append({
+            "label": f"대표 메뉴 가격 ({price:,}원)",
+            "set": {amount_key: price}, "next": next_id,
+        })
+    for amount in (15_000, 20_000):
+        options.append({"label": f"{amount:,}원", "set": {amount_key: amount}, "next": next_id})
+    options.append({"label": "직접 입력", "next": custom_next_id})
+    return options
+
+
+def _adspend_avg_amount_options(ctx) -> list[dict]:
+    return _menu_price_avg_amount_options(
+        ctx, "adspend_avg_amount_won", "adspend_margin", "adspend_avg_amount_custom",
+    )
+
+
+def _survey_avg_amount_options(ctx) -> list[dict]:
+    return _menu_price_avg_amount_options(
+        ctx, "survey_avg_order_won", "coupon_margin", "coupon_avg_amount_custom",
+    )
+
+
 def node_text(node_id: str, ctx, state: dict) -> str:
     """노드의 봇 문장. area_question 처럼 동적인 노드는 ctx(snapshot) 를 넣어 만든다."""
     node = NODES[node_id]
     if node.get("dynamic_text"):
+        if node_id == "adspend_spend_entry":
+            return _adspend_entry_text(state, "이번 달 광고비는 얼마였나요? (원)")
+        if node_id == "adspend_orders_entry":
+            return _adspend_entry_text(state, "그 광고로 온 주문 수는 몇 건인가요?")
         return _area_question_text(ctx)
     return node["text"]
 
@@ -284,6 +371,10 @@ def node_options(node_id: str, ctx, state: dict) -> list[dict]:
         return _max_discount_options(ctx, state.get("raw", {}))
     if node_id == "channels":
         return _channel_options(ctx)
+    if node_id == "adspend_avg_amount":
+        return _adspend_avg_amount_options(ctx)
+    if node_id == "coupon_avg_amount":
+        return _survey_avg_amount_options(ctx)
     raise ValueError(f"알 수 없는 동적 노드: {node_id}")
 
 
@@ -301,6 +392,27 @@ def apply_channels(state: dict, selected: list[str]) -> dict:
     state.setdefault("raw", {})
     state["raw"]["channels"] = list(selected)
     return state
+
+
+def apply_multi(state: dict, node_id: str, selected: list[str]) -> dict:
+    """multi 노드 공용 — node 의 multi_key(없으면 "channels")에 고른 값 목록을 넣는다."""
+    node = NODES[node_id]
+    key = node.get("multi_key", "channels")
+    state.setdefault("raw", {})
+    state["raw"][key] = list(selected)
+    return state
+
+
+def multi_next_node(node_id: str, raw: dict) -> str:
+    """multi 노드가 끝난 뒤 다음 노드. channels 는 늘 DECISION, adspend_apps 는 고른 앱의 입력
+    체인(없으면 평균 주문 금액 질문)으로 이어진다."""
+    if node_id == "adspend_apps":
+        selected = _adspend_selected_apps(raw)
+        if selected:
+            raw["_adspend_current_app"] = selected[0]
+            return "adspend_spend_entry"
+        return "adspend_avg_amount"
+    return DECISION
 
 
 _NUMBER_RE = re.compile(r"-?\d+")
@@ -325,6 +437,41 @@ class FlowError(ValueError):
     """잘못된 노드·보기로 흐름을 진행하려 할 때(클라이언트 state 가 서버 그래프와 어긋남)."""
 
 
+_ADSPEND_SPEND_RETRY_MSG = "광고비는 1,000원 이상으로 다시 알려 주세요."
+_ADSPEND_ORDERS_RETRY_MSG = "주문 수는 1건 이상으로 다시 알려 주세요."
+
+
+def _advance_adspend_entry(node_id: str, state: dict, label: str) -> str:
+    """adspend_spend_entry/adspend_orders_entry 전용 — 값이 너무 작으면(광고비 1,000원 미만·
+    주문 수 0) 같은 노드로 되돌려 다시 묻고, 유효하면 현재 앱 값을 저장하고 다음 앱(또는 평균
+    주문 금액 질문)으로 넘어간다."""
+    state.setdefault("raw", {})
+    raw = state["raw"]
+    app = raw.get("_adspend_current_app")
+    m = _NUMBER_RE.search(str(label))
+    value = int(m.group()) if m else 0
+
+    if node_id == "adspend_spend_entry":
+        if not _adspend.is_valid_spend(value):
+            raw["_adspend_retry_msg"] = _ADSPEND_SPEND_RETRY_MSG
+            return node_id
+        raw.pop("_adspend_retry_msg", None)
+        raw[f"adspend_{app}_spend"] = value
+        return "adspend_orders_entry"
+
+    if not _adspend.is_valid_orders(value):
+        raw["_adspend_retry_msg"] = _ADSPEND_ORDERS_RETRY_MSG
+        return node_id
+    raw.pop("_adspend_retry_msg", None)
+    raw[f"adspend_{app}_orders"] = value
+    selected = _adspend_selected_apps(raw)
+    idx = selected.index(app)
+    if idx + 1 < len(selected):
+        raw["_adspend_current_app"] = selected[idx + 1]
+        return "adspend_spend_entry"
+    return "adspend_avg_amount"
+
+
 def resolve_option(node_id: str, ctx, state: dict, label: str) -> dict:
     """node_id 의 보기 중 label 과 같은 것 1개. 없으면 FlowError."""
     for option in node_options(node_id, ctx, state):
@@ -344,7 +491,9 @@ def advance(node_id: str, ctx, state: dict, label: str) -> str:
     내서(조용히 같은 질문을 반복하는 대신) 원인을 바로 드러낸다.
     """
     node = NODES[node_id]
-    if node.get("free_input"):
+    if node_id in ("adspend_spend_entry", "adspend_orders_entry"):
+        next_id = _advance_adspend_entry(node_id, state, label)
+    elif node.get("free_input"):
         apply_free_input(state, node_id, label)
         next_id = node["next"]
     else:

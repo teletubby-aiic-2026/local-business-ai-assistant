@@ -16,6 +16,8 @@ _ADDR = re.compile(r"[가-힣]+(시|도|구|군|동|로|길)\s*\d")
 _NICK = re.compile(r"[가-힣]{2,4}\s*(님|씨)")
 _COUPON_WORDS = re.compile(r"할인|쿠폰|코드|반값|%|원")
 _EXAGGERATION = re.compile(r"최고|무조건|100%")
+_UNVERIFIED_CLAIM_WORDS = ("인기 메뉴", "가장 인기", "1위", "최고", "많은 분들이")
+_NOTICE_COMPLAINT_WORDS = ("항의",)
 _STORE_CIRCUMSTANCE = re.compile(r"매출|손님이\s*줄|경기가?\s*안\s*좋|장사가?\s*안\s*돼|하락세|매출\s*감소|감소세")
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _ALL_MEASURE_TEXTS = [m["text"] for m in MEASURES]
@@ -302,7 +304,9 @@ def coupon_invented(text: str) -> bool:
 
 
 # 메뉴 설명·구성품에 없으면 지어낸 재료로 보는 흔한 식재료 단어들(review_promo·coupon_promo 공용).
-_INVENTED_INGREDIENT_WORDS = ("채소", "참깨", "치즈", "버섯", "계란", "달걀", "새우", "베이컨", "고수")
+_INVENTED_INGREDIENT_WORDS = (
+    "채소", "참깨", "치즈", "버섯", "계란", "달걀", "새우", "베이컨", "고수", "야채", "나물", "샐러드",
+)
 
 
 def invented_ingredient(text: str, menu_descriptions: dict[str, str] | None = None) -> bool:
@@ -310,6 +314,16 @@ def invented_ingredient(text: str, menu_descriptions: dict[str, str] | None = No
     홍보글(coupon_promo·review_promo) 전용 — AI 가 메뉴에 없는 재료를 지어내 소개하지 않도록 막는다."""
     known = " ".join((menu_descriptions or {}).values()) + " " + " ".join(COMPONENT_ITEMS)
     return any(w in text and w not in known for w in _INVENTED_INGREDIENT_WORDS)
+
+
+def has_unverified_claim(text: str) -> bool:
+    """근거 없는 인기·순위 주장("인기 메뉴"·"최고"·"1위" 등)이 있으면 True."""
+    return any(w in text for w in _UNVERIFIED_CLAIM_WORDS)
+
+
+def notice_no_complaint_word(text: str) -> bool:
+    """공지에 '항의' 같은 단어가 있으면 False(손님을 자극하는 단어는 안 써요)."""
+    return not any(w in text for w in _NOTICE_COMPLAINT_WORDS)
 
 
 def has_markdown(text: str) -> bool:
@@ -404,6 +418,8 @@ def fix_hints(failed: list[str], formal: bool = False) -> list[str]:
                               "쓰지 말고, 메뉴 특징을 직접 설명해 주세요.",
         "promo_formal": "해요체 대신 합니다체로 써 주세요.",
         "no_invented_ingredient": "메뉴 설명에 없는 재료(채소·참깨·치즈·버섯·계란 등)는 지어내지 말고 빼 주세요.",
+        "no_unverified_claim": "'인기 메뉴'·'가장 인기'·'1위'·'최고'·'많은 분들이' 같은 근거 없는 인기·순위 주장은 빼 주세요.",
+        "notice_no_complaint_word": "'항의' 같은 손님을 자극하는 단어는 빼 주세요.",
     }
     if formal:
         mapping["no_stiff_words"] = "사전에 있는 딱딱한 표현을 더 자연스러운 표현으로 바꿔 주세요(합니다체는 유지)."
