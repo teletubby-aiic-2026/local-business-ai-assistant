@@ -167,13 +167,27 @@ function renderHourChart(b) {
 
 // ── 2 제안 ───────────────────────────────────────────────────────
 // 카드마다 출처·시점 한 줄은 늘 보이고(05 5절·7절), 근거 리뷰·이유 문장 출처는 '근거 보기'로 접는다.
+// 근거 종류는 셋: review(불만 리뷰, 카드 ⓐ) · snapshot(상권 지표, 카드 ⓑ) · praise(쿠폰 메뉴를 칭찬한 리뷰, 카드 ⓑ).
 function sourceLine(p) {
   const reviews = p.evidence.filter((e) => e.type === "review");
-  const snaps = p.evidence.filter((e) => e.type !== "review");
+  const snaps = p.evidence.filter((e) => e.type === "snapshot");
   const parts = [];
   if (reviews.length) parts.push(`리뷰 ${reviews.length}건 · 합성 데이터`);
   snaps.forEach((e) => parts.push(shortBasis(e.basis)));
+  if (praiseOf(p).shown.length) parts.push(`손님 칭찬 리뷰 ${praiseOf(p).total}건 · 합성 데이터`);
   return parts.join(" · ");
+}
+// 카드 ⓑ 의 칭찬 근거: 보여 줄 리뷰(최대 3건), 쿠폰 메뉴, 그 메뉴를 언급한 칭찬 리뷰 수 (card.review_ids 가 전부를 담는다)
+function praiseOf(p) {
+  const shown = p.evidence.filter((e) => e.type === "praise");
+  return { shown, menu: shown.length ? shown[0].menu : "", total: Math.max(shown.length, (p.card.review_ids || []).length) };
+}
+// '근거 보기'의 칩 하나. 리뷰 글·id 는 사용자 입력일 수 있어 esc() 를 거친다. 지표(snapshot)만 기준·'원본' 링크가 붙는다
+function evidenceChip(e) {
+  const body = e.type === "review" ? `리뷰 ${esc(e.id)}: “${esc(e.text)}”`
+    : e.type === "praise" ? `칭찬 리뷰 ${esc(e.id)}: “${esc(e.text)}”`
+    : `${esc(e.text)} · ${esc(shortBasis(e.basis))}${sourceUrl(e.basis) ? ` · <a href="${esc(sourceUrl(e.basis))}" target="_blank" rel="noopener">원본</a>` : ""}`;
+  return `<span title="${esc(e.note || "")}">${body}</span>`;
 }
 function renderCards(data) {
   state.cards = data.cards;
@@ -188,7 +202,7 @@ function renderCards(data) {
       <p class="small muted">근거: ${esc(sourceLine(p))}</p>
       ${measureBox(p)}
       <details class="more"><summary class="small">근거 보기</summary>
-        <div class="ev">${p.evidence.map((e) => `<span title="${esc(e.note || "")}">${e.type === "review" ? "리뷰 " + esc(e.id) + ": “" + esc(e.text) + "”" : esc(e.text) + " · " + esc(shortBasis(e.basis))}${e.type !== "review" && sourceUrl(e.basis) ? ` · <a href="${esc(sourceUrl(e.basis))}" target="_blank" rel="noopener">원본</a>` : ""}</span>`).join("")}</div>
+        <div class="ev">${p.evidence.map(evidenceChip).join("")}</div>
         <p class="small muted">이유 문장: ${esc(p.reason_source)}${(p.problems || []).length ? " · 검사기 지적 " + p.problems.length + "건" : ""}</p>
       </details>
       <button type="button" class="primary" data-run="${esc(c.card_id)}">${label}</button>
@@ -218,7 +232,8 @@ function todosOf() {
   }
   if (mkt) {
     const made = !!state.results[mkt.card.card_id];
-    items.push({ key: "promo", card: mkt, cid: mkt.card.card_id, gen: "coupon_promo", title: "쿠폰 홍보글", sub: `저녁 매출 ${$("stat-market").textContent} · 저녁 손님 다시 부르기`, agent: "마케팅 에이전트", st: status(mkt, of(mkt, "coupon_promo"), made) });
+    const menu = praiseOf(mkt).menu;   // 손님 칭찬 리뷰에 나온 쿠폰 메뉴 (칭찬 근거가 없으면 빈 글자 → 예전 문구)
+    items.push({ key: "promo", card: mkt, cid: mkt.card.card_id, gen: "coupon_promo", title: "쿠폰 홍보글", sub: `저녁 매출 ${$("stat-market").textContent} · ${menu ? `손님이 칭찬한 ${menu} 쿠폰으로 ` : ""}저녁 손님 다시 부르기`, agent: "마케팅 에이전트", st: status(mkt, of(mkt, "coupon_promo"), made) });
   }
   return items;
 }
@@ -328,9 +343,12 @@ function sourceBlock(p, d) {
   if (target) return `<div class="rv"><p class="rv-title">손님 리뷰</p><ul class="rv-list">${reviewItem(target)}</ul></div>`;
   const reviews = p.evidence.filter((e) => e.type === "review").map((e) => state.reviews[e.id] || { text: e.text });
   if (reviews.length) return `<div class="rv"><p class="rv-title">근거 리뷰 ${reviews.length}건</p><ul class="rv-list">${reviews.map(reviewItem).join("")}</ul></div>`;
-  const snaps = p.evidence.filter((e) => e.type !== "review");
-  if (snaps.length) return `<div class="rv"><p class="rv-title">근거 지표</p>${snaps.map((e) => `<p class="rv-text">${esc(e.text)}</p><div class="rv-meta"><span>${esc(shortBasis(e.basis))}</span></div>`).join("")}</div>`;
-  return "";
+  // 홍보글: 상권 근거 지표와, 쿠폰 메뉴를 칭찬한 손님 리뷰를 둘 다 보여 준다 (칭찬 근거가 없는 카드는 지표만)
+  const snaps = p.evidence.filter((e) => e.type === "snapshot");
+  const praise = praiseOf(p);
+  const praised = praise.shown.map((e) => state.reviews[e.id] || { text: e.text, rating: e.rating });
+  return (snaps.length ? `<div class="rv"><p class="rv-title">근거 지표</p>${snaps.map((e) => `<p class="rv-text">${esc(e.text)}</p><div class="rv-meta"><span>${esc(shortBasis(e.basis))}</span></div>`).join("")}</div>` : "")
+    + (praised.length ? `<div class="rv"><p class="rv-title">손님 칭찬 리뷰 · ${esc(praise.menu)} 언급 ${praise.total}건${praise.total > praised.length ? ` 중 ${praised.length}건` : ""}</p><ul class="rv-list">${praised.map(reviewItem).join("")}</ul></div>` : "");
 }
 
 function saveEdits() {
