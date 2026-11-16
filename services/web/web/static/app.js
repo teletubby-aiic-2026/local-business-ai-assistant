@@ -1129,11 +1129,12 @@ async function rpScore(quiet = false) {
 }
 
 // 날마다 점수 선 그래프 (외부 라이브러리 없이 SVG). 색은 CSS(.rp-line 등)가 정해 라이트·다크를 따른다
-function rpTrend(trend, width) {
+function rpTrend(trend, width, height) {
   const pts = (Array.isArray(trend) ? trend : []).filter((t) => Number.isFinite(Number(t?.score)));
   if (!pts.length) return '<p class="small muted">점수 기록이 없어요.</p>';
   // 그림 폭 = 칸의 실제 폭 (좁은 화면에서 글자가 같이 줄어들어 안 보이지 않게). 칸이 숨어 있으면 600. width 를 주면 그 폭 (인쇄할 때 종이 폭)
-  const W = Math.round(Math.min(860, Math.max(280, width || $("rp-month").clientWidth || 600))), H = 170, L = 36, R = 16, T = 18, B = 26;
+  // height 를 주면 그 높이 (인쇄: 두 쪽 안에 들게 낮춘다, RP_PRINT_H)
+  const W = Math.round(Math.min(860, Math.max(280, width || $("rp-month").clientWidth || 600))), H = height || 170, L = 36, R = 16, T = 18, B = 26;
   const v = pts.map((t) => Number(t.score));
   const lo = Math.min(80, ...v), last = v.length - 1;
   const x = (i) => L + (W - L - R) * (pts.length === 1 ? 0.5 : i / last);
@@ -1293,15 +1294,18 @@ async function rpMarketing() {
 // 인쇄 모양은 style.css 의 '종합 리포트 인쇄' 덩어리가 정하고, 그 덩어리는 <html class="rp-view"> 일 때만(리포트 화면이 보일 때만) 먹는다.
 const RP_PDF_WAIT_MS = 20000;   // 아직 불러오는 칸이 있으면 여기까지 기다렸다가 인쇄 창을 연다
 const RP_PDF_HINT = "인쇄 창이 열리면 ‘PDF로 저장’을 골라 주세요.";
-const RP_PRINT_W = 860;   // 인쇄할 때 점수 추이 그래프를 그리는 폭 (넓은 화면과 같은 값). 창이 좁아도(휴대전화) 종이에서는 같은 모양·같은 쪽 수로 나오게
+// 인쇄할 때 점수 추이 그래프를 그리는 폭·높이. 창이 좁아도(휴대전화) 종이에서는 같은 모양·같은 쪽 수로 나오게.
+// 폭은 종이에서 그래프 칸의 폭(A4 − 좌우 여백 − 칸 안 여백 ≈ 675px)에 가까운 값 → 축 글자가 화면처럼 12px. 높이는 두 쪽 안에 들게 낮춤 (11/16)
+const RP_PRINT_W = 680;
+const RP_PRINT_H = 112;
 // route() 가 화면을 바꿀 때마다 loadReport() 나 rpStop() 을 부르므로, 두 곳에서 부르면 표시가 늘 지금 화면과 맞는다
 function rpMark() { document.documentElement.classList.toggle("rp-view", currentRoute() === "report"); }
 const rpReady = () => state.booted && !rp.loading && !rp.mktBusy;
 // 인쇄 직전: 머리글(가게 이름 · 출력한 날 · 기간)을 채우고 접힌 칸(details)을 펼친다. 인쇄가 끝나면 rpPrintDone 이 다시 접는다.
 // 시험용 실행이면 화면 맨 위 띠의 안내(실제 AI 결과 아님)를 머리글에도 적는다 (인쇄에서는 그 띠가 빠지므로)
-function rpTrendWidth(width) {   // 점수 추이 그래프를 그 폭으로 다시 그린다 (폭을 안 주면 화면 폭)
+function rpTrendWidth(width) {   // 점수 추이 그래프를 그 폭으로 다시 그린다 (폭을 주면 인쇄 모양: 그 폭과 RP_PRINT_H. 안 주면 화면 폭·화면 높이)
   const svg = document.querySelector("#rp-month .rp-trend");
-  if (svg && rp.trend) svg.outerHTML = rpTrend(rp.trend, width);
+  if (svg && rp.trend) svg.outerHTML = rpTrend(rp.trend, width, width ? RP_PRINT_H : undefined);
 }
 function rpPrintPrep() {
   rpMark();

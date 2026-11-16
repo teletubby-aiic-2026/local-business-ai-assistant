@@ -245,6 +245,28 @@ class PrintStyles(unittest.TestCase):
         self.assertIn("print-color-adjust: exact", exact)
         self.assertIn("-webkit-print-color-adjust: exact", exact)
 
+    def test_two_pages_without_shrinking_the_letters(self):
+        """11/16: 실시간 리포트가 A4 3쪽(3쪽에 마케팅 요약만)이 되던 것을 2쪽 안으로. 줄 간격·여백·간격·그래프 높이만 줄이고 글자 크기는 그대로."""
+        r = dict(print_rules())
+        self.assertIn("font-size: 14px", r["html:root.rp-view"])                      # 본문 13.125px(≈9.8pt) 그대로
+        self.assertIn("line-height: 1.45", r['html.rp-view [data-view="report"]'])
+        self.assertIn("padding: 10px 14px", r["html.rp-view .rp-grid > .panel"])
+        self.assertIn("break-inside: avoid", r["html.rp-view .rp-grid > .panel"])     # 칸이 쪽 사이에서 잘리지 않는 규칙은 그대로
+        for sel, body in print_rules():                                                # 인쇄에서 rem 글자를 화면의 가장 작은 값(13px 칩) 아래로 내리지 않는다
+            for size in re.findall(r"font-size:\s*([\d.]+)rem", body):
+                self.assertGreaterEqual(float(size), .8125, sel)
+        js = report_js()
+        self.assertRegex(js, r"const RP_PRINT_H = \d+;")
+        self.assertIn("rpTrend(rp.trend, width, width ? RP_PRINT_H : undefined)", function(js, "function rpTrendWidth(width) {"))
+        self.assertIn("H = height || 170", js)                                        # 화면 그래프 높이는 그대로
+
+    def test_links_and_buttons_inside_the_report_are_hidden_by_kind_not_by_name(self):
+        """리포트에 나중에 더하는 링크('…에서 자세히 보기')·버튼도 이름을 몰라도 종이에서 빠진다. 밖으로 가는 원본 링크는 주소를 글자로 남긴다."""
+        inner = next(sel for sel, body in print_rules() if "button" in sel and "display: none !important" in body)
+        for part in ('[data-view="report"] a[href^="#"]', '[data-view="report"] a:not([href])', '[data-view="report"] [role="button"]'):
+            self.assertIn(part, inner)
+        self.assertIn("html.rp-view .rp-snap-t a[href]::after", print_css())
+
     def test_print_block_follows_the_report_styles(self):
         chunk = print_chunk()
         self.assertLess(chunk.index("@media print {"), chunk.index("@supports not selector(:has(*)) {"))    # 본 덩어리 → :has 대체 덩어리
