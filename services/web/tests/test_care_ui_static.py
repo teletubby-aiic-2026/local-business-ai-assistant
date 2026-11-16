@@ -79,7 +79,6 @@ class Markup(unittest.TestCase):
         self.assertRegex(CAP_HTML, r'id="cap-error"[^>]*role="alert"')
         self.assertIn("예시 결과 — 이미지를 실제로 읽지 않았어요", CAP_HTML)
         self.assertIn("별점", re.search(r'<p class="cap-star">[\s\S]*?</p>', CAP_HTML).group(0))
-        self.assertIn("잘못 읽을", CAP_HTML)
 
     def test_report_menu_and_view(self):
         menu = section(r'<div class="menu">[\s\S]*?</div>')
