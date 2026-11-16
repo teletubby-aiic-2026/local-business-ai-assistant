@@ -362,13 +362,21 @@ async function choose(cardId, button) {
   if (state.results[cardId]) { state.current = cardId; state.draftId = null; go("draft"); return; }
   await runCard(cardId, button);
 }
+// 다시 만들 때 보내는 옛 글 id (replaces, 11/16): 서버는 새 글을 만든 뒤에만 이 방문자의 승인 기록에서 그 글들을 지운다.
+// 서버(demo.REPLACES_MAX)와 같은 20개까지, 승인한 글부터 보낸다 (승인하지 않은 글은 지울 기록이 없어 서버가 0 으로 센다)
+const REPLACES_MAX = 20;
+const replacesOf = (ids) => [...ids.filter((id) => state.approved.has(id)), ...ids.filter((id) => !state.approved.has(id))].slice(0, REPLACES_MAX);
 async function runCard(cardId, button) {
   const old = button ? button.textContent : "";
   if (button) { button.disabled = true; button.textContent = "만드는 중…"; }
   try {
     const boxes = [...document.querySelectorAll(`[data-measure="${CSS.escape(cardId)}"]`)];
-    const body = boxes.length ? JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) }) : undefined;
+    const picked = boxes.length ? JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) }) : undefined;
+    // 카드 전체 다시 만들기면 지금 글 id 를 replaces 로 더한다. 처음 만들 때는 예전과 같은 본문 (scripts/measure_live.py 가 따라 함)
+    const before = (state.results[cardId]?.drafts || []).map((d) => d.draft_id);
+    const body = before.length ? JSON.stringify({ ...JSON.parse(picked || "{}"), replaces: replacesOf(before) }) : picked;
     const result = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body });
+    if (result.replace_warning) showAlert(result.replace_warning);   // 새 글은 받았지만 서버의 옛 승인 기록은 못 지움
     // 다시 만들면 그 카드의 예전 글 승인·고친 내용은 버린다 (완료 화면의 승인 목록에서도 뺀다)
     const gone = new Set((state.results[cardId]?.drafts || []).map((d) => d.draft_id));
     gone.forEach((id) => { dropBox(id); state.approved.delete(id); delete state.pending[id]; });
@@ -444,6 +452,7 @@ async function regenDraft(id) {
   if (regenBusy.has(key)) return;
   const body = { generator: d.generator };
   if (d.target_review_id) body.review_id = d.target_review_id;
+  body.replaces = [d.draft_id];   // 바뀌는 옛 글: 서버가 새 글을 만든 뒤에만 그 승인 기록을 지운다 (못 만들면 그대로)
   // 불만 카드: 처음 만들 때 고른 수칙을 그대로 보낸다. 공지는 지금 화면의 묶음 답글도 보낸다 (공지가 답글과 너무 비슷한지 서버가 견줌)
   if (p.card.kind === "complaint") body.measures = (r.chosen_measures || []).map((m) => m.id);
   if (d.generator === "prevention_notice") {
@@ -456,6 +465,7 @@ async function regenDraft(id) {
     const made = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body: JSON.stringify(body) });
     const fresh = (made.drafts || [])[0];
     if (!fresh) throw new Error("새 글을 받지 못했어요. 다시 눌러 주세요.");
+    if (made.replace_warning) showAlert(made.replace_warning);   // 새 글은 받았지만 서버의 옛 승인 기록은 못 지움
     const at = state.results[cardId] === r ? r.drafts.findIndex((x) => sameSlot(x, d)) : -1;
     if (at < 0) return;   // 기다리는 동안 카드 전체를 다시 만들었거나 카드가 바뀌었다: 늦게 온 이 글은 버린다
     const gone = r.drafts[at].draft_id;

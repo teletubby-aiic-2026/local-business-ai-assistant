@@ -435,5 +435,133 @@ class LiveOneThroughC6(unittest.TestCase):
                 self.assertLessEqual(call.call_count, 2)
 
 
+# ── 다시 만들면 옛 글의 서버 승인 기록도 지운다 (replaces, 11/16) ─────────────────
+def approve(client, draft_id, text="글"):
+    return client.post(f"/api/drafts/{draft_id}/approve", json={"text": text, "original": text})
+
+
+def shown(client):
+    return [i["draft_id"] for i in client.get("/api/approvals").json()["items"]]
+
+
+@unittest.skipUnless(HAS_C6, "MARKETING_DIR(C6 저장본) 없음")
+class MockReplaces(unittest.TestCase):
+    """mock: 저장 예시라 새 글 id 가 옛 글 id 와 같다. 그래도 새 글은 아직 승인 전이라 서버 기록에서 빠져야 화면과 맞는다."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.demo = Demo(settings(self.tmp), source=PasteSource(), storage=MemoryStore())
+        self.client = TestClient(create_app(self.demo))
+        self.other = TestClient(self.client.app)                                  # 다른 방문자
+        cards = self.client.get("/api/cards").json()["cards"]
+        self.a, self.b = cards[0]["card"]["card_id"], cards[1]["card"]["card_id"]
+        self.full = run(self.client, self.a).json()
+        self.ids = [d["draft_id"] for d in self.full["drafts"]]                  # 답글 3개 + 공지
+        self.promo = run(self.client, self.b).json()["drafts"][0]["draft_id"]
+        for draft_id in self.ids + [self.promo]:
+            approve(self.client, draft_id)
+        approve(self.other, self.ids[2], "다른 방문자의 승인")
+
+    def test_one_regenerated_draft_drops_only_its_old_approval(self):
+        old = self.full["drafts"][2]
+        r = run(self.client, self.a, generator="reply_draft", review_id=old["target_review_id"], replaces=[old["draft_id"]])
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["replaced_approvals"], 1)
+        self.assertEqual(shown(self.client), [i for i in self.ids + [self.promo] if i != old["draft_id"]])   # 다른 글은 그대로
+        self.assertEqual(shown(self.other), [old["draft_id"]])                                               # 다른 방문자도 그대로
+
+    def test_whole_card_rerun_drops_the_old_approvals_of_that_card_only(self):
+        r = run(self.client, self.a, measures=["M1"], replaces=self.ids)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["replaced_approvals"], len(r.json()["drafts"])), (4, 4))
+        self.assertEqual(shown(self.client), [self.promo])                                                   # 카드 ⓑ 홍보글은 그대로
+        self.assertEqual(shown(self.other), [self.ids[2]])
+
+    def test_ids_never_approved_count_as_zero(self):
+        r = run(self.client, self.a, generator="prevention_notice", replaces=["d_never_approved", self.ids[3], self.ids[3]])
+        self.assertEqual(r.json()["replaced_approvals"], 1)                       # 같은 id 를 두 번 보내도 한 번
+        self.assertEqual(run(self.client, self.a, generator="prevention_notice", replaces=[]).json()["replaced_approvals"], 0)
+
+    def test_without_replaces_nothing_is_dropped_and_the_response_is_as_before(self):
+        r = run(self.client, self.a, generator="reply_draft", review_id="rv_ongi_001").json()
+        self.assertNotIn("replaced_approvals", r)
+        self.assertNotIn("replaced_approvals", run(self.client, self.a).json())
+        self.assertEqual(len(shown(self.client)), 5)
+
+    def test_bad_replaces_is_rejected_before_anything_is_made_or_dropped(self):
+        before = dict(self.demo._drafts)
+        cases = [
+            ({"replaces": [f"d_{i:04d}" for i in range(21)]}, 400),              # 21개
+            ({"replaces": ["../etc"]}, 400), ({"replaces": ["d 1"]}, 400), ({"replaces": [""]}, 400),
+            ({"replaces": ["d_" + "x" * 99]}, 400),                               # 101자
+            ({"replaces": "d_1"}, 422), ({"replaces": [1]}, 422),                 # 목록·문자열이 아님 (다른 칸과 같은 ② 모양)
+        ]
+        for extra, status in cases:
+            for base in ({}, {"generator": "prevention_notice"}):
+                with self.subTest(extra=str(extra)[:40], one=bool(base)):
+                    res = run(self.client, self.a, **base, **extra)
+                    self.assertEqual(res.status_code, status, res.text)
+                    if status == 400:
+                        self.assertIn("replaces", res.json()["error"]["message"])
+        self.assertEqual(len(shown(self.client)), 5)
+        self.assertEqual(dict(self.demo._drafts), before)
+        self.assertEqual(run(self.client, self.a, replaces=[f"d_{i:04d}" for i in range(20)]).status_code, 200)   # 20개까지
+
+    def test_failed_generation_drops_nothing(self):
+        res = run(self.client, "card_nope", generator="prevention_notice", replaces=self.ids)            # 지금 화면의 카드가 아님
+        self.assertEqual(res.status_code, 404)
+        res = run(self.client, self.a, generator="reply_draft", review_id="rv_nope", replaces=[self.ids[0]])
+        self.assertEqual(res.status_code, 404)
+        res = run(self.client, self.a, generator="coupon_promo", replaces=[self.ids[0]])
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(len(shown(self.client)), 5)
+
+
+@unittest.skipUnless(HAS_C6, "MARKETING_DIR(C6 저장본) 없음")
+class LiveReplaces(unittest.TestCase):
+    """live: 생성기는 가짜. 새 글 id 가 옛 글과 다르다. 생성이 오류로 끝나면(HCX 오류·예상 못한 오류) 아무것도 지우지 않는다."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.demo = Demo(settings(self.tmp, mode="live", clova_key="test-key"), source=PasteSource(), storage=MemoryStore(),
+                         reason_model=lambda system, user: "")
+        self.client = TestClient(create_app(self.demo))
+        self.a = self.client.get("/api/cards").json()["cards"][0]["card"]["card_id"]
+        for draft_id in ("d_old1", "d_old2", "d_keep"):
+            approve(self.client, draft_id)
+
+    def made(self, draft_id="d_new"):
+        return {"card_id": self.a, "kind": "complaint", "source": "live", "won": 0.3, "chosen_measures": [], "drafts": [
+            {"draft_id": draft_id, "generator": "prevention_notice", "target_review_id": None, "text": "새 공지예요.",
+             "checks": {}, "failed_reasons": [], "needs_input": []}]}
+
+    def test_success_drops_the_old_ones(self):
+        with mock.patch("web.demo.run_live_one", return_value=self.made()):
+            r = run(self.client, self.a, generator="prevention_notice", replaces=["d_old1"]).json()
+        self.assertEqual((r["replaced_approvals"], [d["draft_id"] for d in r["drafts"]]), (1, ["d_new"]))
+        self.assertEqual(shown(self.client), ["d_old2", "d_keep"])
+        with mock.patch("web.demo.run_live", return_value=self.made("d_new2")):
+            r = run(self.client, self.a, replaces=["d_old2", "d_new"]).json()                           # 카드 전체
+        self.assertEqual(r["replaced_approvals"], 1)
+        self.assertEqual(shown(self.client), ["d_keep"])
+
+    def test_generation_errors_drop_nothing(self):
+        from web.generate import GenerateError
+        cases = [("web.demo.run_live_one", {"generator": "prevention_notice"}, TimeoutError("timed out"), 502),
+                 ("web.demo.run_live_one", {"generator": "prevention_notice"}, GenerateError("HCX 오류"), 400),
+                 ("web.demo.run_live", {}, TimeoutError("timed out"), 502),
+                 ("web.demo.run_live", {}, GenerateError("HCX 오류"), 400)]
+        for target, body, error, status in cases:
+            with self.subTest(target=target, error=type(error).__name__), mock.patch(target, side_effect=error):
+                res = run(self.client, self.a, replaces=["d_old1", "d_old2"], **body)
+                self.assertEqual(res.status_code, status, res.text)
+                self.assertEqual(shown(self.client), ["d_old1", "d_old2", "d_keep"])
+        with mock.patch("web.demo.run_live_one") as one:
+            res = run(self.client, self.a, generator="prevention_notice", measures=["M9"], replaces=["d_old1"])   # 모르는 수칙
+        self.assertEqual(res.status_code, 400)
+        one.assert_not_called()
+        self.assertEqual(shown(self.client), ["d_old1", "d_old2", "d_keep"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

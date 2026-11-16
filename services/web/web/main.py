@@ -6,7 +6,7 @@
 | GET    | /api/briefing                 | ① 오늘의 브리핑 |
 | GET    | /api/insight                  | 리뷰 분석 화면(요약·불만 묶음), 읽기 전용 |
 | GET    | /api/cards                    | ② 추천 카드 2장 |
-| POST   | /api/cards/{card_id}/run      | ③ 결과물 생성. 본문에 generator(+review_id)가 있으면 그 글 한 건만 다시 만듦 (초안 상자의 '다시 만들기') |
+| POST   | /api/cards/{card_id}/run      | ③ 결과물 생성. 본문에 generator(+review_id)가 있으면 그 글 한 건만 다시 만듦 (초안 상자의 '다시 만들기'). replaces(옛 글 id)를 보내면 생성 뒤 그 승인 기록을 지움 |
 | POST   | /api/drafts/{draft_id}/approve| ④ 승인 (수정 글 포함) |
 | GET    | /api/approvals                | ④ 처리 완료 기록 |
 | DELETE | /api/approvals                | ④ 이 방문자의 승인 기록 지우기 (완료 화면의 '처음부터 다시') |
@@ -66,6 +66,9 @@ class RunIn(BaseModel):
     review_id: str | None = Field(default=None, max_length=100)   # reply_draft 일 때 필수: 그 답글이 가리키는 리뷰
     # prevention_notice 일 때만 씀: 지금 화면의 묶음 답글들. 새 공지가 답글과 너무 비슷한지 견주는 데만 쓰고 모델에 넘기지 않는다
     reply_texts: list[str] | None = Field(default=None, max_length=20)
+    # 선택 (11/16): 이 생성으로 바뀌는 옛 글 id (최대 20개). 생성이 성공한 뒤에만 이 방문자의 승인 기록에서 지운다.
+    # 개수·모양은 demo 가 400 으로 막는다 (화면 알림 띠에 그대로 보이는 문장)
+    replaces: list[str] | None = None
 
 
 class PasteIn(BaseModel):
@@ -136,8 +139,9 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     def run(card_id: str, request: Request, body: RunIn | None = None):
         if body is not None and body.generator is not None:   # 개별 다시 만들기: 그 글 한 건만
             return demo.run(card_id, measures=body.measures, visitor=request.state.visitor_id, generator=body.generator,
-                            review_id=body.review_id, reply_texts=body.reply_texts)
-        return demo.run(card_id, measures=body.measures if body else None, visitor=request.state.visitor_id)
+                            review_id=body.review_id, reply_texts=body.reply_texts, replaces=body.replaces)
+        return demo.run(card_id, measures=body.measures if body else None, visitor=request.state.visitor_id,
+                        replaces=body.replaces if body else None)
 
     @app.post("/api/drafts/{draft_id}/approve")
     def approve(draft_id: str, body: ApproveIn, request: Request):
