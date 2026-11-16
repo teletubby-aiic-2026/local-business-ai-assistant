@@ -277,13 +277,14 @@ REPLY_SCHEMA = "assistant-reply-v1"     # 상권 서비스 assistant/flow.py 의
 STORE_ANSWER = "store_profile"          # 여기서 답한 응답에만 붙는 answered_by 값
 MAX_STORE_QUESTION = 40                 # 공백·기호를 뺀 글자 수. 이보다 긴 글은 단순한 가게 질문으로 보지 않는다
 # 화면 메뉴 이름. static/index.html 의 메뉴 글자와 같아야 한다 (시험이 확인)
-SCREENS = {"reviews": "리뷰 분석", "cards": "추천 카드", "drafts": "승인할 글", "done": "처리 완료", "report": "종합 리포트"}
+SCREENS = {"reviews": "리뷰 분석", "cards": "추천 카드", "drafts": "승인할 글", "done": "처리 완료", "marketing": "맞춤 마케팅",
+           "report": "종합 리포트"}
 BACK_TO_MARKET = ["우리 가게 상권 매출은 어때?", "주변에 같은 업종 점포는 몇 개야?"]     # 답 아래 '이어서 물어보기' (서랍 첫 추천 질문과 같은 문장)
 STORE_NOTE = "가게 이름·업종·메뉴는 저장된 가게 프로필이에요. 상권 통계가 아니에요."
 STORE_DOWN = "가게 정보를 지금 불러오지 못했어요. 잠시 뒤 다시 물어봐 주세요."
 NOT_ON_SCREEN = "이 화면에는 그 정보가 없어요."
 GUIDE_LINE = (f"참고: 리뷰는 화면 메뉴 '{SCREENS['reviews']}', 답글·공지·홍보 글은 '{SCREENS['cards']}' → '{SCREENS['drafts']}', "
-              f"전체 요약은 '{SCREENS['report']}'에서 볼 수 있어요.")
+              f"맞춤 홍보 제안·광고비 점검은 '{SCREENS['marketing']}', 전체 요약은 '{SCREENS['report']}'에서 볼 수 있어요.")
 
 # 하나라도 있으면 상권 질문 (가게 질문과 섞여 있어도 상권 서비스로 보낸다). 상권 서비스가 맡는 자료·의견·입지 비용 낱말
 _MARKET_WORDS = ("상권", "매출", "장사", "벌이", "벌어", "벌었", "버는", "벌고", "수입", "유동", "인구", "점포", "경쟁", "개업", "폐업", "창업",
@@ -311,8 +312,8 @@ _NOT_KNOWN = re.compile(rf"(영업시간|운영시간|오픈시간|마감시간|
 # '상권'은 상권 낱말이지만 "우리 가게 어느 상권이야?", "우리 가게 상권이 뭐야?"는 가게가 속한 상권 이름을 묻는 것이다
 _WHICH_AREA = re.compile(rf"(어느|무슨)상권|상권(이름|명)?{_P}(뭐|무엇|뭔|어디)(야|예요|에요|지|죠|니|임|인지|냐|였|더라|$)")
 # 화면 위치를 묻는 질문: 화면에 있는 것(리뷰·답글·공지…) + 어디서 보는지
-_SCREEN_WORDS = ("리뷰", "후기", "답글", "댓글", "공지", "홍보", "쿠폰", "리포트", "보고서", "응대점수", "불만", "초안", "승인",
-                 "추천카드", "처리완료")
+_SCREEN_WORDS = ("리뷰", "후기", "답글", "댓글", "공지", "홍보", "쿠폰", "마케팅", "광고", "리포트", "보고서", "응대점수", "불만", "초안",
+                 "승인", "추천카드", "처리완료")
 _WHERE = re.compile(r"어디(에서|서|에|로)?(봐|보|볼|확인|찾|있|달|쓰|써|관리|승인|들어|눌|해|가면|가야)|어디로가|어디(야|예요|에요|지|죠|니|임|인지|더라)"
                     r"|어떻게(봐|보|볼|확인|찾|들어가)|(보|확인하|찾으|들어가)려면|(보|확인하)고싶|(볼|확인할|찾을)수있|보여(줘|줄|주)"
                     r"|(보는|확인하는|찾는)(곳|법|방법|데)|위치")
@@ -383,8 +384,10 @@ def _where_answer(text: str) -> dict:
         first = "리뷰 답글 " + drafts
     elif "공지" in c:
         first = "공지 " + drafts
-    elif "홍보" in c or "쿠폰" in c:
-        first = "홍보 글 " + drafts
+    elif "홍보" in c or "쿠폰" in c or "마케팅" in c or "광고" in c:
+        # 맞춤 마케팅(설문으로 홍보 제안·쿠폰 손익·광고비 점검)이 먼저, 오늘 추천된 쿠폰 홍보글은 추천 카드에서
+        first = (f"홍보·쿠폰·광고비는 화면 메뉴 '{SCREENS['marketing']}'에서 몇 가지 질문에 답하면 제안과 글을 만들어 드려요. "
+                 f"오늘 추천된 쿠폰 홍보글은 '{SCREENS['cards']}'에서 카드를 고르면 '{SCREENS['drafts']}'에 나와요.")
     elif "초안" in c or "승인" in c or "추천카드" in c or "처리완료" in c:
         first = "글 " + drafts
     elif "리포트" in c or "보고서" in c or "응대점수" in c:
@@ -394,6 +397,7 @@ def _where_answer(text: str) -> dict:
     return _store_reply([first,
                          f"- 리뷰·불만 묶음: '{SCREENS['reviews']}'",
                          f"- 답글·공지·홍보 글 초안: '{SCREENS['cards']}' → '{SCREENS['drafts']}'",
+                         f"- 맞춤 홍보 제안·광고비 점검·마케팅 보고서: '{SCREENS['marketing']}'",
                          f"- 승인한 글: '{SCREENS['done']}'",
                          f"- 응대 점수·월간 보고서: '{SCREENS['report']}'",
                          "참고: 이 채팅은 동네 상권·업종 매출 상담이라 리뷰 내용은 여기서 답하지 않아요."], "store_guide", "where")
