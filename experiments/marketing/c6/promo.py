@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 import clova
 from c6 import checks
 from c6 import parsing
-from c6.output import CALL_FAILED_NOTE_NO_TEXT, DraftOutput, CardResult
+from c6.output import CALL_FAILED_NOTE, CALL_FAILED_NOTE_NO_TEXT, DraftOutput, CardResult
 from common.korean import display_name, eul
 from shared.praise import menu_mentions, pick_praised_menu, praise_reviews
 
@@ -121,6 +121,52 @@ def _fallback_text(store, coupon_menu: str | None) -> str:
     )
 
 
+def _safe_call(key, system, messages, **kw) -> dict:
+    """clova.call 을 부르고, 예외가 나도 {"error": 예외 이름} 으로 바꿔 돌려준다 (홍보글 두 생성기 공용).
+    clova.call 은 HTTP·연결 오류를 이미 {"error": …} 로 돌려주지만, 그 밖의 예외(응답 모양이 이상함 등)로 서버 요청이
+    500 으로 끝나지 않게 한 번 더 막는다. 오류 글에는 예외 이름만 남긴다 (예외 문장에 요청 내용이 섞일 수 있어서)."""
+    try:
+        resp = clova.call(key, system, messages, **kw)
+    except Exception as exc:  # noqa: BLE001 — 어떤 예외든 '호출 실패'로 다룬다
+        return {"error": f"{exc.__class__.__name__} (호출 중 예외)"}
+    return resp if isinstance(resp, dict) else {"error": "응답 형식이 올바르지 않아요"}
+
+
+def _clean_promo_text(text_):
+    """결과와 무관하게 늘 하던 손질(마크다운 기호 지우기·3문장까지만)을 점검 전에 한다 — 보여 줄 글을 점검해야
+    잘라 낼 4번째 문장 때문에 다시 쓰기를 부르지 않는다 (11/15 실시간 후보 대부분이 4문장)."""
+    return checks.truncate_sentences(checks.strip_markdown(text_), 3) if text_ else text_
+
+
+def _check_promo_with_code_fix(text_, check):
+    """손질한 글을 점검하고(check(text) -> (점검 결과, 실패 목록)), 딱딱한 표현·해요체 어미가 걸렸으면 사전 치환(합니다체)·
+    어미 보정을 해 본다 — 실패가 줄 때만 쓴다 (추가 호출 없음). 공지(c6.notice._check_with_word_fix)와 같은 방식.
+    돌려주는 것: (점검한 글, 점검 결과, 실패 목록)."""
+    text_ = _clean_promo_text(text_)
+    chk_, failed_ = check(text_)
+    if failed_ and text_:
+        fixed = text_
+        if "no_stiff_words" in failed_:
+            fixed = checks.fix_stiff_words(fixed, formal=True)
+        if "promo_formal" in failed_:
+            fixed = checks.to_formal_sentence_endings(fixed)
+        if fixed != text_:
+            chk2, failed2 = check(fixed)
+            if set(failed2) < set(failed_):
+                return fixed, chk2, failed2
+    return text_, chk_, failed_
+
+
+def _same_text(a, b):
+    """띄어쓰기 차이는 빼고 같은 글인가 (ai_part_repaired 판단용)."""
+    return " ".join((a or "").split()) == " ".join((b or "").split())
+
+
+def _candidate_rank(item):
+    """후보 고르기 기준: 글이 있는 쪽이 먼저(호출이 실패해 빈 후보가 점검 통과 수로 이기지 않게), 그다음 점검 통과 수."""
+    return bool(item[0]), sum(1 for v in item[2].values() if v)
+
+
 def _praise_reviews(ctx, n=2, coupon_menu=None):
     """칭찬할 만한 리뷰. sentiment=='positive' 우선, 없으면 평점 4 이상인 것만(없는 복합을 칭찬으로 꾸미지 않는다).
 
@@ -195,7 +241,9 @@ SYSTEM_TMPL_REVIEW = """\
 14. 배달 주문 기준으로 쓸 것. "들러"·"방문"처럼 가게에 오는 것을 전제한 표현은 쓰지 말 것
 """
 
-_REVIEW_PROMO_FALLBACK_NO_DESC = "정성껏 만들어 따뜻하게 보내드립니다."
+# 첫 문장에 이미 '정성껏'이 있어 같은 말을 또 쓰면 템플릿이 스스로 no_fewshot_copy(가까이 되풀이한 말)에 걸린다
+# (11/16 확인: 메뉴 설명이 없는 메뉴는 늘 '사장님 확인 필요'가 붙었다). 그래서 쿠폰 템플릿과 다른 문장을 쓴다.
+_REVIEW_PROMO_FALLBACK_NO_DESC = "따뜻하게 담아 보내드립니다."
 _REVIEW_PROMO_FALLBACK_TMPL = (
     "{store}에서 {item}{item_eul} 정성껏 준비하고 있습니다. "
     "{desc}"
@@ -275,6 +323,8 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
     review_texts = [r.text for r in ctx.reviews]
     # 쿠폰 메뉴의 재료라 '다른 음식'으로 보지 않을 말 (고기 요리면 '고기') — checks.menu_ingredient_words
     allow_food = checks.menu_ingredient_words(coupon_menu)
+    focus_menu = (coupon_menu,) if coupon_menu else ()
+    other_menus = tuple(store.menu) if coupon_menu else ()
 
     def _run_promo_checks(text):
         result = {
@@ -293,7 +343,8 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
             "no_exaggeration": not checks.has_exaggeration(text),
             "no_store_circumstance": not checks.store_circumstance_leaked(text),
             "promo_formal": checks.promo_formal(text),
-            "no_invented_ingredient": not checks.invented_ingredient(text, menu_descriptions),
+            # 쿠폰 메뉴 이름에 든 재료('계란말이'의 '계란')는 지어낸 것이 아니다. 다른 메뉴 이름은 only_coupon_menu 가 잡는다.
+            "no_invented_ingredient": not checks.invented_ingredient(text, menu_descriptions, focus_menu, other_menus),
             "no_unverified_claim": not checks.has_unverified_claim(text),
             "length_ok": checks.length_ok(text, 60, 160),
         }
@@ -308,37 +359,13 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
         failed_ = [k for k, v in chk_.items() if not v and k not in retry_exempt]
         return chk_, failed_
 
-    def _clean(text_):
-        """결과와 무관하게 늘 하던 손질(마크다운 기호 지우기·3문장까지만)을 점검 전에 한다 — 보여 줄 글을 점검해야
-        잘라 낼 4번째 문장 때문에 다시 쓰기를 부르지 않는다 (11/15 실시간 후보 대부분이 4문장)."""
-        return checks.truncate_sentences(checks.strip_markdown(text_), 3) if text_ else text_
-
     def _check_with_code_fix(text_):
-        """손질한 글을 점검하고, 딱딱한 표현·해요체 어미가 걸렸으면 사전 치환(합니다체)·어미 보정을 해 본다 — 실패가
-        줄 때만 쓴다 (추가 호출 없음). 공지(c6.notice._check_with_word_fix)와 같은 방식."""
-        text_ = _clean(text_)
-        chk_, failed_ = _check(text_)
-        if failed_ and text_:
-            fixed = text_
-            if "no_stiff_words" in failed_:
-                fixed = checks.fix_stiff_words(fixed, formal=True)
-            if "promo_formal" in failed_:
-                fixed = checks.to_formal_sentence_endings(fixed)
-            if fixed != text_:
-                chk2, failed2 = _check(fixed)
-                if set(failed2) < set(failed_):
-                    return fixed, chk2, failed2
-        return text_, chk_, failed_
-
-    def _same(a, b):
-        return " ".join((a or "").split()) == " ".join((b or "").split())
-
-    def _score(item):
-        return sum(1 for v in item[2].values() if v)
+        """손질·코드 보정 뒤 점검 (모듈 도우미 _check_promo_with_code_fix — review_promo 와 같은 방식)."""
+        return _check_promo_with_code_fix(text_, _check)
 
     def _call_candidate(temperature):
-        resp = clova.call(key, system, messages, model=model, max_tokens=512, temperature=temperature)
-        raw_ = resp.get("content", "")
+        resp = _safe_call(key, system, messages, model=model, max_tokens=512, temperature=temperature)
+        raw_ = resp.get("content", "") or ""
         text_ = parsing.extract_body(raw_)  # JSON이든 평문이든 본문을 절대 버리지 않는다
         return text_, raw_, resp.get("won", 0), bool(resp.get("error"))
 
@@ -355,7 +382,7 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
     for text_, raw_, _, _error in candidates:
         fixed_, chk_, failed_ = _check_with_code_fix(text_)
         scored.append((fixed_, raw_, chk_, failed_, text_))
-    scored.sort(key=_score, reverse=True)
+    scored.sort(key=_candidate_rank, reverse=True)   # 한 후보의 호출이 실패하면(빈 글) 다른 후보를 쓴다
     text, raw, check_results, failed, last_ai_text = scored[0]   # last_ai_text: HCX 가 쓴 글 그대로 (코드 손질 전)
     # 후보 호출이 모두 실패해 AI 글이 없다 → 다시 쓰기·코드 템플릿 없이 쿠폰 줄만 두고 사장님께 알린다 (아래 CALL_FAILED_NOTE_NO_TEXT)
     call_failed = not text and any(c[3] for c in candidates)
@@ -365,19 +392,19 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
         # 합니다체 기준 힌트(formal=True — 기본 힌트의 '편한 구어체로'가 해요체 다시 쓰기를 불렀다) + 글에서 실제로 걸린 말
         hints = checks.fix_hints(failed, formal=True) + checks.promo_detail_hints(
             failed, text, menu_names=store.menu, coupon_menu=coupon_menu, review_texts=review_texts,
-            reviews=ctx.reviews, allow_food=allow_food)
+            reviews=ctx.reviews, allow_food=allow_food, menu_descriptions=menu_descriptions)
         hints.append("지적한 부분만 고치고, 합니다체로 쿠폰 메뉴 하나만 2~3문장으로 소개하는 틀은 그대로 두세요.")
         retry_msg = [
             {"role": "user", "content": "손님에게 보낼 쿠폰 홍보글 본문을 작성해 주세요."},
             {"role": "assistant", "content": text},   # 코드가 손질한 글(보여 줄 글)을 고치게 한다
             {"role": "user", "content": "수정 지시:\n" + "\n".join(f"- {h}" for h in hints)},
         ]
-        resp2 = clova.call(key, system, retry_msg, model=model, max_tokens=512, temperature=0.5)
+        resp2 = _safe_call(key, system, retry_msg, model=model, max_tokens=512, temperature=0.5)
         total_won += resp2.get("won", 0)
         if resp2.get("error"):     # 다시 쓰기 호출이 끝내 실패 → 더 부르지 않고 AI 글을 그대로 둔다 (점검 실패로 보임)
             rewrite_call_failed = True
             break
-        raw = resp2.get("content", "")
+        raw = resp2.get("content", "") or ""
         text2 = parsing.extract_body(raw)
         rewrites += 1
         if text2:
@@ -391,7 +418,7 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
     used_fallback = bool(failed) and not call_failed and not rewrite_call_failed   # 다시 쓰기 호출이 실패하면 템플릿으로 덮지 않는다 (사장님이 실패를 보게)
     # 최종 글이 HCX 가 마지막으로 쓴 글과 다르면(띄어쓰기 차이는 빼고) 코드가 고친 것 — 3문장 자르기·마크다운 지우기·
     # 사전 치환·어미 보정. 답글·공지와 같은 기준으로 checks.ai_part_repaired 에 남긴다 (measure_live.py 'AI 글 + 코드 보정').
-    ai_part_repaired = bool(not call_failed and not failed and not _same(text, last_ai_text))
+    ai_part_repaired = bool(not call_failed and not failed and not _same_text(text, last_ai_text))
     if used_fallback:
         text = _fallback_text(store, coupon_menu)
         check_results, failed = _check(text)
@@ -449,7 +476,13 @@ def generate_coupon_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
 def generate_review_promo(ctx, card, key, model="HCX-005", chosen_measures=None, menu=None):
     """review_promo 전략의 글. generate_coupon_promo 와 같은 점검·재시도·템플릿 구조를 쓰지만
     쿠폰 줄이 없고(이 전략은 할인이 없다), 칭찬 리뷰를 인용하지 않고 코드가 센 칭찬 주제
-    (예: 양념, _praise_topics)만 넘긴다."""
+    (예: 양념, _praise_topics)만 넘긴다.
+
+    11/16 (coupon_promo 의 PR #55 방식에 맞춤): 합니다체 기준 힌트(fix_hints(formal=True))와 글에서 실제로 걸린 말
+    (promo_detail_hints)로 다시 쓰게 하고, 다시 쓰기 전에 코드로 고칠 수 있는 것(마크다운·3문장·사전 치환(합니다체)·
+    어미 보정)을 먼저 해 본다(_check_promo_with_code_fix). 최종 글이 HCX 마지막 글과 다르면 checks.ai_part_repaired.
+    후보 하나의 호출이 실패하면 다른 후보를 쓰고, 둘 다 실패하면 코드 템플릿 + CALL_FAILED_NOTE(다시 쓰기 없음).
+    다시 쓰기 호출이 실패하면 AI 글을 그대로 둔다(점검 실패로 보임) — coupon_promo 와 같다."""
     store = ctx.store
     tone = ctx.tone
     menu_descriptions = getattr(store, "menu_descriptions", None) or {}
@@ -500,6 +533,10 @@ def generate_review_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
 
     allowed_numbers = list(store.menu_prices.values())
     review_texts = [r.text for r in ctx.reviews]
+    # 대표 메뉴의 재료라 '다른 음식'으로 보지 않을 말 (고기 요리면 '고기') — coupon_promo 와 같다
+    allow_food = checks.menu_ingredient_words(menu)
+    focus_menu = (menu,) if menu else ()
+    other_menus = tuple(store.menu) if menu else ()
 
     def _run_review_checks(text):
         result = {
@@ -510,7 +547,7 @@ def generate_review_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
             "no_stiff_words": not checks.has_stiff_words(text),
             "no_fewshot_copy": not checks.fewshot_copied(text, store.menu, review_texts),
             "no_bad_promise": not checks.promises_not_in_policy(text, ctx.policies),
-            "no_unknown_menu": not checks.mentions_unknown_menu(text, store.menu),
+            "no_unknown_menu": not checks.mentions_unknown_menu(text, store.menu, allow=allow_food),
             "only_focus_menu": checks.only_coupon_menu_mentioned(text, store.menu, menu),
             "not_quote_review": not checks.quotes_review(text, ctx.reviews),
             "no_customer_quote": not checks.quotes_customer_speech(text),
@@ -518,7 +555,8 @@ def generate_review_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
             "no_exaggeration": not checks.has_exaggeration(text),
             "no_store_circumstance": not checks.store_circumstance_leaked(text),
             "promo_formal": checks.promo_formal(text),
-            "no_invented_ingredient": not checks.invented_ingredient(text, menu_descriptions),
+            # 대표 메뉴 이름에 든 재료('계란말이'의 '계란')는 지어낸 것이 아니다. 다른 메뉴 이름은 only_focus_menu 가 잡는다.
+            "no_invented_ingredient": not checks.invented_ingredient(text, menu_descriptions, focus_menu, other_menus),
             "no_unverified_claim": not checks.has_unverified_claim(text),
             "length_ok": checks.length_ok(text, 60, 160),
         }
@@ -533,14 +571,14 @@ def generate_review_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
         failed_ = [k for k, v in chk_.items() if not v and k not in retry_exempt]
         return chk_, failed_
 
-    def _score(item):
-        return sum(1 for v in item[2].values() if v)
+    def _check_with_code_fix(text_):
+        return _check_promo_with_code_fix(text_, _check)
 
     def _call_candidate(temperature):
-        resp = clova.call(key, system, messages, model=model, max_tokens=512, temperature=temperature)
-        raw_ = resp.get("content", "")
+        resp = _safe_call(key, system, messages, model=model, max_tokens=512, temperature=temperature)
+        raw_ = resp.get("content", "") or ""
         text_ = parsing.extract_body(raw_)
-        return text_, raw_, resp.get("won", 0)
+        return text_, raw_, resp.get("won", 0), bool(resp.get("error"))
 
     start = time.perf_counter()
     total_won = 0.0
@@ -551,41 +589,54 @@ def generate_review_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
     total_won += sum(c[2] for c in candidates)
 
     scored = []
-    for text_, raw_, _ in candidates:
-        chk_, failed_ = _check(text_)
-        scored.append((text_, raw_, chk_, failed_))
-    scored.sort(key=_score, reverse=True)
-    text, raw, check_results, failed = scored[0]
+    for text_, raw_, _, _error in candidates:
+        fixed_, chk_, failed_ = _check_with_code_fix(text_)
+        scored.append((fixed_, raw_, chk_, failed_, text_))
+    scored.sort(key=_candidate_rank, reverse=True)   # 한 후보의 호출이 실패하면(빈 글) 다른 후보를 쓴다
+    text, raw, check_results, failed, last_ai_text = scored[0]   # last_ai_text: HCX 가 쓴 글 그대로 (코드 손질 전)
 
-    while failed and text and rewrites < _MAX_REWRITES:
-        hints = checks.fix_hints(failed)
+    # 후보 호출이 모두 실패해 AI 글이 없다 → 다시 쓰기 없이 코드 템플릿으로 채우고 사장님께 알린다 (c6.notice·c6.reply 와 같은
+    # CALL_FAILED_NOTE). 이 글에는 쿠폰 줄이 없어서 coupon_promo 처럼 빈 글로 두면 보여 줄 것이 없다.
+    call_failed = not text and any(c[3] for c in candidates)
+    if call_failed:
+        text = review_promo_fallback_text(store, menu)
+        check_results, failed = _check(text)
+        needs_input.append(CALL_FAILED_NOTE)
+
+    rewrite_call_failed = False
+    while failed and text and not call_failed and rewrites < _MAX_REWRITES:
+        # 합니다체 기준 힌트(formal=True — 기본 힌트의 '편한 구어체로'가 해요체 다시 쓰기를 불렀다) + 글에서 실제로 걸린 말
+        hints = checks.fix_hints(failed, formal=True) + checks.promo_detail_hints(
+            failed, text, menu_names=store.menu, coupon_menu=menu, review_texts=review_texts, reviews=ctx.reviews,
+            allow_food=allow_food, menu_descriptions=menu_descriptions, menu_label="대표 메뉴", coupon_line=False)
+        hints.append("지적한 부분만 고치고, 합니다체로 대표 메뉴 하나만 2~3문장으로 소개하는 틀은 그대로 두세요.")
         retry_msg = [
             {"role": "user", "content": "손님에게 보낼 가게 홍보글 본문을 작성해 주세요."},
-            {"role": "assistant", "content": raw},
+            {"role": "assistant", "content": text},   # 코드가 손질한 글(보여 줄 글)을 고치게 한다
             {"role": "user", "content": "수정 지시:\n" + "\n".join(f"- {h}" for h in hints)},
         ]
-        resp2 = clova.call(key, system, retry_msg, model=model, max_tokens=512, temperature=0.5)
+        resp2 = _safe_call(key, system, retry_msg, model=model, max_tokens=512, temperature=0.5)
         total_won += resp2.get("won", 0)
-        raw = resp2.get("content", "")
+        if resp2.get("error"):     # 다시 쓰기 호출이 끝내 실패 → 더 부르지 않고 AI 글을 그대로 둔다 (점검 실패로 보임)
+            rewrite_call_failed = True
+            break
+        raw = resp2.get("content", "") or ""
         text2 = parsing.extract_body(raw)
         rewrites += 1
         if text2:
+            last_ai_text = text2
             text = text2
-        check_results, failed = _check(text)
+        text, check_results, failed = _check_with_code_fix(text)
 
-    if not check_results.get("no_stiff_words", True):
-        text = checks.fix_stiff_words(text)
-        check_results, failed = _check(text)
-
-    text = checks.strip_markdown(text)
-    text = checks.truncate_sentences(text, 3)
-    check_results, failed = _check(text)
-
-    used_fallback = bool(failed)
+    # 그래도 점검을 못 넘으면 코드 템플릿으로 바꿔 넣는다 (coupon_promo 와 같은 기준 — 다시 쓰기 호출이 실패했으면 덮지 않음)
+    used_fallback = bool(failed) and not call_failed and not rewrite_call_failed
+    # 최종 글이 HCX 가 마지막으로 쓴 글과 다르면(띄어쓰기 차이는 빼고) 코드가 고친 것 (coupon_promo 와 같은 기준)
+    ai_part_repaired = bool(not call_failed and not failed and not _same_text(text, last_ai_text))
     if used_fallback:
         text = review_promo_fallback_text(store, menu)
         check_results, failed = _check(text)
     check_results["used_fallback"] = used_fallback
+    check_results["ai_part_repaired"] = ai_part_repaired
 
     if failed:
         needs_input.append("사장님 확인 필요")
@@ -606,7 +657,7 @@ def generate_review_promo(ctx, card, key, model="HCX-005", chosen_measures=None,
         text=text,
         evidence_ids=evidence_ids,
         checks=check_results,
-        failed_reasons=checks.fix_hints(failed) if failed else [],
+        failed_reasons=checks.fix_hints(failed, formal=True) if failed else [],
         rewrites=rewrites,
         needs_input=needs_input,
         model=model,
