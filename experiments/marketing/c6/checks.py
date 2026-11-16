@@ -3,7 +3,7 @@
 import difflib
 import re
 
-from c6.measures import MEASURES, MEASURE_KEYWORDS, INVENTED_KW
+from c6.measures import COMPONENT_ITEMS, INVENTED_KW, MEASURE_KEYWORDS, MEASURES
 
 try:
     from features.tone import FOOD_WORDS
@@ -17,6 +17,8 @@ _NICK = re.compile(r"[가-힣]{2,4}\s*(님|씨)")
 # '원'은 금액(숫자·천·만·백 뒤)일 때만 본다 — 그냥 '원'이면 '성원'·'원하시는'·'원래'까지 걸렸다(11/15 실시간 홍보글).
 _COUPON_WORDS = re.compile(r"할인|쿠폰|코드|반값|%|(?:\d|천|만|백)\s*원")
 _EXAGGERATION = re.compile(r"최고|무조건|100%")
+_UNVERIFIED_CLAIM_WORDS = ("인기 메뉴", "가장 인기", "1위", "최고", "많은 분들이")
+_NOTICE_COMPLAINT_WORDS = ("항의",)
 _STORE_CIRCUMSTANCE = re.compile(r"매출|손님이\s*줄|경기가?\s*안\s*좋|장사가?\s*안\s*돼|하락세|매출\s*감소|감소세")
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _ALL_MEASURE_TEXTS = [m["text"] for m in MEASURES]
@@ -336,6 +338,29 @@ def coupon_invented(text: str) -> bool:
     return bool(_COUPON_WORDS.search(text))
 
 
+# 메뉴 설명·구성품에 없으면 지어낸 재료로 보는 흔한 식재료 단어들(review_promo·coupon_promo 공용).
+_INVENTED_INGREDIENT_WORDS = (
+    "채소", "참깨", "치즈", "버섯", "계란", "달걀", "새우", "베이컨", "고수", "야채", "나물", "샐러드",
+)
+
+
+def invented_ingredient(text: str, menu_descriptions: dict[str, str] | None = None) -> bool:
+    """메뉴 설명·구성품(COMPONENT_ITEMS)에 없는 식재료 단어가 글에 있으면 True.
+    홍보글(coupon_promo·review_promo) 전용 — AI 가 메뉴에 없는 재료를 지어내 소개하지 않도록 막는다."""
+    known = " ".join((menu_descriptions or {}).values()) + " " + " ".join(COMPONENT_ITEMS)
+    return any(w in text and w not in known for w in _INVENTED_INGREDIENT_WORDS)
+
+
+def has_unverified_claim(text: str) -> bool:
+    """근거 없는 인기·순위 주장("인기 메뉴"·"최고"·"1위" 등)이 있으면 True."""
+    return any(w in text for w in _UNVERIFIED_CLAIM_WORDS)
+
+
+def notice_no_complaint_word(text: str) -> bool:
+    """공지에 '항의' 같은 단어가 있으면 False(손님을 자극하는 단어는 안 써요)."""
+    return not any(w in text for w in _NOTICE_COMPLAINT_WORDS)
+
+
 def has_markdown(text: str) -> bool:
     """**, #, ` 같은 마크다운 기호가 남아 있으면 True."""
     return bool(_MARKDOWN.search(text))
@@ -636,6 +661,9 @@ def fix_hints(failed: list[str], formal: bool = False, register: str | None = No
         "no_customer_quote": "손님 후기를 인용하지 않는다. 따옴표로 손님 말을 옮기거나 '손님들께서 ...라고' 처럼 "
                               "쓰지 말고, 메뉴 특징을 직접 설명해 주세요.",
         "promo_formal": "해요체 대신 합니다체로 써 주세요.",
+        "no_invented_ingredient": "메뉴 설명에 없는 재료(채소·참깨·치즈·버섯·계란 등)는 지어내지 말고 빼 주세요.",
+        "no_unverified_claim": "'인기 메뉴'·'가장 인기'·'1위'·'최고'·'많은 분들이' 같은 근거 없는 인기·순위 주장은 빼 주세요.",
+        "notice_no_complaint_word": "'항의' 같은 손님을 자극하는 단어는 빼 주세요.",
         "apology_expressed": "가게 잘못일 수 있는 불만이에요. 글 안에 불편을 드려 죄송하다는 사과를 한 번 넣어 주세요.",
         # 사과 없이 사실을 설명하는 답글(c6.stance EXPLAIN)의 점검
         "no_compensation_offer": "요청을 들어드리겠다거나 더 챙겨 드리겠다는 약속, 환불·무료·서비스·할인 같은 말은 빼 주세요.",

@@ -464,6 +464,48 @@ class TestPromoStoreCircumstanceMock(unittest.TestCase):
         self.assertIn("가게 사정", hints[0])
 
 
+class TestPromoInventedIngredientMock(unittest.TestCase):
+    """홍보글(coupon_promo·review_promo)은 메뉴 설명·구성품에 없는 식재료(채소·참깨·치즈·버섯·계란 등)를
+    지어내 쓰면 안 된다 — AI 가 메뉴판에 없는 재료로 메뉴를 꾸며 설명하는 것을 막는다."""
+
+    def test_unknown_ingredient_word_is_caught(self):
+        self.assertTrue(checks.invented_ingredient("신선한 채소가 듬뿍 들어갑니다.", {}))
+        self.assertTrue(checks.invented_ingredient("고소한 참깨를 올렸습니다.", {}))
+        self.assertFalse(checks.invented_ingredient("제육볶음 정식은 매콤달콤합니다.", {}))
+
+    def test_ingredient_present_in_menu_description_is_not_flagged(self):
+        self.assertFalse(checks.invented_ingredient("계란이 들어갑니다.", {"비빔밥": "계란후라이 포함"}))
+
+    def test_fix_hint_mentions_ingredient(self):
+        hints = checks.fix_hints(["no_invented_ingredient"])
+        self.assertIn("재료", hints[0])
+
+    @unittest.skipUnless(MOCK, "--mock 일 때만 실행")
+    def test_invented_ingredient_in_promo_response_triggers_rewrite(self):
+        card = next(c for c in CTX.cards if c.kind == "promo")
+        calls = {"n": 0}
+        lock = threading.Lock()
+
+        def _invents_then_fixes(key, system, messages, model="HCX-005", **kw):
+            # 처음 두 콜(동시에 만드는 후보 2개)은 모두 지어낸 재료가 섞인 응답을 주고,
+            # 그 뒤 다시 쓰기 콜부터 점검을 통과하는 응답을 준다.
+            with lock:
+                calls["n"] += 1
+                n = calls["n"]
+            if n <= 2:
+                return _ok("신선한 채소와 고소한 참깨가 가득한 메뉴를 소개합니다.")
+            return _ok("정성껏 준비한 메뉴를 소개합니다.")
+
+        with patch("clova.call", side_effect=_invents_then_fixes):
+            result = run_card(CTX, card, "fake-key")
+
+        promo_draft = result.drafts[0]
+        self.assertGreaterEqual(promo_draft.rewrites, 1, promo_draft.checks)
+        self.assertTrue(promo_draft.checks["no_invented_ingredient"], promo_draft.checks)
+        self.assertNotIn("채소", promo_draft.text)
+        self.assertNotIn("참깨", promo_draft.text)
+
+
 class TestPromoExaggerationAndFormalMock(unittest.TestCase):
     """홍보글은 '최고'·'무조건'·'100%' 같은 과장 표현이 없어야 하고, 합니다체로 써야 한다."""
 
