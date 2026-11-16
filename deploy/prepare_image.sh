@@ -10,7 +10,7 @@
 # 하는 일
 #   1 ic26 서비스를 멈춘다 (실행 중에 파일이 다시 쓰이지 않게)
 #   2 /etc/ic26/env 에서 이름에 KEY, PASSWORD, TOKEN, SECRET 이 들어간 줄의 값을 비운다 (변수 이름은 남김)
-#   3 실행 중에 생긴 데이터를 지운다: 붙여넣은 리뷰와 분류 결과, 승인 기록, 사용량 기록, 모델 원문 응답, 상권 대화 기록
+#   3 실행 중에 생긴 데이터를 지운다: 붙여넣은 리뷰와 분류 결과, 승인 기록, 사용량 기록, 모델 원문 응답, 상권 대화 기록, 마케팅 기록
 #   4 키가 남아 있을 만한 곳을 이름만 찾아 알려 준다 (값은 출력하지 않는다)
 # 하지 않는 일: 서비스를 다시 시작하는 일, 이미지를 만드는 일(콘솔에서 사람이), 셸 히스토리 지우기(아래 안내)
 set -euo pipefail
@@ -35,8 +35,8 @@ ENV_FILE=/etc/ic26/env
 
 echo "[1/4] 서비스 멈춤"
 if [ "$USE_SYSTEMD" = 1 ]; then
-  systemctl stop ic26-was.service ic26-review.service ic26-market.service 2>/dev/null || true
-  for u in ic26-was ic26-review ic26-market; do printf '  %-12s %s\n' "$u" "$(systemctl is-active "$u.service" 2>/dev/null || true)"; done
+  systemctl stop ic26-was.service ic26-review.service ic26-market.service ic26-marketing.service 2>/dev/null || true
+  for u in ic26-was ic26-review ic26-market ic26-marketing; do printf '  %-15s %s\n' "$u" "$(systemctl is-active "$u.service" 2>/dev/null || true)"; done
 else
   echo "  건너뜀 (--no-systemd)"
 fi
@@ -69,6 +69,7 @@ clear_dir() {
 }
 clear_dir /var/lib/ic26/runtime                            # 승인 기록(approvals.jsonl)
 clear_dir /var/lib/ic26/market                             # 상권 대화 기록(SQLite)
+clear_dir /var/lib/ic26/marketing                          # 맞춤 마케팅 기록(방문자별 records_*.json)
 clear_dir $APP_DIR/services/review-insight/data/runtime    # 붙여넣은 리뷰와 분류 결과
 clear_dir $APP_DIR/services/review-insight/logs            # 사용량 기록
 clear_dir $APP_DIR/experiments/marketing/results           # 글 생성 모델의 원문 응답
@@ -97,5 +98,5 @@ cat <<'EOF'
   3. 콘솔에서 이 서버로 서버 이미지를 만듭니다 (ic26-was-img1).
 이미지를 만든 뒤에는 이 서버의 /etc/ic26/env 에 값을 다시 넣고 서비스를 시작합니다.
   sudo vi -n -i NONE /etc/ic26/env
-  sudo systemctl restart ic26-review ic26-was
+  sudo systemctl restart ic26-review ic26-marketing ic26-was
 EOF

@@ -36,7 +36,7 @@ open http://localhost:8000
 curl -s http://localhost:8000/api/health
 ```
 
-- `run.sh`가 리뷰 분석 서버(8020번 포트)와 비서 화면 서버(8000번 포트)를 같이 띄웁니다. `Ctrl+C`로 둘 다 끕니다.
+- `run.sh`가 리뷰 분석 서버(8020번 포트), 맞춤 마케팅 서버(8030번 포트), 비서 화면 서버(8000번 포트)를 같이 띄웁니다. `Ctrl+C`(또는 스크립트 `kill`)로 셋 다 끕니다. 맞춤 마케팅을 빼려면 `MARKETING_SURVEY_URL=off` (4부).
 - `APP_MODE=mock`이면 키 파일이 있어도 모델(HCX)을 부르지 않습니다. 키가 없어도 됩니다.
 - 주소 뒤에 `?theme=light`를 붙이면 라이트 테마로 고정됩니다 (아니면 운영체제 설정을 따름).
 - 자동 API 문서는 `http://localhost:8000/docs`에 있습니다 (로컬에서만. 배포 계획서의 Nginx 설정은 `/docs`를 막음).
@@ -74,6 +74,8 @@ curl -s http://localhost:8000/api/health
   - 2.7 자유롭게 바꿔도 되는 것 · 2.8 바꾼 뒤 확인하는 법 · 2.9 왼쪽 메뉴 접기와 폭 기준
 - 3부. 데이터가 어디에 저장되나, 무엇이 바뀔 예정인가
   - 3.1 지금 · 3.2 예정(아직 없음) · 3.3 지금 화면에 있는 빈 자리 · 3.4 임시 DB 표 이름
+- 4부. 맞춤 마케팅 서비스 자체 API · 실행 · 배포 (11/16)
+  - 4.1 한눈에 · 4.2 경로 · 4.3 `visitor_id` · 4.4 기록 파일 · 4.5 `DELETE /records` · 4.6 `/health` · 4.7 모드 · 4.8 실행 · 4.9 배포
 - 부록. 알려진 특이점, 코드에서 확인하지 못한 것
 
 ---
@@ -2312,6 +2314,143 @@ const LATER = [
 | 상권 지표 | `snap_(상권코드)_…` | `snap_3110826_evening_17_24_common_yoy_2026Q2` |
 | 카드 | `card_(가게)_a` / `_b` | `card_ongi_a` |
 | 글 | `d_(8자리)`. mock은 저장 예시의 값이 고정 | `d_d368820d` |
+
+---
+
+## 4부. 맞춤 마케팅 서비스 자체 API · 실행 · 배포 (11/16)
+
+> 대상: 비서 화면 서버의 맞춤 마케팅 프록시를 만지는 사람, 서버를 띄우는 사람. 기준: 통합 브랜치(`5b23e70` = main `1ce30ac` + PR #56) 위 `feat/imkt-a-backend`.
+> 여기 적은 것은 **맞춤 마케팅 서버 자체의 API**입니다. 브라우저는 이 서버를 직접 부르지 않고, 비서 화면 서버(8000)가 같은 경로 `/api/marketing-survey/*`를 대신 불러 줍니다. 그 중계(쿠키 → `visitor_id`, 오류 모양 바꾸기 등)는 1부의 맞춤 마케팅 프록시 절에 있습니다.
+> 응답 예시는 `TestClient`로 mock 모드에서 뽑았습니다.
+
+### 4.1 한눈에
+
+| 항목 | 값 |
+|---|---|
+| 코드 | `experiments/marketing/marketing_survey/` (김수현 님, PR #56). 글은 `experiments/marketing/c6`의 생성기로 만듦 |
+| 시작 명령 | `cd experiments/marketing && PYTHONPATH=<저장소 루트>:<저장소 루트>/experiments/marketing python -m uvicorn marketing_survey.server:app --host 127.0.0.1 --port 8030` |
+| 주소 | `127.0.0.1:8030` (같은 컴퓨터 안쪽만. 서버에서는 `ic26-marketing`, 로컬에서는 `run.sh`의 `MARKETING_PORT`) |
+| 상태 | 서버에 대화 상태를 두지 않습니다. 화면이 `state` = `{node, raw, confirms, mode}`를 들고 다니며 매 요청마다 보냅니다 |
+| 기록 | 설문 결과·승인·쿠폰 결과·광고비 점검을 파일에 한 줄씩 (4.4) |
+| 오류 모양 | FastAPI 기본: `{"detail": "한국어 문장"}`(400·404·500), 형식 오류는 `{"detail": [ … ]}`(422). 비서 화면 서버의 `{"error": {"message"}}`와 다릅니다 |
+
+### 4.2 경로
+
+모든 경로에 공통 쿼리 `store`(기본 `store_ongi`, 데이터가 없는 가게는 `404`)와 `visitor_id`(선택, 4.3)를 붙일 수 있습니다.
+
+| 메서드 · 경로 | 하는 일 | 기록 | live에서 HCX |
+|---|---|---|---|
+| `GET /health` · `GET /api/marketing-survey/health` | 상태 (4.6). 두 경로가 같은 내용 (11/16 새로) | | |
+| `GET /api/marketing-survey/meta` | 가게 이름·id·가게 목록 | | |
+| `GET /api/marketing-survey/stores` | 가게 목록 (`available` false는 고를 수 없음) | | |
+| `POST /api/marketing-survey/step` | 질문 하나 진행. 본문 `{state, answer}` (`state: null`이면 새로 시작) | | |
+| `POST /api/marketing-survey/result` | 맞춤 홍보 제안의 결정 + 설명 3줄 | | |
+| `POST /api/marketing-survey/generate` | 글 하나 (`{text, todo, demo, coupon}`) | | 부름 |
+| `POST /api/marketing-survey/plan` | 실행 계획과 글 (`{title, steps, drafts, demo, session_id, …}`). `state.mode`로 기능을 가름 | 씀 (`proposed`, 쿠폰 결과, 광고비 점검) | 부름 (광고비 점검·쿠폰 결과의 계획은 코드만) |
+| `POST /api/marketing-survey/next-idea` | 같은 목표의 다음 아이디어 | | |
+| `POST /api/marketing-survey/idea-try` | 아이디어 해 보기 (질문이 필요하면 질문만) | 씀 (`tried`) | |
+| `POST /api/marketing-survey/coupon-calc` | 쿠폰 슬라이더 계산 | | |
+| `POST /api/marketing-survey/approve` | 승인. 본문 `{state, session_id, edited_texts}` | 씀 (`approved`) | |
+| `POST /api/marketing-survey/notice-followup` | 개선 인증 소식 (코드가 리뷰 수를 셈) | | |
+| `GET /api/marketing-survey/report?period=weekly\|monthly` | 마케팅 보고서. 기록이 없으면 데모 (`demo: true`) | 읽음 | |
+| `DELETE /api/marketing-survey/records` | 그 방문자의 기록만 지움 (4.5, 11/16 새로) | 지움 | |
+| `GET /` · `/web/…` | 이 서버의 단독 화면 (통합 화면에서는 쓰지 않음) | | |
+
+- `demo`(`/generate`·`/plan`): `true`면 HCX를 부르지 않고 저장된 예시(`c6/replay`)나 코드 템플릿으로 만든 글입니다. mock이거나 live인데 키가 없을 때입니다.
+- 글 생성기(c6)의 점검·다시 쓰기·템플릿은 서버 응답에 나오지 않고 글(`text`·`drafts`)만 나옵니다.
+
+### 4.3 `visitor_id` (11/16)
+
+- 선택 쿼리입니다. 정규식 `^[A-Za-z0-9_-]{1,64}$`. 틀리면 **모든 경로에서** `400`입니다. **빈 값(`visitor_id=`)도 틀린 값**이라, 방문자가 없으면 쿼리를 빼고 보냅니다.
+
+  ```json
+  {"detail": "visitor_id 형식이 올바르지 않아요. 영문·숫자·_·- 로 1~64자여야 해요."}
+  ```
+- 본문이 아니라 쿼리로 받는 이유: 비서 화면 서버가 GET·POST 모두 쿼리에 `store`·`visitor_id`를 붙여 중계하고 본문은 손대지 않기 때문입니다.
+- 쓰는 곳: `plan`·`approve`·`idea-try`는 기록을 그 방문자 파일에 쓰고, `report`는 그 방문자 파일만 읽고, `DELETE /records`는 그 파일만 지웁니다. 나머지 경로는 받아서 형식만 봅니다.
+
+### 4.4 기록 파일
+
+| `visitor_id` | 파일 (`MARKETING_RECORDS_DIR`, 기본 `experiments/marketing/data/marketing/`) | 보고서 |
+|---|---|---|
+| 있음 | `records_{store}_{visitor_id}.json` (줄마다 `"visitor_id"` 칸이 붙음) | 그 방문자의 기록만 셈. 없으면 데모 `demo_records_{store}.json` (`demo: true`). 가게 공용 파일·다른 방문자 기록은 섞지 않음 |
+| 없음 | `records_{store}.json` (예전과 같음. 단독 화면·시험용) | 예전과 같음 |
+
+- 줄 하나가 JSON 하나이고 칸 이름은 나중 DB 표 이름과 같습니다(`marketing_sessions`, `coupon_runs`. `records.py` 머리말).
+- 기록은 보조 기능입니다. 파일을 못 써도(`OSError`·`ValueError`) 응답은 그대로 가고 `session_id`만 `null`이 됩니다.
+- 서버: `/var/lib/ic26/marketing` (`ic26` 소유). 저장소 안 기본 폴더는 `.gitignore` 대상입니다(데모 파일만 올라감).
+- 주의: 가게 id가 '다른 가게 id + `_` + 방문자 id' 꼴이면 파일 이름이 겹칩니다. 지금 가게 목록(`store_ongi` 하나)에는 없습니다.
+
+### 4.5 `DELETE /api/marketing-survey/records` (11/16)
+
+- `?visitor_id=…`(필수) `&store=…`(선택). 그 방문자의 파일 하나만 지웁니다.
+
+  ```json
+  {"deleted": true}
+  ```
+- 파일이 없으면 `{"deleted": false}` (오류 아님, `200`).
+- `visitor_id`가 없으면 `400` (가게 공용 파일 `records_{store}.json`은 지우지 않음):
+
+  ```json
+  {"detail": "visitor_id 가 있어야 기록을 지울 수 있어요. 가게 공용 기록은 지우지 않아요."}
+  ```
+- 데이터가 없는 가게 `404`, 파일을 지우지 못하면 `500` `{"detail": "기록을 지우지 못했어요. 잠시 뒤 다시 해 주세요."}`.
+
+### 4.6 `GET /health` · `GET /api/marketing-survey/health` (11/16)
+
+```json
+{
+  "status": "ok",
+  "service": "marketing-survey",
+  "mode": "mock",
+  "mode_source": "MARKETING_APP_MODE",
+  "key_present": false,
+  "demo": true,
+  "store_id": "store_ongi",
+  "records_dir_writable": true,
+  "notes": [
+    "mock: 키가 있어도 HCX 를 부르지 않아요. 글은 저장된 예시·코드 템플릿이에요(실제 AI 결과 아님)."
+  ]
+}
+```
+
+| 칸 | 뜻 |
+|---|---|
+| `mode` · `mode_source` | 4.7의 모드와 그것을 정한 것 (`MARKETING_APP_MODE` · `APP_MODE` · `key`) |
+| `key_present` | 환경에 `CLOVA_API_KEY`가 있는지. **키 값은 싣지 않습니다** |
+| `demo` | HCX를 부르지 않는 상태인지 (mock이거나 live인데 키 없음) |
+| `store_id` | 기본 가게 |
+| `records_dir_writable` | 기록 폴더(아직 없으면 만들 수 있는 윗폴더)에 쓸 수 있는지. 폴더 경로는 싣지 않습니다 |
+| `notes` | 사람이 볼 안내 (live인데 키 없음, 기록 폴더에 못 씀 등) |
+
+### 4.7 모드 (11/16)
+
+- 정하는 순서: `MARKETING_APP_MODE`(`mock`|`live`) → 없으면 `APP_MODE` → 없으면 키(`CLOVA_API_KEY`)가 있으면 `live`, 없으면 `mock`. `mock`·`live`가 아닌 값은 없는 것으로 봅니다.
+- **mock이면 환경에 키가 있어도 HCX를 한 번도 부르지 않습니다** (맞춤 홍보 제안·남은 재료·가게 이야기 글·쿠폰 결과의 `/plan`·`/generate` 모두). 키를 읽는 곳은 서버의 `hcx_key()` 하나이고, 가게 이야기 글(`story.build_story_plan`)에도 그 값을 넘깁니다.
+- live인데 키가 없으면 예전처럼 데모로 돕니다(`demo: true`, `/health`의 `notes`).
+- 요청마다 환경 변수를 다시 읽습니다(바꾸면 다음 요청부터).
+
+### 4.8 실행 (`services/web/run.sh`)
+
+- `run.sh`가 리뷰 분석(8020)·**맞춤 마케팅(8030)**·비서 화면(8000)을 같이 띄웁니다. `Ctrl+C`나 스크립트 `kill`로 셋 다 꺼집니다.
+- 맞춤 마케팅의 모드는 `MARKETING_APP_MODE`(주지 않으면 `APP_MODE`와 같음). 키 파일이 있어도 `APP_MODE=mock`이면 마케팅도 mock입니다.
+- 비서 화면 서버에 `MARKETING_SURVEY_URL=http://127.0.0.1:<MARKETING_PORT>`를 넘깁니다. 미리 `MARKETING_SURVEY_URL=off`를 주면 마케팅 서버를 띄우지 않고 그대로 `off`를 넘기고, 다른 주소를 주면 띄우지 않고 그 주소를 넘깁니다.
+- 기록 폴더를 바꾸려면 `MARKETING_RECORDS_DIR=<폴더>` (상대 경로는 지금 위치 기준).
+- `/health`가 30초 안에 응답하지 않으면 "맞춤 마케팅 서버가 뜨지 않았습니다"를 알리고 끝냅니다.
+
+### 4.9 배포 (`deploy/`)
+
+| 파일 | 바뀐 것 |
+|---|---|
+| `systemd/ic26-marketing.service` | 새로. `ic26` 계정, `/opt/ic26/experiments/marketing`, `PYTHONPATH=/opt/ic26:/opt/ic26/experiments/marketing`, `127.0.0.1:8030`, `MARKETING_RECORDS_DIR=/var/lib/ic26/marketing`, `EnvironmentFile=/etc/ic26/env` |
+| `systemd/ic26-was.service` | `MARKETING_SURVEY_URL=http://127.0.0.1:8030`, 순서 `After=ic26-marketing.service` (Wants 아님 — 꺼 둔 마케팅을 끌어오지 않음) |
+| `install_was.sh` | `/var/lib/ic26/marketing` 만들기, 마케팅 서버 import 확인, `ic26-marketing` enable·시작. `experiments/marketing/requirements.txt`는 설치하지 않음(서버는 fastapi·uvicorn만 씀, 개발용 streamlit 제외) |
+| `smoke_test.sh` | [4] 맞춤 마케팅: 비서 화면을 거친 `/api/marketing-survey/health`(404면 주의만), 서버 안 `127.0.0.1:8030/health`, `--generate`면 `/plan`(가게 이야기 글) 1회 후 시험 방문자 기록 지움 |
+| `prepare_image.sh` | `ic26-marketing` 멈춤, `/var/lib/ic26/marketing` 비움 |
+| `env.example` · `README.md` | 주석으로 `MARKETING_APP_MODE`, `MARKETING_SURVEY_URL=off`. README 10-2절 |
+
+- Nginx는 바꾸지 않습니다. 브라우저는 `/api/marketing-survey/*`를 비서 화면 서버로만 부르고(1단계 `location /`, 2단계 `location /api/`), 8030은 `127.0.0.1`에만 열립니다.
+- 끄는 법: `/etc/ic26/env`에 `MARKETING_SURVEY_URL=off`, `sudo systemctl disable --now ic26-marketing && sudo systemctl restart ic26-was`.
 
 ---
 

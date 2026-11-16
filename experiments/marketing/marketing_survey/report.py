@@ -6,7 +6,7 @@ AI 호출 없음, 기대 효과·예측 없음, 기록에 없는 숫자는 만�
   weekly   그 주 월요일 00:00 ~ min(일요일 23:59:59, 지금). 이전 기간 = 바로 앞 주 전체.
   기록은 created_at 의 날짜가 기간 안(양 끝 포함)이면 센다.
 
-marketing_section(store_id, period_kind, today=None) -> {
+marketing_section(store_id, period_kind, today=None, visitor_id=None) -> {
   period, demo,
   activity: {approved: {글 종류: 건수}, ideas_tried: [아이디어 이름]},
   cost: {coupon: {...} | None, ads: [{app, label, cost_per_order, profit_per_order, verdict, prev_verdict}]},
@@ -204,10 +204,12 @@ def _next(coupon: dict | None, ads: list[dict], fixed: list[dict]) -> list[dict]
 
 # ---------- 진입점 ----------
 
-def marketing_section(store_id: str, period_kind: str = "monthly", today: date | None = None) -> dict:
+def marketing_section(store_id: str, period_kind: str = "monthly", today: date | None = None,
+                      visitor_id: str | None = None) -> dict:
+    """visitor_id 가 있으면 그 방문자의 기록만 센다 (없으면 데모 기록, demo: true). records.load_for_report 참고."""
     today = today or datetime.now(KST).date()
     start, end, prev_start, prev_end = period_bounds(period_kind, today)
-    rows, demo = records.load_for_report(store_id)
+    rows, demo = records.load_for_report(store_id, visitor_id)
     sessions = [r for r in rows if r.get("table") == records.SESSIONS]
     runs = [r for r in rows if r.get("table") == records.COUPON_RUNS]
     ctx = stores.get_ctx(store_id)
