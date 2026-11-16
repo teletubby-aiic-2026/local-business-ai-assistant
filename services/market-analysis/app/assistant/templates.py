@@ -76,6 +76,27 @@ def focus_line(card: dict, question: str) -> str | None:
 
     Only values already on the card are named; nothing is added up.
     """
+    if card.get("topic") == "area_profile":
+        # The general profile text omits school/hospital counts. A model fallback
+        # must still answer the facilities the user asked about, including zero.
+        requested = []
+        for pattern, label in ((r"초중고|초등학교|중학교|고등학교|(?<!대)학교", "초중고 수"),
+                               (r"병원", "병원 수"), (r"대학", "대학교 수"),
+                               (r"버스", "버스정류장 수"), (r"지하철", "지하철역 수")):
+            if re.search(pattern, question or ""):
+                requested.append(label)
+        if not requested:
+            return None
+        values = {item.get("label"): item for item in card.get("values", [])}
+        parts = []
+        for label in requested:
+            item = values.get(label) or {}
+            number = item.get("value")
+            if type(number) in (int, float):
+                parts.append(f"{label}는 {number:,}{item.get('unit') or ''}로 집계됐어요.")
+            else:
+                parts.append(f"{label}는 자료에서 확인하지 못했어요.")
+        return " ".join(parts) + f" [{card['id']}]"
     pairs = _FOCUS.get(card.get("topic"))
     text = (question or "").replace(" ", "")
     if not pairs or not text:
@@ -86,12 +107,17 @@ def focus_line(card: dict, question: str) -> str | None:
         if word not in text or labels in seen or not all(label in values for label in labels):
             continue
         seen.add(labels)
-        if f"{word} 합계" in values and f"{word} 하루 평균" in values:
-            # '평일은?': the five days together and per day, not one day picked out.
-            total, daily = values[f"{word} 합계"]["value"], values[f"{word} 하루 평균"]["value"]
+        if f"{word} 합계" in values:
+            # Quarter totals survive an unknown period; only explicitly calendar-based averages are used.
+            total = values[f"{word} 합계"]["value"]
             days = "월~금" if word == "평일" else "토·일"
-            segments.append(f"{word}({days}){josa(word, '은')[len(word):]} 합계 {total:,}원, 하루 평균 {daily:,}원")
-            parts[word] = daily
+            segment = f"{word}({days}){josa(word, '은')[len(word):]} 합계 {total:,}원"
+            average = values.get(f"{word} 하루 평균", {})
+            if average.get("average_basis") == "calendar_day":
+                daily = average["value"]
+                segment += f", 달력일 기준 하루 평균 {daily:,}원"
+                parts[word] = daily
+            segments.append(segment)
             continue
 
         def amount(label):
@@ -112,7 +138,7 @@ def focus_line(card: dict, question: str) -> str | None:
     line = "이고, ".join(segments) + f"이에요. [{card['id']}]"
     if len(parts) == 2 and parts["주말"] != parts["평일"]:
         bigger, smaller = ("주말", "평일") if parts["주말"] > parts["평일"] else ("평일", "주말")
-        line = f"하루 평균으로는 {josa(bigger, '이')} {smaller}보다 매출이 커요. [{card['id']}]\n" + line
+        line = f"달력일 기준 하루 평균으로는 {josa(bigger, '이')} {smaller}보다 매출이 커요. [{card['id']}]\n" + line
     if len(singles) == 2 and len(segments) == 2 and singles[0][2] != singles[1][2]:
         (big, big_word, _), (small, _, _) = sorted(singles, key=lambda item: -item[2])
         line = f"{big}{josa(big_word, '이')[len(big_word):]} {small}보다 매출이 커요. [{card['id']}]\n" + line

@@ -221,7 +221,7 @@ class ContextTests(unittest.TestCase):
         table = location.area_table("20262", {}, folder=self.folder)
         self.assertEqual(table["7000011"]["kind"], "직장 수요형")
         self.assertEqual(table["1111111"]["kind"], "주거 수요형")
-        self.assertEqual(table["1111111"]["schools"], 2, "elementary + middle, a missing count adds nothing")
+        self.assertIsNone(table["1111111"]["schools"], "a missing high-school count leaves the combined count unknown")
 
     def test_nothing_collected_means_nothing_said(self):
         self.assertEqual(location.area_table("20262", {}, folder=self.folder), {})

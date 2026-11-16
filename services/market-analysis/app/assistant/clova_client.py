@@ -184,6 +184,22 @@ def build_request(cards: list[dict], classification: dict) -> dict:
             "temperature": 0.3, "repetitionPenalty": 1.1, "seed": 0, "includeAiFilters": True}
 
 
+def _model_request(body: dict, model: str) -> dict:
+    """Preserve the visible-answer budget when using HCX-007's different token parameter.
+
+    HCX-007 forbids maxTokens and otherwise defaults to reasoning. These fact-card
+    answers and planner JSON use no reasoning unless the caller explicitly asks for it.
+    See https://api.ncloud-docs.com/docs/clovastudio-chatcompletionsv3-thinking.
+    """
+    request = dict(body)
+    if model == "HCX-007":
+        if "maxTokens" in request:
+            tokens = request.pop("maxTokens")
+            request.setdefault("maxCompletionTokens", tokens)
+        request.setdefault("thinking", {"effort": "none"})
+    return request
+
+
 def _api_status(payload) -> str:
     status = payload.get("status") if isinstance(payload, dict) else None
     return str(status.get("code", "unknown")) if isinstance(status, dict) else "unknown"
@@ -253,7 +269,7 @@ class ClovaWriter:
         started = time.monotonic()
         try:
             response = self._client.post(
-                ENDPOINT.format(model=self.model), json=body,
+                ENDPOINT.format(model=self.model), json=_model_request(body, self.model),
                 headers={"Authorization": f"Bearer {self._key}", "X-NCP-CLOVASTUDIO-REQUEST-ID": request_id,
                          "Content-Type": "application/json; charset=utf-8", "Accept": "application/json"})
         except httpx.HTTPError as error:

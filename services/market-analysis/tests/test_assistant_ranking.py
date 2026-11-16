@@ -267,8 +267,8 @@ class IndustryRankTests(_RankingEnv, unittest.TestCase):
         self.assertTrue(times.startswith("점심(11~14시)은 300원(30.00%)이고, 저녁(17~21시)은 300원(30.00%)이에요. [F"), times)
         days = self.say("주말이랑 평일 중 언제 더 팔려?")["reply"]["text"]
         # User feedback 2026-11-08: '평일은?' wants the five days together and per day, not one day picked out.
-        self.assertTrue(days.startswith("하루 평균으로는 주말이 평일보다 매출이 커요. [F"), days)
-        self.assertIn("주말(토·일)은 합계 400원, 하루 평균 200원이고, 평일(월~금)은 합계 600원, 하루 평균 120원이에요.", days)
+        self.assertTrue(days.startswith("달력일 기준 하루 평균으로는 주말이 평일보다 매출이 커요. [F"), days)
+        self.assertIn("주말(토·일)은 합계 400원, 달력일 기준 하루 평균 15원이고, 평일(월~금)은 합계 600원, 달력일 기준 하루 평균 9원이에요.", days)
 
     def test_short_requests_follow_the_conversation_without_the_ai(self):
         # User feedback 2026-11-08: '추천해줘' after a 창업 question answered 'I cannot answer that'.
