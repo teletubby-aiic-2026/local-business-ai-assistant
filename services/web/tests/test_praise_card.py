@@ -28,7 +28,7 @@ from fastapi.testclient import TestClient
 
 from shared.answer_check import check_answer
 from shared.contracts import AnalysisSnapshot, ReviewRecord, load_json
-from web.cards import build_cards, plan_cards, reason_problems
+from web.cards import build_cards, normalize_citations, plan_cards, reason_problems
 from web.demo import Demo
 from web.main import create_app
 from web.sources import to_review_records, to_store_profile
@@ -108,10 +108,10 @@ class PraiseFact(unittest.TestCase):
         plan = card_b()
         self.assertEqual(plan.title, "관측 업종 합산 추정매출 (하루 전체 시간대) 하락 → '제육볶음 정식' 쿠폰 홍보")
         self.assertEqual(plan.card.reason_text.split("\n")[1:],
-                         ["손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요", "손님을 다시 부르는 제육볶음 정식 쿠폰 홍보를 제안해요."])
+                         ["손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요.", "손님을 다시 부르는 제육볶음 정식 쿠폰 홍보를 제안해요."])
         self.assertNotIn("가장", plan.checked_text)
         self.assertIn("27.95% 감소 [F2]", plan.checked_text)
-        self.assertIn("언급이 1건 있어요 [F3]", plan.checked_text)
+        self.assertIn("언급이 1건 있어요 [F3].", plan.checked_text)                    # 마침표 앞에 인용 표시 (11/16)
         f2, f3 = plan.facts
         self.assertEqual((f2["id"], f3["id"], f3["topic"], f3["status"]), ("F2", "F3", "review_praise", "available"))
         self.assertEqual(f3["values"], [{"label": "쿠폰 메뉴를 언급한 칭찬 리뷰", "value": 1, "unit": "건"},
@@ -269,7 +269,7 @@ class ModelSentence(unittest.TestCase):
 
     def test_code_line_goes_right_after_the_cited_sentence(self):
         from web.cards import insert_code_line
-        line = "손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요 [F3]"
+        line = "손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요 [F3]."
         cases = {
             "감소했어요[F2]. 쿠폰 홍보를 제안해요.": f"감소했어요[F2].\n{line}\n쿠폰 홍보를 제안해요.",
             "감소했어요 [F2]\n쿠폰 홍보를 제안해요.": f"감소했어요 [F2]\n{line}\n쿠폰 홍보를 제안해요.",
@@ -290,6 +290,96 @@ class ModelSentence(unittest.TestCase):
         facts_b = plan_cards(insight(), load_json(AnalysisSnapshot, EVENING), "store_ongi")[1].facts
         self.assertEqual([f["id"] for f in facts_b], ["F2"])
         self.assertEqual(reason_problems(self.market + "저녁 손님을 다시 부르는 쿠폰 홍보를 제안해요.", facts_b), [])
+
+
+class PraiseLineEnding(unittest.TestCase):
+    """코드가 끼우는 칭찬 근거 줄의 말끝 (11/16). 실시간 화면에서 "…19.31% 감소. ⏎ 손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요
+    ⏎ 저녁 손님을 다시 부르는 쿠폰 홍보를 제안합니다."가 나왔다: 이 줄만 마침표가 없고 해요체였다.
+    → 마침표를 넣고 모델 문장의 말투를 따른다 (합니다체면 '있습니다.', 해요체·섞임·모름이면 '있어요.'). 인용 표시는 마침표 앞 ('[F3].')."""
+
+    MARKET = "장승배기역 4번 상권의 저녁 시간대(17~24시) 추정 매출은 2026년 2분기에 전년 동기 대비 19.31% 감소"
+
+    def written(self, text, extra=()):
+        from web.cards import apply_writer
+        plan = card_b(list(extra), snaps=load_json(AnalysisSnapshot, EVENING))
+        return apply_writer(plan, lambda kind, facts, fixed: text)
+
+    def shown_lines(self, plan):
+        """화면에 보이는 이유 문장 (인용 표시를 지운 것). 줄마다 자연스러운지 함께 본다."""
+        lines = plan.card.reason_text.split("\n")
+        for line in lines:
+            self.assertNotIn("[F", line)
+            self.assertNotIn(" .", line)
+            self.assertNotIn("..", line)
+            self.assertEqual(line, line.strip())
+        return lines
+
+    def test_speech_level_reads_the_sentence_endings(self):
+        from web.cards import speech_level
+        cases = {
+            "감소했습니다[F2]. 쿠폰 홍보를 제안합니다.": "formal",
+            "감소했습니다. [F2]\n쿠폰 홍보를 제안합니다": "formal",                             # 인용이 마침표 뒤, 끝 마침표 없음
+            "19.31% 감소[F2]. 저녁 손님을 다시 부르는 쿠폰 홍보를 제안합니다.": "formal",          # 11/16 live: '감소.'는 끝말로 알 수 없어 세지 않음
+            "감소했어요[F2]. 쿠폰 홍보를 제안해요.": "polite",
+            "감소했습니다[F2]. 쿠폰 홍보를 제안해요.": "polite",                              # 섞임 → 화면 기본(해요체)
+            "19.31% 감소[F2].": "polite",                                                # 모름 → 화면 기본
+            "": "polite",
+        }
+        for text, wanted in cases.items():
+            with self.subTest(text):
+                self.assertEqual(speech_level(text), wanted)
+
+    def test_formal_model_sentence_gets_a_formal_line_with_a_period(self):
+        plan = self.written(self.MARKET + "했습니다[F2]. 저녁 손님을 다시 부르는 쿠폰 홍보를 제안합니다.")
+        self.assertEqual((plan.reason_source, plan.problems), ("HCX-005 (검사기 통과)", []))
+        self.assertIn("감소했습니다[F2].\n손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있습니다 [F3].\n저녁 손님을", plan.checked_text)
+        self.assertEqual(self.shown_lines(plan), [self.MARKET + "했습니다.", "손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있습니다.",
+                                                  "저녁 손님을 다시 부르는 쿠폰 홍보를 제안합니다."])
+
+    def test_polite_model_sentence_gets_a_polite_line_with_a_period(self):
+        plan = self.written(self.MARKET + "했어요[F2]. 저녁 손님을 다시 부르는 쿠폰 홍보를 제안해요.")
+        self.assertEqual((plan.reason_source, plan.problems), ("HCX-005 (검사기 통과)", []))
+        self.assertIn("감소했어요[F2].\n손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요 [F3].\n", plan.checked_text)
+        self.assertEqual(self.shown_lines(plan)[1], "손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요.")
+
+    def test_mixed_model_sentence_gets_the_screen_default(self):
+        plan = self.written(self.MARKET + "했습니다[F2]. 저녁 손님을 다시 부르는 쿠폰 홍보를 제안해요.")
+        self.assertEqual(plan.reason_source, "HCX-005 (검사기 통과)")
+        self.assertEqual(self.shown_lines(plan)[1], "손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요.")
+
+    def test_the_live_sentence_of_11_16_now_reads_as_one_voice(self):
+        plan = self.written(self.MARKET + "[F2]. 저녁 손님을 다시 부르는 쿠폰 홍보를 제안합니다.")
+        self.assertEqual(plan.reason_source, "HCX-005 (검사기 통과)")
+        self.assertEqual(self.shown_lines(plan), [self.MARKET + ".", "손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있습니다.",
+                                                  "저녁 손님을 다시 부르는 쿠폰 홍보를 제안합니다."])
+
+    def test_citation_after_the_period_is_kept_where_the_model_put_it(self):
+        plan = self.written(self.MARKET + "했습니다. [F2] 저녁 손님을 다시 부르는 쿠폰 홍보를 제안합니다.")
+        self.assertIn("감소했습니다. [F2]\n손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있습니다 [F3].\n", plan.checked_text)
+        self.assertEqual(self.shown_lines(plan)[:2], [self.MARKET + "했습니다.", "손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있습니다."])
+
+    def test_single_top_menu_line_follows_the_voice_too(self):
+        extra = [rv(1, "제육볶음 맛있어요"), rv(2, "제육볶음 정식 든든해요")]
+        formal = self.written(self.MARKET + "했습니다[F2]. 저녁 손님을 다시 부르는 쿠폰 홍보를 제안합니다.", extra)
+        polite = self.written(self.MARKET + "했어요[F2]. 저녁 손님을 다시 부르는 쿠폰 홍보를 제안해요.", extra)
+        self.assertEqual(self.shown_lines(formal)[1], "손님 칭찬 리뷰에서 제육볶음 정식 언급이 3건으로 가장 많습니다.")
+        self.assertEqual(self.shown_lines(polite)[1], "손님 칭찬 리뷰에서 제육볶음 정식 언급이 3건으로 가장 많아요.")
+        for plan in (formal, polite):
+            self.assertEqual((plan.reason_source, plan.problems), ("HCX-005 (검사기 통과)", []))
+            self.assertTrue(check_answer(plan.checked_text, plan.facts)["ok"])
+
+    def test_fixed_sentences_end_the_praise_line_with_a_period_and_still_pass(self):
+        for extra in ((), (rv(1, "계란말이 또 시킬게요"), rv(2, "계란말이 최고예요"))):
+            for snaps in (None, load_json(AnalysisSnapshot, EVENING)):
+                plan = card_b(list(extra), snaps=snaps)
+                with self.subTest(extra=len(extra), evening=snaps is not None):
+                    self.assertEqual((plan.reason_source, plan.problems), ("고정 문장", []))
+                    self.assertTrue(check_answer(plan.checked_text, plan.facts)["ok"])
+                    self.assertEqual(reason_problems(plan.checked_text, plan.facts), [])
+                    self.assertRegex(plan.checked_text.split("\n")[1], r"(있어요|많아요) \[F3\]\.$")
+                    self.assertRegex(self.shown_lines(plan)[1], r"(있어요|많아요)\.$")
+                    self.assertTrue(plan.code_line_formal.endswith("니다 [F3]."))
+                    self.assertEqual(normalize_citations(plan.checked_text), plan.checked_text)   # 인용 표시는 이미 '[F3]' 모양
 
 
 # ── 서버 (Demo) ─────────────────────────────────────────────────────
@@ -415,7 +505,7 @@ class LiveServer(unittest.TestCase):
 
     def test_reason_version_was_raised(self):
         from web.demo import REASON_VERSION
-        self.assertNotEqual(REASON_VERSION, "reason-v1")                            # 예전 방식으로 저장해 둔 이유 문장을 다시 쓰지 않는다
+        self.assertNotIn(REASON_VERSION, ("reason-v1", "reason-v2"))               # 예전 방식으로 저장해 둔 이유 문장을 다시 쓰지 않는다 (v3: 칭찬 줄 말끝)
 
     def test_model_gets_only_the_market_card_and_code_adds_the_praise_line(self):
         """모델에게는 상권 지표 카드만 간다 (메뉴·칭찬 건수를 모른다). 칭찬 근거 줄은 코드가 [F2] 문장 바로 뒤에 끼운다."""
@@ -432,14 +522,27 @@ class LiveServer(unittest.TestCase):
         self.assertEqual((b["reason_source"], b["problems"]), ("HCX-005 (검사기 통과)", []))
         self.assertEqual(b["card"]["reason_text"].split("\n"), [
             "장승배기역 4번 상권의 관측 업종 합산 추정매출은 2026년 2분기에 전년 동기 대비 27.95% 감소했어요.",
-            "손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요",
+            "손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요.",
             "손님을 다시 부르는 쿠폰 홍보를 제안해요."])
-        self.assertIn("27.95% 감소했어요[F2].\n손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요 [F3]\n", b["checked_text"])
+        self.assertIn("27.95% 감소했어요[F2].\n손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요 [F3].\n", b["checked_text"])
         self.assertEqual([f["id"] for f in b["facts"]], ["F2", "F3"])                 # 카드의 근거는 둘 다
         promo_ask = next(u for u in asked if '"F2"' in u)
         for hidden in ('"F3"', "제육볶음", "칭찬"):
             self.assertNotIn(hidden, promo_ask)
         self.assertIn("참고 문장(이 정도 길이, 근거 카드에 있는 사실만): 장승배기역 4번 상권의", promo_ask)
+
+    def test_formal_model_sentence_shows_a_formal_praise_line_on_the_card(self):
+        """서버를 거쳐도 같다: 모델이 합니다체로 쓰면 카드 ⓑ 의 칭찬 줄도 합니다체 + 마침표 (11/16)."""
+        def model(system, user):
+            if '"F1"' in user:
+                return echo_model(system, user)
+            return ("장승배기역 4번 상권의 관측 업종 합산 추정매출은 2026년 2분기에 전년 동기 대비 27.95% 감소했습니다[F2]. "
+                    "손님을 다시 부르는 쿠폰 홍보를 제안합니다.")
+        demo = Demo(settings(self.tmp, mode="live"), source=PraiseSource(), reason_model=model)
+        b = next(c for c in demo.cards()["cards"] if c["card"]["kind"] == "promo")
+        self.assertEqual((b["reason_source"], b["problems"]), ("HCX-005 (검사기 통과)", []))
+        self.assertEqual(b["card"]["reason_text"].split("\n")[1:], ["손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있습니다.",
+                                                                     "손님을 다시 부르는 쿠폰 홍보를 제안합니다."])
 
     def test_bad_market_sentence_falls_back_to_the_fixed_sentence_with_both(self):
         def model(system, user):
@@ -447,7 +550,7 @@ class LiveServer(unittest.TestCase):
         demo = Demo(settings(self.tmp, mode="live"), source=PraiseSource(), reason_model=model)
         b = next(c for c in demo.cards()["cards"] if c["card"]["kind"] == "promo")
         self.assertIn("검사 불통과", b["reason_source"])
-        self.assertIn("27.95% 감소 [F2]\n손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요 [F3]\n", b["checked_text"])
+        self.assertIn("27.95% 감소 [F2]\n손님 칭찬 리뷰에 제육볶음 정식 언급이 1건 있어요 [F3].\n", b["checked_text"])
 
     def test_too_many_model_sentences_do_not_fit_with_the_praise_line(self):
         """모델이 세 문장을 쓰면 칭찬 줄까지 네 문장이 된다 → 규칙(세 문장)에 걸려 고정 문장으로."""
