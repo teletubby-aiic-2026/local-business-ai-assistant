@@ -443,6 +443,72 @@ def test_clearing_with_a_store_that_cannot_clear_is_a_clean_503(tmp_path):
     assert res.status_code == 503 and "error" in res.json()
 
 
+# ── 다시 만들기로 바뀐 옛 글의 승인 기록 지우기 (replaces, 11/16) ─────────────────
+class _SaveDown(MemoryApprovals):
+    """쓰기만 안 되는 DB (지우기·읽기는 됨)."""
+
+    def save(self, *a, **k):
+        raise StorageError("DB 에 닿지 못했습니다 (PoolTimeout)")
+
+
+class DeleteDownWhenOff(FlakyApprovals):
+    """꺼져 있으면 골라 지우기도 DB 에 닿지 못한다."""
+
+    def delete(self, store_id, visitor_id, draft_ids):
+        if not self.up:
+            raise StorageError("DB 에 닿지 못했습니다 (PoolTimeout)")
+        return super().delete(store_id, visitor_id, draft_ids)
+
+
+def test_forgetting_old_drafts_also_drops_what_this_server_holds_for_that_visitor_only(tmp_path):
+    store = _DownStore()
+    store.approvals = _SaveDown()
+    client, demo, _ = make_app(tmp_path, storage=store)
+    other = TestClient(client.app)
+    approve(client, "d_old"), approve(client, "d_keep"), approve(other, "d_old", text="다른 방문자의 글")
+    assert len(demo._pending) == 3
+    me = client.cookies[VISITOR_COOKIE]
+    assert demo.forget_approvals(me, ["d_old", "d_none"]) == 1                     # 아직 DB 에 못 쓴 것도 센다
+    assert [(p[0] == me, p[1]["draft_id"]) for p in demo._pending] == [(True, "d_keep"), (False, "d_old")]
+    assert shown(client) == ["d_keep"] and shown(other) == ["d_old"]
+    assert demo.forget_approvals(me, []) == 0
+
+
+@pytest.mark.skipif(not HAS_C6, reason="MARKETING_DIR(C6 저장본) 없음")
+def test_rerun_with_replaces_drops_held_approvals_and_a_failed_run_keeps_them(tmp_path):
+    store = _DownStore()
+    store.approvals = _SaveDown()
+    client, demo, _ = make_app(tmp_path, storage=store)
+    card_id = client.get("/api/cards").json()["cards"][0]["card"]["card_id"]
+    ids = [d["draft_id"] for d in client.post(f"/api/cards/{card_id}/run").json()["drafts"]]
+    approve(client, ids[0]), approve(client, ids[1])
+    assert client.post("/api/cards/card_nope/run", json={"replaces": ids}).status_code == 404     # 만들지 못하면 그대로
+    assert [p[1]["draft_id"] for p in demo._pending] == ids[:2]
+    res = client.post(f"/api/cards/{card_id}/run", json={"replaces": ids[:1]})
+    assert res.status_code == 200 and res.json()["replaced_approvals"] == 1
+    assert [p[1]["draft_id"] for p in demo._pending] == ids[1:2]                   # 다시 만든 글의 밀린 승인만 빠짐
+
+
+@pytest.mark.skipif(not HAS_C6, reason="MARKETING_DIR(C6 저장본) 없음")
+def test_forgetting_during_an_outage_still_returns_the_new_drafts(tmp_path):
+    """DB 에 닿지 못해 옛 승인을 못 지워도 새 글은 그대로 돌려준다 (replaced_approvals 0 + replace_warning).
+    들고 있던 옛 글의 밀린 승인은 버린다 (DB 가 돌아와도 다시 써지지 않게)."""
+    store = _DownStore()
+    store.approvals = db = DeleteDownWhenOff()
+    client, demo, _ = make_app(tmp_path, storage=store)
+    card_id = client.get("/api/cards").json()["cards"][0]["card"]["card_id"]
+    ids = [d["draft_id"] for d in client.post(f"/api/cards/{card_id}/run").json()["drafts"]]
+    approve(client, ids[0])
+    db.up = False
+    approve(client, ids[1])                                                          # 이 서버가 들고 있음
+    res = client.post(f"/api/cards/{card_id}/run", json={"replaces": ids})
+    assert res.status_code == 200 and len(res.json()["drafts"]) == len(ids)
+    assert res.json()["replaced_approvals"] == 0 and "지우지 못했어요" in res.json()["replace_warning"]
+    assert demo._pending == []
+    db.up = True
+    assert shown(client) == [ids[0]]                                                 # DB 에 있던 것은 남음 (못 지움), 밀린 것은 다시 안 써짐
+
+
 # ── 승인 기록의 카드·종류 칸 ─────────────────────────────────────────
 class RecordingApprovals(MemoryApprovals):
     def __init__(self):

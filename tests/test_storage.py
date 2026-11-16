@@ -160,6 +160,24 @@ def test_approvals_clear_removes_only_that_visitor_in_that_store(backend):
     assert [i["draft_id"] for i in backend.approvals.list(s1, a)] == ["d3"]
 
 
+def test_approvals_delete_removes_only_those_drafts_of_that_visitor_in_that_store(backend):
+    """다시 만들어 바뀐 옛 글의 승인 기록만 지우기 (11/16): 이 가게·이 방문자의 그 글들만 지우고 지운 건수를 돌려준다."""
+    s1, s2, a, b = uid("store"), uid("store"), uid("v"), uid("v")
+    backend.approvals.save(s1, a, entry("d1"), card_id="card_a", kind="reply_draft")
+    backend.approvals.save(s1, a, entry("d2", at="2026-11-14T10:00:01+09:00"))
+    backend.approvals.save(s1, a, entry("d3", at="2026-11-14T10:00:02+09:00"))
+    backend.approvals.save(s1, b, entry("d1", text="B 의 글"))
+    backend.approvals.save(s2, a, entry("d1", text="다른 가게의 글"))
+    assert backend.approvals.delete(s1, a, ["d1", "d3", "d_none"]) == 2                 # 없는 id 는 세지 않는다
+    assert [i["draft_id"] for i in backend.approvals.list(s1, a)] == ["d2"]            # 다른 글은 그대로 (순서도)
+    assert [i["text"] for i in backend.approvals.list(s1, b)] == ["B 의 글"]           # 다른 방문자 것은 그대로
+    assert [i["text"] for i in backend.approvals.list(s2, a)] == ["다른 가게의 글"]      # 다른 가게 것도 그대로
+    assert backend.approvals.delete(s1, a, ["d1"]) == 0 and backend.approvals.delete(s1, a, []) == 0
+    assert backend.approvals.delete(s1, uid("v"), ["d2"]) == 0                          # 기록이 없는 방문자
+    backend.approvals.save(s1, a, entry("d1", text="새 글", at="2026-11-14T10:00:03+09:00"))   # 같은 id 로 다시 승인하면 다시 쌓인다
+    assert [i["draft_id"] for i in backend.approvals.list(s1, a)] == ["d2", "d1"]
+
+
 def test_card_reasons_put_get_overwrite(backend):
     sid = uid("store")
     assert backend.card_reasons.get(sid, "card_a", "k1") is None

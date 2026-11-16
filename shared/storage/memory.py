@@ -31,6 +31,18 @@ class MemoryApprovals:
         with self._lock:
             return len(self._rows.pop((store_id, visitor_id), []))
 
+    def delete(self, store_id: str, visitor_id: str, draft_ids) -> int:
+        """이 가게·이 방문자의 승인 기록 가운데 draft_ids 의 것만 지우고 지운 건수를 돌려준다 (다시 만들어 바뀐 옛 글, 11/16).
+        없는 id 는 세지 않는다. 다른 방문자·다른 가게·다른 글의 기록은 그대로다."""
+        wanted = set(draft_ids or ())
+        with self._lock:
+            rows = self._rows.get((store_id, visitor_id))
+            if not rows or not wanted:
+                return 0
+            kept = [r for r in rows if r["draft_id"] not in wanted]
+            self._rows[(store_id, visitor_id)] = kept
+            return len(rows) - len(kept)
+
 
 class MemoryCardReasons:
     def __init__(self) -> None:

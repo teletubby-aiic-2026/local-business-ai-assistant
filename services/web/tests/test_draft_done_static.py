@@ -83,6 +83,23 @@ class RegenerateOneDraft(unittest.TestCase):
     def test_whole_card_rerun_also_forgets_the_old_approvals_on_the_done_screen(self):
         self.assertIn("state.approvedLog = state.approvedLog.filter((x) => !gone.has(x.id));", func("runCard"))
 
+    def test_both_regenerations_send_the_old_draft_ids_so_the_server_forgets_their_approvals(self):
+        """11/16: 화면에서만 지우던 옛 글의 승인을 서버 기록(GET /api/approvals)에서도 지우도록 옛 글 id 를 replaces 로 보낸다."""
+        regen = code(func("regenDraft"))
+        self.assertIn("body.replaces = [d.draft_id];", regen)
+        self.assertLess(regen.index("body.replaces"), regen.index("await api("))
+        whole = code(func("runCard"))
+        self.assertIn("const before = (state.results[cardId]?.drafts || []).map((d) => d.draft_id);", whole)
+        self.assertIn('const body = before.length ? JSON.stringify({ ...JSON.parse(picked || "{}"), replaces: replacesOf(before) }) : picked;', whole)
+        self.assertLess(whole.index("const before"), whole.index("await api("))       # 새 결과로 바꾸기 전의 글 id
+        # 처음 만들 때 본문은 예전 그대로 (조치 상자만. scripts/measure_live.py 의 card_run_body 가 이 모양을 따라 함)
+        self.assertIn("JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) })", whole)
+        from web.demo import REPLACES_MAX
+        self.assertIn(f"const REPLACES_MAX = {REPLACES_MAX};", JS)                     # 서버와 같은 상한
+        self.assertIn("state.approved.has(id)", JS[JS.index("const replacesOf"):JS.index("async function runCard")])   # 승인한 글부터
+        for name in ("regenDraft", "runCard"):
+            self.assertIn("replace_warning) showAlert(", code(func(name)))            # 못 지우면 알림 띠
+
     def test_new_attribute_and_classes_exist(self):
         self.assertIn(".progress .ghost {", CSS)
         self.assertIn(".draft-note:empty { display: none; }", CSS)

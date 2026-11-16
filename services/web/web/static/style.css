@@ -526,9 +526,12 @@ details[open] > summary { margin-bottom: 8px; }
 /* ── 종합 리포트 인쇄 (11/16): '전체 리포트 PDF 저장' = 브라우저 인쇄 → 'PDF로 저장' ─────────────────────────
    리포트 화면이 보일 때만 먹는다: app.js 의 rpMark 가 그동안 <html class="rp-view"> 를 달아 둔다 (다른 화면의 인쇄는 @page 만 빼고 그대로).
    A4 세로 · 다크여도 흰 바탕에 검은 글자 · 왼쪽 메뉴·상단 바·알림 띠·서랍·버튼 없이 여섯 칸(오늘 요약·응대 점수·손님 칭찬 요약·월간 보고서·
-   상권 요약·마케팅 요약)만 · 칸이 쪽 사이에서 잘리지 않게 · 맨 위에 가게 이름·출력한 날·기간 한 줄(#rp-print-head). */
+   상권 요약·마케팅 요약)만 · 칸이 쪽 사이에서 잘리지 않게 · 맨 위에 가게 이름·출력한 날·기간 한 줄(#rp-print-head).
+   A4 두 쪽 안에 (11/16): 실시간에서는 이유 문장·표가 길어 3쪽이 되고 3쪽에 마케팅 요약만 남았다. 글자 크기는 그대로 두고
+   (본문 13px ≈ 9.8pt, 작은 글자 12.25px ≈ 9.2pt) 줄 간격·칸 안 여백·칸 사이·숫자 칸·점수 숫자·그래프 높이(app.js RP_PRINT_H)·표 줄을 줄였다.
+   리포트 안의 버튼과 화면 안 이동 링크(href="#…", 이름 몰라도)는 종이에서 뺀다. 화면에만 보일 글은 class="rp-screen". */
 @media print {
-  @page { size: A4 portrait; margin: 13mm 12mm 14mm; }
+  @page { size: A4 portrait; margin: 12mm 12mm 12mm; }
   /* 색 토큰을 라이트 값으로 다시 정한다. 다크 토큰(:root:not([data-theme="light"]))보다 앞서게 html:root 로 적는다 */
   html:root.rp-view { color-scheme: light; font-size: 14px;
     --bg: #ffffff; --side: #ffffff; --panel: #ffffff; --surface: #f5f6f7; --chip: #eef0f2; --hover: #ffffff; --active: #e7e7e9; --seg-on: #ffffff;
@@ -546,24 +549,27 @@ details[open] > summary { margin-bottom: 8px; }
   html.rp-view main { display: block; padding: 0; container-type: normal; }
   html.rp-view [data-view="report"] { max-width: none; margin: 0; }
   html.rp-view [data-view="report"], html.rp-view [data-view="report"] * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  /* 화면에서만 쓰는 것: 제목 줄과 버튼, 달 옮기기, 인쇄용 보기 링크, 서랍 열기, 다른 화면으로 가는 링크 */
+  /* 화면에서만 쓰는 것: 제목 줄과 버튼, 달 옮기기, 인쇄용 보기 링크, 서랍 열기, 다른 화면으로 가는 링크.
+     화면 안 이동 링크(href="#/…")·href 없는 링크·버튼 역할 요소는 이름을 몰라도 빠진다 (나중에 더하는 '…에서 자세히 보기' 같은 링크) */
   html.rp-view [data-view="report"] .page-head, html.rp-view [data-view="report"] button, html.rp-view .rp-print,
-  html.rp-view .rp-mkt-st a, html.rp-view .rp-screen { display: none !important; }
+  html.rp-view .rp-mkt-st a, html.rp-view .rp-screen, html.rp-view [data-view="report"] a[href^="#"],
+  html.rp-view [data-view="report"] a:not([href]), html.rp-view [data-view="report"] [role="button"] { display: none !important; }
   /* 접힌 칸은 인쇄 직전에 JS 가 펼친다 (rpPrintPrep). 제목 줄은 남기고 펼침 세모만 뺀다 */
   html.rp-view [data-view="report"] details > summary { list-style: none; color: var(--ink-2); font-weight: 600; }
   html.rp-view [data-view="report"] details > summary::-webkit-details-marker { display: none; }
   html.rp-view [data-view="report"] a { color: inherit; text-decoration: none; }
   html.rp-view .rp-snap-t a[href]::after { content: " (" attr(href) ")"; }   /* 종이에서는 누를 수 없으니 원본 주소를 글자로 */
   /* 머리글 */
-  html.rp-view .rp-print-head { display: block; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 2px solid #111111; }
-  html.rp-view .rp-print-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; margin: 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; }
+  html.rp-view .rp-print-head { display: block; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid #111111; line-height: 1.35; }
+  html.rp-view .rp-print-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; margin: 0; font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; }
   html.rp-view .rp-print-title strong:empty { display: none; }
-  html.rp-view .rp-print-meta, html.rp-view .rp-print-note { margin: 4px 0 0; color: #4a4d52; font-size: .8125rem; }
+  html.rp-view .rp-print-meta, html.rp-view .rp-print-note { margin: 2px 0 0; color: #4a4d52; font-size: .8125rem; }
   html.rp-view .rp-print-note:empty { display: none; }
   /* 여섯 칸을 한 줄기로 위에서 아래로. 칸과 그 안의 덩어리는 쪽 사이에서 잘리지 않게 */
+  html.rp-view [data-view="report"] { line-height: 1.45; }
   html.rp-view .rp-grid { display: block; }
-  html.rp-view .rp-grid > .panel { margin: 0 0 10px; padding: 14px 16px; border-color: var(--line-strong); border-radius: 10px; break-inside: avoid; page-break-inside: avoid; }
-  html.rp-view .panel-head { margin-bottom: 8px; }
+  html.rp-view .rp-grid > .panel { margin: 0 0 8px; padding: 10px 14px; border-color: var(--line-strong); border-radius: 10px; break-inside: avoid; page-break-inside: avoid; }
+  html.rp-view .panel-head { margin-bottom: 6px; }
   html.rp-view .panel-head, html.rp-view .rp-h3 { break-after: avoid; page-break-after: avoid; }
   html.rp-view .rp-nums, html.rp-view .rp-chart, html.rp-view .rp-todo, html.rp-view .rp-p, html.rp-view .rp-table tr, html.rp-view .rp-snaps li,
   html.rp-view .rp-sugg li, html.rp-view .rp-menus li, html.rp-view .rp-quote { break-inside: avoid; page-break-inside: avoid; }
@@ -576,7 +582,36 @@ details[open] > summary { margin-bottom: 8px; }
   html.rp-view .rp-month-nav strong { min-width: 0; }
   html.rp-view .rp-table-wrap { overflow: visible; }
   html.rp-view .rp-table { min-width: 0; }
-  html.rp-view details.more { margin-top: 8px; }
+  html.rp-view details.more { margin-top: 6px; }
+  html.rp-view [data-view="report"] details[open] > summary { margin-bottom: 4px; }
+  /* 두 쪽 안에: 칸 안 덩어리 사이 간격 (글자 크기는 그대로) */
+  html.rp-view .rp-summary { margin: 0 0 8px; }
+  html.rp-view .rp-nums { margin: 0 0 8px; }
+  html.rp-view .rp-nums > div { padding: 5px 10px; }
+  html.rp-view .rp-nums dd { margin: 0; font-size: 1rem; }
+  html.rp-view .rp-line { margin: 0 0 4px; }
+  html.rp-view .rp-reasons { gap: 2px; margin: 0 0 6px; }
+  html.rp-view .rp-todo { margin: 2px 0 6px; padding: 6px 12px; }
+  html.rp-view .rp-daily .small.muted, html.rp-view .rp-score .small.muted, html.rp-view .rp-month .small.muted { margin: 4px 0 0; }
+  html.rp-view .rp-big-n { font-size: 2.5rem; }
+  html.rp-view .rp-score-top .rp-reasons { margin-top: 4px; }
+  html.rp-view .rp-peak { margin: 2px 0 6px; padding: 5px 10px; }
+  html.rp-view .rp-h3 { margin: 10px 0 4px; }
+  html.rp-view .rp-p { padding: 4px 0; }
+  html.rp-view .rp-untimed { margin: 6px 0 0; }
+  html.rp-view .rp-chart { margin: 0 0 2px; }
+  html.rp-view .rp-table th, html.rp-view .rp-table td { padding: 4px 8px; }
+  html.rp-view .rp-sugg li + li { margin-top: 2px; }
+  html.rp-view .rp-store { margin: 0 0 6px; }
+  html.rp-view .rp-snaps { gap: 6px; margin-bottom: 6px; }
+  html.rp-view .rp-mkt-title { margin: 0 0 2px; }
+  html.rp-view .rp-mkt-reason { margin: 0 0 4px; }
+  html.rp-view .rp-mkt-st { margin: 4px 0; }
+  html.rp-view #rp-approvals { margin: 4px 0 0; }
+  html.rp-view .rp-praise-topics { gap: 4px; }
+  html.rp-view .rp-praise-topics .kw-chip { padding: 1px 8px; }
+  html.rp-view .rp-menus { gap: 2px; }
+  html.rp-view .rp-praise > div > .small.muted { margin: 8px 0 0; }
 }
 /* :has 를 못 쓰는 브라우저의 대체 방법: 지금 뼈대(body > .shell > main > 화면)를 그대로 따라 내려가며 숨긴다 */
 @supports not selector(:has(*)) {

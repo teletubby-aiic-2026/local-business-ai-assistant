@@ -362,13 +362,21 @@ async function choose(cardId, button) {
   if (state.results[cardId]) { state.current = cardId; state.draftId = null; go("draft"); return; }
   await runCard(cardId, button);
 }
+// 다시 만들 때 보내는 옛 글 id (replaces, 11/16): 서버는 새 글을 만든 뒤에만 이 방문자의 승인 기록에서 그 글들을 지운다.
+// 서버(demo.REPLACES_MAX)와 같은 20개까지, 승인한 글부터 보낸다 (승인하지 않은 글은 지울 기록이 없어 서버가 0 으로 센다)
+const REPLACES_MAX = 20;
+const replacesOf = (ids) => [...ids.filter((id) => state.approved.has(id)), ...ids.filter((id) => !state.approved.has(id))].slice(0, REPLACES_MAX);
 async function runCard(cardId, button) {
   const old = button ? button.textContent : "";
   if (button) { button.disabled = true; button.textContent = "만드는 중…"; }
   try {
     const boxes = [...document.querySelectorAll(`[data-measure="${CSS.escape(cardId)}"]`)];
-    const body = boxes.length ? JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) }) : undefined;
+    const picked = boxes.length ? JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) }) : undefined;
+    // 카드 전체 다시 만들기면 지금 글 id 를 replaces 로 더한다. 처음 만들 때는 예전과 같은 본문 (scripts/measure_live.py 가 따라 함)
+    const before = (state.results[cardId]?.drafts || []).map((d) => d.draft_id);
+    const body = before.length ? JSON.stringify({ ...JSON.parse(picked || "{}"), replaces: replacesOf(before) }) : picked;
     const result = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body });
+    if (result.replace_warning) showAlert(result.replace_warning);   // 새 글은 받았지만 서버의 옛 승인 기록은 못 지움
     // 다시 만들면 그 카드의 예전 글 승인·고친 내용은 버린다 (완료 화면의 승인 목록에서도 뺀다)
     const gone = new Set((state.results[cardId]?.drafts || []).map((d) => d.draft_id));
     gone.forEach((id) => { dropBox(id); state.approved.delete(id); delete state.pending[id]; });
@@ -444,6 +452,7 @@ async function regenDraft(id) {
   if (regenBusy.has(key)) return;
   const body = { generator: d.generator };
   if (d.target_review_id) body.review_id = d.target_review_id;
+  body.replaces = [d.draft_id];   // 바뀌는 옛 글: 서버가 새 글을 만든 뒤에만 그 승인 기록을 지운다 (못 만들면 그대로)
   // 불만 카드: 처음 만들 때 고른 수칙을 그대로 보낸다. 공지는 지금 화면의 묶음 답글도 보낸다 (공지가 답글과 너무 비슷한지 서버가 견줌)
   if (p.card.kind === "complaint") body.measures = (r.chosen_measures || []).map((m) => m.id);
   if (d.generator === "prevention_notice") {
@@ -456,6 +465,7 @@ async function regenDraft(id) {
     const made = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body: JSON.stringify(body) });
     const fresh = (made.drafts || [])[0];
     if (!fresh) throw new Error("새 글을 받지 못했어요. 다시 눌러 주세요.");
+    if (made.replace_warning) showAlert(made.replace_warning);   // 새 글은 받았지만 서버의 옛 승인 기록은 못 지움
     const at = state.results[cardId] === r ? r.drafts.findIndex((x) => sameSlot(x, d)) : -1;
     if (at < 0) return;   // 기다리는 동안 카드 전체를 다시 만들었거나 카드가 바뀌었다: 늦게 온 이 글은 버린다
     const gone = r.drafts[at].draft_id;
@@ -1119,11 +1129,12 @@ async function rpScore(quiet = false) {
 }
 
 // 날마다 점수 선 그래프 (외부 라이브러리 없이 SVG). 색은 CSS(.rp-line 등)가 정해 라이트·다크를 따른다
-function rpTrend(trend, width) {
+function rpTrend(trend, width, height) {
   const pts = (Array.isArray(trend) ? trend : []).filter((t) => Number.isFinite(Number(t?.score)));
   if (!pts.length) return '<p class="small muted">점수 기록이 없어요.</p>';
   // 그림 폭 = 칸의 실제 폭 (좁은 화면에서 글자가 같이 줄어들어 안 보이지 않게). 칸이 숨어 있으면 600. width 를 주면 그 폭 (인쇄할 때 종이 폭)
-  const W = Math.round(Math.min(860, Math.max(280, width || $("rp-month").clientWidth || 600))), H = 170, L = 36, R = 16, T = 18, B = 26;
+  // height 를 주면 그 높이 (인쇄: 두 쪽 안에 들게 낮춘다, RP_PRINT_H)
+  const W = Math.round(Math.min(860, Math.max(280, width || $("rp-month").clientWidth || 600))), H = height || 170, L = 36, R = 16, T = 18, B = 26;
   const v = pts.map((t) => Number(t.score));
   const lo = Math.min(80, ...v), last = v.length - 1;
   const x = (i) => L + (W - L - R) * (pts.length === 1 ? 0.5 : i / last);
@@ -1283,15 +1294,18 @@ async function rpMarketing() {
 // 인쇄 모양은 style.css 의 '종합 리포트 인쇄' 덩어리가 정하고, 그 덩어리는 <html class="rp-view"> 일 때만(리포트 화면이 보일 때만) 먹는다.
 const RP_PDF_WAIT_MS = 20000;   // 아직 불러오는 칸이 있으면 여기까지 기다렸다가 인쇄 창을 연다
 const RP_PDF_HINT = "인쇄 창이 열리면 ‘PDF로 저장’을 골라 주세요.";
-const RP_PRINT_W = 860;   // 인쇄할 때 점수 추이 그래프를 그리는 폭 (넓은 화면과 같은 값). 창이 좁아도(휴대전화) 종이에서는 같은 모양·같은 쪽 수로 나오게
+// 인쇄할 때 점수 추이 그래프를 그리는 폭·높이. 창이 좁아도(휴대전화) 종이에서는 같은 모양·같은 쪽 수로 나오게.
+// 폭은 종이에서 그래프 칸의 폭(A4 − 좌우 여백 − 칸 안 여백 ≈ 675px)에 가까운 값 → 축 글자가 화면처럼 12px. 높이는 두 쪽 안에 들게 낮춤 (11/16)
+const RP_PRINT_W = 680;
+const RP_PRINT_H = 112;
 // route() 가 화면을 바꿀 때마다 loadReport() 나 rpStop() 을 부르므로, 두 곳에서 부르면 표시가 늘 지금 화면과 맞는다
 function rpMark() { document.documentElement.classList.toggle("rp-view", currentRoute() === "report"); }
 const rpReady = () => state.booted && !rp.loading && !rp.mktBusy;
 // 인쇄 직전: 머리글(가게 이름 · 출력한 날 · 기간)을 채우고 접힌 칸(details)을 펼친다. 인쇄가 끝나면 rpPrintDone 이 다시 접는다.
 // 시험용 실행이면 화면 맨 위 띠의 안내(실제 AI 결과 아님)를 머리글에도 적는다 (인쇄에서는 그 띠가 빠지므로)
-function rpTrendWidth(width) {   // 점수 추이 그래프를 그 폭으로 다시 그린다 (폭을 안 주면 화면 폭)
+function rpTrendWidth(width) {   // 점수 추이 그래프를 그 폭으로 다시 그린다 (폭을 주면 인쇄 모양: 그 폭과 RP_PRINT_H. 안 주면 화면 폭·화면 높이)
   const svg = document.querySelector("#rp-month .rp-trend");
-  if (svg && rp.trend) svg.outerHTML = rpTrend(rp.trend, width);
+  if (svg && rp.trend) svg.outerHTML = rpTrend(rp.trend, width, width ? RP_PRINT_H : undefined);
 }
 function rpPrintPrep() {
   rpMark();
