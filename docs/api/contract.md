@@ -68,6 +68,7 @@ curl -s http://localhost:8000/api/health
   - 1.8 `POST /api/reviews` · 1.9 `DELETE /api/reviews/pasted`
   - 1.10 `/api/assistant/*` (상권 채팅 서랍. 상권 서비스 프록시)
   - 1.11 `/api/care/*` (캡처 입력·응대 점수·보고서. 리뷰 분석 서비스의 고객응대 프록시)
+  - 1.12 `/api/marketing-survey/*` (맞춤 마케팅 프록시. 김수현 님 설문형 마케팅 서비스를 중계, 11/16)
 - 2부. 화면을 다듬을 때 유지해야 하는 것
   - 2.1 파일 세 개와 정적 파일 경로 · 2.2 `id` 목록 · 2.3 id 말고도 app.js가 기대하는 것
   - 2.4 시험이 직접 확인하는 것 · 2.5 화면 주소 · 2.6 화면 흐름과 부르는 API
@@ -168,6 +169,7 @@ curl -s http://localhost:8000/api/health
 ### 1.0 한눈에 보기
 
 경로 9개는 `services/web/web/main.py`와 같습니다. **11/16 덧붙임**: 승인 기록을 지우는 `DELETE /api/approvals`(7-1, 1.7.1절)가 생겨 지금은 10개입니다. 5번은 본문에 `generator`를 보내면 글 한 건만 다시 만듭니다(1.5절 '개별 다시 만들기').
+이 표 밖에 다른 서비스를 대신 불러 주는 프록시가 셋 있습니다: 상권 채팅 `/api/assistant/*`(1.10), 고객응대 `/api/care/*`(1.11), **맞춤 마케팅 `/api/marketing-survey/*`(1.12, 11/16)**.
 
 | # | 메서드와 경로 | 하는 일 | 쓰는 화면 | 성공 |
 |---|---|---|---|---|
@@ -1242,19 +1244,21 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 **요청**: `DELETE /api/approvals`. 본문 없음.
 
-**응답 `200`** (실제로 뽑음. 글 4건을 승인한 뒤):
+**응답 `200`** (실제로 뽑음. 글 4건을 승인한 뒤. `marketing_cleared`는 11/16에 더함):
 
 ```json
-{"deleted": 4}
+{"deleted": 4, "marketing_cleared": true}
 ```
 
 | 칸 | 뜻 | 화면 |
 |---|---|---|
-| `deleted` | 지운 승인 기록 수. 지울 것이 없으면 `0` (그래도 `200`) | 안 씀 |
+| `deleted` | 지운 승인 기록 수. 지울 것이 없으면 `0` (그래도 `200`). 맞춤 마케팅에서 승인한 글(`mkt-…`)도 이 기록이라 같이 셈 | 안 씀 |
+| `marketing_cleared` | (11/16) 이 방문자의 맞춤 마케팅 기록(마케팅 보고서가 세는 것)도 지웠는지. `true` = 지움(지울 것이 없어도), `false` = 마케팅 서비스가 받지 않음·3초 안에 답 없음, `null` = 이 서버에서 꺼 둠(`MARKETING_SURVEY_URL=off`)·연결 못 함. 마케팅 서비스가 어떤 상태여도 승인 기록 지우기는 그대로 성공 (1.12) | `false`면 맞춤 마케팅 화면 위에만 "기록은 지우지 못했어요" 안내 |
 
 - 지우는 곳: 서버 메모리의 목록(기본) 또는 DB의 `approvals` 표에서 이 가게·이 방문자의 줄(`DB_HOST`가 있을 때). DB에 아직 못 써서 이 서버가 들고 있던 승인도 같이 버립니다.
 - **지우지 않는 것**: 메모리 방식의 기록 파일 `approvals.jsonl`(덧붙이기만 하는 기록이라 그대로 둠), 답글 승인 때 리뷰 분석 서비스에 남긴 '답글 달았음' 기록(1.6, 응대 점수·보고서에 계속 반영됨).
 - 지운 뒤 `GET /api/approvals`는 `{"items": []}`입니다.
+- (11/16) 승인 기록을 지운 다음 마케팅 서비스의 `DELETE /api/marketing-survey/records?store=&visitor_id=`(4부 4.5)를 부릅니다. 승인 기록을 못 지워 `503`이면 마케팅 기록도 건드리지 않습니다.
 
 **오류**
 
@@ -1722,13 +1726,92 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 ---
 
+### 1.12 `/api/marketing-survey/*` — 맞춤 마케팅 프록시 (11/16)
+
+**쓰는 화면**: 왼쪽 메뉴 '맞춤 마케팅'(`#/marketing`, 2.5). 비서 화면 서버가 맞춤 마케팅 서비스(김수현 님 PR #56, `experiments/marketing/marketing_survey`, 기본 `127.0.0.1:8030`)를 **대신 불러 주는** 길입니다 (`services/web/web/marketing_proxy.py`). 경로 이름은 마케팅 서비스와 같고, 브라우저는 8030에 가지 않습니다. 서비스 자체의 API·기록 파일·모드·실행은 4부에 있습니다.
+
+| 메서드 · 경로 (`/api/marketing-survey/` 뒤) | 기다리는 시간 | 하는 일 |
+|---|---|---|
+| `GET health` | 3초 | 쓸 수 있는지. **항상 `200`**: `state`(`ready`·`off`·`down`·`error`) + 서비스가 준 `mode`·`key_present`·`demo`·`notes` |
+| `GET meta` | 10초 | 마케팅 서비스가 아는 우리 가게 이름 (화면 눈썹 줄 "온기한식 (가상) 기준") |
+| `POST step` | 10초 | 질문 하나 진행 (보기·여러 개 고르기·입력칸·예시 문구) |
+| `POST result` | 10초 | 맞춤 홍보 제안·재주문 쿠폰의 결정 설명 3줄 (규칙 계산. 화면 '왜 이렇게 판단했나요') |
+| `POST plan` | **45초** | 결과 카드: 판단 근거·숫자·할 일·글. 글은 HCX(키가 없거나 mock이면 저장된 예시, `demo: true`) |
+| `POST generate` | **45초** | '이 조건으로 쿠폰 글 만들기' (HCX) |
+| `POST next-idea` | 10초 | 다음 아이디어 |
+| `POST idea-try` | **45초** | 질문이 필요한 아이디어 '해 볼게요' |
+| `POST coupon-calc` | 10초 | 쿠폰 슬라이더 계산 (장수·최대 비용·본전 주문 수) |
+| `POST approve` | 10초 | 승인. 성공하면 이 서버의 승인 기록에도 남김 (아래) |
+| `POST notice-followup` | 10초 | 공지 2주 뒤 개선 소식 (코드가 리뷰 수를 셈) |
+| `GET report?period=weekly\|monthly` | 10초 | 마케팅 보고서 (기록이 없으면 데모 기록, `demo: true`) |
+
+- **이 표 밖은 모두 `404`** (`{"error": {"state": "not_found"}}`, 서비스에 보내지 않음). 메서드가 다른 것도 `404`. 여러 가게 목록(`stores`)은 통합 화면이 가게 하나라 열지 않고, 기록 지우기(`DELETE records`)는 화면이 직접 부르지 않고 `DELETE /api/approvals`(1.7.1)가 서버 안에서 부릅니다. 서비스 자체 화면(`/`, `/web/*`)도 열지 않습니다.
+- **쿼리는 서버가 고정합니다**: `store`는 `DEMO_STORE_ID`, `visitor_id`는 이 서버의 방문자 쿠키(형식이 맞을 때만. 없거나 틀리면 쿼리를 빼고 보냄, 4부 4.3). 브라우저가 쿼리로 보낸 `store`·`visitor_id`는 버리고, 그 밖의 쿼리는 `report`의 `period`만 넘깁니다. 본문은 그대로 넘깁니다(64KB까지).
+- 글을 만드는 세 경로(`plan`·`generate`·`idea-try`, 4부 4.2의 'live에서 HCX')만 45초(`MARKETING_TIMEOUT_SEC`)까지 기다리고 나머지는 10초입니다. 화면(`mktApi`)은 그보다 조금 길게(60초·15초) 기다립니다. 실시간 확인(11/16): 공지·답글 `plan` 7.4초, 가게 이야기 글 `plan` 7.7초, 새 손님 `plan` 11.5초.
+- 서비스 호출(동기 httpx)은 서버 스레드에서 돌아서, 느린 `plan`이 다른 API를 붙잡지 않습니다 (시험으로 확인). 동시에 기다리는 호출은 8개까지.
+- **`/api/health`에 마케팅 상태를 섞지 않습니다.** 섞으면 다른 화면 맨 위 막힘 띠에 마케팅 꺼짐이 뜹니다. 화면은 `#/marketing`을 처음 열 때 `health`를 따로 부릅니다.
+
+**`health` 응답 `200`** (mock 마케팅 서비스):
+
+```json
+{"state": "ready", "message": null, "service": "marketing-survey", "mode": "mock", "key_present": false, "demo": true,
+ "notes": ["mock: 키가 있어도 HCX 를 부르지 않아요. 글은 저장된 예시·코드 템플릿이에요(실제 AI 결과 아님)."], "store_id": "store_ongi"}
+```
+
+꺼져 있으면 `{"state": "down", "message": "맞춤 마케팅 서비스에 연결하지 못했어요. 잠시 뒤 다시 해 주세요.", …}`, 꺼 두었으면(`MARKETING_SURVEY_URL=off`) `state: "off"`, 주소 설정이 틀리면 `state: "error"`. 서비스가 `/health`를 모르는 판(PR #56 그대로)이면 `meta`가 오는지로 `ready`를 정하고 `mode`·`demo`는 `null`입니다.
+
+**오류 모양** (화면은 `error.message`를 맞춤 마케팅 화면 안에만 보입니다)
+
+```json
+{"error": {"message": "맞춤 마케팅 서비스가 답하는 데 너무 오래 걸렸어요. 잠시 뒤 다시 해 주세요.", "state": "slow"}}
+```
+
+| 상태 코드 | `state` | 언제 |
+|---|---|---|
+| `503` | `off` · `down` · `busy` · `error` | 이 서버에서 꺼 둠 · 연결 못 함 · 동시 호출 8개 초과 · 주소 설정이 틀림이나 이 모듈의 버그 |
+| `504` | `slow` | 기다리는 시간(45초·10초)이 넘음 |
+| `502` | `error` | 서비스가 `5xx`이거나 JSON이 아닌 답을 줌 |
+| 서비스와 같음 (`400`·`404`·`422` 등) | `invalid` · `not_found` · `busy` | 서비스가 받지 않음. FastAPI의 `{"detail": "한국어 문장"}`을 `message`로 옮김 (예: `400` "이 질문은 보기 중 하나(문자열)를 골라야 해요."). `detail`이 목록(입력 검사)이거나 영어 기본 문장('Not Found')이면 정해 둔 한국어 문장 ("보내는 내용의 형식이 맞지 않아요." · "이 서버의 맞춤 마케팅 서비스에는 아직 이 기능이 없어요.") |
+| `404` | `not_found` | 위 표 밖의 경로·메서드 |
+| `413` · `422` | `too_big` · `invalid` | 본문 64KB 초과 · 본문이 JSON 객체가 아님 |
+
+**이 절의 API는 `500`을 주지 않으며, 마케팅 서비스가 꺼져 있거나 느려도 비서 화면의 다른 API(1.1~1.11)와 화면은 그대로입니다** (시험 `test_marketing_proxy.py`).
+
+**승인 연동 (`POST approve`)**
+
+화면은 마케팅 서비스가 받는 칸에 더해 `approval`(글 하나 또는 목록, 10개까지)을 실어 보냅니다. 프록시는 이 칸을 **떼고** 나머지만 서비스로 보냅니다.
+
+```json
+{"state": {"node": "DECISION", "raw": {…}, "confirms": {"H_REPEAT": "예"}, "mode": "survey"}, "draft_id": null, "session_id": "3f…",
+ "edited_texts": {"notice": "고친 글"},
+ "approval": [{"draft_id": "09f5d3dc59-notice", "text": "고친 글", "original": "처음 글", "kind": "공지", "title": "재발 방지 공지"},
+              {"draft_id": "09f5d3dc59-reply", "text": "…", "original": "…", "kind": "답글", "title": "재발 방지 공지"}]}
+```
+
+서비스가 `2xx`이고 `edit_failed`가 없을 때만 글마다 이 서버의 승인 기록(1.6과 같은 저장, `demo.approve`)에 남기고, 응답에 `recorded`를 더합니다.
+
+```json
+{"follow_up": true, "state": {…}, "bot_messages": ["공지 뒤에 재주문 쿠폰도 해 볼까요? …", "월 마케팅 예산은 얼마로 생각하시나요?"], "options": […], "multi": false,
+ "recorded": [{"draft_id": "mkt-09f5d3dc59-notice", "kind": "공지", "approved_at": "2026-11-16T15:27:53+09:00", "edited": true},
+              {"draft_id": "mkt-09f5d3dc59-reply", "kind": "답글", "approved_at": "2026-11-16T15:27:53+09:00", "edited": false}]}
+```
+
+- 승인 기록의 `draft_id`는 늘 `mkt-`로 시작하고(`[A-Za-z0-9_-]`, 화면이 준 값이 틀리면 임의 값), `card_id`는 `"marketing"`, `kind`는 정해 둔 한국어 글 종류(`공지`·`답글`·`홍보 글`·`쿠폰 글`·`가게 이야기 글`·`남은 재료 글`·`아이디어 글`·`개선 소식`·`기본 할 일 글`, 그 밖은 `마케팅 글`). 글은 4,000자까지.
+- 그래서 '처리 완료'의 '서버 처리 기록'에 "맞춤 마케팅 · mkt-…"로 보이고 `DELETE /api/approvals`로 같이 지워집니다. **리뷰 분석 서비스의 '답글 달았음' 기록(1.6)은 부르지 않습니다** (마케팅의 `답글`은 특정 리뷰의 답글이 아님).
+- `edit_failed`(고친 글이 개인정보·정책에 없는 보상 약속 점검에 걸림)면 서비스 응답 그대로 돌려주고 기록하지 않습니다. 서비스가 실패하면(`4xx`·`5xx`·꺼짐) 기록하지 않습니다.
+- 승인 기록을 못 남겨도(저장소 오류) 승인은 성공이고 `"record_warning": "마케팅 승인은 끝났지만 '처리 완료' 기록에는 남기지 못했어요."`가 붙습니다.
+
+**설정** (`settings.py`): `MARKETING_SURVEY_URL`(기본 `http://127.0.0.1:8030`, `off`면 끔. `run.sh`가 마케팅 서버를 띄우고 이 값을 넘김, 4부 4.8), `MARKETING_TIMEOUT_SEC`(글을 만드는 경로를 기다리는 최대 초, 기본 45, 300 이하). 가게는 `DEMO_STORE_ID`.
+
+---
+
 ## 2부. 화면을 다듬을 때 유지해야 하는 것
 
 ### 2.1 파일 세 개와 정적 파일 경로
 
 | 파일 | 서버가 주는 주소 | 하는 일 |
 |---|---|---|
-| `services/web/web/static/index.html` | `/` | 화면의 뼈대. 화면 6개(홈·추천 카드·초안·완료·리뷰 분석·종합 리포트)와 서랍, 바닥 |
+| `services/web/web/static/index.html` | `/` | 화면의 뼈대. 화면 7개(홈·추천 카드·초안·완료·리뷰 분석·맞춤 마케팅·종합 리포트)와 서랍, 바닥 |
 | `services/web/web/static/style.css` | `/static/style.css` | 모든 모양 |
 | `services/web/web/static/app.js` | `/static/app.js` | 모든 동작. API 호출, 화면 그리기, 화면 전환 |
 
@@ -1740,9 +1823,9 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 ### 2.2 `id` 목록
 
-(11/16 `feat/ux-polish-bundle1` 기준으로 다시 셈. 서랍·캡처·종합 리포트 id, 왼쪽 메뉴 접기의 `menu-toggle`·`menu-toggle-count` 포함) `app.js`가 찾는 id는 **124개**입니다. `$("…")`로 글자 그대로 적힌 108개, `"an-" + t`처럼 이어 붙여 찾는 10개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`), 종합 리포트의 `RP_STATE` 표로 찾는 6개(`rp-daily-state`·`rp-score-state`·`rp-praise-state`·`rp-month-state`·`rp-market-state`·`rp-mkt-state`)를 합한 수입니다. 그중 `approvals`, `restart`, `rp-approvals`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 121개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 122개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
+(11/16 `feat/imkt-b-screen`(맞춤 마케팅) 기준으로 다시 셈. 서랍·캡처·종합 리포트·맞춤 마케팅 id, 왼쪽 메뉴 접기의 `menu-toggle`·`menu-toggle-count` 포함) `app.js`가 찾는 id는 **144개**입니다. `$("…")`로 글자 그대로 적힌 127개(맞춤 마케팅 19개 포함), `"an-" + t`처럼 이어 붙여 찾는 11개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`, 맞춤 마케팅의 `"mkt-tab-" + t`로만 찾는 `mkt-tab-report`), 종합 리포트의 `RP_STATE` 표로 찾는 6개(`rp-daily-state`·`rp-score-state`·`rp-praise-state`·`rp-month-state`·`rp-market-state`·`rp-mkt-state`)를 합한 수입니다. 그중 `approvals`, `restart`, `rp-approvals`와 맞춤 마케팅 입력칸 `mkt-num`·`mkt-text`·`mkt-free`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 138개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 139개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
 
-`index.html`에는 id가 134개 있습니다. 122개를 뺀 나머지 12개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`·`aria-controls`)이나 자리 표시로만 씁니다 (표의 마지막 묶음).
+`index.html`에는 id가 151개 있습니다. 139개를 뺀 나머지 12개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`·`aria-controls`)이나 자리 표시로만 씁니다 (표의 마지막 묶음). 세는 법: `app.js`에서 정규식 ``\$\(\s*["']([\w-]+)["']\s*\)``로 찾은 id + 위의 이어 붙인 id + `RP_STATE` 표의 값, `index.html`에서 `id="([\w-]+)"`.
 
 **상단 바와 알림**
 
@@ -1875,6 +1958,25 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `rp-mkt-state` · `rp-mkt` | 마케팅 요약 칸 (추천 카드 ⓑ, 홍보글 승인 상태, 승인 기록 수) |
 | `rp-approvals` | (JS가 만듦) 마케팅 요약 칸의 "서버에 남은 승인 기록 n건" |
 
+**맞춤 마케팅 `#/marketing` (11/16)** (id는 모두 `mkt-`로 시작. 시험 `test_marketing_ui_static.py`가 확인)
+
+| id | 한 줄 설명 |
+|---|---|
+| `mkt-store` | 눈썹 줄의 "온기한식 (가상) 기준" (마케팅 서비스의 `meta`) |
+| `mkt-notice` | 이 화면 위 안내 띠(`.alert.warn` 모양, `role="note"`). 마케팅 서비스가 HCX를 부르지 않는 상태(`health`의 `demo`·`mode: "mock"`·`key_present: false`, 또는 `demo: true` 결과를 받음)면 "시험용 실행 · … (실제 AI 결과 아님)". '처음부터 다시' 때 마케팅 기록을 못 지웠으면 그 안내도 |
+| `mkt-state` · `mkt-state-title` · `mkt-state-msg` · `mkt-retry` | 마케팅 서비스를 쓸 수 없을 때만 보이는 상태 안내(`data-state`=`off`·`down`·`error`)와 '다시 확인'. 이때 탭·대화는 숨김 |
+| `mkt-tab-chat` · `mkt-tab-report` | 탭 두 개('맞춤 제안'·'마케팅 보고서', `role="tab"`, `data-mkt-tab`). ←/→/Home/End |
+| `mkt-chat` · `mkt-report-panel` | 두 탭의 내용(`role="tabpanel"`) |
+| `mkt-log` | 대화(`role="log"`, `aria-live="polite"`): 비서 말·사장님 답·예시 문구·결과 카드(`article.mkt-card`) |
+| `mkt-status` | 진행 안내(`role="status"`). 기다리는 동안 `busy` 클래스 + 걸린 초 |
+| `mkt-error` | 이 화면 안의 오류(`role="alert"`). 서버 문장 그대로. 그때 답 고르기 칸에 '다시 시도' |
+| `mkt-options` | 답 고르기 칸(`role="group"`): 시작 모드 카드 · 보기 칩 · 여러 개 고르기 + '다음' · 입력칸 |
+| `mkt-num` · `mkt-text` · `mkt-free` | (JS가 만듦) 숫자 입력칸 · 한 줄 입력칸 · 여러 줄 입력칸(가게 이야기) |
+| `mkt-restart` | '처음부터' (대화만 처음으로. 승인 기록·보고서 기록은 그대로) |
+| `mkt-report-state` · `mkt-report` | 보고서 탭의 상태 안내(`role="status"`, 오류면 `bad`) · 보고서 카드 |
+
+`app.js`가 만들어 넣는 id (찾지는 않음): 결과 카드 `mkt-card-(번호)`·`mkt-card-(번호)-title`, 글 칸 `mkt-text-(번호)-(글 열쇠)`, 슬라이더 `mkt-budget-(번호)`·`mkt-discount-(번호)`, 아이디어 답 칸 `mkt-idea-(번호)`, 보고서 제목 `mkt-report-title` (모두 `<label for>`·`aria-labelledby`가 가리킴).
+
 **서랍 (AI에게 묻기 자리)과 바닥**
 
 | id | 한 줄 설명 |
@@ -1934,6 +2036,9 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `[data-view="report"]` 안의 `[data-rp-ask]` | 상권 요약의 'AI에게 묻기로 상권 더 보기' → 서랍 | JS가 그린 버튼 |
 | `#rp-score [data-clock]` | 남은 시간을 1초마다 다시 씀 | JS가 그린 `span.rp-clock` |
 | `[data-view="report"] details` | 인쇄 직전에 접힌 칸을 펼치고(`data-rp-opened`) 인쇄가 끝나면 다시 접음 | 리포트 화면 안의 `<details>` |
+| `.mkt-tabs`, `[data-mkt-tab]`, `[data-mkt-period]` | 맞춤 마케팅 탭·보고서 기간 (11/16) | 탭 줄에 `mkt-tabs` 클래스, 탭마다 `data-mkt-tab`, 기간 버튼마다 `data-mkt-period`. **`data-tab`을 쓰지 않음** (리뷰 분석 탭의 처리기와 섞이지 않게) |
+| `#mkt-options` 안의 `[data-mkt-opt]`·`[data-mkt-multi]`·`[data-mkt-next]`·`[data-mkt-send]`·`[data-mkt-skip]`·`[data-mkt-retry]`·`[data-mkt-goto-report]`·`[data-mkt-input]` | 답 고르기 (한 곳에서 이벤트를 받음) | JS가 그린 버튼·입력칸 |
+| `#mkt-log .mkt-card` 안의 `[data-mkt-*]` | 결과 카드의 승인·다시 쓰기·복사·쿠폰 글·슬라이더·아이디어·개선 소식 | JS가 그린 카드 (카드마다 따로 이벤트를 받음) |
 
 **(2) `data-*` 속성**
 
@@ -1956,6 +2061,11 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `data-cap-pick` · `data-cap-text` · `data-cap-rate` · `data-cap-msg` | JS가 만든 캡처 후보의 체크 칸 · 글 칸 · 별점 · 오류 줄 | 후보 번호 |
 | `data-clock` | JS가 만든 남은 시간 표시 | `pending` 순번 |
 | `data-rp-ask` | JS가 만든 상권 요약의 서랍 열기 버튼 | (값 없음) |
+| `data-mkt-tab` · `data-mkt-period` | `index.html` 맞춤 마케팅 탭 · 보고서 기간 버튼 (11/16) | `chat`·`report` · `weekly`·`monthly` |
+| `data-mkt-opt` · `data-mkt-multi` | JS가 만든 보기 · 여러 개 고르기 칩 | 보기 번호 |
+| `data-mkt-draft` · `data-mkt-text` · `data-mkt-copy` | JS가 만든 결과 카드의 글 상자 · 글 칸 · 복사 | 글 열쇠 (서버의 `step_id`, `basic_todo_0`, `idea_…`, `coupon_regen`, `next_coupon`, `notice_followup`) |
+| `data-mkt-range` · `data-mkt-out` · `data-mkt-figs` · `data-mkt-fill` | JS가 만든 쿠폰 슬라이더 · 값 표시 · 계산 결과 숫자 칸 · 예산 막대 | `budget_won`·`discount_won` |
+| 그 밖의 `data-mkt-…` (`approve`·`rewrite`·`done`·`card-msg`·`badge`·`approved`·`edited`·`fail`·`calc`·`coupon-gen`·`coupon-out`·`next-coupon`·`next-out`·`idea`·`idea-q`·`idea-try`·`idea-next`·`idea-answer`·`idea-input`·`idea-send`·`idea-story`·`idea-msg`·`follow`·`notice`·`notice-out`·`count`·`input-err`·`budget-label`·`calc-warn`) | JS가 만든 결과 카드 안의 버튼·칸 | (값 없음, 또는 답 글자) |
 
 **(3) JS가 켜고 끄는 상태.** CSS가 이 상태를 보고 모양을 정하는 곳이 있습니다. 모양은 바꿔도 되지만 JS가 상태를 바꾸는 방식은 그대로 둡니다.
 
@@ -1971,6 +2081,8 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `st`·`bad` 클래스 켜고 끄기 | `#an-status` | `.st`, `.bad` |
 | `<html data-theme="light">` | 주소에 `?theme=light`가 있을 때 | `:root:not([data-theme="light"])` 안의 다크 색 |
 | `<html class="rp-view">` | 종합 리포트 화면이 보이는 동안 (`rpMark`: `loadReport`·`rpStop`·인쇄 직전에 맞춤) | 인쇄 CSS의 모든 리포트 규칙 `html.rp-view …` (11/16) |
+| `aria-selected`와 `tabindex` · `aria-pressed` | 맞춤 마케팅 탭 · 보고서 기간과 여러 개 고르기 칩 (11/16) | `.seg button[aria-selected="true"]`, `.mkt-period button[aria-pressed="true"]`, `.mkt-chips .chip[aria-pressed="true"]` |
+| `busy` 클래스 · `approved` 클래스 · `data-state` | `#mkt-status` · 승인한 결과 카드(`.mkt-card`) · `#mkt-state` | `.mkt-status.busy`, `.mkt-card.approved`, `.mkt-state[data-state="off"]` |
 | `--top-h` (CSS 변수) | JS가 `<html>`에 상단 바 높이를 넣음 (창 크기·상단 바 높이·메뉴 접힘이 바뀔 때마다) | `scroll-padding-top`, 761~1024px 에서 덮는 메뉴(`.side`)와 그 뒤 배경의 `top` |
 
 **(4) JS가 DOM에서 다시 읽는 글자**: `#hero-problem`, `#stat-market`, `#no-card-b`의 글자와 `#staff li`의 구조입니다. 이 요소의 글자 모양을 바꿔도 되지만, 안에 다른 태그나 장식 글자를 섞으면 '오늘 할 일' 부제에 그대로 섞여 나옵니다.
@@ -1998,6 +2110,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 리뷰 분석 | `kw-row`, `kw-title`, `kw-chip`(+`pos`·`neg`), `box`, `n`, `arrow`, `group`(+`repeated`·`new`), `group-head`, `badge`(+`rep`·`ok`), `an-note`, `an-bands`, `topic-bars`, `quote`, `an-joined`, `panel`, `panel-head` |
 | 캡처로 넣기 | `cap-item`(+`dup`·`saved`), `cap-item-head`, `cap-check`, `cap-saved`, `cap-item-foot`, `cap-item-msg`, `cap-sec`, `badge`(+`warn`·`ok`), `sr` · 상태 클래스 `busy`(`#cap-status`), `drop`(`#cap`) |
 | 종합 리포트 | `rp-summary`, `rp-nums`, `rp-line`, `rp-delta`(+`neg`·`pos`), `rp-reasons`, `rp-todo`, `rp-todo-label`, `rp-score-top`, `rp-big`, `rp-big-n`, `rp-big-unit`, `rp-peak`, `rp-h3`, `rp-pending`, `rp-p`(+`over`), `rp-p-main`, `rp-p-text`, `rp-clock`(+`over`·`soon`·`paused`), `rp-untimed`, `rp-chart`, `rp-trend`, `rp-gl`, `rp-ax`, `rp-now`, `rp-line`, `rp-pt`, `rp-table-wrap`, `rp-table`, `num`, `rp-sugg`, `rp-store`, `rp-snaps`, `rp-snap-v`(+`neg`), `rp-snap-t`, `rp-ask`, `rp-mkt-title`, `rp-mkt-reason`, `rp-mkt-st`, `rp-mkt-none`, 손님 칭찬 요약의 `rp-praise-body`, `rp-praise-topics`, `kw-chip pos`, `rp-menus`, `rp-rank`, `rp-menu-n`, `rp-quote`, `rp-quote-none`, `rp-screen`(인쇄에서 빼는 화면용 문구) · 상태 클래스 `bad`(`#rp-*-state`) |
+| 맞춤 마케팅 (11/16) | `mkt-msg`(+`bot`·`user`), `mkt-bubble`, `mkt-sub`, `mkt-example`, `mkt-sec`, `mkt-modes`, `mkt-mode`(+`mkt-mode-report`), `mkt-chips`, `chip`, `mkt-multi-row`, `mkt-input`, `mkt-unit`, `mkt-free`, `mkt-free-bar`, `mkt-input-err`, `mkt-card`(+`approved`), `mkt-card-head`, `mkt-tiles`, `mkt-why`, `mkt-why-title`, `mkt-warn`, `mkt-demo`, `mkt-line`, `mkt-todo-head`, `mkt-steps`, `mkt-step`, `mkt-step-top`, `mkt-step-n`, `mkt-step-meta`, `mkt-tip`, `mkt-list`, `mkt-box`(+`dashed`), `mkt-box-title`, `mkt-measure`, `mkt-card-actions`, `mkt-card-msg`(+`bad`), `mkt-follow`, `mkt-draft`, `mkt-draft-head`, `issues bad`, `mkt-coupon`, `mkt-coupon-cap`, `mkt-coupon-title`, `mkt-kv`, `mkt-calc`, `mkt-slider`, `mkt-minmax`, `mkt-budget`, `mkt-table-wrap`, `mkt-table`, `num`, `mkt-bars`, `mkt-bar-row`, `mkt-bar-name`, `mkt-bar`, `mkt-bar-track`(안의 `<i>`에 `bad`·`warn`·`ok`·`profit`), `mkt-idea`, `mkt-idea-tag`, `mkt-idea-why`, `mkt-q`, `mkt-report-card`, 종합 리포트 마케팅 요약의 `rp-mkt-count`·`rp-mkt-more`(+`rp-screen`) |
 | 준비 중 자리 | `later`, `later-title`, `later-badge`, `view`, `narrow`, `page-head`, `eyebrow`, `badge` |
 | 어디서나 | `small`, `muted`, `sr`(화면에는 안 보이고 읽기 프로그램에만 읽힘), `long`(375px 메뉴에서 숨김) |
 
@@ -2057,6 +2170,12 @@ const on = new Set(m.default || []);
 
 - `test_praise_ui_static.py` (9건): 카드 근거(`evidence`)의 종류를 이름으로 가림 (`e.type === "snapshot"`·`"praise"`. `e.type !== "review"`로 '리뷰가 아니면 모두 지표'라고 다루지 않음), `sourceLine`의 "손님 칭찬 리뷰 n건", '근거 보기' 칩의 "칭찬 리뷰 rv_…: “…”"(`evidenceChip`), 홍보글 초안의 `sourceBlock`이 '근거 지표'와 '손님 칭찬 리뷰' 두 덩어리를 모두 그림, 리뷰 글·id·메뉴 이름은 `esc()`를 거침, 홈 할 일의 홍보글 부제에 쿠폰 메뉴(`praiseOf`). 카드 응답 쪽은 `test_praise_card.py`(화면 파일은 읽지 않음)가 지킵니다.
 
+**11/16에 더한 시험 (맞춤 마케팅)**
+
+- `test_marketing_ui_static.py` (22건, 화면 파일을 글자로 읽음): 메뉴 자리(리뷰 분석과 종합 리포트 사이)·짧은 글자(`<span class="long">맞춤 </span>마케팅`)·`ROUTES`·`data-view="marketing"`, 새 id는 모두 `mkt-`이고 JS가 찾는 것은 모두 있음, 요청은 모두 `mktApi`(주소 `MKT_BASE` 한 곳, `fetch(`는 그 안 한 곳, `?store=`·`visitor_id` 없음, 허용 경로만, 전역 `api()`·`showAlert`·`careApi`·`drawerApi` 없음), `/web/`·`iframe`·새 `<script src>` 없음, 시작 모드 다섯 개·처음부터·보고서 탭과 데모 표시·시험용 저장 예시 표시·슬라이더 묶어 보내기(150ms·늦은 답 버림)·아이디어·승인 연동(`approval`·`state.approvedLog`)·초기화 연동(`mktReset`), 서버 글 `esc()`, 종합 리포트의 `#/marketing` 링크(`rp-screen`, 리포트 덩어리는 마케팅 서비스를 부르지 않음), 새 덩어리가 고객응대·서랍 경계 밖, CSS에 새 색 토큰 없음.
+- `test_marketing_proxy.py` (27건, 가짜 마케팅 서비스): 1.12의 허용 목록·고정 쿼리·방문자별 `visitor_id`·경로별 기다리는 시간·꺼짐/느림/연결 실패/`4xx`/`5xx`/버그의 상태와 문장·`500` 없음·off면 부르지 않음·`health` 늘 `200`·승인 연동(성공일 때만 기록, `edit_failed`·실패면 안 함, `approval` 칸은 서비스로 안 감, '답글 달았음' 안 부름)·초기화 연동(1.7.1의 `marketing_cleared`, 꺼져도 승인 기록은 지워짐)·다른 화면이 마케팅 장애와 상관없음·느린 `plan`이 다른 경로를 붙잡지 않음.
+- `test_assistant_ux.py`: 서랍의 화면 안내 이름(`SCREENS`)에 '맞춤 마케팅'을 더함 ("홍보는 어디서 해?"·"광고비 점검 어디서 해?"·"마케팅 보고서 어디서 봐?" → '맞춤 마케팅'). `test_storage_web.py`: 1.7.1 응답의 `marketing_cleared`.
+
 **11/16에 더한 정적 시험**
 
 - `test_layout_static.py` (30건): 2.9의 규칙을 글자로 확인함. 토글 버튼의 `id`·`aria-controls`·`aria-expanded`·`aria-label`, `localStorage`는 `try { … } catch` 안에서만, `data-menu` 하나로 상태를 알림, 폭 기준 `@media`(761px 이상 · 761~1024px · 1279px 이하 · 1025~1279px)와 그 안의 규칙, 토글 버튼·메뉴 상태 규칙은 `screen`으로만, 서랍이 미는 곳에서는 본문이 680px 이상 남는지(CSS의 숫자로 계산), `.stats`·`.tiles`·`.hour-chart`의 `@container` 단계, 숫자 칸·가게 이름에 말줄임표가 없는지. **`style.css`의 폭 숫자나 `app.js`의 `setMenu`·`applyMenu`·`toggleMenu`를 고치면 이 시험도 같이 봅니다.**
@@ -2083,11 +2202,12 @@ const on = new Set(m.default || []);
 | `#/draft` | `draft` | 승인할 글 | 초안 보기·고치기·승인 | `index.html`의 껍데기 + JS가 채움 |
 | `#/done` | `done` | 처리 완료 | 승인 결과, 고른 주방 점검 수칙, '홈으로'(진행 그대로) · '처음부터 다시' | `index.html`의 껍데기 + JS가 채움 |
 | `#/analysis` | `analysis` | 리뷰 분석 | 탭 3개 (요약·불만 묶음·리뷰 붙여넣기) | `index.html` |
+| `#/marketing` | `marketing` | 맞춤 마케팅 (760px 이하 가로 메뉴는 "마케팅") | 탭 두 개: 맞춤 제안(시작 모드 다섯 개 → 질문 → 결과 카드 → 고쳐서 승인) · 마케팅 보고서(주간·월간) (11/16) | `index.html`의 껍데기 + JS가 대화를 채움 |
 | `#/report` | `report` | 종합 리포트 | 오늘 요약 · 응대 점수 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약 (11/15, 칭찬 요약·PDF 저장은 11/16) | `index.html` |
 | `#/market` | `market` | 상권 (준비 중) | 빈 자리 | `app.js`의 `LATER`가 만듦 |
 
 - 알 수 없는 해시, 해시가 없는 주소는 `#/today`로 봅니다 (`currentRoute()`가 `ROUTES`에 없는 이름을 홈으로 돌림).
-- `ROUTES` 배열(`["today", "cards", "draft", "done", "analysis", "report", ...LATER의 이름]`)에 없는 화면 이름은 쓸 수 없습니다.
+- `ROUTES` 배열(`["today", "cards", "draft", "done", "analysis", "marketing", "report", ...LATER의 이름]`)에 없는 화면 이름은 쓸 수 없습니다.
 - **화면을 새로 더하려면** (1) 메뉴 링크 `<a href="#/이름" data-route="이름">`, (2) `<section class="view" data-view="이름" hidden>`, (3) `ROUTES`에 이름 추가, 이 세 가지가 필요합니다 (`LATER`로 만든 자리는 `LATER`에서 빼고 `ROUTES`에 이름을 넣는다고 `app.js` 주석에 적혀 있음).
 - `#/draft`와 `#/done`은 화면을 열 때마다 다시 그립니다. 만든 글이 없으면 "제안 보기" / "초안으로" 링크가 있는 빈 안내가 나옵니다.
 - 주소가 같은 화면으로 `go()`하면 해시는 그대로 두고 `route()`만 다시 부릅니다.
@@ -2117,6 +2237,17 @@ const on = new Set(m.default || []);
 | `#/report` 열기·'다시 불러오기' | `GET /api/care/report/daily`, `/api/care/response`, `/api/care/report/monthly` (따로따로), `GET /api/approvals` | 칸마다 그림. 한 칸이 실패해도 다른 칸은 그대로. 손님 칭찬 요약은 월간 응답의 `praise`로 (요청을 더하지 않음). 상권·마케팅 요약은 이미 받은 `briefing`·`cards`로만 (새로 부르지 않음, AI 호출 없음). 화면에 있는 동안 1분마다 `response`만 다시 |
 | 월간 '이전 달'·'다음 달' | `GET /api/care/report/monthly?month=YYYY-MM` | 월간 칸과 손님 칭찬 요약 칸(같은 응답의 `praise`), '인쇄용 보기' 주소도 그 달로 |
 | '전체 리포트 PDF 저장' | (없음. 불러오는 중이면 끝나기를 기다림) | 인쇄 머리글을 채우고 접힌 칸을 펼친 뒤 `window.print()`. 인쇄 모양은 2.3 (8) |
+| `#/marketing` 처음 열기 (11/16) | `GET /api/marketing-survey/health` → `meta` → `POST step` `{state: null, answer: null}` (1.12) | `ready`가 아니면 `#mkt-state`만. 아니면 첫 질문과 시작 모드 카드 다섯 개 + '마케팅 보고서'. 페이지를 열 때(`boot`)는 부르지 않음 |
+| 보기·입력 '보내기' | `POST step` `{state, answer}` | 다음 질문. 끝(`done`)이면 아래 결과 카드 |
+| 질문이 끝남·'다시 쓰기' | `POST plan` `{state}` (+ 맞춤 홍보 제안·재주문 쿠폰이면 `POST result`) | 결과 카드 (`demo: true`면 '시험용 저장 예시 (실제 AI 결과 아님)') |
+| 쿠폰 슬라이더 움직임 | `POST coupon-calc` (150ms 묶음, 늦은 답 버림) | 쿠폰 장수·최대 비용·본전 주문 수·예산 막대 |
+| '이 조건으로 쿠폰 글 만들기' | `POST generate` `{state, coupon_override}` (쿠폰 결과 확인은 `{state}`) | 카드 안 새 글 상자 |
+| '다음 아이디어' · '해 볼게요' | `POST next-idea` · `POST idea-try` | 카드 안 아이디어 칸 |
+| 결과 카드 '승인' | `POST approve` `{state, session_id, edited_texts, approval}` | `edit_failed`면 그 글 아래 '점검 실패'. 성공이면 '승인함', `recorded`를 '처리 완료' 목록(`state.approvedLog`, `mkt: true`)에, `follow_up`이면 재주문 쿠폰 질문, 공지 카드면 '2주 뒤 확인해 보기' |
+| '2주 뒤 확인해 보기' | `POST notice-followup` `{state}` | 공지 전후 불만 리뷰 수, 줄었으면 개선 소식 글 |
+| '마케팅 보고서' 탭·기간 | `GET report?period=weekly\|monthly` (열 때마다 새로) | 보고서 카드. `demo: true`면 '데모 기록'과 "실제 우리 가게 기록이 아니에요" |
+| '처음부터' (맞춤 마케팅) | `POST step` `{state: null}` | 대화만 처음으로 (기록은 그대로) |
+| 완료의 '처음부터 다시' | `DELETE /api/approvals` (서버가 마케팅 기록도 지움) | 맞춤 마케팅의 대화·카드·보고서도 비우고 다음에 열 때 처음부터 (`mktReset`) |
 
 - 다시 불러온 카드의 id·근거가 이전과 다르면(`refresh()`), 화면에 있던 만든 글·승인 표시·고친 내용을 모두 버립니다.
 - 모든 진행 상태(만든 글, 승인 표시, 고친 글)는 **브라우저 메모리**(`state` 객체)에만 있습니다. 새로고침하면 사라집니다 (3.1).
@@ -2221,6 +2352,7 @@ PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest discover -s t
 - 숫자 칸의 라벨·숫자, 상단 바의 가게 이름은 **말줄임표로 자르지 않고 줄을 바꿉니다** (`word-break: keep-all` + `overflow-wrap`). `.stats`의 `overflow: hidden`은 둥근 모서리용이라 그대로입니다.
 - 시간대 막대에서 숨긴 라벨도 자리(높이)는 그대로 차지합니다. 모든 숫자는 차트의 `aria-label`에 그대로 있습니다.
 - 확인한 것 (11/16, 시험용 실행 + Chrome): 폭 1440·1280·1180·1100·1024·900·800·768·761·760·600·390·320px × 화면 5개(홈·추천 카드·리뷰 분석·종합 리포트·초안) × 서랍 닫힘/열림 × 메뉴 처음 상태/토글한 상태 220가지에서 페이지 가로 스크롤 0, 잘린 글자 0.
+- 맞춤 마케팅 (11/16, 시험용 실행 + Chrome): 폭 1440·1024·900·900(서랍 열림)·390px × 맞춤 제안(광고비 표·공지 카드·재주문 쿠폰 슬라이더 카드가 쌓인 상태)·마케팅 보고서 탭 10가지에서 가로 스크롤 0, 잘린 글자 0, 삐져나온 것 0. 넓은 광고비 표는 그 칸 안에서만 옆으로 밀리고(`.mkt-table-wrap`), 결과 카드의 숫자 칸·모드 카드는 `auto-fit`으로 줄을 바꿉니다 (`@container (max-width: 499px)`에서 카드 여백만 줄임).
 
 ---
 

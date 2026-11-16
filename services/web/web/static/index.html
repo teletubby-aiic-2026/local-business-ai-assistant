@@ -48,6 +48,7 @@
       <a href="#/draft" data-route="draft"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg><span>승인<span class="long">할 글</span></span><span id="nav-draft-count" class="nav-count" hidden></span></a>
       <a href="#/done" data-route="done"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><span class="long">처리 </span>완료</span></a>
       <a href="#/analysis" data-route="analysis"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg><span><span class="long">리뷰 </span>분석</span></a>
+      <a href="#/marketing" data-route="marketing"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h3l6 4V6l-6 4z"/><path d="M16.5 9.5a3.5 3.5 0 0 1 0 5"/><path d="M19 7a7 7 0 0 1 0 10"/></svg><span><span class="long">맞춤 </span>마케팅</span></a>
       <a href="#/report" data-route="report"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h4"/></svg><span><span class="long">종합 </span>리포트</span></a>
     </div>
     <div class="staff">
@@ -236,6 +237,51 @@
       </div>
     </section>
 
+    <!-- 맞춤 마케팅 (11/16 통합): 김수현 님 설문형 마케팅(PR #56, experiments/marketing/marketing_survey)을 이 화면 모양으로 옮겼다.
+         질문에 답하면 판단 근거·숫자·할 일·글(AI)을 보여 주고, 고쳐서 승인하면 '처리 완료' 기록에도 남는다. 탭 두 개: 맞춤 제안 · 마케팅 보고서.
+         이 서버의 /api/marketing-survey/* 만 부른다 (mktApi. 가게·방문자는 서버가 붙임). 마케팅 서비스가 꺼져 있으면 이 화면 안에만 안내가 뜬다.
+         id 는 모두 mkt- 로 시작한다 -->
+    <section class="view mkt" data-view="marketing" hidden>
+      <div class="page-head">
+        <p class="eyebrow"><span class="agent">마케팅 에이전트</span><span id="mkt-store"></span></p>
+        <h1 tabindex="-1">맞춤 마케팅</h1>
+        <p class="small muted">몇 가지 질문에 답하면 우리 가게에 맞는 홍보 방법과 글을 제안해요. 숫자는 코드가 계산하고, 글은 AI가 써요.</p>
+      </div>
+      <p id="mkt-notice" class="alert warn mkt-notice" role="note" hidden></p>
+      <!-- 마케팅 서비스를 쓸 수 없을 때만: 꺼 둠·연결 안 됨·오류 + 다시 확인 -->
+      <div id="mkt-state" class="panel mkt-state" hidden>
+        <p id="mkt-state-title" class="mkt-state-title"></p>
+        <p id="mkt-state-msg" class="small"></p>
+        <button id="mkt-retry" type="button">다시 확인</button>
+      </div>
+      <div class="seg mkt-tabs" role="tablist" aria-label="맞춤 마케팅 화면">
+        <button type="button" role="tab" id="mkt-tab-chat" data-mkt-tab="chat" aria-controls="mkt-chat" aria-selected="true">맞춤 제안</button>
+        <button type="button" role="tab" id="mkt-tab-report" data-mkt-tab="report" aria-controls="mkt-report-panel" aria-selected="false" tabindex="-1">마케팅 보고서</button>
+      </div>
+
+      <!-- 맞춤 제안: 대화(질문·답·결과 카드) → 아래 답 고르기 칸 -->
+      <div id="mkt-chat" class="mkt-panel" role="tabpanel" aria-labelledby="mkt-tab-chat">
+        <div id="mkt-log" class="mkt-log" role="log" aria-live="polite" aria-label="맞춤 마케팅 대화"></div>
+        <p id="mkt-status" class="mkt-status" role="status"></p>
+        <p id="mkt-error" class="mkt-error" role="alert"></p>
+        <div id="mkt-options" class="mkt-options" role="group" aria-label="답 고르기"></div>
+        <div class="row mkt-foot">
+          <button id="mkt-restart" type="button" class="ghost">처음부터</button>
+          <span class="small muted">처음 질문으로 돌아가요. 승인한 기록은 그대로예요.</span>
+        </div>
+      </div>
+
+      <!-- 마케팅 보고서: 주간·월간. 기록이 없으면 데모 기록이고 그 사실을 밝힌다 -->
+      <div id="mkt-report-panel" class="mkt-panel" role="tabpanel" aria-labelledby="mkt-tab-report" hidden>
+        <div class="seg mkt-period" role="group" aria-label="보고서 기간">
+          <button type="button" data-mkt-period="weekly" aria-pressed="true">주간</button>
+          <button type="button" data-mkt-period="monthly" aria-pressed="false">월간</button>
+        </div>
+        <p id="mkt-report-state" class="rp-state" role="status"></p>
+        <div id="mkt-report"></div>
+      </div>
+    </section>
+
     <!-- 종합 리포트 (11/15): 오늘 요약 · 응대 점수 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약.
          응대 칸 세 개는 이 서버의 /api/care/* (리뷰 분석 서비스가 규칙으로 계산, AI 문장 아님). 상권·마케팅 요약은 홈을 열 때 이미 받은
          브리핑·추천 카드와 /api/approvals 로만 만든다. 이 화면을 열어도 AI(HCX)를 새로 부르지 않는다.
@@ -292,7 +338,7 @@
           <div id="rp-market"></div>
         </section>
         <section class="panel rp-mkt" aria-labelledby="rp-mkt-title">
-          <div class="panel-head"><h2 id="rp-mkt-title">마케팅 요약</h2><span class="small muted">추천 카드 ⓑ · 승인 기록</span></div>
+          <div class="panel-head"><h2 id="rp-mkt-title">마케팅 요약</h2><span class="small muted">추천 카드 ⓑ · 맞춤 마케팅 · 승인 기록</span></div>
           <p id="rp-mkt-state" class="rp-state" role="status"></p>
           <div id="rp-mkt"></div>
         </section>

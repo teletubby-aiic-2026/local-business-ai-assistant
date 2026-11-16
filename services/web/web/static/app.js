@@ -1,9 +1,10 @@
 // 텔레토비 AI 비서: 단계별 화면 (1 오늘 → 2 제안 → 3 초안 → 4 완료) + 리뷰 분석. 외부 라이브러리 없이 동작.
-// 화면은 주소 해시로 바꾼다: #/today #/cards #/draft #/done #/analysis #/report (재정비/05 UI 디자인 레퍼런스 15번, 박건영 결정 11/10)
+// 화면은 주소 해시로 바꾼다: #/today #/cards #/draft #/done #/analysis #/marketing #/report (재정비/05 UI 디자인 레퍼런스 15번, 박건영 결정 11/10)
 // 화면마다 할 일은 하나. API: /api/health, briefing, insight, cards, cards/{id}/run, drafts/{id}/approve, approvals, reviews.
 // 오른쪽 'AI에게 묻기' 서랍은 상권 채팅: /api/assistant/* (서랍 전용 drawerApi, 서랍을 처음 열 때부터).
 // 리뷰 분석(#/analysis)은 따로 떠 있던 리뷰 분석 화면의 세 화면(요약·불만 묶음·붙여넣기)을 옮겨 왔다 (11/13 통합 1차).
 // 붙여넣기 탭의 '캡처로 넣기'와 종합 리포트(#/report)는 고객응대 API(/api/care/*, careApi)를 쓴다 (11/15).
+// 맞춤 마케팅(#/marketing)은 마케팅 서비스 프록시(/api/marketing-survey/*, 전용 mktApi)를 쓴다 (11/16).
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -25,7 +26,7 @@ const SOURCE_NAMES = { live: "실시간 HCX-005", seed: "시험용 저장 예시
 const LATER = [
   { route: "market", long: "", short: "상권", desc: "가게 주변 상권 지표를 볼 화면이에요. 지금은 홈의 '상권 저녁 매출' 칸, 종합 리포트의 상권 요약, 추천 카드 ⓑ의 근거에서 볼 수 있어요." },
 ];
-const ROUTES = ["today", "cards", "draft", "done", "analysis", "report", ...LATER.map((x) => x.route)];
+const ROUTES = ["today", "cards", "draft", "done", "analysis", "marketing", "report", ...LATER.map((x) => x.route)];
 
 const state = {
   health: null, briefing: null, cards: [], results: {}, approved: new Set(), approvedLog: [],
@@ -60,6 +61,7 @@ function route() {
   if (name === "done") renderDone();
   if (name === "today") renderDash();
   if (name === "report") loadReport(); else rpStop();
+  if (name === "marketing") mktOpen();   // 맞춤 마케팅은 이 화면을 처음 열 때 시작한다 (첫 화면 로딩에 영향 없음)
   document.querySelectorAll("[data-view]").forEach((v) => (v.hidden = v.dataset.view !== name));
   document.querySelectorAll(".menu a").forEach((a) => {
     if (a.dataset.route === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
@@ -629,7 +631,8 @@ function renderDone() {
       <a class="button primary" href="#/draft">초안으로</a></div>`;
     return;
   }
-  const total = Object.values(state.results).flatMap((r) => r.drafts || []).length;
+  // 맞춤 마케팅에서 승인한 글(mkt)은 비서 화면이 만든 글이 아니므로 승인한 만큼 '만든 글'에도 더한다
+  const total = Object.values(state.results).flatMap((r) => r.drafts || []).length + log.filter((a) => a.mkt).length;
   // 불만 카드를 만들 때 사장님이 고른 수칙 (서버 응답의 chosen_measures). 글 승인과 함께 오늘부터 현장에서 할 일로 다시 보여 준다
   const care = state.cards.find((p) => p.card.kind === "complaint");
   const made = care ? state.results[care.card.card_id] : null;
@@ -651,7 +654,7 @@ function renderDone() {
       <button type="button" class="primary big" data-home>홈으로</button>
       <button type="button" class="ghost" id="restart">처음부터 다시</button>
     </div>
-    <p class="small muted done-hint">‘홈으로’는 만든 글과 승인 표시를 그대로 둬요. ‘처음부터 다시’는 만든 글과 승인 기록을 모두 지워요.</p>
+    <p class="small muted done-hint">‘홈으로’는 만든 글과 승인 표시를 그대로 둬요. ‘처음부터 다시’는 만든 글과 승인 기록(맞춤 마케팅 포함)을 모두 지워요.</p>
     <details class="more"><summary class="small">서버 처리 기록</summary><ul id="approvals" class="plain small"></ul></details>`;
   el.querySelector("[data-home]").addEventListener("click", () => go("today"));
   $("restart").addEventListener("click", (e) => restart(e.currentTarget));
@@ -661,21 +664,24 @@ function renderDone() {
 async function loadApprovals() {
   const data = await api("/api/approvals");
   const ul = $("approvals");
-  if (ul) ul.innerHTML = data.items.map((a) => `<li>${esc(a.approved_at.slice(11, 19))} · ${esc(a.draft_id)} 승인${a.edited ? " (사장님이 고침)" : ""}</li>`).join("") || "<li>기록 없음</li>";
+  // 맞춤 마케팅에서 승인한 글은 글 id 가 mkt- 로 시작한다 (marketing_proxy.py)
+  if (ul) ul.innerHTML = data.items.map((a) => `<li>${esc(a.approved_at.slice(11, 19))} · ${String(a.draft_id).startsWith("mkt-") ? "맞춤 마케팅 · " : ""}${esc(a.draft_id)} 승인${a.edited ? " (사장님이 고침)" : ""}</li>`).join("") || "<li>기록 없음</li>";
 }
 
 // 처음부터 다시: 이 브라우저의 진행(만든 글·승인 표시·고친 내용)을 비우고, 서버에 남은 이 방문자의 승인 기록도 지운다 (DELETE /api/approvals).
+// 서버는 이 방문자의 맞춤 마케팅 기록도 같이 지우고(marketing_cleared), 화면은 맞춤 마케팅의 대화·결과 카드·보고서도 처음으로 돌린다 (mktReset).
 // 다시 카드 → 승인 → 완료로 왔을 때 예전 승인이 '서버 처리 기록'에 남아 있지 않게 한다. 서버가 못 지워도 화면은 비우고 알림 띠로 알린다.
 // (진행을 그대로 두고 대시보드로 가는 것은 주 버튼 '홈으로')
 async function restart(button) {
   if (button) { button.disabled = true; button.textContent = "지우는 중…"; }
-  let failed = "";
-  try { await api("/api/approvals", { method: "DELETE" }); }
+  let failed = "", cleared = null;
+  try { const r = await api("/api/approvals", { method: "DELETE" }); cleared = r.marketing_cleared ?? null; }
   catch (e) { failed = e.message; }
   rerunDisarm(); regenBusy.clear(); draftNote = null;
   state.results = {}; state.approved.clear(); state.approvedLog = []; state.pending = {};
   state.current = null; state.draftId = null;
   $("draft").replaceChildren();   // 숨은 초안 화면에 남은 편집 칸도 치운다 (다음에 그릴 때 saveEdits 가 예전 글을 다시 담지 않게)
+  mktReset(failed ? null : cleared);   // 맞춤 마케팅 화면도 처음으로 (마케팅 기록을 못 지웠으면 그 화면 안에만 안내)
   renderCards({ cards: state.cards, no_card_b: $("no-card-b").textContent });
   go("today");
   if (failed) showAlert(`화면은 처음으로 돌렸지만 서버의 승인 기록은 지우지 못했어요. ${failed}`);
@@ -1260,6 +1266,7 @@ function rpMarket() {
   rpState("market", "");
 }
 // 마케팅 요약: 추천 카드 ⓑ(쿠폰 홍보)와 이 브라우저에서 만든 홍보글의 승인 상태, 서버 승인 기록 수 (/api/approvals 는 저장된 기록만 읽음)
+// 맞춤 마케팅(#/marketing)은 링크와 이 브라우저에서 승인한 글 수(state.approvedLog)만 둔다. 마케팅 서비스는 부르지 않는다 (리포트를 열어도 AI 를 새로 부르지 않음)
 async function rpMarketing() {
   if (!state.booted && !state.cards.length) { $("rp-mkt").innerHTML = ""; rpState("mkt", "불러오는 중…"); return; }
   const promo = state.cards.find((p) => p.card.kind === "promo");
@@ -1282,11 +1289,15 @@ async function rpMarketing() {
     html = "";
     rpState("mkt", "추천 카드를 불러오지 못해 마케팅 요약을 만들 수 없어요. 홈에서 다시 불러와 주세요.", true);
   }
-  $("rp-mkt").innerHTML = `${html}<p id="rp-approvals" class="small muted">승인 기록을 불러오는 중…</p>`;
+  const mktDone = state.approvedLog.filter((x) => x.mkt).length;
+  // 링크 줄(rp-screen)은 인쇄에서 빠진다 (style.css '종합 리포트 인쇄'가 .rp-screen 을 숨김)
+  $("rp-mkt").innerHTML = `${html}${mktDone ? `<p class="small rp-mkt-count">맞춤 마케팅에서 승인한 글 ${esc(mktDone)}건 (이 브라우저 기준)</p>` : ""}
+    <p class="small rp-mkt-more rp-screen"><a href="#/marketing">맞춤 마케팅에서 자세히 보기</a></p>
+    <p id="rp-approvals" class="small muted">승인 기록을 불러오는 중…</p>`;
   try {
     const a = await careApi("/api/approvals");
     const el = $("rp-approvals");
-    if (el) el.textContent = `서버에 남은 승인 기록 ${(a.items || []).length}건 (답글·공지·홍보글 합계, 이 방문자 기준)`;
+    if (el) el.textContent = `서버에 남은 승인 기록 ${(a.items || []).length}건 (답글·공지·홍보글·맞춤 마케팅 글 합계, 이 방문자 기준)`;
   } catch (e) { const el = $("rp-approvals"); if (el) el.textContent = `승인 기록을 불러오지 못했어요: ${e.message}`; }
 }
 
@@ -1351,6 +1362,876 @@ function mountLater() {
       <div class="page-head"><p class="eyebrow"><span class="badge">준비 중</span></p><h1 tabindex="-1">${esc(x.long + x.short)}</h1></div>
       <div class="panel"><p style="margin-top:0"><strong>회의에서 정한 뒤 넣을 자리입니다.</strong></p><p class="small muted" style="margin-bottom:0">${esc(x.desc)}</p></div>
     </section>`).join(""));
+}
+
+// ── 맞춤 마케팅 (#/marketing, 11/16 통합) ──────────────────────────────
+// 김수현 님 설문형 마케팅(PR #56, experiments/marketing/marketing_survey/web/app.js)의 기능을 이 화면 모양으로 다시 썼다:
+// 시작 모드 다섯 개 → 단계별 질문(선택지·여러 개 고르기·숫자/글 입력) → 결과 카드(판단 근거·숫자·할 일·글·쿠폰 계산·광고비 막대·추천 아이디어)
+// → 글 고치기·승인(고친 글 점검 실패 표시)·복사 → (공지면) 재주문 쿠폰 이어 묻기·2주 뒤 개선 소식, 그리고 '마케팅 보고서'(주간·월간) 탭.
+// 호출은 전용 mktApi 로만 한다: 이 서버의 /api/marketing-survey/* 만 부르고 주소 뒤에 가게를 붙이지 않는다 (가게·방문자는 서버가 고정해 붙임).
+// 전역 api()·showAlert(#alert)를 쓰지 않아서, 마케팅 서비스가 꺼져 있거나 느려도 안내는 이 화면 안(#mkt-state·#mkt-error·카드 안)에만 보인다.
+// 설문 상태는 서버에 없고 화면이 들고 다닌다 (mkt.flow = {node, raw, confirms, mode}, 요청마다 그대로 보냄).
+// 서버 글은 esc() 를 거쳐서만 innerHTML 에 넣는다. 키 없이 저장된 예시(demo: true)면 '시험용 저장 예시 (실제 AI 결과 아님)'를 꼭 보인다.
+// 승인하면 서버가 이 방문자의 승인 기록에도 남기고(응답의 recorded), 화면은 '처리 완료' 목록(state.approvedLog)에 더한다.
+const MKT_BASE = "/api/marketing-survey/";
+const MKT_WAIT_MS = 15000;      // 질문·계산·보고서 (서버는 10초까지 기다림)
+const MKT_LONG_MS = 60000;      // 글을 만드는 plan·generate·idea-try (서버는 45초까지, MARKETING_TIMEOUT_SEC)
+const MKT_LONG = ["plan", "generate", "idea-try"];
+const MKT_DEMO = "시험용 저장 예시 (실제 AI 결과 아님)";
+// 시작 모드 다섯 개: 서버(flow.py START_MODES)가 주는 보기 글자 → 한 줄 설명. 보기 자체는 서버가 준 것만 그린다
+const MKT_MODES = {
+  "맞춤 홍보 제안": "반복 불만·목표·예산을 여쭤보고 홍보 방법과 글을 제안해요",
+  "남은 재료 팔기": "오늘 남은 메뉴를 세트·할인·추천 글로 팔아요",
+  "광고비 점검": "배달앱 광고비가 주문 한 건에서 남는 돈보다 큰지 계산해요",
+  "가게 이야기 글": "사장님 답만으로 플레이스·인스타·배민 소개 글을 써요",
+  "쿠폰 결과 확인": "지난 쿠폰의 사용률과 다음 쿠폰 조건을 알려 드려요",
+};
+// 숫자 입력칸의 단위 (서버 free_input.key → 화면 표시만)
+const MKT_UNIT = { leftover_portions: "인분", _adspend_spend_entry: "원", _adspend_orders_entry: "건", adspend_avg_amount_won: "원",
+  coupon_issued: "장", coupon_used: "장", coupon_discount_won: "원", coupon_avg_order_won: "원", survey_avg_order_won: "원" };
+const MKT_VERDICT = { "손해 광고": ["bad", "손해 광고"], "주의": ["warn", "주의"], "괜찮음": ["ok", "괜찮음"] };
+// 글 만드는 생성기 → 승인 기록에 남기는 글 종류 (서버 server.py 의 _GENERATOR_KINDS 와 같은 이름, marketing_proxy.KINDS 안에서만)
+const MKT_KIND = { prevention_notice: "공지", late_notice_template: "공지", reply_draft: "답글", review_promo: "홍보 글", coupon_promo: "쿠폰 글" };
+const MKT_MODE_KIND = { leftover: "남은 재료 글", story: "가게 이야기 글" };
+const MKT_PERIOD = {
+  weekly: { name: "주간", now: "이번 주", prev: "지난주", next: "다음 주" },
+  monthly: { name: "월간", now: "이번 달", prev: "지난달", next: "다음 달" },
+};
+const MKT_TABS = ["chat", "report"];
+const MKT_STATES = {
+  off: "맞춤 마케팅을 쓸 수 없어요", down: "지금은 맞춤 마케팅에 연결할 수 없어요", error: "맞춤 마케팅을 불러오지 못했어요",
+};
+const mkt = {
+  started: false, loading: false, ready: false, busy: false,
+  health: null,       // GET health 응답 (state, mode, key_present, demo)
+  flow: null,         // 설문 상태 {node, raw, confirms, mode}. 요청마다 그대로 보낸다
+  prompt: null,       // 지금 답 고르기 칸의 보기·입력 ({opts, input})
+  retry: null,        // '다시 시도'가 다시 부를 일
+  gen: 0,             // '처음부터'·'처음부터 다시' 때 올린다 → 그 전에 보낸 요청의 늦은 답은 버린다
+  cards: 0,           // 결과 카드 번호 (요소 id·승인 기록의 글 id 에 씀)
+  demoSeen: false,    // 저장된 예시(demo: true) 결과를 한 번이라도 받았는지
+  clearNote: "",      // '처음부터 다시' 때 마케팅 기록을 지우지 못했으면 그 안내
+  tab: "chat", period: "weekly", reportGen: 0, tick: null,
+};
+const wonKo = (n) => `${Number(n || 0).toLocaleString("ko-KR")}원`;
+const mktRound100 = (v) => Math.round(v / 100) * 100;
+const mktKey = (k) => String(k).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 40);
+
+// 맞춤 마케팅 전용 호출 (api() 와 같은 모양): path 는 /api/marketing-survey/ 뒤 부분. 글을 만드는 경로는 60초, 그 밖은 15초에 끊는다.
+// 실패하면 message·state 를 담은 Error (화면 맨 위 띠에는 아무것도 띄우지 않음)
+async function mktApi(path, options = {}) {
+  const ctl = new AbortController();
+  const name = String(path).split("?")[0];
+  const timer = setTimeout(() => ctl.abort(), MKT_LONG.includes(name) ? MKT_LONG_MS : MKT_WAIT_MS);
+  const fail = (message, st, status) => Object.assign(new Error(message), { state: st, status });
+  const headers = { Accept: "application/json" };
+  if (typeof options.body === "string") headers["Content-Type"] = "application/json";
+  try {
+    const res = await fetch(MKT_BASE + path, { credentials: "same-origin", cache: "no-store", ...options, headers, signal: ctl.signal });
+    const body = await res.json().catch(() => null);
+    if (res.ok && body) return body;
+    if (body?.error?.message) throw fail(body.error.message, body.error.state || "error", res.status);
+    if (res.status === 404) throw fail("이 서버에는 아직 맞춤 마케팅이 연결되지 않았어요.", "off", 404);
+    throw fail(res.ok ? "응답을 읽지 못했어요. 잠시 뒤 다시 해 주세요." : `맞춤 마케팅이 응답하지 않았어요 (${res.status}). 잠시 뒤 다시 해 주세요.`, "error", res.status);
+  } catch (e) {
+    if (e.name === "AbortError") throw fail("응답이 너무 늦어요. 잠시 뒤 다시 해 주세요.", "timeout", 0);
+    if (e instanceof TypeError) throw fail("서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.", "down", 0);
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+const mktPost = (path, data) => mktApi(path, { method: "POST", body: JSON.stringify(data) });
+
+// ── 진행·오류·위쪽 안내 ──
+// 진행 안내 (#mkt-status, role=status): 깜박이는 점 + 글 + 걸린 초 (초는 읽기 프로그램에 읽히지 않게)
+function mktBusy(text, long = false) {
+  const el = $("mkt-status");
+  clearInterval(mkt.tick);
+  mkt.busy = !!text;
+  el.classList.toggle("busy", !!text);
+  el.replaceChildren();
+  if (!text) return;
+  const msg = mk("span", "", text), sec = mk("span", "mkt-sec");
+  sec.setAttribute("aria-hidden", "true");
+  el.append(msg, sec);
+  const t0 = Date.now();
+  mkt.tick = setInterval(() => {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    sec.textContent = s >= 2 ? `${s}초` : "";
+    if (long && s === 6) msg.textContent = `${text}. AI가 글을 쓰면 30초 넘게 걸릴 수 있어요`;
+  }, 1000);
+}
+// 오류 (#mkt-error, role=alert). retry 를 주면 답 고르기 칸에 '다시 시도'
+function mktErr(message, retry) {
+  $("mkt-error").textContent = message || "";
+  mkt.retry = retry || null;
+  if (retry) $("mkt-options").innerHTML = '<div class="row"><button type="button" class="primary" data-mkt-retry>다시 시도</button></div>';
+}
+// 화면 위 안내 (#mkt-notice): 키 없이 저장된 예시로 도는 중이면 꼭, '처음부터 다시' 때 기록을 못 지웠으면 그 안내도
+function mktNotice() {
+  const h = mkt.health || {};
+  const demo = h.demo === true || h.mode === "mock" || h.key_present === false || mkt.demoSeen;   // mock 이면 키가 있어도 데모
+  const lines = [demo ? "시험용 실행 · 맞춤 마케팅이 지금 HCX를 부르지 않아 글은 미리 저장한 예시·정해 둔 틀이에요 (실제 AI 결과 아님)" : "", mkt.clearNote].filter(Boolean);
+  $("mkt-notice").hidden = !lines.length;
+  $("mkt-notice").textContent = lines.join(" ");
+}
+// 마케팅 서비스를 쓸 수 없을 때: 탭·대화를 숨기고 상태 안내와 '다시 확인'만 (다른 화면은 그대로)
+function mktDown(st, message) {
+  const key = MKT_STATES[st] ? st : st === "timeout" ? "down" : "error";
+  mkt.ready = false;
+  $("mkt-state").dataset.state = key;
+  $("mkt-state-title").textContent = MKT_STATES[key];
+  $("mkt-state-msg").textContent = message || "잠시 뒤 다시 확인해 주세요.";
+  mktPanels(false);
+  mktBusy("");
+  $("mkt-status").textContent = "";
+}
+function mktPanels(ready) {
+  $("mkt-state").hidden = ready;
+  document.querySelector(".mkt-tabs").hidden = !ready;
+  $("mkt-chat").hidden = !ready || mkt.tab !== "chat";
+  $("mkt-report-panel").hidden = !ready || mkt.tab !== "report";
+}
+
+// ── 대화 칸 ──
+function mktAdd(html) { $("mkt-log").insertAdjacentHTML("beforeend", html); return $("mkt-log").lastElementChild; }
+const mktBot = (text) => mktAdd(`<div class="mkt-msg bot"><p>${esc(text)}</p></div>`);
+const mktUser = (text) => mktAdd(`<div class="mkt-msg user"><p class="mkt-bubble">${esc(text)}</p></div>`);
+function mktReveal(el, block = "nearest") {
+  if (el && el.isConnected) el.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block });
+}
+
+// 화면을 열 때 (route): 처음이면 시작, 보고서 탭이면 그 기간을 다시 부른다
+function mktOpen() {
+  mktNotice();
+  if (!mkt.started) { mkt.started = true; mktStart(); return; }
+  if (mkt.ready && mkt.tab === "report") mktReport(mkt.period);
+}
+// 시작 (처음 열 때, '다시 확인'): health → 가게 이름 → 첫 질문
+async function mktStart() {
+  if (mkt.loading) return;
+  mkt.loading = true;
+  const gen = ++mkt.gen, retry = $("mkt-retry");
+  retry.disabled = true; retry.textContent = "확인하는 중…";
+  mktErr("");
+  mktBusy("맞춤 마케팅을 확인하고 있어요");
+  try {
+    const h = await mktApi("health");
+    if (gen !== mkt.gen) return;
+    mkt.health = h;
+    mktNotice();
+    if (h.state !== "ready") { mktDown(h.state, h.message); return; }
+    mkt.ready = true;
+    mktPanels(true);
+    mktApi("meta").then((m) => { $("mkt-store").textContent = m?.store_name ? `${m.store_name} 기준` : ""; }).catch(() => {});
+    await mktFirst(gen);
+  } catch (e) { if (gen === mkt.gen) mktDown(e.state, e.message); }
+  finally {
+    mkt.loading = false;
+    retry.disabled = false; retry.textContent = "다시 확인";
+  }
+}
+// 첫 질문 (무엇을 도와드릴까요? + 시작 모드 다섯 개). '처음부터'도 여기로 (기록은 지우지 않음)
+async function mktFirst(gen = ++mkt.gen, focus = false) {
+  $("mkt-log").replaceChildren();
+  $("mkt-options").replaceChildren();
+  mkt.flow = null; mkt.prompt = null;
+  mktErr("");
+  mktBusy("첫 질문을 불러오고 있어요");
+  try {
+    const d = await mktPost("step", { state: null, answer: null });
+    if (gen !== mkt.gen) return;
+    mktBusy("");
+    mkt.flow = d.state;
+    (d.bot_messages || []).forEach(mktBot);
+    mktAdd('<p class="mkt-sub">고친 만큼, 남는 만큼만 홍보해요</p>');
+    mktPrompt(d, focus);
+  } catch (e) {
+    if (gen !== mkt.gen) return;
+    mktBusy("");
+    mktErr(e.message, () => mktFirst(undefined, true));
+  }
+}
+
+// 답 고르기 칸: 시작 모드 카드 · 보기(하나) · 여러 개 고르기 + [다음] · 숫자/글 입력(예시 문구, 건너뛰기)
+function mktPrompt(d, focus = true) {
+  const box = $("mkt-options");
+  const opts = Array.isArray(d.options) ? d.options : [];
+  const start = mkt.flow?.node === "start";
+  mkt.prompt = { opts, input: d.input || null };
+  if (d.example) mktAdd(`<p class="mkt-example small muted">${esc(d.example)}</p>`);
+  let html = "";
+  if (start) {
+    html = `<div class="mkt-modes">${opts.map((o, i) => `<button type="button" class="mkt-mode" data-mkt-opt="${i}"><b>${esc(o.label)}</b>${MKT_MODES[o.label] ? `<span class="small muted">${esc(MKT_MODES[o.label])}</span>` : ""}</button>`).join("")}
+      <button type="button" class="mkt-mode mkt-mode-report" data-mkt-goto-report><b>마케팅 보고서</b><span class="small muted">이번 주·이번 달 마케팅 기록을 봐요</span></button></div>`;
+  } else if (d.multi) {
+    html = `<div class="mkt-chips" role="group" aria-label="여러 개 고르기">${opts.map((o, i) => `<button type="button" class="chip" aria-pressed="false" data-mkt-multi="${i}">${esc(o.label)}</button>`).join("")}</div>
+      <div class="row mkt-multi-row"><button type="button" class="primary" data-mkt-next disabled>다음</button><span class="small muted">여러 개 고를 수 있어요</span></div>`;
+  } else if (opts.length) {
+    html = `<div class="mkt-chips">${opts.map((o, i) => `<button type="button" class="chip" data-mkt-opt="${i}">${esc(o.label)}</button>`).join("")}</div>`;
+  }
+  if (d.input) html += mktInputHtml(d.input, opts.length > 0);
+  box.innerHTML = html;
+  if (focus) box.querySelector("button:not([disabled]), input, textarea")?.focus({ preventScroll: true });
+  mktReveal(box);
+}
+function mktInputHtml(spec, withOptions) {
+  if (spec.type === "number") {
+    const unit = MKT_UNIT[spec.key] || "";
+    return `<div class="mkt-input" data-mkt-input="number"><label class="sr" for="mkt-num">숫자로 답하기</label>
+        <input id="mkt-num" type="text" inputmode="numeric" autocomplete="off" placeholder="숫자로 답해 주세요">
+        ${unit ? `<span class="mkt-unit">${esc(unit)}</span>` : ""}<button type="button" class="primary" data-mkt-send>보내기</button></div>
+      ${spec.skip ? '<div class="row"><button type="button" class="chip" data-mkt-skip>건너뛰기</button></div>' : ""}
+      <p class="mkt-input-err" data-mkt-input-err role="alert"></p>`;
+  }
+  if (spec.skip) {   // 가게 이야기처럼 길게 쓰는 답: 여러 줄 칸 + 글자 수 + [건너뛰기][보내기]
+    return `<div class="mkt-free" data-mkt-input="free"><label class="sr" for="mkt-free">답 쓰기</label>
+      <textarea id="mkt-free" rows="3" maxlength="500" placeholder="답을 입력해 주세요"></textarea>
+      <div class="mkt-free-bar"><span class="small muted" data-mkt-count aria-hidden="true">0자</span>
+        <span class="row"><button type="button" class="ghost" data-mkt-skip>건너뛰기</button><button type="button" class="primary" data-mkt-send>보내기</button></span></div></div>`;
+  }
+  return `<div class="mkt-input" data-mkt-input="text"><label class="sr" for="mkt-text">${withOptions ? "직접 입력" : "답 쓰기"}</label>
+      <input id="mkt-text" type="text" maxlength="100" autocomplete="off" placeholder="${withOptions ? "또는 직접 입력해 주세요" : "답을 입력해 주세요"}">
+      <button type="button" class="primary" data-mkt-send>보내기</button></div>
+    <p class="mkt-input-err" data-mkt-input-err role="alert"></p>`;
+}
+// 입력칸의 [보내기] (Enter 도 같다. 한글 입력 중의 Enter 는 글자만 확정)
+function mktSend() {
+  const box = $("mkt-options"), kind = box.querySelector("[data-mkt-input]")?.dataset.mktInput;
+  const err = box.querySelector("[data-mkt-input-err]");
+  if (kind === "number") {
+    const digits = $("mkt-num").value.replace(/[^0-9]/g, "");
+    if (!digits) { err.textContent = "숫자를 입력해 주세요"; $("mkt-num").focus(); return; }
+    mktAnswer(digits, `${Number(digits).toLocaleString("ko-KR")}${MKT_UNIT[mkt.prompt?.input?.key] || ""}`);
+  } else if (kind === "free" || kind === "text") {
+    const el = kind === "free" ? $("mkt-free") : $("mkt-text");
+    const value = el.value.trim();
+    if (!value) { if (err) err.textContent = "답을 입력해 주세요"; el.focus(); return; }
+    mktAnswer(value, value);
+  }
+}
+async function mktAnswer(answer, label) {
+  if (mkt.busy) return;
+  mktUser(label);
+  await mktStep(answer);
+}
+// 질문 하나 진행 (POST step). 끝(done)이면 결과 카드
+async function mktStep(answer, focus = true) {
+  const gen = mkt.gen;
+  mktErr("");
+  $("mkt-options").replaceChildren();
+  mkt.prompt = null;
+  mktBusy("다음 질문을 준비하고 있어요");
+  let d;
+  try { d = await mktPost("step", { state: mkt.flow, answer }); }
+  catch (e) {
+    if (gen !== mkt.gen) return;
+    mktBusy("");
+    mktErr(e.message, () => mktStep(answer, focus));
+    return;
+  }
+  if (gen !== mkt.gen) return;
+  mktBusy("");
+  mkt.flow = d.state;
+  if (d.done) { await mktDecide(); return; }
+  (d.bot_messages || []).forEach(mktBot);
+  mktPrompt(d, focus);
+}
+
+// ── 결과 카드 ──
+// plan(글 생성 포함)과, 맞춤 홍보 제안·재주문 쿠폰이면 result(결정 설명 3줄, 규칙 계산)를 같이 받는다
+async function mktDecide(flow = mkt.flow, label = "결과를 정리하고 글을 만들고 있어요") {
+  const gen = mkt.gen;
+  mktErr("");
+  if (flow === mkt.flow) $("mkt-options").replaceChildren();   // 다시 쓰기로 예전 카드를 다시 받을 때는 지금 질문을 지우지 않는다
+  mktBusy(label, true);
+  const survey = flow?.mode === "survey" || flow?.mode === "follow_up";
+  let plan, why;
+  try {
+    [plan, why] = await Promise.all([mktPost("plan", { state: flow }), survey ? mktPost("result", { state: flow }).catch(() => null) : null]);
+  } catch (e) {
+    if (gen !== mkt.gen) return;
+    mktBusy("");
+    mktErr(e.message, () => mktDecide(flow, label));
+    return;
+  }
+  if (gen !== mkt.gen) return;
+  mktBusy("");
+  return mktResult(plan, why, flow);
+}
+// 판정 배지: 서버가 준 판정(verdict·usage_rate·strategy_type)만 보고 가른다 (원본 badgeFor)
+function mktBadge(d) {
+  if (Array.isArray(d.table)) {
+    const rank = { "괜찮음": 0, "주의": 1, "손해 광고": 2 };
+    const judged = d.table.filter((r) => r.verdict);
+    return judged.length ? MKT_VERDICT[judged.reduce((a, b) => (rank[b.verdict] > rank[a.verdict] ? b : a)).verdict] || null : null;
+  }
+  if (d.strategy_type === "fix_first") return ["bad", "먼저 고치기"];
+  if (d.usage_rate !== undefined) {
+    const r = d.usage_rate;
+    return r == null ? ["bad", "점검 필요"] : r < 0.2 ? ["warn", "주의"] : r <= 0.5 ? ["ok", "같은 조건 유지"] : ["warn", "할인 큼"];
+  }
+  return ["", "정보"];
+}
+// 숫자 타일 [값, 이름] (원본 buildTiles)
+function mktTiles(d) {
+  if (Array.isArray(d.table)) {
+    const flagged = d.table.filter((r) => r.verdict && r.verdict !== "괜찮음");
+    return [[`${d.table.length}개`, "점검한 채널"], [`${flagged.length}개`, "주의·손해 채널"],
+      ...(d.profit_per_order_won != null ? [[wonKo(d.profit_per_order_won), "건당 이익(추정)"]] : [])];
+  }
+  if (d.usage_rate !== undefined) {
+    const t = [];
+    if (d.usage_rate != null) t.push([`${Math.round(d.usage_rate * 100)}%`, "쿠폰 사용률"]);
+    if (d.issued != null && d.used != null) t.push([`${d.issued}장 / ${d.used}장`, "발급 / 사용"]);
+    if (d.total_discount_cost_won != null) t.push([wonKo(d.total_discount_cost_won), "총 할인 비용"]);
+    if (d.breakeven_orders != null) t.push([`${d.breakeven_orders}건`, "본전 주문 수"]);
+    return t;
+  }
+  if (d.coupon_card) {
+    const c = d.coupon_card, t = [[wonKo(c.discount_won), "할인액"]];
+    if (c.count) t.push([`${c.count}장`, "발급 수량"]);
+    if (c.breakeven_orders != null) t.push([`${c.breakeven_orders}건`, "본전 주문 수"]);
+    return t;
+  }
+  return [];
+}
+const mktTilesHtml = (tiles, attr = "") => `<dl class="mkt-tiles"${attr}>${tiles.map(([n, l], i) => `<div><dt>${esc(l)}</dt><dd data-mkt-tile="${i}">${esc(n)}</dd></div>`).join("")}</dl>`;
+// 글 상자 하나: 바로 고칠 수 있는 글 칸 + 복사. 승인할 때 이 카드의 글을 모두 같이 보낸다 (card.drafts 에 등록)
+function mktDraftHtml(card, key, text, kind, label) {
+  const id = `mkt-text-${card.n}-${mktKey(key)}`;
+  card.pending.push({ key, text: String(text ?? ""), kind });
+  return `<div class="mkt-draft" data-mkt-draft="${esc(key)}">
+    <div class="mkt-draft-head"><label for="${esc(id)}">${esc(label)}</label><span class="badge warn" data-mkt-edited hidden>고친 글</span></div>
+    <textarea id="${esc(id)}" rows="4" data-mkt-text="${esc(key)}">${esc(text)}</textarea>
+    <ul class="issues bad" data-mkt-fail hidden></ul>
+    <div class="row"><button type="button" class="ghost" data-mkt-copy="${esc(key)}">복사</button></div>
+  </div>`;
+}
+const mktDraftLabel = (kind, demo, fixed = false) => demo ? `${kind} · ${MKT_DEMO}` : fixed ? `${kind} · 정해 둔 틀 (AI 아님)` : `${kind} 초안`;
+// 방금 그린 글 상자를 카드에 등록 (승인·고친 표시·점검 실패 표시가 이 등록을 본다)
+function mktRegister(card, root = card.el) {
+  card.pending.splice(0).forEach((p) => {
+    const box = root.querySelector(`textarea[data-mkt-text="${CSS.escape(p.key)}"]`);
+    if (box) card.drafts.set(p.key, { kind: p.kind, original: p.text, box });
+  });
+}
+
+function mktResult(d, why, flow) {
+  // run: 이 카드의 글 id 앞부분 (새로 고친 뒤에도 앞서 승인한 기록과 겹치지 않게 임의 값)
+  const run = (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "") : Date.now().toString(36) + Math.random().toString(36).slice(2)).slice(0, 10);
+  const card = { n: ++mkt.cards, run, flow, data: d, session: d.session_id || null, demo: d.demo === true, title: d.title || "결과",
+    drafts: new Map(), pending: [], approved: false, busy: false, idea: null, ideaIndex: d.idea_index ?? 0, timer: null, seq: 0, gen: mkt.gen };
+  if (card.demo) { mkt.demoSeen = true; mktNotice(); }
+  const badge = mktBadge(d), tiles = mktTiles(d), steps = Array.isArray(d.steps) ? d.steps : [], drafts = d.drafts || {};
+  const whyLines = (Array.isArray(why?.explain) && why.explain.length ? why.explain
+    : d.summary ? [d.summary] : steps.length === 1 && steps[0].tip ? [steps[0].tip] : []).filter((t) => typeof t === "string" && t);
+  const stepKind = (s) => MKT_KIND[s.generator] || MKT_MODE_KIND[flow?.mode] || "마케팅 글";
+  const todoHead = steps.length ? `이번 주 할 일 ${steps.length}개 · 약 ${esc(d.total_minutes ?? 0)}분${d.total_cost_krw ? ` · 추정 비용 ${esc(wonKo(d.total_cost_krw))}` : ""}` : "";
+  const html = `<article class="mkt-card" id="mkt-card-${card.n}" aria-labelledby="mkt-card-${card.n}-title">
+    <div class="mkt-card-head"><h2 id="mkt-card-${card.n}-title" tabindex="-1">${esc(card.title)}</h2>
+      ${badge ? `<span class="badge ${badge[0]}" data-mkt-badge>${esc(badge[1])}</span>` : ""}
+      ${card.demo ? `<span class="badge">${esc(MKT_DEMO)}</span>` : ""}<span class="badge ok" data-mkt-approved hidden>승인함</span></div>
+    ${tiles.length ? mktTilesHtml(tiles) : ""}
+    ${whyLines.length ? `<div class="mkt-why"><p class="mkt-why-title">왜 이렇게 판단했나요</p><ul>${whyLines.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+      <p class="small muted">사장님 답변과 가게 데이터 기준 · 정해 둔 규칙으로 고른 결과예요 (AI 판단 아님)</p></div>` : ""}
+    ${d.over_budget ? '<p class="mkt-warn">예상 비용(추정) 합계가 설문에서 답한 예산을 넘어요.</p>' : ""}
+    ${Array.isArray(d.table) && d.table.length ? mktAdspendHtml(d.table) : ""}
+    ${steps.length ? `<p class="mkt-todo-head">${todoHead}</p><ol class="mkt-steps">${steps.map((s, i) => `<li class="mkt-step">
+        <div class="mkt-step-top"><span class="mkt-step-n" aria-hidden="true">${i + 1}</span><b>${esc(s.what)}</b>
+          <span class="mkt-step-meta">${esc(s.when || "")}${s.minutes ? ` · ${esc(s.minutes)}분` : ""}${s.cost_krw ? ` · ${esc(wonKo(s.cost_krw))}` : ""}</span></div>
+        ${s.where && s.where !== "-" ? `<p class="small muted">${esc(s.where)}</p>` : ""}
+        ${drafts[s.step_id] ? mktDraftHtml(card, s.step_id, drafts[s.step_id], stepKind(s), mktDraftLabel(stepKind(s), card.demo, s.generator === "late_notice_template")) : ""}
+        ${s.tip ? `<p class="small mkt-tip">체크: ${esc(s.tip)}</p>` : ""}</li>`).join("")}</ol>` : ""}
+    ${Array.isArray(d.todos) && d.todos.length ? `<p class="mkt-todo-head">할 일 ${d.todos.length}개</p>
+      <ol class="mkt-steps">${d.todos.map((t, i) => `<li class="mkt-step"><div class="mkt-step-top"><span class="mkt-step-n" aria-hidden="true">${i + 1}</span><b>${esc(t)}</b></div></li>`).join("")}</ol>
+      ${d.todo_note ? `<p class="small muted">${esc(d.todo_note)}</p>` : ""}` : ""}
+    ${d.bundle ? `<p class="mkt-line">원래 합계 ${esc(wonKo(d.bundle.original_won))} → 세트 가격 <b>${esc(wonKo(d.bundle.bundle_won))}</b></p>` : ""}
+    ${d.discount_tile ? `<p class="mkt-line">원래 가격 ${esc(wonKo(d.discount_tile.original_won))} → 할인 가격 <b>${esc(wonKo(d.discount_tile.sale_won))}</b></p>` : ""}
+    ${Array.isArray(d.basic_todos) && d.basic_todos.length ? `<div class="mkt-box"><p class="mkt-box-title">기본 할 일</p>
+      <ul class="mkt-list">${d.basic_todos.map((t) => `<li>${esc(t.title)}</li>`).join("")}</ul>
+      ${d.basic_todos.map((t, i) => (t.draft ? mktDraftHtml(card, `basic_todo_${i}`, t.draft, "기본 할 일 글", mktDraftLabel("기본 할 일 글", card.demo)) : "")).join("")}</div>` : ""}
+    ${d.idea ? '<div data-mkt-idea></div>' : ""}
+    ${d.coupon_card ? mktCouponHtml(card, d.coupon_card) : ""}
+    ${d.breakeven_orders != null && !d.coupon_card ? `<p class="mkt-line">본전이 되려면 ${esc(d.breakeven_orders)}건이 필요해요</p>` : ""}
+    ${d.next_condition ? `<div class="mkt-box dashed"><p class="mkt-box-title">다음 쿠폰 조건</p>
+      <p class="mkt-line">할인액 ${esc(wonKo(d.next_condition.discount_won))} · ${esc(d.next_condition.note || "")}</p>
+      <div class="row"><button type="button" data-mkt-next-coupon>이 조건으로 쿠폰 글 만들기</button></div><div data-mkt-next-out></div></div>` : ""}
+    ${d.measure ? `<p class="mkt-measure"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><span>${esc(d.measure)}</span></p>` : ""}
+    ${card.demo ? '<p class="mkt-demo">HCX를 부르지 않고 미리 저장한 예시·정해 둔 틀로 만든 글이에요. 실제 AI가 이 가게를 보고 쓴 글이 아니에요.</p>' : ""}
+    <div class="row mkt-card-actions"><button type="button" class="primary" data-mkt-approve>승인</button>
+      <button type="button" class="ghost" data-mkt-rewrite>다시 쓰기</button><a class="small" href="#/done" data-mkt-done hidden>처리 완료에서 보기</a></div>
+    <p class="small mkt-card-msg" role="status" data-mkt-card-msg></p>
+    <div data-mkt-follow></div>
+  </article>`;
+  card.el = mktAdd(html);
+  mktRegister(card);
+  if (d.idea) mktIdea(card, d.idea, card.ideaIndex);
+  if (d.coupon_card?.calc_input) mktCalcBind(card, card.el.querySelector("[data-mkt-calc]"), d.coupon_card.calc_input);
+  mktCardBind(card);
+  mktReveal(card.el, "start");
+  card.el.querySelector("h2").focus({ preventScroll: true });
+  return card;
+}
+function mktCardMsg(card, text, bad = false) {
+  const el = card.el.querySelector("[data-mkt-card-msg]");
+  el.textContent = text || "";
+  el.classList.toggle("bad", bad);
+}
+// 카드 안의 버튼·글 칸 (한 카드 안에서만 찾는다)
+function mktCardBind(card) {
+  const el = card.el;
+  el.addEventListener("input", (e) => {
+    const box = e.target.closest("textarea[data-mkt-text]");
+    if (!box) return;
+    const d = card.drafts.get(box.dataset.mktText);
+    const wrap = box.closest(".mkt-draft");
+    if (d && wrap) {
+      wrap.querySelector("[data-mkt-edited]").hidden = box.value.trim() === d.original.trim();
+      const fail = wrap.querySelector("[data-mkt-fail]");
+      fail.hidden = true; fail.replaceChildren();
+    }
+  });
+  el.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b || b.disabled || !el.contains(b)) return;
+    if (b.dataset.mktCopy != null) mktCopy(b, b.closest(".mkt-draft")?.querySelector("textarea"));
+    else if (b.hasAttribute("data-mkt-approve")) mktApprove(card, b);
+    else if (b.hasAttribute("data-mkt-rewrite")) mktRewrite(card, b);
+    else if (b.hasAttribute("data-mkt-next-coupon")) mktNextCoupon(card, b);
+    else if (b.hasAttribute("data-mkt-coupon-gen")) mktCouponGen(card, b);
+    else if (b.hasAttribute("data-mkt-notice")) mktNoticeFollow(card, b);
+  });
+}
+async function mktCopy(button, box) {
+  if (!box) return;
+  try { await navigator.clipboard.writeText(box.value); }
+  catch { box.select(); document.execCommand("copy"); }
+  button.textContent = "복사됨";
+  setTimeout(() => { if (button.isConnected) button.textContent = "복사"; }, 1500);
+}
+
+// 광고비 점검: 표 + 앱마다 막대 두 개(건당 광고비 · 건당 이익, 같은 눈금). 값은 서버가 계산한 그대로
+function mktAdspendHtml(rows) {
+  const judged = rows.filter((r) => r.cost_per_order_won != null);
+  const scale = Math.max(1, ...judged.flatMap((r) => [Number(r.cost_per_order_won) || 0, Number(r.profit_per_order_won) || 0]));
+  const pct = (v) => Math.max(0, Math.min(100, Math.round(((Number(v) || 0) / scale) * 100)));
+  return `<div class="mkt-table-wrap"><table class="mkt-table"><caption class="sr">배달앱별 광고비 손익</caption>
+      <thead><tr><th scope="col">앱</th><th scope="col" class="num">광고비</th><th scope="col" class="num">주문</th><th scope="col" class="num">건당 광고비</th><th scope="col" class="num">건당 이익</th><th scope="col">판정</th></tr></thead>
+      <tbody>${rows.map((r) => { const v = MKT_VERDICT[r.verdict]; return `<tr><th scope="row">${esc(r.label)}</th><td class="num">${esc(wonKo(r.spend_won))}</td>
+        <td class="num">${esc(Number(r.orders || 0).toLocaleString("ko-KR"))}건</td><td class="num">${r.cost_per_order_won == null ? "–" : esc(wonKo(r.cost_per_order_won))}</td>
+        <td class="num">${esc(wonKo(r.profit_per_order_won))}</td><td>${v ? `<span class="badge ${v[0]}">${esc(v[1])}</span>` : "–"}</td></tr>`; }).join("")}</tbody></table></div>
+    ${judged.length ? `<div class="mkt-bars">${judged.map((r) => `<div class="mkt-bar-row" role="img" aria-label="${esc(`${r.label}: 건당 광고비 ${wonKo(r.cost_per_order_won)}, 건당 이익 ${wonKo(r.profit_per_order_won)}`)}">
+        <p class="mkt-bar-name" aria-hidden="true">${esc(r.label)}</p>
+        <div class="mkt-bar" aria-hidden="true"><span class="mkt-bar-track"><i class="${esc((MKT_VERDICT[r.verdict] || ["ok"])[0])}" style="width:${pct(r.cost_per_order_won)}%"></i></span><span class="small">건당 광고비 ${esc(wonKo(r.cost_per_order_won))}</span></div>
+        <div class="mkt-bar" aria-hidden="true"><span class="mkt-bar-track"><i class="profit" style="width:${pct(r.profit_per_order_won)}%"></i></span><span class="small">건당 이익 ${esc(wonKo(r.profit_per_order_won))}</span></div></div>`).join("")}</div>` : ""}`;
+}
+
+// 쿠폰 카드 (+ calc_input 이 있으면 슬라이더): 예산·할인액을 움직이면 150ms 뒤 coupon-calc 로 장수·최대 비용·본전 주문 수를 다시 계산 (원본처럼 묶어서 보냄)
+function mktCouponHtml(card, c) {
+  const rows = [["혜택", `${wonKo(c.discount_won)} 할인`], ["발급 수량", c.count ? `${c.count}장` : null], ["시간대", c.timing || null],
+    ["유효기간", c.days ? `발급일 포함 ${c.days}일` : null]].filter(([, v]) => v != null && v !== "-");
+  let calc = "";
+  const input = c.calc_input;
+  if (input) {
+    const price = Number(input.price_won) || 0;
+    const minD = Math.max(100, mktRound100(price * 0.05)), maxD = Math.max(minD, mktRound100(price * 0.3));
+    const startD = Math.min(Math.max(Number(input.discount_won) || 0, minD), maxD), maxB = 300000;
+    card.calc = { budget_won: Math.min(Number(input.budget_won) || 0, maxB), discount_won: startD };
+    const n = card.n;
+    calc = `<div class="mkt-calc" data-mkt-calc>
+      <div class="mkt-slider"><label for="mkt-budget-${n}">월 예산 <output data-mkt-out="budget_won">${esc(wonKo(card.calc.budget_won))}</output></label>
+        <input type="range" id="mkt-budget-${n}" min="0" max="${maxB}" step="10000" value="${esc(card.calc.budget_won)}" data-mkt-range="budget_won" aria-valuetext="${esc(wonKo(card.calc.budget_won))}">
+        <p class="mkt-minmax small muted" aria-hidden="true"><span>0원</span><span>${esc(wonKo(maxB))}</span></p></div>
+      <div class="mkt-slider"><label for="mkt-discount-${n}">할인액 <output data-mkt-out="discount_won">${esc(wonKo(startD))}</output></label>
+        <input type="range" id="mkt-discount-${n}" min="${minD}" max="${maxD}" step="100" value="${startD}" data-mkt-range="discount_won" aria-valuetext="${esc(wonKo(startD))}">
+        <p class="mkt-minmax small muted" aria-hidden="true"><span>${esc(wonKo(minD))}</span><span>${esc(wonKo(maxD))}</span></p></div>
+      <div class="mkt-budget"><span class="mkt-bar-track" aria-hidden="true"><i class="ok" data-mkt-fill style="width:0%"></i></span><p class="small" data-mkt-budget-label></p></div>
+      ${mktTilesHtml([["–", "쿠폰 장수"], ["–", "최대 비용"], ["–", "본전 주문 수"]], ' data-mkt-figs aria-live="polite"')}
+      <p class="mkt-warn" data-mkt-calc-warn hidden>할인이 클수록 본전까지 더 많은 주문이 필요해요</p>
+      <p class="small muted">계산은 서버 코드가 해요 (AI 아님). 슬라이더를 움직이면 잠깐 뒤 숫자가 바뀌어요.</p>
+      <div class="row"><button type="button" data-mkt-coupon-gen>이 조건으로 쿠폰 글 만들기</button></div><div data-mkt-coupon-out></div>
+    </div>`;
+  }
+  return `<div class="mkt-coupon"><p class="small muted mkt-coupon-cap">쿠폰 이름</p>
+    <p class="mkt-coupon-title">${esc(c.menu || "대표 메뉴")} ${esc(wonKo(c.discount_won))} 할인</p>
+    <dl class="mkt-kv">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+    ${c.breakeven_orders != null ? `<p class="mkt-line">본전이 되려면 ${esc(c.breakeven_orders)}건이 필요해요</p>` : ""}${calc}</div>`;
+}
+function mktCalcBind(card, panel, input) {
+  if (!panel) return;
+  const price = Number(input.price_won) || 0;
+  const recalc = async () => {
+    if (!panel.isConnected || card.gen !== mkt.gen) return;
+    const seq = ++card.seq;
+    let fig;
+    try {
+      fig = await mktPost("coupon-calc", { budget_won: card.calc.budget_won, discount_won: card.calc.discount_won, price_won: price,
+        avg_order_won: input.avg_order_won, margin_pct: input.margin_pct });
+    } catch (e) { if (seq === card.seq) mktCardMsg(card, `계산하지 못했어요: ${e.message}`, true); return; }
+    if (seq !== card.seq) return;   // 그 사이 슬라이더를 또 움직였다: 늦게 온 숫자는 버린다
+    mktCardMsg(card, "");
+    const budget = card.calc.budget_won;
+    panel.querySelector("[data-mkt-fill]").style.width = `${budget > 0 ? Math.min(100, (fig.max_cost_won / budget) * 100) : 0}%`;
+    panel.querySelector("[data-mkt-budget-label]").textContent = `쿠폰 비용 ${wonKo(fig.max_cost_won)} · 남는 예산 ${wonKo(fig.remaining_won)}`;
+    const cells = panel.querySelectorAll("[data-mkt-figs] dd");
+    cells[0].textContent = `${fig.count}장`;
+    cells[1].textContent = wonKo(fig.max_cost_won);
+    cells[2].textContent = fig.breakeven_orders != null ? `${fig.breakeven_orders}건` : "–";
+    panel.querySelector("[data-mkt-calc-warn]").hidden = !(fig.discount_pct > 20);
+    // 판정 배지가 '정보'인 카드는 할인이 크면 '할인 큼'으로 (원본과 같음)
+    const badge = card.el.querySelector("[data-mkt-badge]");
+    if (badge && (badge.textContent === "정보" || badge.textContent === "할인 큼")) {
+      badge.className = `badge ${fig.discount_pct > 20 ? "warn" : ""}`;
+      badge.textContent = fig.discount_pct > 20 ? "할인 큼" : "정보";
+    }
+  };
+  panel.addEventListener("input", (e) => {
+    const r = e.target.closest("[data-mkt-range]");
+    if (!r) return;
+    card.calc[r.dataset.mktRange] = Number(r.value);
+    const text = wonKo(r.value);
+    panel.querySelector(`[data-mkt-out="${r.dataset.mktRange}"]`).textContent = text;
+    r.setAttribute("aria-valuetext", text);
+    clearTimeout(card.timer);
+    card.timer = setTimeout(recalc, 150);
+  });
+  recalc();
+}
+// '이 조건으로 쿠폰 글 만들기' (슬라이더 값으로 generate). 새 글은 그 아래, 이 카드를 승인할 때 같이 승인된다
+async function mktCouponGen(card, button) {
+  if (card.approved) return;
+  const out = card.el.querySelector("[data-mkt-coupon-out]");
+  await mktCardWork(card, button, "쿠폰 글을 만들고 있어요…", async () => {
+    const g = await mktPost("generate", { state: card.flow, coupon_override: { ...card.calc } });
+    if (!g.text) { mktCardMsg(card, "이 조건으로는 쿠폰 글을 만들지 못했어요.", true); return; }
+    if (g.demo) { mkt.demoSeen = true; mktNotice(); }
+    card.drafts.delete("coupon_regen");
+    out.innerHTML = mktDraftHtml(card, "coupon_regen", g.text, "쿠폰 글", mktDraftLabel("쿠폰 글", g.demo === true));
+    mktRegister(card, out);
+    mktCardMsg(card, "이 조건으로 쿠폰 글을 만들었어요. 승인하면 같이 승인돼요.");
+  });
+}
+// 쿠폰 결과 확인의 '다음 쿠폰 조건' → generate (할인액은 서버 코드가 정한 값)
+async function mktNextCoupon(card, button) {
+  if (card.approved) return;
+  const out = card.el.querySelector("[data-mkt-next-out]");
+  await mktCardWork(card, button, "쿠폰 글을 만들고 있어요…", async () => {
+    const g = await mktPost("generate", { state: card.flow });
+    if (g.demo) { mkt.demoSeen = true; mktNotice(); }
+    card.drafts.delete("next_coupon");
+    out.innerHTML = (g.text ? mktDraftHtml(card, "next_coupon", g.text, "쿠폰 글", mktDraftLabel("쿠폰 글", g.demo === true)) : "")
+      + (g.coupon ? mktCouponHtml(card, { ...g.coupon, calc_input: null }) : "");
+    mktRegister(card, out);
+    mktCardMsg(card, g.text ? "다음 쿠폰 글을 만들었어요. 승인하면 같이 승인돼요." : "쿠폰 글을 만들지 못했어요.", !g.text);
+  });
+}
+// 카드 안 버튼 하나의 일: 버튼을 잠그고 진행 글을 보이고, 실패하면 카드 안에 안내 (화면의 다른 곳은 그대로)
+async function mktCardWork(card, button, text, work) {
+  if (card.busy) return;
+  card.busy = true;
+  const old = button.textContent;
+  button.disabled = true; button.textContent = "만드는 중…";
+  mktCardMsg(card, text);
+  try { await work(); }
+  catch (e) { if (card.el.isConnected) mktCardMsg(card, e.message, true); }
+  finally {
+    card.busy = false;
+    if (button.isConnected) { button.disabled = card.approved; button.textContent = old; }
+  }
+}
+
+// 추천 아이디어: 목표 하나 안에서 순서대로 돈다(next-idea, 무작위 아님). 질문이 필요한 아이디어는 [해 볼게요]를 누른 뒤에만 묻고(idea-try),
+// 조건이 안 맞으면(skip) 다음 아이디어로 넘어간다. 아이디어 글은 서버의 정해 둔 틀이다 (AI 아님)
+function mktIdea(card, idea, index) {
+  const box = card.el.querySelector("[data-mkt-idea]");
+  if (!box) return;
+  card.idea = idea; card.ideaIndex = index;
+  [...card.drafts.keys()].filter((k) => k.startsWith("idea_")).forEach((k) => card.drafts.delete(k));   // 지난 아이디어 글은 승인 대상에서 뺀다
+  const story = idea.id === "story_link";
+  box.innerHTML = `<div class="mkt-idea"><p class="mkt-idea-tag">추천 아이디어</p>
+    <h3>${esc(idea.title)}</h3>${idea.why ? `<p class="mkt-idea-why">${esc(idea.why)}</p>` : ""}
+    ${(idea.todos || []).length ? `<ul class="mkt-list">${idea.todos.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
+    ${idea.draft && !idea.needs_question && !story ? mktDraftHtml(card, `idea_${idea.id}`, idea.draft, "아이디어 글", mktDraftLabel("아이디어 글", false, true)) : ""}
+    <div class="mkt-q" data-mkt-idea-q></div>
+    <div class="row">${story ? '<button type="button" data-mkt-idea-story>가게 이야기 글 만들기</button>'
+      : idea.needs_question ? '<button type="button" data-mkt-idea-try>해 볼게요</button>' : ""}
+      <button type="button" class="ghost" data-mkt-idea-next>다음 아이디어</button></div>
+    <p class="small muted" data-mkt-idea-msg role="status"></p></div>`;
+  mktRegister(card, box);
+  box.onclick = (e) => {
+    const b = e.target.closest("button");
+    if (!b || b.disabled) return;
+    if (b.hasAttribute("data-mkt-idea-next")) mktIdeaNext(card, b);
+    else if (b.hasAttribute("data-mkt-idea-try")) mktIdeaAsk(card, b);
+    else if (b.dataset.mktIdeaAnswer != null) mktIdeaTry(card, b.dataset.mktIdeaAnswer);
+    else if (b.hasAttribute("data-mkt-idea-send")) mktIdeaTry(card, box.querySelector("[data-mkt-idea-input]")?.value.trim() || "");
+    else if (b.hasAttribute("data-mkt-idea-story")) mktStoryLink(b);
+  };
+  box.onkeydown = (e) => {
+    if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229 && e.target.matches("[data-mkt-idea-input]")) { e.preventDefault(); mktIdeaTry(card, e.target.value.trim()); }
+  };
+}
+const mktIdeaMsg = (card, text) => { const el = card.el.querySelector("[data-mkt-idea-msg]"); if (el) el.textContent = text || ""; };
+async function mktIdeaNext(card, button) {
+  button.disabled = true;
+  try {
+    const r = await mktPost("next-idea", { state: card.flow, current_index: card.ideaIndex });
+    if (r.idea) { mktIdea(card, r.idea, r.idea_index ?? card.ideaIndex); card.el.querySelector("[data-mkt-idea] h3")?.setAttribute("tabindex", "-1"); card.el.querySelector("[data-mkt-idea] h3")?.focus(); }
+    else mktIdeaMsg(card, "다른 아이디어가 없어요.");
+  } catch (e) { mktIdeaMsg(card, e.message); }
+  finally { if (button.isConnected) button.disabled = false; }
+}
+function mktIdeaAsk(card, button) {
+  const q = card.el.querySelector("[data-mkt-idea-q]"), idea = card.idea, n = card.n;
+  button.remove();
+  q.innerHTML = `<p class="mkt-idea-why">${esc(idea.question || "")}</p>${idea.question_type === "bool"
+    ? '<div class="row"><button type="button" class="chip" data-mkt-idea-answer="예">예</button><button type="button" class="chip" data-mkt-idea-answer="아니요">아니요</button></div>'
+    : `<div class="mkt-input"><label class="sr" for="mkt-idea-${n}">아이디어 질문에 답하기</label><input id="mkt-idea-${n}" type="text" maxlength="60" autocomplete="off" data-mkt-idea-input placeholder="답을 입력해 주세요"><button type="button" class="primary" data-mkt-idea-send>보내기</button></div>`}`;
+  q.querySelector("button, input")?.focus();
+}
+async function mktIdeaTry(card, answer) {
+  const q = card.el.querySelector("[data-mkt-idea-q]"), idea = card.idea;
+  q.querySelectorAll("button, input").forEach((x) => (x.disabled = true));
+  mktIdeaMsg(card, "아이디어를 글로 만들고 있어요…");
+  try {
+    const r = await mktPost("idea-try", { state: card.flow, idea_id: idea.id, index: card.ideaIndex, answer });
+    if (r.skip) {
+      mktIdeaMsg(card, "이 아이디어는 지금은 건너뛸게요.");
+      const next = card.el.querySelector("[data-mkt-idea-next]");
+      if (next) await mktIdeaNext(card, next);
+      return;
+    }
+    q.innerHTML = r.draft ? mktDraftHtml(card, `idea_${idea.id}`, r.draft, "아이디어 글", mktDraftLabel("아이디어 글", false, true)) : "";
+    mktRegister(card, q);
+    mktIdeaMsg(card, r.draft ? "아이디어 글을 만들었어요. 카드를 승인하면 같이 승인돼요." : "");
+  } catch (e) {
+    q.querySelectorAll("button, input").forEach((x) => (x.disabled = false));
+    mktIdeaMsg(card, e.message);
+  }
+}
+// '가게 이야기 글 만들기' 아이디어: 새 설문(가게 이야기 글)으로 이어서 묻는다
+async function mktStoryLink(button) {
+  if (mkt.busy) return;
+  button.disabled = true;
+  const gen = mkt.gen;
+  mktUser("가게 이야기 글 만들기");
+  mktBusy("가게 이야기 질문을 준비하고 있어요");
+  try {
+    const base = await mktPost("step", { state: null, answer: null });
+    const r = await mktPost("step", { state: base.state, answer: "가게 이야기 글" });
+    if (gen !== mkt.gen) return;
+    mktBusy("");
+    mkt.flow = r.state;
+    (r.bot_messages || []).forEach(mktBot);
+    mktPrompt(r);
+  } catch (e) {
+    if (gen !== mkt.gen) return;
+    mktBusy("");
+    button.disabled = false;
+    mktErr(e.message);
+  }
+}
+
+// 승인: 이 카드의 글(고친 글 포함)을 모두 보낸다. 마케팅 서비스가 고친 글을 다시 점검해 걸리면(edit_failed) 그 글 아래에 빨간 안내.
+// 성공하면 서버가 이 방문자의 승인 기록에도 남기고(recorded) '처리 완료'에 보인다. 공지 카드면 '2주 뒤 확인해 보기'를 카드 안에 둔다
+async function mktApprove(card, button) {
+  if (card.approved || card.replaced || card.busy || mkt.busy) return;
+  const gen = mkt.gen, edited = {}, approval = [];
+  card.drafts.forEach((d, key) => {
+    const text = d.box.value;
+    if (text.trim() !== d.original.trim()) edited[key] = text;
+    approval.push({ draft_id: `${card.run}-${mktKey(key)}`, text, original: d.original, kind: d.kind, title: card.title });
+  });
+  card.busy = true;
+  button.disabled = true;
+  card.el.querySelectorAll(".mkt-draft [data-mkt-fail]").forEach((f) => { f.hidden = true; f.replaceChildren(); });
+  mktCardMsg(card, "승인하고 있어요…");
+  mktBusy("승인하고 있어요");
+  let a;
+  try {
+    a = await mktPost("approve", { state: card.flow, draft_id: null, session_id: card.session, edited_texts: edited, approval });
+  } catch (e) {
+    card.busy = false;
+    if (gen !== mkt.gen) return;
+    mktBusy("");
+    button.disabled = false;
+    mktCardMsg(card, `승인하지 못했어요: ${e.message}`, true);
+    return;
+  }
+  card.busy = false;
+  if (gen !== mkt.gen) return;
+  mktBusy("");
+  if (a.edit_failed) {
+    let first = null;
+    Object.entries(a.edit_failed).forEach(([key, reasons]) => {
+      const wrap = card.el.querySelector(`.mkt-draft[data-mkt-draft="${CSS.escape(key)}"]`);
+      if (!wrap) return;
+      const ul = wrap.querySelector("[data-mkt-fail]");
+      ul.innerHTML = (Array.isArray(reasons) ? reasons : [reasons]).map((r) => `<li><b>점검 실패</b> ${esc(r)}</li>`).join("");
+      ul.hidden = false;
+      first = first || wrap.querySelector("textarea");
+    });
+    button.disabled = false;
+    mktCardMsg(card, "고친 글이 점검에 걸렸어요. 빨간 안내를 보고 글을 고친 뒤 다시 승인해 주세요.", true);
+    first?.focus();
+    return;
+  }
+  card.approved = true;
+  card.el.classList.add("approved");
+  card.el.querySelector("[data-mkt-approved]").hidden = false;
+  button.textContent = "승인함";
+  card.el.querySelectorAll("[data-mkt-rewrite], [data-mkt-coupon-gen], [data-mkt-next-coupon], [data-mkt-idea-try], [data-mkt-idea-next]").forEach((x) => (x.disabled = true));
+  card.el.querySelectorAll("textarea[data-mkt-text]").forEach((x) => (x.readOnly = true));
+  const recorded = Array.isArray(a.recorded) ? a.recorded : [];
+  recorded.forEach((r) => {
+    state.approvedLog = state.approvedLog.filter((x) => x.id !== r.draft_id);
+    state.approvedLog.push({ id: r.draft_id, at: r.approved_at || new Date().toISOString(), edited: !!r.edited, name: r.kind, card: "맞춤 마케팅", mkt: true });
+  });
+  card.el.querySelector("[data-mkt-done]").hidden = !recorded.length;
+  mktCardMsg(card, `승인했어요.${recorded.length ? ` '처리 완료'에 글 ${recorded.length}건을 기록했어요.` : ""}${a.record_warning ? ` ${a.record_warning}` : ""} 게시는 복사해서 직접 올려요.`);
+  if ((card.data.steps || []).some((s) => s.generator === "prevention_notice")) mktNoticeOffer(card);
+  mkt.flow = a.state || mkt.flow;
+  if (a.follow_up) {
+    (a.bot_messages || []).forEach(mktBot);
+    mktPrompt(a);
+  } else {
+    mktBot("여기까지 도와드릴게요. 감사합니다! 다른 것도 해 보려면 아래 ‘처음부터’를 눌러 주세요.");
+    $("mkt-options").replaceChildren();
+  }
+}
+// 같은 답으로 결과를 다시 받는다 (글을 새로 씀). 새 카드는 아래에, 예전 카드는 그대로 남는다
+async function mktRewrite(card, button) {
+  if (mkt.busy || card.approved || card.busy) return;
+  button.disabled = true;
+  mktUser("다시 쓰기");
+  const fresh = await mktDecide(card.flow, "같은 답으로 글을 다시 쓰고 있어요");
+  if (!fresh) { if (button.isConnected) button.disabled = false; return; }
+  // 새로 쓴 카드가 생기면 예전 카드는 승인하지 못하게 (같은 답의 글이 두 번 승인되지 않게)
+  card.el.querySelectorAll("[data-mkt-approve], [data-mkt-coupon-gen], [data-mkt-next-coupon]").forEach((x) => (x.disabled = true));
+  card.replaced = true;
+  mktCardMsg(card, "새로 쓴 결과가 아래에 있어요. 이 카드는 승인할 수 없어요.");
+}
+// 공지(재발 방지 공지)를 승인한 카드: 2주 뒤 같은 불만이 줄었는지 (데모: 저장된 리뷰 날짜로 서버 코드가 셈). 줄었으면 개선 소식 글
+// (원본은 재주문 쿠폰 질문이 이어지면 이 버튼이 나오지 않아 닿을 길이 없었다. 그래서 공지 카드 안에 둔다)
+function mktNoticeOffer(card) {
+  const box = card.el.querySelector("[data-mkt-follow]");
+  box.innerHTML = `<div class="mkt-follow"><p class="mkt-box-title">2주 뒤 개선 소식</p>
+    <p class="small muted">공지를 올리고 2주 뒤에 같은 불만 리뷰가 줄었는지 세어 봐요. 지금은 데모라 저장된 리뷰 날짜로 셈해요.</p>
+    <div class="row"><button type="button" data-mkt-notice>2주 뒤 확인해 보기</button></div><div data-mkt-notice-out></div></div>`;
+}
+async function mktNoticeFollow(card, button) {
+  const out = card.el.querySelector("[data-mkt-notice-out]");
+  button.disabled = true;
+  try {
+    const f = await mktPost("notice-followup", { state: card.flow });
+    const pend = card.pending.length;
+    out.innerHTML = `<p class="mkt-line">공지 전후 불만 리뷰 수: 이전 ${esc(f.window_days)}일 ${esc(f.before)}건 → 이후 ${esc(f.window_days)}일 <b>${esc(f.after)}건</b> (${esc(f.basis || "리뷰 기준")})</p>
+      ${f.improved && f.text ? mktDraftHtml(card, "notice_followup", f.text, "개선 소식", mktDraftLabel("개선 소식", false, true)) : f.todo ? `<p class="mkt-line">${esc(f.todo)}</p>` : ""}`;
+    card.pending.splice(pend);   // 승인이 끝난 카드라 이 글은 승인 대상이 아니다 (복사해서 씀)
+    button.remove();
+  } catch (e) {
+    button.disabled = false;
+    out.innerHTML = `<p class="small mkt-card-msg bad">${esc(e.message)}</p>`;
+  }
+}
+
+// ── 마케팅 보고서 탭 (주간·월간) ──
+function mktTab(name, focus = false) {
+  mkt.tab = name;
+  MKT_TABS.forEach((t) => {
+    const tab = $("mkt-tab-" + t), on = t === name;
+    tab.setAttribute("aria-selected", String(on));
+    tab.tabIndex = on ? 0 : -1;
+    if (on && focus) tab.focus();
+  });
+  $("mkt-chat").hidden = name !== "chat";
+  $("mkt-report-panel").hidden = name !== "report";
+  if (name === "report") mktReport(mkt.period);
+}
+function mktTabKey(e) {
+  const i = MKT_TABS.indexOf(e.currentTarget.dataset.mktTab);
+  const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: MKT_TABS.length - 1 }[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  mktTab(MKT_TABS[(next + MKT_TABS.length) % MKT_TABS.length], true);
+}
+function mktReportState(msg, bad = false) {
+  const el = $("mkt-report-state");
+  el.hidden = !msg;
+  el.textContent = msg || "";
+  el.classList.toggle("bad", bad);
+}
+// 보고서는 기록을 코드로 센 것이다 (AI 호출 없음). 열 때마다 새로 부른다 (방금 승인한 것도 세게)
+async function mktReport(period) {
+  mkt.period = period;
+  document.querySelectorAll("[data-mkt-period]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mktPeriod === period)));
+  const gen = ++mkt.reportGen;
+  mktReportState("불러오는 중…");
+  try {
+    const d = await mktApi(`report?period=${encodeURIComponent(period)}`);
+    if (gen !== mkt.reportGen) return;
+    mktReportState("");
+    mktReportDraw(d, period);
+  } catch (e) {
+    if (gen !== mkt.reportGen) return;
+    $("mkt-report").innerHTML = "";
+    mktReportState(e.message, true);
+  }
+}
+function mktReportDraw(d, period) {
+  const L = MKT_PERIOD[d.period?.kind] || MKT_PERIOD[period];
+  const tiles = [];
+  const approved = Object.entries(d.activity?.approved || {});
+  if (approved.length) tiles.push([`${approved.reduce((n, [, v]) => n + Number(v || 0), 0)}건`, `승인한 글 (${approved.map(([k, v]) => `${k} ${v}`).join(" · ")})`]);
+  const c = d.cost?.coupon;
+  if (c) {
+    if (c.usage_rate != null) tiles.push([`${Math.round(c.usage_rate * 100)}%`, `쿠폰 사용률 (${c.issued}장 중 ${c.used}장)`]);
+    tiles.push([wonKo(c.discount_spent), "할인에 쓴 돈"]);
+  }
+  (d.fixed || []).forEach((f) => tiles.push([`${f.before_14d}건 → ${f.after_14d}건`, f.tile_label || `${f.complaint} 불만 재발`]));
+  const tried = d.activity?.ideas_tried || [], ads = d.cost?.ads || [], next = d.next || [];
+  const scale = Math.max(1, ...ads.flatMap((a) => [Number(a.cost_per_order) || 0, Number(a.profit_per_order) || 0]));
+  const pct = (v) => Math.max(0, Math.min(100, Math.round(((Number(v) || 0) / scale) * 100)));
+  const until = String(d.period?.until || "").slice(0, 10);
+  $("mkt-report").innerHTML = `<article class="mkt-card mkt-report-card" aria-labelledby="mkt-report-title">
+    <div class="mkt-card-head"><h2 id="mkt-report-title">${esc(L.now)} 마케팅 보고서</h2>${d.demo ? '<span class="badge warn">데모 기록</span>' : ""}</div>
+    <p class="small muted">${esc(d.period?.start || "")} ~ ${esc(until)} · 기록을 코드로 셌어요 (AI 호출 없음)</p>
+    ${d.demo ? '<p class="mkt-demo">아직 이 가게에 쌓인 마케팅 기록이 없어 예시로 넣어 둔 데모 기록을 보여 줘요. 실제 우리 가게 기록이 아니에요.</p>' : ""}
+    ${tiles.length ? mktTilesHtml(tiles) : ""}
+    ${tried.length ? `<div class="mkt-box"><p class="mkt-box-title">해 본 아이디어</p><ul class="mkt-list">${tried.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
+    ${ads.length ? `<div class="mkt-box"><p class="mkt-box-title">광고 앱별 판정 (${esc(L.prev)} → ${esc(L.now)})</p><div class="mkt-bars">${ads.map((a) => {
+      const v = MKT_VERDICT[a.verdict] || ["ok"];
+      return `<div class="mkt-bar-row"><p class="mkt-bar-name">${esc(a.label)} <span class="small muted">${esc(L.prev)} ${esc(a.prev_verdict || "기록 없음")} → ${esc(L.now)} ${esc(a.verdict || "–")}</span></p>
+        <div class="mkt-bar"><span class="mkt-bar-track" aria-hidden="true"><i class="${esc(v[0])}" style="width:${pct(a.cost_per_order)}%"></i></span><span class="small">건당 광고비 ${esc(wonKo(a.cost_per_order))}</span></div>
+        ${a.profit_per_order != null ? `<div class="mkt-bar"><span class="mkt-bar-track" aria-hidden="true"><i class="profit" style="width:${pct(a.profit_per_order)}%"></i></span><span class="small">건당 이익 ${esc(wonKo(a.profit_per_order))}</span></div>` : ""}</div>`;
+    }).join("")}</div></div>` : ""}
+    ${next.length ? `<div class="mkt-box dashed"><p class="mkt-box-title">${esc(L.next)} 할 것</p><ul class="mkt-list">${next.map((n) => `<li><b>${esc(n.title)}</b> — ${esc(n.why)}</li>`).join("")}</ul></div>` : ""}
+    ${!tiles.length && !tried.length && !ads.length && !next.length ? '<p class="muted">이 기간에 쌓인 기록이 아직 없어요.</p>' : ""}
+  </article>`;
+}
+
+// '처음부터' (이 화면): 대화만 처음으로. 승인 기록·보고서 기록은 그대로
+function mktRestartChat() {
+  mktTab("chat");
+  mktFirst(++mkt.gen, true);
+}
+// '처음부터 다시' (처리 완료 화면, restart): 대화·결과 카드·보고서를 비우고, 다음에 열 때 처음부터 시작한다.
+// cleared = 서버의 marketing_cleared (false 면 기록을 못 지운 것 → 이 화면 안에만 안내)
+function mktReset(cleared) {
+  mkt.gen++;
+  mkt.reportGen++;
+  mkt.flow = null; mkt.prompt = null; mkt.started = false; mkt.ready = false; mkt.demoSeen = false;
+  mktBusy("");
+  $("mkt-log").replaceChildren();
+  $("mkt-options").replaceChildren();
+  $("mkt-report").replaceChildren();
+  mktReportState("");
+  mktErr("");
+  mkt.clearNote = cleared === false ? "‘처음부터 다시’ 때 맞춤 마케팅 기록은 지우지 못했어요. 마케팅 보고서에 예전 기록이 남아 있을 수 있어요." : "";
+  mkt.tab = "chat";
+  mktTab("chat");
+  mktNotice();
+  if (currentRoute() === "marketing") mktOpen();
 }
 
 // ── AI에게 묻기 서랍: 상권 채팅 (11/15) ──────────────────────────────
@@ -1953,6 +2834,44 @@ window.addEventListener("afterprint", rpPrintDone);
 document.querySelector('[data-view="report"]').addEventListener("click", (e) => {
   const b = e.target.closest("[data-rp-ask]");
   if (b) toggleAssistant(true, b);
+});
+// 맞춤 마케팅: 답 고르기 칸(보기·여러 개 고르기·입력·다시 시도), 탭(←/→/Home/End), 보고서 기간, 처음부터, 다시 확인
+$("mkt-options").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || b.disabled) return;
+  if (b.hasAttribute("data-mkt-retry")) { const again = mkt.retry; mktErr(""); if (again) again(); return; }
+  if (b.hasAttribute("data-mkt-goto-report")) { mktTab("report", true); return; }
+  if (mkt.busy) return;
+  const p = mkt.prompt || { opts: [] }, box = $("mkt-options");
+  if (b.dataset.mktOpt != null) { const o = p.opts[Number(b.dataset.mktOpt)]; if (o) mktAnswer(o.label, o.label); }
+  else if (b.dataset.mktMulti != null) {
+    b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true"));
+    box.querySelector("[data-mkt-next]").disabled = !box.querySelector('[data-mkt-multi][aria-pressed="true"]');
+  } else if (b.hasAttribute("data-mkt-next")) {
+    const picked = [...box.querySelectorAll('[data-mkt-multi][aria-pressed="true"]')].map((x) => p.opts[Number(x.dataset.mktMulti)]).filter(Boolean);
+    if (picked.length) mktAnswer(picked.map((o) => o.value), picked.map((o) => o.label).join(", "));
+  } else if (b.hasAttribute("data-mkt-skip")) mktAnswer("", "건너뛰기");
+  else if (b.hasAttribute("data-mkt-send")) mktSend();
+});
+$("mkt-options").addEventListener("input", (e) => {
+  if (e.target.id === "mkt-num") { const digits = e.target.value.replace(/[^0-9]/g, "").slice(0, 12); e.target.value = digits ? Number(digits).toLocaleString("ko-KR") : ""; }
+  if (e.target.id === "mkt-free") $("mkt-options").querySelector("[data-mkt-count]").textContent = `${e.target.value.length}자`;
+  const err = $("mkt-options").querySelector("[data-mkt-input-err]");
+  if (err) err.textContent = "";
+});
+// 한 줄 입력칸의 Enter = 보내기 (한글 입력 중의 Enter 는 글자만 확정. 여러 줄 칸은 줄바꿈)
+$("mkt-options").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229 && e.target.matches("#mkt-num, #mkt-text")) { e.preventDefault(); mktSend(); }
+});
+document.querySelectorAll("[data-mkt-tab]").forEach((t) => {
+  t.addEventListener("click", () => mktTab(t.dataset.mktTab));
+  t.addEventListener("keydown", mktTabKey);
+});
+document.querySelectorAll("[data-mkt-period]").forEach((b) => b.addEventListener("click", () => mktReport(b.dataset.mktPeriod)));
+$("mkt-restart").addEventListener("click", mktRestartChat);
+$("mkt-retry").addEventListener("click", async () => {
+  await mktStart();
+  (mkt.ready ? $("mkt-options").querySelector("button") || $("mkt-tab-chat") : $("mkt-retry")).focus();
 });
 $("ask-ai").addEventListener("click", (e) => toggleAssistant(undefined, e.currentTarget));
 $("ask-open").addEventListener("click", (e) => toggleAssistant(true, e.currentTarget));

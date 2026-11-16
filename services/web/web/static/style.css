@@ -414,6 +414,180 @@ details[open] > summary { margin-bottom: 8px; }
 .cap-save-msg { margin: 8px 0 0; color: var(--ink-2); }
 .cap-save-msg:empty { margin: 0; }
 
+/* ── 맞춤 마케팅 (#/marketing, 11/16 통합): 탭(맞춤 제안 · 마케팅 보고서) → 대화(질문·답·결과 카드) → 아래 답 고르기 칸 ─────────
+   김수현 님 화면(marketing_survey/web)의 기능을 이 화면의 토큰·모양으로 다시 그렸다. 새 색 토큰은 없다 (다크·인쇄 토큰을 늘리지 않음).
+   좁아지면 main 의 컨테이너 규칙으로 숫자 칸·모드 카드가 줄을 바꾸고, 넓은 표는 그 칸 안에서만 옆으로 밀린다 */
+.mkt { word-break: keep-all; overflow-wrap: break-word; }
+.mkt-notice { max-width: none; margin: 0 0 16px; }
+.mkt-state { margin: 0 0 16px; }
+.mkt-state p { margin: 0; color: var(--ink-2); }
+.mkt-state .mkt-state-title { position: relative; margin: 0 0 6px; padding-left: 18px; color: var(--ink); font-size: .9375rem; font-weight: 600; }
+.mkt-state-title::before { content: ""; position: absolute; left: 1px; top: .6em; width: 8px; height: 8px; border-radius: 1px; background: var(--bad); }
+.mkt-state[data-state="off"] .mkt-state-title::before { width: 9px; height: 9px; border-radius: 50%; background: transparent; box-shadow: inset 0 0 0 2px var(--muted); }
+.mkt-state button { margin-top: 14px; min-height: 36px; padding: 4px 16px; font-size: .875rem; }
+.mkt-tabs { margin-bottom: 20px; }
+.mkt-panel:focus-visible { outline-offset: 4px; border-radius: 6px; }
+/* 대화: 사장님 답 = 오른쪽 연한 말풍선, 비서 = 면 없이 글만 (서랍 채팅과 같은 모양) */
+.mkt-log { display: grid; gap: 14px; }
+.mkt-log:empty { display: none; }
+.mkt-msg { min-width: 0; }
+.mkt-msg p { margin: 0; }
+.mkt-msg.bot p { color: var(--ink); white-space: pre-line; }
+.mkt-msg.user { justify-self: end; max-width: 85%; }
+.mkt-bubble { padding: 8px 14px; border-radius: 18px; background: var(--chip); white-space: pre-wrap; overflow-wrap: anywhere; }
+.mkt-sub, .mkt-example { margin: -6px 0 0; color: var(--muted); font-size: .875rem; }
+/* 진행 (role=status): 깜박이는 점 + 글 + 걸린 초 · 오류 (role=alert): 이 화면 안에서만 */
+.mkt-status { margin: 14px 0 0; color: var(--muted); font-size: .875rem; }
+.mkt-status:empty { margin: 0; }
+.mkt-status.busy { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.mkt-status.busy::before { content: ""; flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--ink-2); animation: drawer-pulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .mkt-status.busy::before { animation: none; } }
+.mkt-sec { font-variant-numeric: tabular-nums; }
+.mkt-error { position: relative; margin: 12px 0 0; padding: 8px 12px 8px 30px; border-radius: 12px; background: var(--bad-bg); color: var(--bad);
+  font-size: .875rem; font-weight: 500; line-height: 1.5; }
+.mkt-error::before { content: ""; position: absolute; left: 13px; top: 15px; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.mkt-error:empty { margin: 0; padding: 0; }
+.mkt-error:empty::before { display: none; }
+/* 답 고르기 칸: 시작 모드 카드 · 보기 칩(여러 개 고르기는 ✓) · 입력 상자 */
+.mkt-options { display: grid; gap: 10px; margin-top: 16px; }
+.mkt-options:empty { margin: 0; }
+.mkt-options .row { margin-top: 0; }
+.mkt-modes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 8px; }
+.mkt-mode { display: grid; justify-content: stretch; justify-items: start; align-content: start; gap: 2px; min-height: 72px; padding: 12px 16px; border-radius: 14px;
+  text-align: left; white-space: normal; font-weight: 400; }
+.mkt-mode b { font-weight: 600; }
+.mkt-mode-report { border-style: dashed; }
+.mkt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mkt-options .chip, .mkt-q .chip { min-height: 38px; }
+.mkt-chips .chip[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); background: var(--active); color: var(--ink); font-weight: 600; }
+.mkt-chips .chip[aria-pressed="true"]::before { content: "✓"; font-weight: 700; }
+.mkt-input { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 6px 6px 18px; border: 1px solid var(--field-line); border-radius: 26px; background: var(--panel); }
+.mkt-input:focus-within, .mkt-free:focus-within { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+.mkt-input input { flex: 1 1 auto; min-width: 0; height: 40px; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: 1rem; }
+.mkt-input input:focus, .mkt-free textarea:focus { outline: none; }   /* 포커스는 상자 테두리와 링으로 보임 */
+.mkt-unit { flex: 0 0 auto; color: var(--ink-2); font-size: .875rem; }
+.mkt-input .primary { flex: 0 0 auto; min-height: 40px; padding: 4px 16px; font-size: .875rem; }
+.mkt-free { padding: 12px 12px 8px 18px; border: 1px solid var(--field-line); border-radius: 22px; background: var(--panel); }
+.mkt-free textarea { display: block; width: 100%; min-height: 84px; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: 1rem; line-height: 1.6; resize: vertical; }
+.mkt-free-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.mkt-free-bar .row { margin: 0; }
+.mkt-input-err { margin: 0; color: var(--bad); font-size: .875rem; font-weight: 500; }
+.mkt-input-err:empty { display: none; }
+.mkt-foot { margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--line); }
+.mkt-foot .ghost { min-height: 34px; padding: 4px 12px; border-color: var(--line-strong); font-size: .875rem; color: var(--ink-2); }
+/* 결과 카드: 머리(제목·판정·데모) → 숫자 → 왜 이렇게 판단했나요 → 표·막대 → 할 일과 글 → 아이디어 → 쿠폰·슬라이더 → 측정 → 승인 */
+.mkt-card { display: grid; gap: 14px; min-width: 0; padding: 20px 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.mkt-card > * { margin: 0; min-width: 0; }
+.mkt-card.approved { border-color: var(--ok); }
+.mkt-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.mkt-card-head h2 { margin: 0 6px 0 0; font-size: 1.125rem; line-height: 1.45; }
+.mkt-card-head .badge { white-space: normal; }
+.mkt-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 1px; margin: 0; background: var(--line);
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.mkt-tiles > div { min-width: 0; padding: 10px 12px; background: var(--panel); overflow-wrap: anywhere; }
+.mkt-tiles dt { color: var(--muted); font-size: var(--meta); font-weight: 500; }
+.mkt-tiles dd { margin: 2px 0 0; font-size: 1.125rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mkt-why { padding: 12px 16px; border-radius: 12px; background: var(--surface); }
+.mkt-why .mkt-why-title { margin: 0 0 4px; color: var(--ink-2); font-size: var(--meta); font-weight: 600; }
+.mkt-why ul { margin: 0 0 6px; padding-left: 18px; font-size: .9375rem; }
+.mkt-why li + li { margin-top: 2px; }
+.mkt-why .small { margin: 0; }
+.mkt-warn, .mkt-demo { position: relative; padding: 8px 12px 8px 32px; border-radius: 12px; font-size: .875rem; }
+.mkt-warn { background: var(--warn-bg); color: var(--warn); }
+.mkt-demo { background: var(--surface); color: var(--ink-2); }
+.mkt-warn::before, .mkt-demo::before { content: ""; position: absolute; left: 13px; top: 14px; width: 9px; height: 8px; background: var(--warn-dot); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.mkt-line { font-size: .9375rem; }
+.mkt-line b { font-variant-numeric: tabular-nums; }
+.mkt-todo-head { font-size: .9375rem; font-weight: 600; }
+.mkt-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.mkt-step { display: grid; gap: 8px; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; }
+.mkt-step p { margin: 0; }
+.mkt-step-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.mkt-step-n { display: inline-grid; place-items: center; flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: var(--chip);
+  color: var(--ink-2); font-size: var(--meta); font-weight: 700; font-variant-numeric: tabular-nums; }
+.mkt-step-top b { flex: 1 1 160px; min-width: 0; font-weight: 600; }
+.mkt-step-meta { color: var(--muted); font-size: var(--meta); }
+.mkt-tip { color: var(--ink-2); }
+.mkt-list { margin: 0; padding-left: 18px; font-size: .9375rem; }
+.mkt-list li + li { margin-top: 2px; }
+.mkt-box { display: grid; gap: 8px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 14px; }
+.mkt-box > * { margin: 0; }
+.mkt-box.dashed { border-style: dashed; border-color: var(--line-strong); }
+.mkt-box-title { margin: 0; font-size: .9375rem; font-weight: 600; }
+.mkt-box .row, .mkt-follow .row, .mkt-idea .row, .mkt-calc .row { margin-top: 0; }
+.mkt-measure { display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: .875rem; }
+.mkt-card-actions { margin-top: 2px; }
+.mkt-card-actions .primary { min-width: 120px; min-height: 46px; padding: 0 28px; }
+.mkt-card-msg { color: var(--ink-2); }
+.mkt-card-msg:empty { display: none; }
+.mkt-card-msg.bad { color: var(--bad); font-weight: 500; }
+.mkt-follow { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.mkt-follow > * { margin: 0; }
+/* 글 상자: 바로 고칠 수 있는 칸 (초안 화면의 AI 초안 상자와 같은 모양) */
+.mkt-draft { display: grid; gap: 6px; min-width: 0; padding: 12px 16px 10px; border: 1px solid var(--field-line); border-radius: 18px; background: var(--panel); }
+.mkt-draft:focus-within { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+.mkt-draft-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.mkt-draft-head label { color: var(--muted); font-size: var(--meta); font-weight: 600; }
+.mkt-draft textarea { display: block; width: 100%; min-height: 104px; padding: 0; border: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: .9375rem; line-height: 1.7; resize: vertical; }
+.mkt-draft textarea:focus { outline: none; }
+.mkt-draft textarea[readonly] { color: var(--ink-2); }
+.mkt-draft .issues { margin: 0; }
+.mkt-draft .row { margin-top: 0; }
+.mkt-draft .ghost, .mkt-idea .ghost, .mkt-calc button, .mkt-box button, .mkt-follow button, .mkt-idea button {
+  min-height: 34px; padding: 4px 12px; border-color: var(--line-strong); font-size: .875rem; color: var(--ink-2); }
+.mkt-card.approved .mkt-draft { border-color: var(--ok); }
+/* 쿠폰 카드와 슬라이더 (예산·할인액 → 쿠폰 장수·최대 비용·본전 주문 수) */
+.mkt-coupon { display: grid; gap: 10px; padding: 14px 16px; border: 1px dashed var(--line-strong); border-radius: 14px; }
+.mkt-coupon > * { margin: 0; }
+.mkt-coupon-title { font-size: 1.0625rem; font-weight: 600; }
+.mkt-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: .875rem; }
+.mkt-kv dt { color: var(--muted); }
+.mkt-kv dd { margin: 0; }
+.mkt-calc { display: grid; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.mkt-calc > * { margin: 0; }
+.mkt-slider label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: .875rem; font-weight: 600; }
+.mkt-slider output { font-variant-numeric: tabular-nums; }
+.mkt-slider input[type="range"] { display: block; width: 100%; margin: 8px 0 2px; accent-color: var(--accent); }
+.mkt-minmax { display: flex; justify-content: space-between; gap: 8px; margin: 0; }
+.mkt-budget p { margin: 6px 0 0; }
+/* 광고비 표·막대 (표는 이 칸 안에서만 옆으로 밀림) */
+.mkt-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.mkt-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: .875rem; }
+.mkt-table th, .mkt-table td { padding: 8px 10px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.mkt-table thead th { border-top: 0; background: var(--surface); color: var(--muted); font-size: var(--meta); font-weight: 600; white-space: nowrap; }
+.mkt-table tbody th { font-weight: 600; }
+.mkt-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mkt-bars { display: grid; gap: 12px; }
+.mkt-bar-row { display: grid; gap: 4px; min-width: 0; }
+.mkt-bar-row > p { margin: 0; }
+.mkt-bar-name { font-size: .875rem; font-weight: 600; }
+.mkt-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.mkt-bar .small { color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mkt-bar-track { display: block; height: 8px; border-radius: 999px; background: var(--chip); overflow: hidden; }
+.mkt-bar-track i { display: block; height: 100%; border-radius: 999px; background: var(--bar-strong); }
+.mkt-bar-track i.bad { background: var(--hot); } .mkt-bar-track i.warn { background: var(--warn-dot); }
+.mkt-bar-track i.ok { background: var(--brand); } .mkt-bar-track i.profit { background: var(--accent); }
+/* 추천 아이디어 */
+.mkt-idea { display: grid; gap: 8px; padding: 14px 16px; border-radius: 14px; background: var(--surface); }
+.mkt-idea > * { margin: 0; }
+.mkt-idea .mkt-idea-tag { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: var(--meta); font-weight: 600; }
+.mkt-idea-tag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); }
+.mkt-idea h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+.mkt-idea h3:focus { outline: none; }
+.mkt-idea-why { margin: 0; color: var(--ink-2); font-size: .9375rem; }
+.mkt-q { display: grid; gap: 8px; }
+.mkt-q:empty { display: none; }
+/* 마케팅 보고서 */
+.mkt-period { margin-bottom: 14px; }
+.mkt-period button[aria-pressed="true"] { background: var(--seg-on); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--line-strong); }
+.mkt-report-card .mkt-card-head h2 { font-size: 1.0625rem; }
+@container (max-width: 499px) {   /* 다른 덩어리와 겹치지 않는 폭 (test_layout_static 이 479px 덩어리를 .stats 규칙으로 찾음) */
+  .mkt-card { padding: 16px; }
+  .mkt-input { padding-left: 14px; }
+  .mkt-msg.user { max-width: 92%; }
+}
+
 /* ── 종합 리포트 (#/report, 11/15): 오늘 요약 · 응대 점수 · 월간 보고서 · 상권 요약 · 마케팅 요약 ───────── */
 .rp-head-row { margin-top: 8px; }
 .rp-head-row .ghost { min-height: 34px; padding: 4px 12px; border-color: var(--line-strong); font-size: .875rem; color: var(--ink-2); }

@@ -78,7 +78,8 @@ class CountingModel:
 
 def make_app(tmp, source=None, storage=None, **kw):
     source = source or VisitorSource()
-    demo = Demo(settings(Path(tmp), **kw), source=source, storage=storage if storage is not None else MemoryStore())
+    # 맞춤 마케팅 프록시는 끈다: '처음부터 다시'가 이 시험에서 진짜 마케팅 서비스(8030)를 부르지 않게 (marketing_cleared 는 null)
+    demo = Demo(settings(Path(tmp), **{"marketing_url": "off", **kw}), source=source, storage=storage if storage is not None else MemoryStore())
     return TestClient(create_app(demo)), demo, source
 
 
@@ -380,10 +381,10 @@ def test_clearing_approvals_removes_only_this_visitors_records(tmp_path):
     b_client = TestClient(a_client.app)
     approve(a_client, "d_1"), approve(a_client, "d_2"), approve(b_client, "d_1", text="B 의 글")
     res = a_client.delete("/api/approvals")
-    assert res.status_code == 200 and res.json() == {"deleted": 2}
+    assert res.status_code == 200 and res.json() == {"deleted": 2, "marketing_cleared": None}
     assert shown(a_client) == []
     assert b_client.get("/api/approvals").json()["items"][0]["text"] == "B 의 글"                     # 다른 방문자의 기록은 그대로
-    assert a_client.delete("/api/approvals").json() == {"deleted": 0}                              # 지울 것이 없어도 200
+    assert a_client.delete("/api/approvals").json() == {"deleted": 0, "marketing_cleared": None}    # 지울 것이 없어도 200
     assert (Path(tmp_path) / "runtime" / "approvals.jsonl").read_text(encoding="utf-8").count("\n") == 3   # 덧붙이기만 하는 파일은 그대로
     approve(a_client, "d_3")
     assert shown(a_client) == ["d_3"]                                                               # 지운 뒤 새 승인만 보인다
@@ -393,7 +394,7 @@ def test_a_visitor_without_a_cookie_clears_nothing_of_anyone_else(tmp_path):
     client, demo, _ = make_app(tmp_path)
     approve(client, "d_1")
     stranger = TestClient(client.app)                                                               # 쿠키 없는 첫 요청 = 새 방문자
-    assert stranger.delete("/api/approvals").json() == {"deleted": 0}
+    assert stranger.delete("/api/approvals").json() == {"deleted": 0, "marketing_cleared": None}
     assert shown(client) == ["d_1"]
 
 
@@ -418,7 +419,7 @@ def test_clearing_during_an_outage_reports_it_and_keeps_everything(tmp_path):
     assert res.status_code == 503 and "지우지 못했어요" in res.json()["error"]["message"]
     assert len(demo._pending) == 2                                                  # 못 지웠으면 들고 있던 것도 그대로
     db.up = True
-    assert client.delete("/api/approvals").json() == {"deleted": 2}                 # DB 가 돌아오면: 저장돼 있던 것 + 멈춘 동안 승인한 것
+    assert client.delete("/api/approvals").json()["deleted"] == 2                   # DB 가 돌아오면: 저장돼 있던 것 + 멈춘 동안 승인한 것
     assert shown(client) == [] and shown(other) == ["d_theirs"] and demo._pending == []
 
 
@@ -432,7 +433,7 @@ def test_clearing_also_drops_what_this_server_still_holds_for_that_visitor_only(
     other = TestClient(client.app)
     approve(client, "d_mine_1"), approve(client, "d_mine_2"), approve(other, "d_theirs")
     assert len(demo._pending) == 3
-    assert client.delete("/api/approvals").json() == {"deleted": 2}                 # 이 방문자가 승인해 둔 2건 (아직 DB 에 못 쓴 것)
+    assert client.delete("/api/approvals").json()["deleted"] == 2                   # 이 방문자가 승인해 둔 2건 (아직 DB 에 못 쓴 것)
     assert [p[1]["draft_id"] for p in demo._pending] == ["d_theirs"]                # 다른 방문자의 밀린 승인은 남는다
     assert shown(client) == [] and shown(other) == ["d_theirs"]
 
@@ -594,7 +595,7 @@ def test_pg_clearing_on_one_server_shows_on_the_other_and_spares_other_visitors(
     approve(one, "d_a"), approve(one, "d_b")
     guest = TestClient(two.app)                                                                 # 다른 방문자
     approve(guest, "d_a", text="다른 방문자의 글")
-    assert same_visitor(two, me).delete("/api/approvals").json() == {"deleted": 2}             # 지우는 요청이 다른 서버로 가도
+    assert same_visitor(two, me).delete("/api/approvals").json()["deleted"] == 2             # 지우는 요청이 다른 서버로 가도
     assert shown(one) == [] and shown(guest) == ["d_a"]
     rows = db.run(lambda c: c.execute("SELECT draft_id, approved_text FROM approvals WHERE store_id=%s", (store_id,)).fetchall())
     assert [(r["draft_id"], r["approved_text"]) for r in rows] == [("d_a", "다른 방문자의 글")]
