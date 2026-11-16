@@ -143,9 +143,16 @@ def _split(img) -> list:
 
 
 # ── 3·4. 모델 호출과 답 정리 ──────────────────────────────────────
+_RATING_UNIT = re.compile(r'("rating"\s*:\s*)"?(\d+(?:\.\d+)?)\s*(?:stars?|점|개)?"?', re.IGNORECASE)
+
+
 def parse_reviews(content: str) -> list[dict]:
-    """모델 답에서 [{"text","rating"}] 를 건진다. ```json 감싸기·앞뒤 설명 글은 무시. 깨진 객체는 버린다."""
+    """모델 답에서 [{"text","rating"}] 를 건진다. ```json 감싸기·앞뒤 설명 글은 무시. 깨진 객체는 버린다.
+
+    HCX-005 는 별점을 `"rating": 1 stars}}` 처럼 단위를 붙이고 괄호를 더 닫아 JSON 을 깨뜨리기도 한다
+    (11/16 실제 캡처 3장 모두). 단위를 지워 숫자로 만든 뒤 읽는다. 남는 괄호는 객체 단위로 읽으며 건너뛴다."""
     text = re.sub(r"```(?:json)?", "", content or "")
+    text = _RATING_UNIT.sub(r"\1\2", text)
     dec = json.JSONDecoder()
     found: list = []
     i = 0
