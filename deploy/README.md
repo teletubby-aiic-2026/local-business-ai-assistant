@@ -148,7 +148,7 @@ bash ~/ic26-<커밋>/deploy/smoke_test.sh --expect-reviews 40
 bash ~/ic26-<커밋>/deploy/smoke_test.sh --generate
 ```
 
-`--generate`는 맞춤 마케팅의 `/plan`(가게 이야기 글)도 한 번 부릅니다(live면 HCX 1~2번). 시험 방문자 id(`smoke…`)로 쓰고 끝나면 그 기록만 지웁니다.
+`--generate`는 맞춤 마케팅의 `/plan`(가게 이야기 글)도 한 번 부릅니다(live면 HCX 1~2번). 마케팅 서버를 직접 볼 수 있으면(WAS 서버, 또는 `--marketing`) 시험 방문자 id(`smoke…`)로 쓰고 끝나면 그 기록만 지웁니다. 웹 서버처럼 비서 화면 서버를 거칠 때는 프록시가 쿼리의 방문자 id 를 버리고 쿠키를 쓰므로, 쿠키 파일로 한 방문자를 유지하고 끝나면 그 방문자의 `DELETE /api/approvals`(마케팅 기록도 함께 지움)로 지웁니다.
 
 체크리스트 단계 7의 "확인할 것"과 대응:
 

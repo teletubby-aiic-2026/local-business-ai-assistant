@@ -2577,7 +2577,7 @@ const LATER = [
 | `systemd/ic26-marketing.service` | 새로. `ic26` 계정, `/opt/ic26/experiments/marketing`, `PYTHONPATH=/opt/ic26:/opt/ic26/experiments/marketing`, `127.0.0.1:8030`, `MARKETING_RECORDS_DIR=/var/lib/ic26/marketing`, `EnvironmentFile=/etc/ic26/env` |
 | `systemd/ic26-was.service` | `MARKETING_SURVEY_URL=http://127.0.0.1:8030`, 순서 `After=ic26-marketing.service` (Wants 아님 — 꺼 둔 마케팅을 끌어오지 않음) |
 | `install_was.sh` | `/var/lib/ic26/marketing` 만들기, 마케팅 서버 import 확인, `ic26-marketing` enable·시작. `experiments/marketing/requirements.txt`는 설치하지 않음(서버는 fastapi·uvicorn만 씀, 개발용 streamlit 제외) |
-| `smoke_test.sh` | [4] 맞춤 마케팅: 비서 화면을 거친 `/api/marketing-survey/health`(404면 주의만), 서버 안 `127.0.0.1:8030/health`, `--generate`면 `/plan`(가게 이야기 글) 1회 후 시험 방문자 기록 지움 |
+| `smoke_test.sh` | [4] 맞춤 마케팅: 비서 화면을 거친 `/api/marketing-survey/health`(404면 주의만), 서버 안 `127.0.0.1:8030/health`, `--generate`면 `/plan`(가게 이야기 글) 1회 후 시험 방문자 기록 지움(직접 주소면 `DELETE /records`, 비서 화면을 거치면 쿠키 방문자의 `DELETE /api/approvals`) |
 | `prepare_image.sh` | `ic26-marketing` 멈춤, `/var/lib/ic26/marketing` 비움 |
 | `env.example` · `README.md` | 주석으로 `MARKETING_APP_MODE`, `MARKETING_SURVEY_URL=off`. README 10-2절 |
 

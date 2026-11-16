@@ -149,12 +149,16 @@ else
 
   if [ "$GENERATE" = 1 ]; then
     # 직접 주소가 있으면 그쪽, 없으면 비서 화면 서버를 거쳐서. 시험 방문자 id 로 쓰고 끝나면 그 기록만 지운다.
-    if [ -n "$MKT" ]; then MURL="$MKT/api/marketing-survey"; elif [ "$PROXY_OK" = 1 ]; then MURL="$BASE/api/marketing-survey"; else MURL=""; fi
+    # 비서 화면 서버를 거칠 때는 프록시가 쿼리의 visitor_id 를 버리고 쿠키의 방문자를 쓴다. 그래서 쿠키 파일로 한 방문자를 유지하고,
+    # 끝나면 그 방문자의 '처음부터 다시'(DELETE /api/approvals)로 지운다 (이 요청이 그 방문자의 마케팅 기록도 지움).
+    VIA=""
+    if [ -n "$MKT" ]; then MURL="$MKT/api/marketing-survey"; VIA=direct; elif [ "$PROXY_OK" = 1 ]; then MURL="$BASE/api/marketing-survey"; VIA=proxy; else MURL=""; fi
     if [ -n "$MURL" ]; then
       VID="smoke$(date +%s)"
+      QS="?visitor_id=$VID"; [ "$VIA" = proxy ] && QS=""
       BODY='{"state":{"node":"story_message","mode":"story","confirms":{},"raw":{"story_reason":"부모님 가게를 물려받아서","story_signature":"제육볶음 정식","story_keep":"매일 아침 장을 봐요"}}}'
       T0=$(date +%s); : > "$TMP/mplan"
-      STATUS="$(curl -sS -m 120 -o "$TMP/mplan" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "$BODY" "$MURL/plan?visitor_id=$VID" 2>"$TMP/mplan.err")" || STATUS=000
+      STATUS="$(curl -sS -m 120 -c "$TMP/mcookie" -b "$TMP/mcookie" -o "$TMP/mplan" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "$BODY" "$MURL/plan$QS" 2>"$TMP/mplan.err")" || STATUS=000
       T1=$(date +%s)
       if [ "$STATUS" = 200 ]; then
         N="$(jq_ "$TMP/mplan" 'len((d.get("drafts") or {}).get("naver_place_intro") or "")')"
@@ -164,7 +168,11 @@ else
       else
         bad "맞춤 마케팅 /plan HTTP $STATUS ($((T1 - T0))초)  → $(head -c 300 "$TMP/mplan")"
       fi
-      DEL="$(curl -sS -m 30 -X DELETE "$MURL/records?visitor_id=$VID" 2>/dev/null)"
+      if [ "$VIA" = proxy ]; then
+        DEL="$(curl -sS -m 30 -b "$TMP/mcookie" -X DELETE "$BASE/api/approvals" 2>/dev/null)"
+      else
+        DEL="$(curl -sS -m 30 -X DELETE "$MURL/records?visitor_id=$VID" 2>/dev/null)"
+      fi
       echo "        시험 방문자 기록 지움: $DEL"
     else
       echo "        맞춤 마케팅 글 생성은 건너뜀 (직접 주소도, 비서 화면을 거친 경로도 없음)"
