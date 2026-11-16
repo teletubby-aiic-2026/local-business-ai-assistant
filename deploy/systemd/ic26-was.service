@@ -8,7 +8,8 @@
 #   서버가 먼저 연결을 끊어 간헐적으로 502 가 나는 것을 막습니다.
 [Unit]
 Description=ic26 was (0.0.0.0:8000)
-After=network-online.target ic26-review.service
+# ic26-marketing 은 순서(After)만 둔다. Wants 에 넣으면 마케팅을 꺼 둬도 이 서비스를 다시 시작할 때 같이 켜진다
+After=network-online.target ic26-review.service ic26-marketing.service
 Wants=network-online.target ic26-review.service
 
 [Service]
@@ -21,6 +22,8 @@ Environment=PYTHONPATH=/opt/ic26
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 Environment=REVIEW_INSIGHT_URL=http://127.0.0.1:8020
+# 맞춤 마케팅 서버(ic26-marketing). 이 서버에서 끄려면 /etc/ic26/env 에 MARKETING_SURVEY_URL=off (그쪽이 이김)
+Environment=MARKETING_SURVEY_URL=http://127.0.0.1:8030
 Environment=WEB_RUNTIME_DIR=/var/lib/ic26/runtime
 StateDirectory=ic26
 ExecStart=/opt/ic26/.venv/bin/python -m uvicorn web.main:create_app --factory --host 0.0.0.0 --port 8000 --timeout-keep-alive 130 --log-level warning
