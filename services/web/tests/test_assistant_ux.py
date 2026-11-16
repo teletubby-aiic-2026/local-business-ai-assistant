@@ -485,19 +485,22 @@ class TestStoreAnswers(Base):
         reply = self.ask("리뷰 답글은 어디서 봐?").json()["reply"]
         lines = reply["text"].split("\n")
         self.assertEqual(lines[0], "리뷰 답글 초안은 화면 메뉴 '추천 카드'에서 카드를 고르면 '승인할 글'에 나와요. 승인한 글은 '처리 완료'에 모여요.")
-        for name in ("리뷰 분석", "추천 카드", "승인할 글", "처리 완료", "종합 리포트"):
+        for name in ("리뷰 분석", "추천 카드", "승인할 글", "처리 완료", "맞춤 마케팅", "종합 리포트"):
             self.assertIn(f"'{name}'", reply["text"])
         self.assertEqual(reply["kind"], "store_guide")
         self.assertTrue(self.ask("리뷰 분석은 어디서 봐?").json()["reply"]["text"].startswith("리뷰와 불만 묶음은 화면 메뉴 '리뷰 분석'"))
         self.assertTrue(self.ask("종합 리포트 어디 있어?").json()["reply"]["text"].startswith("응대 점수와 월간 보고서는 화면 메뉴 '종합 리포트'"))
         self.assertTrue(self.ask("공지 어디서 써?").json()["reply"]["text"].startswith("공지 초안은 화면 메뉴 '추천 카드'"))
+        for text in ("홍보는 어디서 해?", "광고비 점검 어디서 해?", "마케팅 보고서 어디서 봐?"):     # 맞춤 마케팅 (11/16)
+            with self.subTest(text=text):
+                self.assertTrue(self.ask(text).json()["reply"]["text"].startswith("홍보·쿠폰·광고비는 화면 메뉴 '맞춤 마케팅'"))
         self.assertEqual(self.market.requests, [])
 
     def test_screen_names_match_the_menu_on_the_page(self):
         nav = re.search(r'<nav class="side"[\s\S]*?</nav>', INDEX_HTML).group(0)
         labels = [re.sub(r"\s+", " ", re.sub(r"<svg[\s\S]*?</svg>|<[^>]+>", "", link)).strip()
                   for link in re.findall(r"<a [^>]*data-route=[^>]*>([\s\S]*?)</a>", nav)]
-        self.assertEqual(sorted(ap.SCREENS.values()), sorted(["리뷰 분석", "추천 카드", "승인할 글", "처리 완료", "종합 리포트"]))
+        self.assertEqual(sorted(ap.SCREENS.values()), sorted(["리뷰 분석", "추천 카드", "승인할 글", "처리 완료", "맞춤 마케팅", "종합 리포트"]))
         for name in ap.SCREENS.values():
             self.assertIn(name, labels)                       # 답에 적는 메뉴 이름이 화면 메뉴 글자와 같다
         self.assertIn("동네 상권·업종 매출 상담", ap._where_answer("리뷰 어디서 봐?")["reply"]["text"])

@@ -14,6 +14,7 @@ C5 담당(김진수)의 구현이 오면 build_cards 만 바꿔 끼운다. 인�
 - 이유 문장: 사실 카드(F1·F2·F3)를 근거로 쓰고 shared.answer_check 를 통과해야 쓴다. 화면에는 [F1] 표시를 지운다.
   mock 은 고정 문장, live 는 HCX-005 한 문장(1회 재시도) → 실패하면 고정 문장.
   칭찬 근거(F3)가 붙은 카드 ⓑ 는 live 에서 모델이 상권 지표 문장만 쓰고, 칭찬 근거 한 줄(메뉴·건수)은 코드가 끼워 넣는다 (apply_writer).
+  그 줄은 마침표로 끝나고 말끝은 모델 문장의 말투(합니다체/해요체)를 따른다 (speech_level, 11/16).
 """
 from __future__ import annotations
 
@@ -50,6 +51,7 @@ class CardPlan:
     model_facts: list[dict] | None = None
     model_fixed: str = ""
     code_line: str = ""
+    code_line_formal: str = ""   # 같은 줄의 합니다체. 모델 문장이 합니다체일 때만 이 줄을 끼운다 (speech_level, 11/16)
 
     def to_dict(self) -> dict:
         return {
@@ -162,15 +164,23 @@ def _clip(text: str, limit: int = PRAISE_TEXT_MAX) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + "…"
 
 
-def _praise_fact(praise: dict) -> tuple[dict, str]:
-    """사실 카드 F3 와 고정 문장의 한 줄. 혼자 가장 많이 언급된 메뉴일 때만 '가장 많이'라고 쓴다 (같은 수면 사실과 다르다)."""
+def _praise_line(praise: dict, formal: bool = False) -> str:
+    """칭찬 근거 한 줄. 마침표로 끝내고 인용 표시는 마침표 앞에 둔다: '…1건 있어요 [F3].' → 화면에서는 '…1건 있어요.'
+    formal=True 는 합니다체 ('…1건 있습니다 [F3].'). 모델 문장의 말투에 맞춰 apply_writer 가 고른다 (고정 문장은 해요체)."""
     menu, count = praise["menu"], praise["count"]
     if praise["alone"]:
+        return f"손님 칭찬 리뷰에서 {menu} 언급이 {count}건으로 가장 {'많습니다' if formal else '많아요'} [F3]."
+    return f"손님 칭찬 리뷰에 {menu} 언급이 {count}건 {'있습니다' if formal else '있어요'} [F3]."
+
+
+def _praise_fact(praise: dict) -> tuple[dict, str]:
+    """사실 카드 F3 와 고정 문장의 한 줄(해요체). 혼자 가장 많이 언급된 메뉴일 때만 '가장 많이'라고 쓴다 (같은 수면 사실과 다르다)."""
+    menu, count = praise["menu"], praise["count"]
+    line = _praise_line(praise)
+    if praise["alone"]:
         text = f"손님 칭찬 리뷰에서 가장 많이 언급된 메뉴는 {menu}, {count}건"
-        line = f"손님 칭찬 리뷰에서 {menu} 언급이 {count}건으로 가장 많아요 [F3]"
     else:
         text = f"손님 칭찬 리뷰에 {menu} 언급 {count}건 (언급 수가 같거나 더 많은 다른 메뉴가 있음)"
-        line = f"손님 칭찬 리뷰에 {menu} 언급이 {count}건 있어요 [F3]"
     fact = {
         "id": "F3", "topic": "review_praise", "status": "available", "text": text,
         # 메뉴 이름은 글자 값으로도 둔다: 이름에 숫자가 있어도('1인 정식') 검사기가 통계 숫자로 읽지 않는다
@@ -220,7 +230,8 @@ def _promo_plan(snapshots: list[AnalysisSnapshot], store_id: str, preferred_id: 
             )
             return CardPlan(card=card, title=f"{metric} 하락 → '{menu}' 쿠폰 홍보", facts=[fact, praise_fact],
                             checked_text=both, reason_source="고정 문장", evidence=evidence + praise["evidence"],
-                            model_facts=[fact], model_fixed=fixed, code_line=praise_line)
+                            model_facts=[fact], model_fixed=fixed, code_line=praise_line,
+                            code_line_formal=_praise_line(praise, formal=True))
     card = RecommendationCard(
         card_id=card_id, store_id=store_id, kind="promo",
         reason_text=strip_citations(fixed), snapshot_ids=[snap.snapshot_id],
@@ -357,12 +368,30 @@ def insert_code_line(text: str, line: str, fact_id: str) -> str:
     return head + "\n" + line + ("\n" + rest if rest else "")
 
 
+_ENDING_SPLIT = re.compile(r"[.!?。]+|\n")
+_ENDING_TAIL = " \t~…\"'”’)」』"
+
+
+def speech_level(text: str) -> str:
+    """모델 문장의 말투. 문장 끝을 본다: 모두 '-니다'·'-니까'(합니다체)면 "formal", 그 밖은 "polite"(해요체, 화면 기본).
+    '-요'와 '-니다'가 섞여 있거나, '…19.31% 감소.'처럼 끝말로 알 수 없는 문장뿐이면 "polite"."""
+    found = set()
+    for sentence in _ENDING_SPLIT.split(strip_citations(text or "")):
+        end = sentence.strip().rstrip(_ENDING_TAIL)
+        if end.endswith(("니다", "니까")):
+            found.add("formal")
+        elif end.endswith("요"):
+            found.add("polite")
+    return "formal" if found == {"formal"} else "polite"
+
+
 def apply_writer(plan: CardPlan, writer: ReasonWriter) -> CardPlan:
     """모델 문장으로 바꿔 보고, 규칙 검사를 통과하지 못하면 고정 문장을 그대로 둔다 (재시도는 writer 안에서).
 
     카드 ⓑ 에 손님 칭찬 근거가 있으면 모델에게는 상권 지표 카드만 주고(예전 홍보 카드와 같은 요청), 칭찬 근거 한 줄은 코드가
     끼워 넣는다. 두 근거를 함께 주면 모델이 섞어 쓴다 — 11/16 live: "17시부터 24시까지 제육볶음 정식 매출이 19.31%
     감소했어요[F2]"가 검사기를 통과했다 (상권 통계가 메뉴 매출이 됨). 메뉴·건수는 코드가 쓰면 틀릴 수 없다.
+    끼우는 줄은 마침표로 끝나고, 모델 문장이 합니다체면 합니다체 줄을 쓴다 (speech_level).
     """
     plan.rounds += 1
     facts = plan.model_facts if plan.model_facts is not None else plan.facts
@@ -373,7 +402,9 @@ def apply_writer(plan: CardPlan, writer: ReasonWriter) -> CardPlan:
         return plan
     problems = reason_problems(text or "", facts)
     if not problems and plan.code_line:
-        text = insert_code_line(text, plan.code_line, facts[-1]["id"])
+        # 끼우는 줄의 말끝은 모델 문장에 맞춘다 (합니다체 글 사이에 해요체 한 줄이 끼지 않게, 11/16 live)
+        formal = plan.code_line_formal and speech_level(text) == "formal"
+        text = insert_code_line(text, plan.code_line_formal if formal else plan.code_line, facts[-1]["id"])
         problems = reason_problems(text, plan.facts)   # 끼워 넣은 글 전체를 이 카드의 모든 근거로 다시 본다
     if problems:
         plan.reason_source = "HCX-005 검사 불통과 → 고정 문장"

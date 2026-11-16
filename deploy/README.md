@@ -6,9 +6,10 @@
 ## 0. 한눈에
 
 ```
-PC ──(scp, 베스천 거침)──▶ ic26-was1 ─ install_was.sh ─▶ ic26-review (127.0.0.1:8020)
-                                                      └▶ ic26-was    (0.0.0.0:8000)  ← 내부 로드 밸런서가 부름
-                                                         ic26-market (127.0.0.1:8766) ← 월요일. 지금은 꺼 둠
+PC ──(scp, 베스천 거침)──▶ ic26-was1 ─ install_was.sh ─▶ ic26-review    (127.0.0.1:8020)
+                                                      ├▶ ic26-marketing (127.0.0.1:8030)  ← 맞춤 마케팅. 비서 화면 서버만 부름
+                                                      └▶ ic26-was       (0.0.0.0:8000)    ← 내부 로드 밸런서가 부름
+                                                         ic26-market    (127.0.0.1:8766)  ← 월요일. 지금은 꺼 둠
 웹 서버 ─ install_web.sh ─▶ Nginx (80)  ── /api 또는 전체 ──▶ 내부 로드 밸런서 ─▶ WAS
 ```
 
@@ -20,7 +21,8 @@ PC ──(scp, 베스천 거침)──▶ ic26-was1 ─ install_was.sh ─▶ ic
 | `systemd/ic26-review.service` | WAS 서버 | 리뷰 분석 (127.0.0.1:8020) |
 | `systemd/ic26-was.service` | WAS 서버 | 비서 화면 서버 (0.0.0.0:8000, 상태 확인 `/api/health`) |
 | `systemd/ic26-market.service` | WAS 서버 | 상권 서비스 자리. 파일만 넣고 **켜지 않음** (월요일) |
-| `smoke_test.sh` | WAS 서버, 웹 서버 | `/api/health`와 `/api/briefing` 확인. `--generate`로 글 생성 1회 |
+| `systemd/ic26-marketing.service` | WAS 서버 | 맞춤 마케팅 서버 (127.0.0.1:8030, 상태 확인 `/health`). 10-2절 |
+| `smoke_test.sh` | WAS 서버, 웹 서버 | `/api/health`와 `/api/briefing`, 맞춤 마케팅 `/health` 확인. `--generate`로 글 생성 1회씩 |
 | `prepare_image.sh` | WAS 서버 | 서버 이미지를 만들기 전에 키 값과 실행 중 데이터를 비움 |
 | `install_web.sh` | 웹 서버 | Nginx 설치와 설정 넣기 (1단계 또는 2단계) |
 | `nginx/ic26-proxy-all.conf` | 웹 서버 | (가) 1단계: 모든 요청을 WAS로 |
@@ -90,10 +92,10 @@ sudo bash ic26-<커밋>/deploy/install_was.sh
 1. `apt`로 `python3`, `python3-venv`, `rsync`, `postgresql-client` 등 설치. 시간대 Asia/Seoul. `ufw`가 켜져 있으면 경고만 합니다.
 2. 실행 계정 `ic26`(로그인 불가)를 만듭니다.
 3. 코드를 `/opt/ic26`에 맞춥니다(root 소유). `REVISION` 파일도 함께 들어갑니다.
-4. 쓰기 폴더를 `ic26` 소유로 잡습니다: `services/review-insight/{logs,data/runtime,data/replay}`, `experiments/marketing/results`, `/var/lib/ic26/runtime`(= `WEB_RUNTIME_DIR`, 승인 기록), `/var/lib/ic26/market`(상권 SQLite).
+4. 쓰기 폴더를 `ic26` 소유로 잡습니다: `services/review-insight/{logs,data/runtime,data/replay}`, `experiments/marketing/results`, `/var/lib/ic26/runtime`(= `WEB_RUNTIME_DIR`, 승인 기록), `/var/lib/ic26/market`(상권 SQLite), `/var/lib/ic26/marketing`(= `MARKETING_RECORDS_DIR`, 맞춤 마케팅 기록).
 5. `/etc/ic26/env`가 **없을 때만** `env.example`로 만듭니다(root 소유, 권한 600). 있으면 건드리지 않고, 빠진 변수 이름만 알려 줍니다.
-6. `/opt/ic26/.venv`를 만들고 requirements를 설치합니다.
-7. 서비스 파일을 `/etc/systemd/system/`에 넣고 `ic26-review`, `ic26-was`를 enable하고 시작합니다. `ic26-market`은 파일만 넣고 켜지 않습니다.
+6. `/opt/ic26/.venv`를 만들고 requirements를 설치합니다. 맞춤 마케팅 서버가 이 venv로 import 되는지도 봅니다(안 되면 주의만 출력).
+7. 서비스 파일을 `/etc/systemd/system/`에 넣고 `ic26-review`, `ic26-marketing`, `ic26-was`를 enable하고 시작합니다. `ic26-market`은 파일만 넣고 켜지 않습니다.
 
 옵션: `--no-start`(등록만), `--skip-apt`, `--skip-pip`, `--no-systemd`(컨테이너 시험용).
 이 시점에는 키가 비어 있어 `APP_MODE=live`라서 `/api/health`에 막힘 항목이 보이는 것이 정상입니다.
@@ -110,7 +112,7 @@ sudo vi -n -i NONE /etc/ic26/env        # -n -i NONE: 임시 파일(.swp)과 vim
 넣을 것:
 
 - `CLOVA_API_KEY`, `CLOVASTUDIO_API_KEY`, `CLOVA_STUDIO_API_KEY` **세 줄에 같은 서버 전용 키**를 넣습니다. 코드마다 읽는 이름이 달라서 세 줄이 모두 필요합니다.
-  - `CLOVA_API_KEY`: 비서 화면 (`services/web`)
+  - `CLOVA_API_KEY`: 비서 화면 (`services/web`)과 맞춤 마케팅 (`experiments/marketing`, `ic26-marketing`)
   - `CLOVASTUDIO_API_KEY`: 리뷰 분석 (`services/review-insight`)
   - `CLOVA_STUDIO_API_KEY`: 상권 챗봇 (가운데 밑줄이 하나 더 있음. 월요일부터 쓰임)
 - 키 값만 넣습니다. 앞에 `Bearer `를 붙이지 않고, 따옴표와 앞뒤 공백도 넣지 않습니다. 값 뒤에 주석을 붙이지 않습니다(systemd가 주석까지 값으로 읽습니다).
@@ -132,13 +134,13 @@ ls -l /etc/ic26/env                      # -rw------- root root
 ## 6. 서버에서: 시작과 확인
 
 ```bash
-sudo systemctl restart ic26-review ic26-was
-systemctl is-active ic26-review ic26-was ic26-market   # active active inactive (market 은 월요일까지 inactive)
-sudo ss -ltnp | grep -E ':(8000|8020)'                  # 8000 은 0.0.0.0, 8020 은 127.0.0.1 만
+sudo systemctl restart ic26-review ic26-marketing ic26-was
+systemctl is-active ic26-review ic26-marketing ic26-was ic26-market   # active active active inactive (market 은 월요일까지 inactive)
+sudo ss -ltnp | grep -E ':(8000|8020|8030)'             # 8000 은 0.0.0.0, 8020·8030 은 127.0.0.1 만
 bash ~/ic26-<커밋>/deploy/smoke_test.sh --expect-reviews 40
 ```
 
-`smoke_test.sh`는 `/api/health`(모드, 키 유무, 리뷰 분석 상태 ok, 막힘 목록 비어 있음)와 `/api/briefing`(리뷰 건수)을 봅니다. 모두 통과하면 종료 코드 0입니다.
+`smoke_test.sh`는 `/api/health`(모드, 키 유무, 리뷰 분석 상태 ok, 막힘 목록 비어 있음)와 `/api/briefing`(리뷰 건수), 맞춤 마케팅(10-2절: 비서 화면을 거친 `/api/marketing-survey/health`와 서버 안 `127.0.0.1:8030/health`)을 봅니다. 모두 통과하면 종료 코드 0입니다.
 
 글 생성까지 보려면(live는 HCX를 실제로 한 번 부르므로 비용이 듭니다):
 
@@ -146,11 +148,13 @@ bash ~/ic26-<커밋>/deploy/smoke_test.sh --expect-reviews 40
 bash ~/ic26-<커밋>/deploy/smoke_test.sh --generate
 ```
 
+`--generate`는 맞춤 마케팅의 `/plan`(가게 이야기 글)도 한 번 부릅니다(live면 HCX 1~2번). 마케팅 서버를 직접 볼 수 있으면(WAS 서버, 또는 `--marketing`) 시험 방문자 id(`smoke…`)로 쓰고 끝나면 그 기록만 지웁니다. 웹 서버처럼 비서 화면 서버를 거칠 때는 프록시가 쿼리의 방문자 id 를 버리고 쿠키를 쓰므로, 쿠키 파일로 한 방문자를 유지하고 끝나면 그 방문자의 `DELETE /api/approvals`(마케팅 기록도 함께 지움)로 지웁니다.
+
 체크리스트 단계 7의 "확인할 것"과 대응:
 
 | 확인 | 방법 |
 |---|---|
-| 두 서비스 enabled · active | `systemctl is-enabled ic26-review ic26-was` / `is-active` |
+| 세 서비스 enabled · active | `systemctl is-enabled ic26-review ic26-marketing ic26-was` / `is-active` |
 | 서버를 중지했다 시작해도 저절로 뜸 | 콘솔에서 서버 정지·시작 뒤 위 명령 |
 | 모드 live, 키 있음, 막힘 목록 비어 있음, 응답에 키 값 없음 | `smoke_test.sh`, `curl -s localhost:8000/api/health` |
 | 리뷰 분석이 저장 파일을 쓸 수 있음 | `sudo journalctl -u ic26-review -n 50` 에 쓰기 오류 없음 |
@@ -202,12 +206,12 @@ sudo bash /opt/ic26/deploy/prepare_image.sh
 history -c && history -w          # 이 셸의 히스토리. sudo -i 나 root 로 들어갔다면 그 셸에서도
 ```
 
-`prepare_image.sh`가 하는 일: 서비스 멈춤 → `/etc/ic26/env`에서 이름에 `KEY`, `PASSWORD`, `TOKEN`, `SECRET`이 들어간 줄의 값을 비움(이름은 남김) → 붙여넣은 리뷰, 승인 기록, 사용량 기록, 모델 원문 응답(`experiments/marketing/results`), 상권 대화 기록을 지움 → 히스토리에 키 흔적이 있는지 파일 이름만 알려 줌. 값은 출력하지 않습니다.
+`prepare_image.sh`가 하는 일: 서비스 멈춤 → `/etc/ic26/env`에서 이름에 `KEY`, `PASSWORD`, `TOKEN`, `SECRET`이 들어간 줄의 값을 비움(이름은 남김) → 붙여넣은 리뷰, 승인 기록, 사용량 기록, 모델 원문 응답(`experiments/marketing/results`), 상권 대화 기록, 맞춤 마케팅 기록(`/var/lib/ic26/marketing`)을 지움 → 히스토리에 키 흔적이 있는지 파일 이름만 알려 줌. 값은 출력하지 않습니다.
 
 그 뒤:
 
 1. 콘솔에서 `ic26-was1` → 서버 이미지 `ic26-was-img1`. 서버를 정지해야 하는지는 화면 안내를 따릅니다.
-2. 이미지가 끝나면 `ic26-was1`에 5절처럼 값을 다시 넣고 `sudo systemctl restart ic26-review ic26-was`.
+2. 이미지가 끝나면 `ic26-was1`에 5절처럼 값을 다시 넣고 `sudo systemctl restart ic26-review ic26-marketing ic26-was`.
 3. `ic26-was2`는 `ic26-was-img1`로 만든 뒤 베스천을 거쳐 접속해 5절처럼 값을 넣고 재시작합니다. 서비스는 이미 enable 되어 있고, 이미지에 값이 없으므로 키를 넣기 전에는 막힘 항목이 보이는 것이 정상입니다.
 4. 두 서버에서 `smoke_test.sh`가 통과하고 `cat /opt/ic26/REVISION`이 같은지 봅니다.
 
@@ -228,6 +232,7 @@ bash ic26-<새 커밋>/deploy/smoke_test.sh
 - 바뀌지 않는 것: `/etc/ic26/env`, `/opt/ic26/.venv`, 쓰기 폴더 안의 내용(붙여넣은 리뷰, 로그, 승인 기록, 상권 DB). 단 `services/review-insight/data/replay/classify.json`처럼 저장소에 있는 파일은 저장소 내용으로 덮입니다.
 - 코드만 바뀌었으면 `--skip-pip`으로 빠르게 할 수 있습니다. requirements가 바뀐 갱신(예: DB 코드가 처음 들어온 묶음은 `psycopg`가 더해짐)에는 붙이지 않습니다.
 - **PR #49(리뷰 캡처·응대 점수·보고서)와 비서 화면 연결(`feat/connect-care-ui`)이 처음 들어가는 갱신은 `--skip-pip` 없이 돌립니다.** 리뷰 분석 서비스가 `pillow`와 `python-multipart`를 새로 씁니다. `python-multipart`가 없으면 리뷰 분석 서비스(`ic26-review`)가 **아예 켜지지 않고**, 비서 화면의 브리핑·카드·리뷰 분석도 모두 `503`이 됩니다. 갱신 뒤 `curl -s http://127.0.0.1:8020/api/health`와 `curl -s http://127.0.0.1:8000/api/care/status`(`"state":"ready"`)를 봅니다.
+- **맞춤 마케팅(`ic26-marketing`)이 처음 들어가는 갱신**은 `install_was.sh`가 서비스 파일을 넣고 enable·시작하며 `/var/lib/ic26/marketing`을 만듭니다. 새 패키지는 없습니다. 갱신 뒤 `curl -s http://127.0.0.1:8030/health`를 봅니다(10-2절).
 - `db/schema.sql`에 새 표가 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다.
 - 환경 파일 틀에 새 변수가 생기면 스크립트가 빠진 변수 이름을 알려 줍니다. 편집기로 줄을 추가합니다.
 - 단계 15(Auto Scaling) 뒤에는 그룹 서버를 직접 고치지 않습니다(체크리스트 단계 13-A).
@@ -251,6 +256,7 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
   **콘솔에서 사람이: 공개 ALB(`ic26-web-alb1`)와 내부 ALB(`ic26-was-alb1`)의 유휴 시간 제한(idle timeout)도 120초로 맞춥니다.** 둘 중 하나라도 짧으면 글 생성 중에 연결이 끊깁니다. 설정 화면의 위치와 이름은 확인하지 못했습니다. WAS의 keep-alive는 130초로 이미 로드 밸런서보다 길게 해 두었습니다(`ic26-was.service`).
 - **업로드 상한**: 두 설정 모두 기본 상한(1MB)은 그대로 두고, 리뷰 캡처 업로드 경로(`location = /api/care/reviews/capture`) 하나만 `client_max_body_size 12m`입니다(화면 서버 프록시 12MB, 리뷰 분석 서비스 10MB와 맞춤). 휴대폰 캡처는 1MB를 넘는 일이 많아 이 줄이 없으면 Nginx에서 413이 납니다. 손님용 문의 페이지(`/s/`)와 `/api/care/public/`은 따로 열지 않았습니다. 화면 서버가 `CARE_PUBLIC=1`일 때만 답하고 기본은 404입니다(보안 검토 전까지 닫아 둠). 다만 1단계 설정은 `/` 아래를 모두 WAS로 넘기므로, `CARE_PUBLIC=1`을 켜면 그 순간 밖에 열립니다.
 - 2단계의 화면 파일 배치: `services/web/web/static/`의 **내용**(`index.html`, `style.css`, `app.js`, 하위 폴더 없음)을 `/var/www/ic26/`에 그대로 둡니다. `index.html`이 `/static/style.css`, `/static/app.js`를 부르고, `location /static/ { alias /var/www/ic26/; }`가 그 주소를 이 폴더로 이어 줍니다. `app.js`는 데이터를 `/api/…`로만 부르므로 `/api/`만 WAS로 넘깁니다. 화면 파일을 바꾸면 같은 명령을 다시 돌립니다(`--static-src`로 새 폴더).
+- **맞춤 마케팅**: 브라우저는 `/api/marketing-survey/*`를 비서 화면 서버(8000)로만 부르고, 비서 화면 서버가 `127.0.0.1:8030`으로 대신 부릅니다(프록시. `docs/api/contract.md`). 1단계는 `location /`, 2단계는 `location /api/`가 이 경로를 그대로 WAS로 넘기므로 **Nginx 설정을 바꿀 것이 없습니다.** 8030은 `127.0.0.1`에만 묶여 있어 밖(웹 서버·로드 밸런서)에서 닿지 않고, 마케팅 서버의 단독 화면(`/`, `/web/`)과 `/docs`도 밖에 열리지 않습니다. 요청 본문은 작은 JSON이라 기본 상한(1MB)으로 충분하고, 글을 만드는 `/plan`은 HCX를 여러 번 불러 다른 글 생성처럼 `proxy_read_timeout 120s` 안에 끝나야 합니다(10-2절의 측정 참고).
 - 확인:
 
   ```bash
@@ -286,6 +292,18 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 - 리뷰 분석 서비스가 꺼져 있어도 비서 화면의 다른 칸은 그대로이고, 캡처 칸과 종합 리포트의 응대 칸에만 "연결하지 못했어요"가 보입니다. 사장님이 리뷰 답글을 승인하면 서버가 리뷰 분석 서비스에 '답글 달았음'을 따로 기록합니다(2초 안에 안 되면 버리고 로그만 남김, 승인은 그대로 성공).
 - 응대 기록(답글·상태)은 지금 DB를 써도 리뷰 분석 서비스의 파일(`services/review-insight/data/runtime/…`)에 남습니다. **WAS가 2대이면 서버마다 따로**라서 응대 점수가 서버마다 다르게 보일 수 있습니다. 시연은 WAS 1대로 합니다(리뷰 분석 모듈 `docs/handoff.md` 7·8절).
 
+## 10-2. 맞춤 마케팅 (`ic26-marketing`, 11/16)
+
+- 김수현 님의 설문 맞춤 마케팅 서버(`experiments/marketing/marketing_survey`, PR #56)를 4번째 서비스로 띄웁니다. 서버 안에서만 열립니다(`127.0.0.1:8030`). 비서 화면 서버가 `MARKETING_SURVEY_URL`(서비스 파일에 `http://127.0.0.1:8030`)로 `/api/marketing-survey/*`를 대신 불러 줍니다. API는 `docs/api/contract.md` 4부.
+- **모드**: `MARKETING_APP_MODE`(mock|live) → 없으면 `APP_MODE` → 없으면 키 유무. 보통은 적지 않고 `APP_MODE`를 따릅니다. **mock이면 키가 있어도 HCX를 부르지 않습니다.** live인데 `CLOVA_API_KEY`가 비어 있으면 저장된 예시·코드 템플릿으로 돌고(`demo: true`), `/health`의 `notes`에 그렇게 나옵니다.
+- **키**: `CLOVA_API_KEY`(비서 화면과 같은 이름)를 읽습니다. `/health`에는 키가 있는지(`key_present`)만 나오고 값은 나오지 않습니다.
+- **기록**: 설문 결과·승인·쿠폰 결과·광고비 점검을 `/var/lib/ic26/marketing/records_<가게>_<방문자>.json`에 방문자마다 한 줄씩 덧붙입니다(방문자 id는 비서 화면의 쿠키, 로그인 아님). 마케팅 보고서는 그 방문자의 기록만 세고, 없으면 데모 기록을 보여 줍니다. **WAS가 2대이면 서버마다 따로**입니다. 기록 쓰기가 실패해도 화면 흐름은 그대로 갑니다(`/health`의 `records_dir_writable`). 이미지를 만들기 전에 `prepare_image.sh`가 비웁니다.
+- **로그**: `sudo journalctl -u ic26-marketing -n 50` (uvicorn `--log-level warning`이라 평소에는 조용함). live에서 답글 생성기는 `experiments/marketing/results/c6_reply_raw.txt`에 모델 원문 응답을 남깁니다(비서 화면과 같은 폴더).
+- **패키지**: 서버는 `fastapi`·`uvicorn`·`pydantic`만 씁니다(비서 화면 requirements에 들어 있음). `experiments/marketing/requirements.txt`는 개발용 데모 화면의 `streamlit`이 들어 있어 설치하지 않습니다.
+- **상태 확인**: `curl -s http://127.0.0.1:8030/health` → `{"status":"ok","service":"marketing-survey","mode":…,"key_present":…,"demo":…,"records_dir_writable":true,…}`.
+- **끄는 법**: `/etc/ic26/env`에 `MARKETING_SURVEY_URL=off`를 넣고(비서 화면 서버가 부르지 않음) `sudo systemctl disable --now ic26-marketing && sudo systemctl restart ic26-was`. 다시 켤 때는 그 줄을 지우고 `sudo systemctl enable --now ic26-marketing && sudo systemctl restart ic26-was`. `ic26-was`는 `ic26-marketing`을 순서(`After`)로만 기다리고 `Wants`로 끌어오지 않아, 꺼 둔 채로 화면 서버를 다시 시작해도 마케팅이 켜지지 않습니다.
+- **로컬**: `services/web/run.sh`가 같이 띄웁니다(`MARKETING_PORT`, 기본 8030). `MARKETING_SURVEY_URL=off`면 띄우지 않습니다.
+
 ## 11. 문제가 생기면
 
 | 증상 | 먼저 볼 것 |
@@ -295,6 +313,8 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 | 화면 `/api/health`에 "HCX 키가 없어요" | `CLOVA_API_KEY`가 비어 있음. 문구는 개발 PC 기준이라 `~/.config/teletubby-aiic/env`로 나오지만 서버에서는 `/etc/ic26/env`입니다 |
 | 화면은 뜨는데 글 생성만 실패 | NAT 경로, 키, HCX 호출 한도. 서버에서 `curl -sI https://clovastudio.stream.ntruss.com` 로 나가는 길을 확인 |
 | 답글 생성이 "Permission denied … results" | `experiments/marketing/results`가 `ic26` 소유가 아님. `install_was.sh`를 다시 돌림 |
+| 맞춤 마케팅 칸에 연결 오류, `smoke_test.sh`의 [4] 실패 | `systemctl status ic26-marketing`, `sudo journalctl -u ic26-marketing -n 50`, `curl -s http://127.0.0.1:8030/health` (10-2절) |
+| 맞춤 마케팅 글이 늘 같은 예시 (`demo: true`) | `/health`의 `mode`·`key_present`. mock이거나 `CLOVA_API_KEY`가 비어 있음 |
 | 캡처를 올리면 413 | Nginx 설정이 이 묶음의 것인지(캡처 경로만 `client_max_body_size 12m`). `install_web.sh`를 다시 돌림 |
 | `ic26-review`가 안 뜸, `python-multipart` 오류 | 갱신을 `--skip-pip`로 돌렸음. `--skip-pip` 없이 `install_was.sh`를 다시 돌림 |
 | 502/504 | 로드 밸런서 유휴 시간 120초, WAS 상태, `nginx -t`, 내부 로드 밸런서 주소가 바뀌었는지(`reload`) |
@@ -307,4 +327,5 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 - **live에서 키가 비면** 서비스는 시작되고(`Restart=always`로 계속 떠 있음) 첫 요청에서 오류가 납니다. `architecture.md`는 "시작하지 못한다"고 적었는데, 코드는 첫 요청 때 모델 설정을 만듭니다.
 - **live 글 생성은 `experiments/marketing/results/c6_reply_raw.txt`에 모델의 원문 응답을 남깁니다**(C6 코드가 그 폴더에 씀). 그래서 코드 폴더는 root 소유지만 이 폴더만 `ic26`이 쓸 수 있게 했습니다. 이미지를 만들 때는 비웁니다(`prepare_image.sh`). 실제 사장님 리뷰가 들어오게 되면 보관 기간을 정합니다.
 - 비서 화면의 승인 기록은 DB를 쓰면 `approvals` 표에, 쓰지 않으면 `/var/lib/ic26/runtime/approvals.jsonl`에 쌓입니다. DB 없이 서버가 2대이면 서버마다 따로입니다.
+- 맞춤 마케팅의 기록은 DB를 써도 아직 파일(`/var/lib/ic26/marketing`)입니다(DB 표로 옮기는 일은 아직 없음). 서버가 2대이면 서버마다 따로입니다.
 - 이 묶음은 Ubuntu 24.04(파이썬 3.12)에서 시험했습니다. 컨테이너에서 설치를 끝까지 돌려 mock 모드로 `/api/health` 200, `/api/briefing` 리뷰 40건, 글 생성 1회를 확인했습니다. 11/14에 DB 코드와 상권 코드가 들어온 묶음도 같은 컨테이너에서 설치하고, PostgreSQL 16 컨테이너에 표를 만들어 붙여넣은 리뷰가 DB에 쌓이는 것까지 확인했습니다. **실제 네이버클라우드 서버, 실제 HCX 호출, 실제 Cloud DB 연결, 로드 밸런서 연동은 시험하지 못했습니다.**

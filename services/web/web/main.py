@@ -6,7 +6,7 @@
 | GET    | /api/briefing                 | ① 오늘의 브리핑 |
 | GET    | /api/insight                  | 리뷰 분석 화면(요약·불만 묶음), 읽기 전용 |
 | GET    | /api/cards                    | ② 추천 카드 2장 |
-| POST   | /api/cards/{card_id}/run      | ③ 결과물 생성. 본문에 generator(+review_id)가 있으면 그 글 한 건만 다시 만듦 (초안 상자의 '다시 만들기') |
+| POST   | /api/cards/{card_id}/run      | ③ 결과물 생성. 본문에 generator(+review_id)가 있으면 그 글 한 건만 다시 만듦 (초안 상자의 '다시 만들기'). replaces(옛 글 id)를 보내면 생성 뒤 그 승인 기록을 지움 |
 | POST   | /api/drafts/{draft_id}/approve| ④ 승인 (수정 글 포함) |
 | GET    | /api/approvals                | ④ 처리 완료 기록 |
 | DELETE | /api/approvals                | ④ 이 방문자의 승인 기록 지우기 (완료 화면의 '처음부터 다시') |
@@ -14,9 +14,12 @@
 | DELETE | /api/reviews/pasted           | 붙여넣은 리뷰 지우기 (데모 다시 하기) |
 | *      | /api/assistant/*              | 서랍의 상권 채팅. 상권 서비스(ic26-market)를 대신 불러 줌 (assistant_proxy.py) |
 | *      | /api/care/*                   | 캡처 입력·응대 점수·보고서. 리뷰 분석 서비스의 고객응대 API 를 대신 불러 줌 (care_proxy.py) |
+| *      | /api/marketing-survey/*       | 맞춤 마케팅(#/marketing). 마케팅 서비스(김수현 님 설문형)를 대신 불러 줌 (marketing_proxy.py) |
 
 리뷰 답글을 승인하면(④) 리뷰 분석 서비스에 '답글 달았음'을 따로 기록한다 (care_proxy.mark_replied_later, 승인 응답은 기다리지 않음).
 캡처 후보 저장은 붙여넣기와 같은 POST /api/reviews 에 source="capture" 를 붙여 보낸다.
+맞춤 마케팅에서 글을 승인하면 이 서버의 승인 기록에도 남고(card_id "marketing"), '처음부터 다시'(DELETE /api/approvals)는
+이 방문자의 마케팅 기록도 지운다 (응답의 marketing_cleared: true·false·null).
 
 방문자 구분: 쿠키 `visitor_id`(없으면 서버가 새로 만들어 응답에 실음. HttpOnly, SameSite=Lax). 이 값으로 승인 기록과
 붙여넣은 리뷰를 방문자별로 나눈다. 합성 리뷰와 카드 추천 이유 문장은 모두에게 같다. 화면(JS)은 쿠키를 다룰 필요가 없다.
@@ -41,6 +44,7 @@ from shared.storage import new_visitor_id, open_store, visitor_from_cookie
 from .assistant_proxy import AssistantProxy, create_assistant_router, validation_error_response
 from .care_proxy import CareProxy, create_care_routers
 from .demo import Demo, DemoError
+from .marketing_proxy import MARKETING_CARD_ID, MarketingProxy, create_marketing_router
 from .settings import Settings
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -66,6 +70,9 @@ class RunIn(BaseModel):
     review_id: str | None = Field(default=None, max_length=100)   # reply_draft 일 때 필수: 그 답글이 가리키는 리뷰
     # prevention_notice 일 때만 씀: 지금 화면의 묶음 답글들. 새 공지가 답글과 너무 비슷한지 견주는 데만 쓰고 모델에 넘기지 않는다
     reply_texts: list[str] | None = Field(default=None, max_length=20)
+    # 선택 (11/16): 이 생성으로 바뀌는 옛 글 id (최대 20개). 생성이 성공한 뒤에만 이 방문자의 승인 기록에서 지운다.
+    # 개수·모양은 demo 가 400 으로 막는다 (화면 알림 띠에 그대로 보이는 문장)
+    replaces: list[str] | None = None
 
 
 class PasteIn(BaseModel):
@@ -75,12 +82,14 @@ class PasteIn(BaseModel):
     source: Literal["paste", "capture"] | None = None   # capture = 캡처 후보를 사장님이 확인·수정해 저장 (분석에는 붙여넣기와 똑같이 들어감)
 
 
-def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None, care: CareProxy | None = None) -> FastAPI:
+def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None, care: CareProxy | None = None,
+               marketing: MarketingProxy | None = None) -> FastAPI:
     # 저장 위치는 여기서만 환경 변수로 정한다 (DB_HOST 가 있으면 PostgreSQL, 없으면 메모리·파일)
     demo = demo or Demo(Settings.from_env(), storage=open_store(app_name="ic26-web"))
     assistant = assistant or AssistantProxy.from_settings(demo.s)   # 시험에서는 가짜 상권 서비스를 넣은 것을 줄 수 있다
     assistant.attach_store(demo)                                    # 서랍의 가게 기본 질문(이름·메뉴)에 답할 때 가게 프로필을 읽을 곳
     care = care or CareProxy.from_settings(demo.s)                  # 고객응대 프록시 (시험에서는 가짜 리뷰 분석 서비스)
+    marketing = marketing or MarketingProxy.from_settings(demo.s)   # 맞춤 마케팅 프록시 (시험에서는 가짜 마케팅 서비스)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -88,11 +97,13 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
         getattr(demo.storage, "close", lambda: None)()      # 서버를 끌 때 DB 연결 풀을 닫는다 (메모리 저장소는 할 일 없음)
         assistant.close()
         care.close()
+        marketing.close()
 
     app = FastAPI(title="텔레토비 AI 비서 — 한 화면", docs_url="/docs", redoc_url=None, lifespan=lifespan)
     app.state.demo = demo
     app.state.assistant = assistant
     app.state.care = care
+    app.state.marketing = marketing
 
     @app.middleware("http")
     async def _visitor(request: Request, call_next):
@@ -136,8 +147,9 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     def run(card_id: str, request: Request, body: RunIn | None = None):
         if body is not None and body.generator is not None:   # 개별 다시 만들기: 그 글 한 건만
             return demo.run(card_id, measures=body.measures, visitor=request.state.visitor_id, generator=body.generator,
-                            review_id=body.review_id, reply_texts=body.reply_texts)
-        return demo.run(card_id, measures=body.measures if body else None, visitor=request.state.visitor_id)
+                            review_id=body.review_id, reply_texts=body.reply_texts, replaces=body.replaces)
+        return demo.run(card_id, measures=body.measures if body else None, visitor=request.state.visitor_id,
+                        replaces=body.replaces if body else None)
 
     @app.post("/api/drafts/{draft_id}/approve")
     def approve(draft_id: str, body: ApproveIn, request: Request):
@@ -158,7 +170,10 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
 
     @app.delete("/api/approvals")
     def clear_approvals(request: Request):
-        return {"deleted": demo.clear_approvals(request.state.visitor_id)}
+        deleted = demo.clear_approvals(request.state.visitor_id)
+        # 맞춤 마케팅의 이 방문자 기록도 지운다 (보고서가 데모 기록으로 돌아감). 마케팅 서비스가 꺼져 있어도 승인 기록 지우기는 성공:
+        # true = 지움, false = 서비스가 받지 않음, null = 꺼 둠·연결 못 함
+        return {"deleted": deleted, "marketing_cleared": marketing.clear_records(request.state.visitor_id)}
 
     @app.post("/api/reviews", status_code=201)
     def paste(body: PasteIn, request: Request):
@@ -169,6 +184,13 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
         return demo.reset_pasted(request.state.visitor_id)
 
     app.include_router(create_assistant_router(assistant))
+
+    def record_marketing(visitor: str | None, item: dict) -> dict:
+        # 맞춤 마케팅에서 승인한 글을 이 방문자의 승인 기록에 (리뷰 답글이 아니므로 리뷰 분석 서비스의 '답글 달았음'은 부르지 않는다)
+        return demo.approve(item["draft_id"], item["text"], item["original"], visitor=visitor,
+                            card_id=MARKETING_CARD_ID, kind=item["kind"])
+
+    app.include_router(create_marketing_router(marketing, record=record_marketing))
     for router in create_care_routers(care):   # 손님용 문의 페이지는 CARE_PUBLIC=1 일 때만 들어 있다
         app.include_router(router)
 

@@ -12,8 +12,9 @@
 # 하는 일
 #   1 패키지(python3-venv, rsync, postgresql-client 등)  2 실행 계정 ic26  3 코드를 /opt/ic26 에 맞춤
 #   4 쓰기 폴더  5 환경 파일 틀(/etc/ic26/env, 없을 때만)  6 venv 와 requirements  7 서비스 등록
+# 서비스: ic26-review(8020) · ic26-was(8000) · ic26-marketing(맞춤 마케팅, 127.0.0.1:8030) 를 켜고, ic26-market 은 파일만 넣는다
 # 하지 않는 일: 키·비밀번호를 쓰거나 읽어 출력하는 일, ic26-market 켜기(비서 화면이 상권 서비스를 부르게 된 뒤 따로), 로드 밸런서 설정
-# 갱신 때 건드리지 않는 것: /etc/ic26/env, /opt/ic26/.venv, 쓰기 폴더 안의 내용(붙여넣은 리뷰, 로그, 승인 기록, 상권 DB)
+# 갱신 때 건드리지 않는 것: /etc/ic26/env, /opt/ic26/.venv, 쓰기 폴더 안의 내용(붙여넣은 리뷰, 로그, 승인 기록, 상권 DB, 마케팅 기록)
 set -euo pipefail
 
 APP_USER=ic26
@@ -21,7 +22,8 @@ APP_DIR=/opt/ic26
 ENV_DIR=/etc/ic26
 ENV_FILE=$ENV_DIR/env
 STATE_DIR=/var/lib/ic26
-UNITS=(ic26-review ic26-was ic26-market)   # market 은 파일만 넣고 enable 하지 않는다
+UNITS=(ic26-review ic26-was ic26-market ic26-marketing)   # market 은 파일만 넣고 enable 하지 않는다
+ENABLED_UNITS=(ic26-review ic26-marketing ic26-was)      # 켜는 서비스 (마케팅을 화면 서버보다 먼저 시작)
 
 die() { echo "오류: $*" >&2; exit 1; }
 warn() { echo "주의: $*" >&2; }
@@ -126,10 +128,11 @@ mkw 755 services/review-insight/logs
 mkw 750 services/review-insight/data/runtime
 mkw 755 services/review-insight/data/replay
 mkw 750 experiments/marketing/results
-# 비서 화면의 실행 중 폴더(WEB_RUNTIME_DIR, 승인 기록 approvals.jsonl)와 상권 서비스의 SQLite 폴더
-install -d -m 750 -o "$APP_USER" -g "$APP_USER" "$STATE_DIR" "$STATE_DIR/runtime" "$STATE_DIR/market"
+# 비서 화면의 실행 중 폴더(WEB_RUNTIME_DIR, 승인 기록 approvals.jsonl)와 상권 서비스의 SQLite 폴더, 맞춤 마케팅 기록 폴더
+install -d -m 750 -o "$APP_USER" -g "$APP_USER" "$STATE_DIR" "$STATE_DIR/runtime" "$STATE_DIR/market" "$STATE_DIR/marketing"
 echo "  $STATE_DIR/runtime  (WEB_RUNTIME_DIR)"
 echo "  $STATE_DIR/market   (상권 대화 기록 SQLite)"
+echo "  $STATE_DIR/marketing (MARKETING_RECORDS_DIR, 맞춤 마케팅 기록 — 방문자마다 파일 하나)"
 
 # ── 5. 환경 파일 ──
 step 5/7 "환경 파일 $ENV_FILE"
@@ -162,6 +165,9 @@ step 6/7 "파이썬 환경 $APP_DIR/.venv"
 if [ "$DO_PIP" = 1 ]; then
   [ -x "$APP_DIR/.venv/bin/python" ] || "$PY" -m venv "$APP_DIR/.venv"
   reqs=(-r "$APP_DIR/services/web/requirements.txt" -r "$APP_DIR/services/review-insight/requirements.txt")
+  # 맞춤 마케팅 서버(ic26-marketing)는 fastapi·uvicorn·pydantic 만 쓴다 — 위 두 파일에 이미 들어 있다.
+  # experiments/marketing/requirements.txt 는 넣지 않는다: 개발용 데모 화면(demo_app.py)의 streamlit 이 들어 있어 무겁고(수십 MB,
+  # 의존성 수십 개) 서버에서는 쓰지 않는다. 아래 'import 확인'이 빠진 패키지를 알려 준다.
   # 상권 서비스 코드가 묶음에 들어 있으면 그 requirements 도 설치한다 (서비스는 켜지 않음)
   for r in services/market-analysis/requirements.txt services/market-analysis/requirements-assistant.txt; do
     if [ -f "$APP_DIR/$r" ]; then reqs+=(-r "$APP_DIR/$r"); echo "상권 서비스 requirements 포함: $r"; fi
@@ -185,20 +191,29 @@ else
   [ -x "$APP_DIR/.venv/bin/python" ] || die ".venv 가 없습니다 (--skip-pip 를 처음 설치에 쓸 수 없습니다)"
   echo "건너뜀 (--skip-pip)"
 fi
+# 맞춤 마케팅 서버가 이 venv 로 import 되는지 (서비스 파일과 같은 PYTHONPATH·폴더. 키를 읽지 않고 파일을 쓰지 않음)
+if (cd "$APP_DIR/experiments/marketing" && env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$APP_DIR:$APP_DIR/experiments/marketing" \
+      "$APP_DIR/.venv/bin/python" -c 'import marketing_survey.server' >/dev/null 2>&1); then
+  echo "맞춤 마케팅 서버 import: 됨"
+else
+  warn "맞춤 마케팅 서버(marketing_survey.server)를 import 하지 못했습니다. ic26-marketing 이 켜지지 않습니다 (비서 화면은 그대로 돎)."
+fi
 
 # ── 7. 서비스 ──
 step 7/7 "서비스"
 if [ "$USE_SYSTEMD" = 0 ]; then
   echo "건너뜀 (--no-systemd). 서비스 파일의 명령은 $SRC/deploy/systemd/ 에 있습니다."
+  echo "  ic26-review · ic26-marketing · ic26-was 세 개를 그 파일의 계정(ic26)·폴더·PYTHONPATH·환경 변수로 직접 띄웁니다 (ic26-market 은 선택)."
 else
   for u in "${UNITS[@]}"; do
     install -m 644 -o root -g root "$SRC/deploy/systemd/$u.service" "/etc/systemd/system/$u.service"
   done
   systemctl daemon-reload
-  systemctl enable ic26-review.service ic26-was.service
+  systemctl enable "${ENABLED_UNITS[@]/%/.service}"
   echo "ic26-market 은 파일만 넣었고 켜지 않았습니다 (비서 화면이 상권 서비스를 부르게 된 뒤: sudo systemctl enable --now ic26-market)"
   if [ "$DO_START" = 1 ]; then
     systemctl restart ic26-review.service
+    systemctl restart ic26-marketing.service
     systemctl restart ic26-was.service
     # 상권 서비스를 이미 켜 두었다면 새 코드로 다시 시작
     if systemctl is-active --quiet ic26-market.service; then systemctl restart ic26-market.service; fi
@@ -206,7 +221,7 @@ else
       curl -fsS -m 3 -o /dev/null http://127.0.0.1:8000/api/health 2>/dev/null && break
       sleep 1
     done
-    for u in ic26-review ic26-was; do printf '  %-12s %s\n' "$u" "$(systemctl is-active "$u.service" || true)"; done
+    for u in "${ENABLED_UNITS[@]}"; do printf '  %-15s %s\n' "$u" "$(systemctl is-active "$u.service" || true)"; done
   else
     echo "시작하지 않았습니다 (--no-start)"
   fi
@@ -217,6 +232,6 @@ echo "설치가 끝났습니다. 커밋 $REV"
 if [ "$USE_SYSTEMD" = 1 ]; then
   echo "다음 할 일"
   echo "  1. 환경 파일에 값을 넣습니다 (처음 설치일 때):   sudo vi -n -i NONE $ENV_FILE"
-  echo "  2. 서비스를 다시 시작합니다:                    sudo systemctl restart ic26-review ic26-was"
+  echo "  2. 서비스를 다시 시작합니다:                    sudo systemctl restart ic26-review ic26-marketing ic26-was"
   echo "  3. 확인합니다:                                  bash $SRC/deploy/smoke_test.sh"
 fi

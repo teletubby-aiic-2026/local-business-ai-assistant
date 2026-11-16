@@ -31,10 +31,12 @@ MOCK_NOTICE = "시험용 실행 · 키 없이 저장된 예시 결과를 보여 
 KST = timezone(timedelta(hours=9))
 log = logging.getLogger("web.demo")
 
-REASON_VERSION = "reason-v2"   # 이유 문장 만드는 방식을 바꾸면 올린다 → 저장해 둔 이전 문장을 더 쓰지 않음 (프롬프트·모델·근거가 바뀌어도 열쇠가 달라진다)
+REASON_VERSION = "reason-v3"   # 이유 문장 만드는 방식을 바꾸면 올린다 → 저장해 둔 이전 문장을 더 쓰지 않음 (프롬프트·모델·근거가 바뀌어도 열쇠가 달라진다)
+#                                v3 (11/16): 카드 ⓑ 칭찬 근거 줄에 마침표, 말끝을 모델 문장(합니다체/해요체)에 맞춤
 MEMO_MAX = 256                 # 카드 계획을 서버 메모리에 기억하는 최대 개수 (방문자가 많아져도 무한히 늘지 않게)
 DRAFT_MAX = 2000               # 어느 카드의 초안인지 기억하는 최대 개수
 PENDING_MAX = 2000             # DB 가 멈춘 동안 들고 있는 승인 기록의 최대 개수 (넘으면 오래된 것부터 버림)
+REPLACES_MAX = 20              # 다시 만들기 한 번에 승인 기록을 지울 수 있는 옛 글 id 수 (replaces, 11/16)
 
 
 def now_kst() -> str:
@@ -304,9 +306,13 @@ class Demo:
 
     # ── ③ ───────────────────────────────────────────────────────────
     def run(self, card_id: str, measures: list[str] | None = None, visitor: str | None = None,
-            generator: str | None = None, review_id: str | None = None, reply_texts: list[str] | None = None) -> dict:
+            generator: str | None = None, review_id: str | None = None, reply_texts: list[str] | None = None,
+            replaces: list[str] | None = None) -> dict:
         """measures: 사장님이 고른 재발 방지 조치 id. None 이면 카드의 기본값 (불만 카드만 씀).
-        generator: 있으면 그 종류의 글 한 건만 다시 만든다 (개별 다시 만들기, _run_one). 없으면 예전 그대로 카드 전체."""
+        generator: 있으면 그 종류의 글 한 건만 다시 만든다 (개별 다시 만들기, _run_one). 없으면 예전 그대로 카드 전체.
+        replaces: 이 생성으로 바뀌는 옛 글 id (화면이 다시 만들 때 보냄). 생성이 성공한 뒤에만 이 방문자의 승인 기록에서
+        그 글들을 지우고 응답에 replaced_approvals(지운 수)를 싣는다. 생성이 실패하면(오류 응답) 아무것도 지우지 않는다."""
+        old = self._check_replaces(replaces)   # 모양이 틀리면 글을 만들기 전에 400
         st = self._state(visitor)
         plan = next((p for p in self._plans(st) if p.card.card_id == card_id), None)
         if plan is None:
@@ -314,7 +320,7 @@ class Demo:
         if generator is not None:
             made = self._run_one(st, plan, generator, review_id, measures, reply_texts)
             self._remember_drafts(card_id, made)
-            return made
+            return self._replaced(made, visitor, old)
         card = plan.card
         if self.s.mode == "mock":
             result = adapt_seed(self.seed[card.kind], card) if card.kind in self.seed else None
@@ -350,7 +356,7 @@ class Demo:
                 raise DemoError("글을 만들다가 문제가 생겼어요. 잠시 뒤 다시 눌러 주세요.", status=502) from None
         made = summarize(result)
         self._remember_drafts(card_id, made)
-        return made
+        return self._replaced(made, visitor, old)
 
     def _mock_measures(self, result: dict, plan: CardPlan, measures: list[str] | None) -> None:
         """mock: 사장님이 고른 조치를 응답(chosen_measures)에 싣는다. 화면이 '오늘부터 실천할 수칙'으로 보여 준다 (초안·완료 화면).
@@ -452,6 +458,35 @@ class Demo:
                     self._drafts[draft["draft_id"]] = (card_id, draft.get("generator"), draft.get("target_review_id"))
             while len(self._drafts) > DRAFT_MAX:
                 self._drafts.popitem(last=False)
+
+    # 옛 글 id 모양 (replaces). 리뷰 id 와 같은 규칙: C6 의 'd_' + 16진수 8자리, 저장 예시 'd_ex_unfair01_001' 이 모두 들어간다.
+    # 승인 API 는 어떤 문자열이든 받지만(1.6), 지우는 쪽은 모양을 본다 (이상한 값으로 DB 를 부르지 않게)
+    DRAFT_ID = re.compile(r"[A-Za-z0-9_-]{1,100}")
+
+    @classmethod
+    def _check_replaces(cls, replaces) -> list[str] | None:
+        """replaces 검사. None 이면 None(지우지 않음, 응답에 replaced_approvals 도 없음). 틀리면 400 (글을 만들기 전에)."""
+        if replaces is None:
+            return None
+        if not isinstance(replaces, (list, tuple)):
+            raise DemoError("바꿀 옛 글 id(replaces)는 목록으로 보내 주세요.", status=400)
+        if len(replaces) > REPLACES_MAX:
+            raise DemoError(f"바꿀 옛 글 id(replaces)는 한 번에 {REPLACES_MAX}개까지예요.", status=400)
+        if any(not isinstance(x, str) or not cls.DRAFT_ID.fullmatch(x) for x in replaces):
+            raise DemoError("바꿀 옛 글 id(replaces)의 모양이 맞지 않아요. 새로 고침 하세요.", status=400)
+        return list(dict.fromkeys(replaces))
+
+    def _replaced(self, made: dict, visitor: str | None, old: list[str] | None) -> dict:
+        """생성이 끝난 뒤: 바뀐 옛 글의 승인 기록을 지우고 지운 수를 싣는다. 지우지 못해도 새 글은 그대로 돌려준다
+        (replaced_approvals: 0 과 replace_warning). 화면은 이미 옛 글을 버렸으니 생성까지 실패시키지 않는다."""
+        if old is None:
+            return made
+        try:
+            made["replaced_approvals"] = self.forget_approvals(visitor, old)
+        except DemoError as exc:
+            made["replaced_approvals"] = 0
+            made["replace_warning"] = str(exc)
+        return made
 
     def _contract_inputs(self, st: dict) -> tuple[StoreProfile, list]:
         store = to_store_profile(st["store"], self._area_name(st["snapshots"]))
@@ -558,6 +593,29 @@ class Demo:
             with self._lock:
                 held = {p[1]["draft_id"] for p in self._pending if p[0] == visitor_id}
                 self._pending = [p for p in self._pending if p[0] != visitor_id]
+        return deleted + len(held)
+
+    def forget_approvals(self, visitor: str | None, draft_ids) -> int:
+        """다시 만들어 바뀐 옛 글(draft_ids)의 승인 기록만 지운다 (개별·카드 전체 다시 만들기, 11/16). 지운 건수를 돌려준다.
+        이 방문자의 그 글들만 지운다 (다른 방문자·다른 글은 그대로). DB 에 아직 못 써서 이 서버가 들고 있던 것(_pending)에서도
+        뺀다 — 두면 DB 가 돌아왔을 때 옛 글의 승인이 다시 써진다. clear_approvals 와 달리 DB 에 닿지 못해도 들고 있던 것은
+        버린다 (화면은 이미 그 글을 버렸고 다시 누를 버튼이 없다). 그때는 DemoError(503)를 낸다.
+        approvals.jsonl(메모리 방식의 덧붙이기 기록)과 리뷰 분석 서비스의 '답글 달았음' 기록은 clear_approvals 처럼 그대로 둔다."""
+        wanted = set(draft_ids or ())
+        if not wanted:
+            return 0
+        visitor_id = clean_visitor_id(visitor)
+        if self._pending:
+            self._flush_pending()   # 밀린 것이 DB 에 들어가 있어야 아래에서 같이 지워지고 건수도 맞는다
+        with self._flush_lock:      # 지우는 사이에 다른 요청이 밀린 기록을 다시 써넣지 못하게 한다
+            with self._lock:
+                held = {p[1]["draft_id"] for p in self._pending if p[0] == visitor_id and p[1]["draft_id"] in wanted}
+                self._pending = [p for p in self._pending if not (p[0] == visitor_id and p[1]["draft_id"] in wanted)]
+            try:
+                deleted = self.storage.approvals.delete(self.s.store_id, visitor_id, sorted(wanted))
+            except Exception as exc:   # DB 에 닿지 못함 등
+                log.warning("옛 글의 승인 기록을 지우지 못했어요 (%s)", exc.__class__.__name__)
+                raise DemoError("옛 글의 승인 기록을 서버에서 지우지 못했어요. 새 글은 그대로 쓸 수 있어요.", status=503) from None
         return deleted + len(held)
 
     @property

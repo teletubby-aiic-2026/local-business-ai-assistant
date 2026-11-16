@@ -3,7 +3,7 @@
 import difflib
 import re
 
-from c6.measures import MEASURES, MEASURE_KEYWORDS, INVENTED_KW
+from c6.measures import COMPONENT_ITEMS, INVENTED_KW, MEASURE_KEYWORDS, MEASURES
 
 try:
     from features.tone import FOOD_WORDS
@@ -17,6 +17,8 @@ _NICK = re.compile(r"[가-힣]{2,4}\s*(님|씨)")
 # '원'은 금액(숫자·천·만·백 뒤)일 때만 본다 — 그냥 '원'이면 '성원'·'원하시는'·'원래'까지 걸렸다(11/15 실시간 홍보글).
 _COUPON_WORDS = re.compile(r"할인|쿠폰|코드|반값|%|(?:\d|천|만|백)\s*원")
 _EXAGGERATION = re.compile(r"최고|무조건|100%")
+_UNVERIFIED_CLAIM_WORDS = ("인기 메뉴", "가장 인기", "1위", "최고", "많은 분들이")
+_NOTICE_COMPLAINT_WORDS = ("항의",)
 _STORE_CIRCUMSTANCE = re.compile(r"매출|손님이\s*줄|경기가?\s*안\s*좋|장사가?\s*안\s*돼|하락세|매출\s*감소|감소세")
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _ALL_MEASURE_TEXTS = [m["text"] for m in MEASURES]
@@ -336,6 +338,63 @@ def coupon_invented(text: str) -> bool:
     return bool(_COUPON_WORDS.search(text))
 
 
+# 메뉴 설명·구성품에 없으면 지어낸 재료로 보는 흔한 식재료 단어들(review_promo·coupon_promo 공용).
+_INVENTED_INGREDIENT_WORDS = (
+    "채소", "참깨", "치즈", "버섯", "계란", "달걀", "새우", "베이컨", "고수", "야채", "나물", "샐러드",
+)
+
+
+def _as_names(names) -> tuple[str, ...]:
+    if not names:
+        return ()
+    if isinstance(names, str):
+        return (names,)
+    return tuple(n for n in names if n)
+
+
+def invented_ingredient_words(text: str, menu_descriptions: dict[str, str] | None = None, menu_names=(),
+                              other_menu_names=()) -> list[str]:
+    """메뉴 설명·구성품(COMPONENT_ITEMS)·대상 메뉴 이름에 없는 식재료 단어 목록 (글에서 실제로 걸린 말).
+
+    menu_names: 지금 소개하는 메뉴 이름(coupon_promo 의 쿠폰 메뉴, review_promo 의 대표 메뉴). 메뉴 이름에 든 재료는
+      그 메뉴의 재료라 지어낸 것이 아니다 — '계란말이' 홍보글의 '계란'(11/16, 메뉴 설명이 비어 있으면 걸렸다).
+    other_menu_names: 가게의 다른 메뉴 이름. 글에 다른 메뉴 이름(3글자 이상)이 통째로 나오면 그 부분은 여기서 보지 않는다 —
+      그건 only_coupon_menu(·only_focus_menu) 점검이 잡는다(같은 문제를 두 점검이 겹쳐 잡지 않게). 다른 메뉴 이름을 허용 문자열
+      (known)에 넣지는 않는다: 넣으면 메뉴판에 '계란말이'가 있다는 이유로 제육볶음 홍보글에 지어 넣은 '계란'까지 통과한다.
+    """
+    targets = _as_names(menu_names)
+    known = (" ".join((menu_descriptions or {}).values()) + " " + " ".join(COMPONENT_ITEMS)
+             + " " + " ".join(targets))
+    rest = text or ""
+    others = [n for n in _as_names(other_menu_names) if len(n) > 2 and n not in targets]
+    for name in sorted(others, key=len, reverse=True):
+        rest = rest.replace(name, " ")
+    return [w for w in _INVENTED_INGREDIENT_WORDS if w in rest and w not in known]
+
+
+def invented_ingredient(text: str, menu_descriptions: dict[str, str] | None = None, menu_names=(),
+                        other_menu_names=()) -> bool:
+    """메뉴 설명·구성품(COMPONENT_ITEMS)·대상 메뉴 이름에 없는 식재료 단어가 글에 있으면 True.
+    홍보글(coupon_promo·review_promo) 전용 — AI 가 메뉴에 없는 재료를 지어내 소개하지 않도록 막는다.
+    menu_names·other_menu_names 는 invented_ingredient_words 참고 (주지 않으면 예전과 같다)."""
+    return bool(invented_ingredient_words(text, menu_descriptions, menu_names, other_menu_names))
+
+
+def unverified_claim_words(text: str) -> list[str]:
+    """글에 든 근거 없는 인기·순위 주장 낱말 목록 ("인기 메뉴"·"최고"·"1위" 등). 다시 쓰기 힌트에 그대로 보여 준다."""
+    return [w for w in _UNVERIFIED_CLAIM_WORDS if w in (text or "")]
+
+
+def has_unverified_claim(text: str) -> bool:
+    """근거 없는 인기·순위 주장("인기 메뉴"·"최고"·"1위" 등)이 있으면 True."""
+    return bool(unverified_claim_words(text))
+
+
+def notice_no_complaint_word(text: str) -> bool:
+    """공지에 '항의' 같은 단어가 있으면 False(손님을 자극하는 단어는 안 써요)."""
+    return not any(w in text for w in _NOTICE_COMPLAINT_WORDS)
+
+
 def has_markdown(text: str) -> bool:
     """**, #, ` 같은 마크다운 기호가 남아 있으면 True."""
     return bool(_MARKDOWN.search(text))
@@ -498,20 +557,53 @@ def to_formal_sentence_endings(text: str) -> str:
     return " ".join(_formal_ending(s) for s in _SENT_SPLIT.split(text.strip()) if s.strip())
 
 
+def invented_ingredient_hint(text: str, menu_descriptions: dict[str, str] | None = None, menu_names=(),
+                             other_menu_names=()) -> str:
+    """'메뉴 설명에 없는 재료: '치즈', '버섯' → 빼 주세요.' 처럼 글에서 실제로 걸린 재료 한 줄. 없으면 ''."""
+    words = invented_ingredient_words(text, menu_descriptions, menu_names, other_menu_names)
+    if not words:
+        return ""
+    return ("메뉴 설명에 없는 재료: " + ", ".join(f"'{w}'" for w in words)
+            + " → 빼 주세요. 메뉴 이름과 메뉴 설명에 있는 재료만 쓰세요.")
+
+
+def unverified_claim_hint(text: str) -> str:
+    """'근거 없는 인기·순위 주장: '인기 메뉴', '1위' → 빼 주세요.' 처럼 글에서 실제로 걸린 말 한 줄. 없으면 ''."""
+    words = unverified_claim_words(text)
+    if not words:
+        return ""
+    return ("근거 없는 인기·순위 주장: " + ", ".join(f"'{w}'" for w in words)
+            + " → 빼 주세요. 인기·순위 대신 메뉴의 특징을 직접 소개해 주세요.")
+
+
 def promo_detail_hints(failed: list[str], text: str, *, menu_names: list[str], coupon_menu: str | None,
-                       review_texts: list[str], reviews, allow_food: tuple[str, ...] = ()) -> list[str]:
+                       review_texts: list[str], reviews, allow_food: tuple[str, ...] = (),
+                       menu_descriptions: dict[str, str] | None = None, menu_label: str = "쿠폰 메뉴",
+                       coupon_line: bool = True) -> list[str]:
     """홍보글 다시 쓰기 힌트에 덧붙일 줄: 점검마다 글에서 실제로 걸린 단어·구절을 적는다(11/15 — 무엇이 걸렸는지 안 알려
-    주면 같은 말을 또 썼다). 걸린 게 없으면 그 점검 줄은 넣지 않는다."""
+    주면 같은 말을 또 썼다). 걸린 게 없으면 그 점검 줄은 넣지 않는다.
+    review_promo 도 같이 쓴다: coupon_menu 에 대표 메뉴를, menu_label 에 '대표 메뉴'를, coupon_line=False(쿠폰 줄 없음)를
+    넘긴다(점검 이름 only_focus_menu 도 본다). 힌트의 설명 문장은 합니다체로 쓴다 — 홍보글이 합니다체라 지시문이 해요체로
+    끝나면 다시 쓴 글이 해요체로 바뀌기 쉽다."""
     out = []
     if "no_unknown_menu" in failed:
         words = unknown_menu_words(text, menu_names, allow_food)
         if words:
             out.append("메뉴에 없는 음식 낱말: " + ", ".join(f"'{w}'" for w in words)
-                       + (f" → 쿠폰 메뉴 '{coupon_menu}' 말고 다른 음식은 쓰지 마세요." if coupon_menu else " → 빼 주세요."))
-    if "only_coupon_menu" in failed and coupon_menu:
+                       + (f" → {menu_label} '{coupon_menu}' 말고 다른 음식은 쓰지 마세요." if coupon_menu else " → 빼 주세요."))
+    if ("only_coupon_menu" in failed or "only_focus_menu" in failed) and coupon_menu:
         others = [m for m in menu_names if m != coupon_menu and len(m) > 2 and m in text]
         if others:
-            out.append("쿠폰 메뉴가 아닌 메뉴: " + ", ".join(f"'{m}'" for m in others) + f" → '{coupon_menu}' 하나만 소개해 주세요.")
+            out.append(f"{menu_label}가 아닌 메뉴: " + ", ".join(f"'{m}'" for m in others) + f" → '{coupon_menu}' 하나만 소개해 주세요.")
+    if "no_invented_ingredient" in failed:
+        hint = invented_ingredient_hint(text, menu_descriptions, (coupon_menu,) if coupon_menu else (),
+                                        menu_names if coupon_menu else ())
+        if hint:
+            out.append(hint)
+    if "no_unverified_claim" in failed:
+        hint = unverified_claim_hint(text)
+        if hint:
+            out.append(hint)
     if "no_customer_quote" in failed:
         m = _QUOTE_MARKS.search(text) or _CUSTOMER_QUOTE_PHRASE.search(text)
         if m:
@@ -543,7 +635,8 @@ def promo_detail_hints(failed: list[str], text: str, *, menu_names: list[str], c
     if "no_coupon_invented" in failed:
         words = list(dict.fromkeys(m.group(0) for m in _COUPON_WORDS.finditer(text)))
         if words:
-            out.append("쿠폰 값 표현: " + ", ".join(f"'{w}'" for w in words) + " → 빼 주세요. 쿠폰 줄은 코드가 붙여요.")
+            out.append("쿠폰 값 표현: " + ", ".join(f"'{w}'" for w in words) + " → 빼 주세요."
+                       + (" 쿠폰 줄은 코드가 따로 붙입니다." if coupon_line else " 이 글에는 쿠폰·할인이 없습니다."))
     if "promo_formal" in failed:
         bad = [s for s in _SENT_SPLIT.split((text or "").strip())
                if s.strip() and _INFORMAL_END.search(s) and not _FORMAL_END.search(s)]
@@ -636,6 +729,9 @@ def fix_hints(failed: list[str], formal: bool = False, register: str | None = No
         "no_customer_quote": "손님 후기를 인용하지 않는다. 따옴표로 손님 말을 옮기거나 '손님들께서 ...라고' 처럼 "
                               "쓰지 말고, 메뉴 특징을 직접 설명해 주세요.",
         "promo_formal": "해요체 대신 합니다체로 써 주세요.",
+        "no_invented_ingredient": "메뉴 설명에 없는 재료(채소·참깨·치즈·버섯·계란 등)는 지어내지 말고 빼 주세요.",
+        "no_unverified_claim": "'인기 메뉴'·'가장 인기'·'1위'·'최고'·'많은 분들이' 같은 근거 없는 인기·순위 주장은 빼 주세요.",
+        "notice_no_complaint_word": "'항의' 같은 손님을 자극하는 단어는 빼 주세요.",
         "apology_expressed": "가게 잘못일 수 있는 불만이에요. 글 안에 불편을 드려 죄송하다는 사과를 한 번 넣어 주세요.",
         # 사과 없이 사실을 설명하는 답글(c6.stance EXPLAIN)의 점검
         "no_compensation_offer": "요청을 들어드리겠다거나 더 챙겨 드리겠다는 약속, 환불·무료·서비스·할인 같은 말은 빼 주세요.",
@@ -649,6 +745,14 @@ def fix_hints(failed: list[str], formal: bool = False, register: str | None = No
     }
     if formal:
         mapping["no_stiff_words"] = "사전에 있는 딱딱한 표현을 더 자연스러운 표현으로 바꿔 주세요(합니다체는 유지)."
+        # 합니다체 글(공지·홍보글)의 다시 쓰기 지시에 해요체 설명문('…붙여요.'·'…있어요.')이 섞이면 다시 쓴 글이 해요체로 바뀌기
+        # 쉽다 (11/15 promo_formal 핑퐁). 설명 부분만 합니다체로 바꾸고 지시('~해 주세요')는 그대로 둔다.
+        mapping["no_coupon_invented"] = "할인·쿠폰·코드·반값·% 같은 쿠폰 값 표현은 빼 주세요. 쿠폰 값은 코드가 따로 붙입니다."
+        mapping["no_forbidden_phrase"] = "쓰면 안 되는 표현이 들어 있습니다. 그 표현을 빼 주세요."
+        mapping["no_invented_ingredient"] = ("메뉴 이름·메뉴 설명에 없는 재료(채소·참깨·치즈·버섯·계란 등)는 지어내지 말고 빼 주세요"
+                                             "(문장은 합니다체 그대로).")
+        mapping["no_unverified_claim"] = ("'인기 메뉴'·'가장 인기'·'1위'·'최고'·'많은 분들이' 같은 근거 없는 인기·순위 주장은 "
+                                          "빼 주세요(문장은 합니다체 그대로).")
     mapping.update(_REGISTER_HINTS.get(register, {}))
     return [mapping.get(f, f"{f}을(를) 수정해 주세요.") for f in failed]
 

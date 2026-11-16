@@ -270,6 +270,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
             "notice_not_personal": checks.notice_not_personal(text),
             "notice_formal": checks.notice_formal(body),
             "notice_vs_reply": checks.notice_vs_reply(text, reply_texts),
+            "notice_no_complaint_word": checks.notice_no_complaint_word(text),
         }
         if forbidden_phrases:
             result["no_forbidden_phrase"] = not checks.forbidden_phrase(text, forbidden_phrases)

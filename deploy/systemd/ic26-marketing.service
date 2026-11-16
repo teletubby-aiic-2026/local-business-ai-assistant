@@ -1,0 +1,36 @@
+# 맞춤 마케팅 서버 (experiments/marketing 의 marketing_survey). 서버 안에서만 열립니다 (127.0.0.1:8030).
+# 비서 화면 서버(ic26-was)가 /api/marketing-survey/* 를 이 서버로 대신 불러 줍니다 (MARKETING_SURVEY_URL, ic26-was.service).
+# 설치: deploy/install_was.sh 가 /etc/systemd/system/ 으로 복사하고 enable 합니다. 끄려면 deploy/README.md 10-2절.
+#
+# 키(CLOVA_API_KEY)와 모드는 /etc/ic26/env 에서 읽습니다. 모드는 MARKETING_APP_MODE(mock|live) → 없으면 APP_MODE → 없으면 키 유무.
+# mock 이면 키가 있어도 HCX 를 부르지 않습니다. live 인데 키가 비어 있으면 저장된 예시·코드 템플릿으로 돌고 /health 의 notes 에 보입니다.
+# 상태 확인: curl -s http://127.0.0.1:8030/health (키 값은 싣지 않음)
+# 기록(설문 결과·승인·쿠폰 결과·광고비 점검)은 MARKETING_RECORDS_DIR 에 방문자마다 파일 하나로 남습니다 (install_was.sh 가 ic26 소유로 만듦).
+[Unit]
+Description=ic26 marketing-survey (127.0.0.1:8030)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ic26
+Group=ic26
+WorkingDirectory=/opt/ic26/experiments/marketing
+EnvironmentFile=/etc/ic26/env
+# 저장소 루트(shared/)와 마케팅 폴더(config, c6, marketing_survey) 둘 다 필요합니다
+Environment=PYTHONPATH=/opt/ic26:/opt/ic26/experiments/marketing
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=MARKETING_RECORDS_DIR=/var/lib/ic26/marketing
+ExecStart=/opt/ic26/.venv/bin/python -m uvicorn marketing_survey.server:app --host 127.0.0.1 --port 8030 --log-level warning
+Restart=always
+RestartSec=3
+
+# 쓰기 폴더: /var/lib/ic26/marketing(기록), /opt/ic26/experiments/marketing/results(live 일 때 모델 원문 응답, ic26-was 와 같은 폴더)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

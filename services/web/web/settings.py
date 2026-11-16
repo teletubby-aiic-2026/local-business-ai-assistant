@@ -49,6 +49,9 @@ class Settings:
     care_url: str = ""
     care_timeout: float = 100.0      # 캡처 하나를 기다리는 최대 시간(초). 긴 캡처는 조각(최대 5)마다 HCX 를 부름. Nginx 120초보다 짧게
     care_public: bool = False        # 손님용 문의 페이지(/s/…)·/api/care/public/* 를 열지. 보안 검토 전까지 꺼 둠 (팀장 결정 11/15)
+    # 맞춤 마케팅 프록시 (marketing_proxy.py: 김수현 님 설문형 마케팅 서비스). off 면 이 서버에서 맞춤 마케팅을 끈다
+    marketing_url: str = "http://127.0.0.1:8030"
+    marketing_timeout: float = 45.0  # 글을 만드는 경로(plan·generate·idea-try)를 기다리는 최대 시간(초). 나머지는 10초
 
     def __post_init__(self) -> None:
         if str(self.mode).lower() == "replay":
@@ -84,4 +87,6 @@ class Settings:
             care_url=env("CARE_URL", "").strip(),
             care_timeout=_seconds(env("CARE_TIMEOUT_SEC", ""), 100.0),
             care_public=env("CARE_PUBLIC", "").strip().lower() in ("1", "true", "yes", "on"),
+            marketing_url=env("MARKETING_SURVEY_URL", "http://127.0.0.1:8030").strip(),
+            marketing_timeout=_seconds(env("MARKETING_TIMEOUT_SEC", ""), 45.0),
         )
