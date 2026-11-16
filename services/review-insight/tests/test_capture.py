@@ -271,3 +271,19 @@ def test_health_stays_fast_while_a_capture_is_being_read(monkeypatch, path):
     assert health.status_code == 200
     assert waited < 0.7, f"캡처를 읽는 동안 /api/health 가 {waited:.2f}초 기다림"
     assert done["r"].status_code == 200 and done["r"].json()["count"] == 1
+
+
+# 11/16 실제 HCX-005 캡처 3장의 답 모양: 별점에 단위를 붙이고 괄호를 하나 더 닫음 → 전에는 0건
+@pytest.mark.parametrize("content, rating", [
+    ('[{"text": "별하나도 아깝습니다 배달이 늦었어요", "rating": 1 stars}}]', 1),
+    ('[{"text": "별하나도 아깝습니다 배달이 늦었어요", "rating": 2 star}]', 2),
+    ('[{"text": "별하나도 아깝습니다 배달이 늦었어요", "rating": "5점"}]', 5),
+    ('[{"text": "별하나도 아깝습니다 배달이 늦었어요", "rating": null}]', None),
+])
+def test_parse_reviews_rating_with_unit(content, rating):
+    assert capture.parse_reviews(content) == [{"text": "별하나도 아깝습니다 배달이 늦었어요", "rating": rating}]
+
+
+def test_parse_reviews_unit_does_not_touch_text():
+    out = capture.parse_reviews('[{"text": "rating 5 stars 라고 쓴 손님", "rating": 3 stars}]')
+    assert out == [{"text": "rating 5 stars 라고 쓴 손님", "rating": 3}]
