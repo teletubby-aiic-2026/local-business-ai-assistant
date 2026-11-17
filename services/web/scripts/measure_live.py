@@ -45,7 +45,7 @@ PASS, CHECK, FAIL = "점검 통과", "확인 필요", "점검 실패"
 STATUSES = (PASS, CHECK, FAIL)
 
 # app.js 의 GEN_NAMES (generator → 종류). 표에 나오는 순서이기도 하다.
-GENERATOR_NAMES = {"reply_draft": "답글", "prevention_notice": "재발 방지 공지", "coupon_promo": "홍보글"}
+GENERATOR_NAMES = {"reply_draft": "답글", "prevention_notice": "포장·주문 안내문", "coupon_promo": "홍보글"}
 CARD_KIND_NAMES = {"complaint": "불만 카드", "promo": "홍보 카드"}
 
 # C6 가 '다시 쓰기 사유'에서 뺀 점검 (c6/reply.py _RETRY_EXEMPT, notice.py retry_exempt, promo.py retry_exempt).

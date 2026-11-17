@@ -155,7 +155,7 @@ def decide(ctx, answers, confirms: dict[str, str] | None = None) -> MarketingPla
     elif confirmed("H_REPEAT"):
         allow_follow_up = answers.budget_won > 0 and answers.discount_allowed
         strategies.append(_fix_first_strategy(
-            "재발 방지 공지", "반복된 불만을 먼저 공지로 짚어야 신뢰가 회복돼요", "H_REPEAT",
+            "배달앱 포장·주문 안내문", "반복된 불만을 먼저 안내문으로 짚어야 신뢰가 회복돼요", "H_REPEAT",
             follow_up="reorder_coupon" if allow_follow_up else "",
         ))
     elif confirmed("H_STORE_ONLY"):

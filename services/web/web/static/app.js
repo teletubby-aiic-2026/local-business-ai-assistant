@@ -9,11 +9,11 @@
 
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const GEN_NAMES = { reply_draft: "답글", prevention_notice: "재발 방지 공지", coupon_promo: "쿠폰 홍보글" };
+const GEN_NAMES = { reply_draft: "답글", prevention_notice: "포장·주문 안내문", coupon_promo: "쿠폰 홍보글" };
 const KIND_NAMES = { complaint: "불만 대응", promo: "쿠폰 홍보" };
 // AI 직원 3명: 오늘·분석 = 데이터 분석 비서, 카드 ⓐ·초안 = 고객 응대 비서, 카드 ⓑ = 마케팅 에이전트
 const KIND_AGENT = { complaint: "고객 응대 비서", promo: "마케팅 에이전트" };
-// 재발 방지 공지를 답글보다 먼저 (강조점: 다시 안 생기게 하는 조치가 먼저)
+// 포장·주문 안내문(내부 이름 prevention_notice, 11/18 전 화면 이름 '재발 방지 공지')를 답글보다 먼저 (강조점: 다시 안 생기게 하는 조치가 먼저)
 const GEN_ORDER = { prevention_notice: 0, coupon_promo: 1, reply_draft: 2 };
 const byGen = (a, b) => (GEN_ORDER[a.generator] ?? 9) - (GEN_ORDER[b.generator] ?? 9);
 const SOURCE_NAMES = { live: "실시간 HCX-005", seed: "시험용 저장 예시 (실제 AI 결과 아님)" };
@@ -158,9 +158,13 @@ function renderBriefing(b) {
   $("stat-repeated-sub").textContent = repeated.map((g) => g.topic_name).join(", ") || "없음";
   renderKeywords(b);
   renderHourChart(b);
-  const snap = (b.snapshots || []).find((x) => x.value !== null && !x.dev_fake);
-  $("stat-market").textContent = snap ? `${snap.value > 0 ? "+" : ""}${Number(snap.value).toFixed(2)}${snap.unit}` : "–";
-  $("stat-market-sub").textContent = snap ? `${snap.area_name} · 전년 같은 분기 대비` : "상권 지표 없음";
+  const snap = homeSnap(b);
+  $("stat-market").textContent = snap ? snapValue(snap) : "–";
+  // 범위를 숫자 옆에 붙인다 (11/18): -19.31% 는 '장승배기역 4번 · 공통 업종 17~24시'. 서랍의 답(한식음식점 하루 전체, 예: +2.35%)과
+  // 범위가 달라 나란히 보면 모순처럼 보이므로, 업종·시간대를 늘 함께 보여 준다
+  $("stat-market-sub").textContent = snap ? [snap.area_name, marketScope(snap), "전년 같은 분기 대비"].filter(Boolean).join(" · ") : "상권 지표 없음";
+  $("stat-market").closest(".stat-card").title = snap ? `${snap.metric_name}. ${SCOPE_NOT_ONE}` : "";
+  chatScopeNote();
   $("staff-data").textContent = `리뷰 ${c.review_count}건 정리 끝`;
   syncStaffStrip();
   // 오늘의 핵심 문제 (05 결정 1): 카드 ⓐ가 가리키는 묶음. 시간대는 불만이 몰린 구간(17~21시)만, 상권 지표의 17~24시와 섞지 않는다.
@@ -246,7 +250,7 @@ function renderCards(data) {
   $("cards").innerHTML = data.cards.map((p, i) => {
     const c = p.card;
     const made = !!state.results[c.card_id];
-    const label = made ? "만든 글 보기" : c.kind === "complaint" ? "재발 방지 공지·답글 만들기" : "홍보글 만들기";
+    const label = made ? "만든 글 보기" : c.kind === "complaint" ? "포장·주문 안내문·답글 만들기" : "홍보글 만들기";
     return `<article class="card" id="card-${esc(c.card_id)}">
       <div class="kind">${i === 0 ? "ⓐ" : "ⓑ"} ${esc(KIND_NAMES[c.kind] || c.kind)}${KIND_AGENT[c.kind] ? ` <span class="agent">${esc(KIND_AGENT[c.kind])}</span>` : ""}</div>
       <h2>${esc(p.title)}</h2>
@@ -279,13 +283,13 @@ function todosOf() {
   if (care) {
     const made = !!state.results[care.card.card_id];
     const n = care.evidence.filter((e) => e.type === "review").length;
-    items.push({ key: "notice", card: care, cid: care.card.card_id, gen: "prevention_notice", urgent: true, title: "재발 방지 공지 승인", sub: $("hero-problem").textContent, agent: "고객 응대 비서", st: status(care, of(care, "prevention_notice"), made) });
+    items.push({ key: "notice", card: care, cid: care.card.card_id, gen: "prevention_notice", urgent: true, title: "포장·주문 안내문 승인", sub: $("hero-problem").textContent, agent: "고객 응대 비서", st: status(care, of(care, "prevention_notice"), made) });
     items.push({ key: "reply", card: care, cid: care.card.card_id, gen: "reply_draft", title: `답글 ${made ? of(care, "reply_draft").length : n}개 승인`, sub: "같은 불만을 남긴 손님에게", agent: "고객 응대 비서", st: status(care, of(care, "reply_draft"), made) });
   }
   if (mkt) {
     const made = !!state.results[mkt.card.card_id];
     const menu = praiseOf(mkt).menu;   // 손님 칭찬 리뷰에 나온 쿠폰 메뉴 (칭찬 근거가 없으면 빈 글자 → 예전 문구)
-    items.push({ key: "promo", card: mkt, cid: mkt.card.card_id, gen: "coupon_promo", title: "쿠폰 홍보글", sub: `저녁 매출 ${$("stat-market").textContent} · ${menu ? `손님이 칭찬한 ${menu} 쿠폰으로 ` : ""}저녁 손님 다시 부르기`, agent: "마케팅 에이전트", st: status(mkt, of(mkt, "coupon_promo"), made) });
+    items.push({ key: "promo", card: mkt, cid: mkt.card.card_id, gen: "coupon_promo", title: "쿠폰 홍보글", sub: `상권 저녁 ${$("stat-market").textContent}(공통 업종) · ${menu ? `손님이 칭찬한 ${menu} 쿠폰으로 ` : ""}저녁 손님 다시 부르기`, agent: "마케팅 에이전트", st: status(mkt, of(mkt, "coupon_promo"), made) });
   }
   return items;
 }
@@ -353,7 +357,7 @@ function measureBox(p) {
   const picked = made ? new Set(made.map((x) => x.id)) : on;
   // 시험용 실행(mock)은 저장 예시 글을 그대로 보여 주므로 '공지에 반영'이라고 말하지 않는다
   const mock = state.health?.mode === "mock";
-  return `<fieldset class="measures"><legend class="small">${RULES_TITLE}${mock ? "" : " (공지에 반영)"}</legend>
+  return `<fieldset class="measures"><legend class="small">${RULES_TITLE}${mock ? "" : " (안내문에 반영)"}</legend>
     ${m.options.map((o) => `<label class="small"><input type="checkbox" data-measure="${esc(p.card.card_id)}" value="${esc(o.id)}"${picked.has(o.id) ? " checked" : ""}> ${esc(o.text)}</label>`).join("")}
     ${mock ? '<p class="small muted">시험용 실행에서는 저장 예시 글이 그대로 나와요. 고른 수칙은 화면에만 표시돼요.</p>' : ""}
   </fieldset>`;
@@ -639,7 +643,7 @@ function renderDone() {
   const rules = made?.chosen_measures || [];
   const noticeDone = (made?.drafts || []).some((d) => d.generator === "prevention_notice" && state.approved.has(d.draft_id));
   const rulesNote = made?.source === "seed" ? "시험용 저장 예시 글은 고른 수칙과 상관없이 그대로예요."
-    : noticeDone ? "승인한 재발 방지 공지에 넣어 만든 수칙이에요." : "재발 방지 공지에 넣어 만든 수칙이에요. 공지는 아직 승인 전이에요.";
+    : noticeDone ? "승인한 포장·주문 안내문에 넣어 만든 수칙이에요." : "포장·주문 안내문에 넣어 만든 수칙이에요. 안내문은 아직 승인 전이에요.";
   el.innerHTML = `
     <div class="page-head"><h1 tabindex="-1">처리 완료</h1>
       <p class="muted">승인한 글 ${log.length}개 / 만든 글 ${total}개 · 게시는 복사해서 직접 올려요</p></div>
@@ -1244,6 +1248,25 @@ function rpPraise(m, error) {
   rpState("praise", "");
 }
 
+// 홈 '상권 저녁 매출' 칸의 지표: 값이 있고 개발용 가짜가 아닌 첫 지표
+const homeSnap = (b) => (b?.snapshots || []).find((x) => x.value !== null && !x.dev_fake) || null;
+const snapValue = (s) => `${s.value > 0 ? "+" : ""}${Number(s.value).toFixed(2)}${s.unit || ""}`;
+// 상권 지표의 범위(업종·시간대)를 지표 이름에서 읽는다. '저녁 시간대(17~24시) … · 두 분기 공통 업종' → '공통 업종 17~24시'
+function marketScope(s) {
+  const name = String(s?.metric_name || "");
+  const hours = (name.match(/([0-9]{1,2}~[0-9]{1,2}시)/) || [])[1] || "";
+  return [name.includes("공통 업종") ? "공통 업종" : "", hours].filter(Boolean).join(" ");
+}
+const SCOPE_NOT_ONE = "한 업종(예: 한식음식점)의 하루 전체 매출이 아니에요.";
+// 서랍의 조건 줄 아래: 홈 숫자와 서랍 답의 범위가 다르다는 한 줄 (홈 지표가 있을 때만)
+function chatScopeNote() {
+  const el = $("assistant-cond-note");
+  if (!el) return;
+  const s = homeSnap(state.briefing);
+  el.hidden = !s;
+  el.textContent = s ? `홈의 '상권 저녁 매출' ${snapValue(s)}는 ${[s.area_name, marketScope(s)].filter(Boolean).join(" · ")} 기준이에요. `
+    + "여기 답은 위 조건(업종 하나, 하루 전체) 기준이라 숫자가 다를 수 있어요." : "";
+}
 // 상권 요약: 브리핑의 상권 지표 (홈 '상권 저녁 매출' 칸과 같은 자료). 서버를 다시 부르지 않는다
 function rpMarket() {
   const b = state.briefing;
@@ -1261,6 +1284,7 @@ function rpMarket() {
           <span class="small muted">${esc([s.area_name, s.compared_with_quarter ? "전년 같은 분기 대비" : "", shortBasis(s.basis_label)].filter(Boolean).join(" · "))}${sourceUrl(s.source) ? ` · <a href="${esc(sourceUrl(s.source))}" target="_blank" rel="noopener">원본</a>` : ""}</span>
           ${s.dev_fake ? '<span class="badge bad">개발용 가짜 값 · 발표에 쓰지 마세요</span>' : ""}</span></li>`).join("")
       || '<li class="small muted">상권 지표가 없어요.</li>'}</ul>
+    ${snaps.some((s) => marketScope(s)) ? `<p class="small muted rp-scope">위 숫자는 ${esc(snaps.map((s) => [s.area_name, marketScope(s)].filter(Boolean).join(" · ")).join(", "))} 기준이에요. ${esc(SCOPE_NOT_ONE)} 'AI에게 묻기'는 고른 업종 하나의 하루 전체로 답해서 숫자가 다를 수 있어요.</p>` : ""}
     <p class="small muted">상권 통계는 상권·업종 전체의 추정치예요. 우리 가게 매출이 아니에요.</p>
     <button type="button" class="ghost rp-ask" data-rp-ask>AI에게 묻기로 상권 더 보기</button>`;
   rpState("market", "");
@@ -1297,7 +1321,7 @@ async function rpMarketing() {
   try {
     const a = await careApi("/api/approvals");
     const el = $("rp-approvals");
-    if (el) el.textContent = `서버에 남은 승인 기록 ${(a.items || []).length}건 (답글·공지·홍보글·맞춤 마케팅 글 합계, 이 방문자 기준)`;
+    if (el) el.textContent = `서버에 남은 승인 기록 ${(a.items || []).length}건 (답글·안내문·홍보글·맞춤 마케팅 글 합계, 이 방문자 기준)`;
   } catch (e) { const el = $("rp-approvals"); if (el) el.textContent = `승인 기록을 불러오지 못했어요: ${e.message}`; }
 }
 
@@ -2385,6 +2409,7 @@ function chatConditions(c) {
   $("assistant-cond-text").textContent = text;
   chat.atHome = !!c && c.is_store_default === true;
   chatHomeButton();
+  chatScopeNote();
 }
 // 추천 질문 칩: 대화가 비었으면 고정 질문, 그 뒤에는 마지막 답의 suggestions
 function chatChips(list, starters = false) {

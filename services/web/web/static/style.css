@@ -839,10 +839,11 @@ body:has(> .shell > .drawer:not([hidden])) { padding-right: 400px; }
 #assistant-clear { color: var(--ink-2); }
 #assistant-clear.armed { color: var(--bad); border-color: currentColor; font-weight: 600; } /* 같은 뜻을 글자('한 번 더 누르면 지워요')로 */
 /* 분석 조건 (조건이 없으면 숨김): 윗줄 = '분석 조건' + 오른쪽 '우리 가게 조건으로', 아랫줄 = 조건 */
-.drawer-cond { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label home" "text text"; align-items: center;
+.drawer-cond { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label home" "text text" "note note"; align-items: center;
   margin: 0 16px 8px; padding: 4px 4px 8px 12px; border-radius: 12px; background: var(--surface); color: var(--ink); font-size: var(--meta); line-height: 1.5; }
 .drawer-cond b { grid-area: label; font-weight: 600; color: var(--muted); }
 #assistant-cond-text { grid-area: text; padding-right: 8px; font-weight: 500; }
+.drawer-cond-note { grid-area: note; margin: 4px 0 0; color: var(--muted); font-size: var(--meta); line-height: 1.45; }
 .drawer-cond .ghost { grid-area: home; min-height: 28px; padding: 2px 8px; color: var(--ink-2); font-size: var(--meta); font-weight: 500;
   text-decoration: underline; text-decoration-color: var(--field-line); text-underline-offset: 3px; }
 .drawer-cond .ghost:hover { background: var(--hover); color: var(--ink); text-decoration-color: currentColor; }

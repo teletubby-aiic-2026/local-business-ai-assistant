@@ -364,6 +364,8 @@
       <!-- 채팅에서 다른 곳을 보고 있어도 우리 가게 조건(장승배기역 4번 · 한식음식점 · 최신 분기)으로 되돌림 (setup?force=1).
            지금 조건이 이미 우리 가게 기본 조건이면 JS 가 '우리 가게 기준 적용 중'으로 바꾸고 누를 수 없게 한다 -->
       <button id="assistant-home" type="button" class="ghost">우리 가게 조건으로</button>
+      <!-- 홈 '상권 저녁 매출'(공통 업종 17~24시)과 여기 답(고른 업종 하나, 하루 전체)의 범위가 다르다는 한 줄 (11/18). JS 가 채움 -->
+      <p id="assistant-cond-note" class="drawer-cond-note" hidden></p>
     </div>
     <div id="assistant-scroll" class="drawer-body">
       <!-- 상권 비서를 쓸 수 없을 때만 보이는 상태 안내 (꺼짐·연결 안 됨·챗봇 꺼짐·자료 없음·오류) -->

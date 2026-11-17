@@ -106,7 +106,7 @@ def pick_measures(ids: list[str] | None) -> list[dict]:
     catalog = {m["id"]: m for m in measure_catalog()}
     unknown = [i for i in (ids or []) if i not in catalog]
     if unknown:
-        raise GenerateError(f"모르는 재발 방지 조치예요: {', '.join(unknown)}")
+        raise GenerateError(f"모르는 주방 점검 수칙이에요: {', '.join(unknown)}")
     return [catalog[i] for i in (ids or [])]
 
 

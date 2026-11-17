@@ -129,7 +129,7 @@ class CardRules(unittest.TestCase):
     def test_complaint_title_puts_prevention_first(self):
         """강조점(11/10): 반복 → 재발 방지 공지가 먼저, 답글은 함께."""
         plan = plan_cards(fixture("insight_ongi.json"), [], "store_ongi")[0]
-        self.assertEqual(plan.title, "포장 누락 3건 반복 → 재발 방지 공지 + 답글")
+        self.assertEqual(plan.title, "포장 누락 3건 반복 → 배달앱 포장·주문 안내문 + 답글")
 
     def test_action_flags(self):
         """하지 않은 조치·정하지 않은 보상은 '확인 필요', 사과와 재발 방지 다짐은 통과."""

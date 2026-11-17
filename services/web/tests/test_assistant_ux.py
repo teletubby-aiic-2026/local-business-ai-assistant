@@ -490,7 +490,8 @@ class TestStoreAnswers(Base):
         self.assertEqual(reply["kind"], "store_guide")
         self.assertTrue(self.ask("리뷰 분석은 어디서 봐?").json()["reply"]["text"].startswith("리뷰와 불만 묶음은 화면 메뉴 '리뷰 분석'"))
         self.assertTrue(self.ask("종합 리포트 어디 있어?").json()["reply"]["text"].startswith("응대 점수와 월간 보고서는 화면 메뉴 '종합 리포트'"))
-        self.assertTrue(self.ask("공지 어디서 써?").json()["reply"]["text"].startswith("공지 초안은 화면 메뉴 '추천 카드'"))
+        self.assertTrue(self.ask("공지 어디서 써?").json()["reply"]["text"].startswith("포장·주문 안내문 초안은 화면 메뉴 '추천 카드'"))
+        self.assertTrue(self.ask("안내문 어디서 봐?").json()["reply"]["text"].startswith("포장·주문 안내문 초안은 화면 메뉴 '추천 카드'"))   # 11/18 새 이름
         for text in ("홍보는 어디서 해?", "광고비 점검 어디서 해?", "마케팅 보고서 어디서 봐?"):     # 맞춤 마케팅 (11/16)
             with self.subTest(text=text):
                 self.assertTrue(self.ask(text).json()["reply"]["text"].startswith("홍보·쿠폰·광고비는 화면 메뉴 '맞춤 마케팅'"))
