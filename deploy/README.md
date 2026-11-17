@@ -7,22 +7,23 @@
 
 ```
 PC ──(scp, 베스천 거침)──▶ ic26-was1 ─ install_was.sh ─▶ ic26-review    (127.0.0.1:8020)
-                                                      ├▶ ic26-marketing (127.0.0.1:8030)  ← 맞춤 마케팅. 비서 화면 서버만 부름
-                                                      └▶ ic26-was       (0.0.0.0:8000)    ← 내부 로드 밸런서가 부름
-                                                         ic26-market    (127.0.0.1:8766)  ← 월요일. 지금은 꺼 둠
+   코드 묶음 ic26-<커밋>.tgz                           ├▶ ic26-marketing (127.0.0.1:8030)  ← 맞춤 마케팅. 비서 화면 서버만 부름
+   자료 묶음 seoul-market-data-….tar.gz                 └▶ ic26-was       (0.0.0.0:8000)    ← 내부 로드 밸런서가 부름
+                             ─ install_market_data.sh ─▶ ic26-market    (127.0.0.1:8766)  ← 상권. 비서 화면 서버만 부름 (서랍)
 웹 서버 ─ install_web.sh ─▶ Nginx (80)  ── /api 또는 전체 ──▶ 내부 로드 밸런서 ─▶ WAS
 ```
 
 | 파일 | 어디서 쓰나 | 하는 일 |
 |---|---|---|
 | `make_bundle.sh` | PC | `origin/main`(또는 준 커밋)을 `git archive`로 묶어 `ic26-<커밋>.tgz`와 체크섬을 만듦. 안에 `REVISION`(커밋 해시) 포함 |
-| `install_was.sh` | WAS 서버 | 패키지, 계정, 코드, 쓰기 폴더, 환경 파일 틀, venv, 서비스 등록. 다시 돌려도 안전. **코드 갱신에도 같은 스크립트** |
+| `install_was.sh` | WAS 서버 | 패키지, 계정, 코드, 쓰기 폴더, 환경 파일 틀, venv, 서비스 등록. 다시 돌려도 안전. **코드 갱신에도 같은 스크립트**. 상권 자료가 깔려 있으면 `ic26-market`도 켬 |
+| `install_market_data.sh` | WAS 서버 | 상권 공식 자료 묶음(따로 받은 `.tar.gz` 하나)을 확인(SHA-256·MANIFEST 851개)하고 `/opt/ic26` 제자리에 깔고 `ic26-market`을 켬. 4-1절 |
 | `env.example` | WAS 서버 | `/etc/ic26/env`의 틀. 변수 이름과 설명만 있고 키·비밀번호 값은 비어 있음 |
 | `systemd/ic26-review.service` | WAS 서버 | 리뷰 분석 (127.0.0.1:8020) |
 | `systemd/ic26-was.service` | WAS 서버 | 비서 화면 서버 (0.0.0.0:8000, 상태 확인 `/api/health`) |
-| `systemd/ic26-market.service` | WAS 서버 | 상권 서비스 자리. 파일만 넣고 **켜지 않음** (월요일) |
+| `systemd/ic26-market.service` | WAS 서버 | 상권 서비스 (127.0.0.1:8766). 상권 자료를 깔면 켬 (자료가 없으면 파일만) |
 | `systemd/ic26-marketing.service` | WAS 서버 | 맞춤 마케팅 서버 (127.0.0.1:8030, 상태 확인 `/health`). 10-2절 |
-| `smoke_test.sh` | WAS 서버, 웹 서버 | `/api/health`와 `/api/briefing`, 맞춤 마케팅 `/health` 확인. `--generate`로 글 생성 1회씩 |
+| `smoke_test.sh` | WAS 서버, 웹 서버 | `/api/health`와 `/api/briefing`, 맞춤 마케팅 `/health`, 상권 `/health`와 서랍 `ready` 확인. `--generate`로 글 생성·상권 질문 1회씩 |
 | `prepare_image.sh` | WAS 서버 | 서버 이미지를 만들기 전에 키 값과 실행 중 데이터를 비움 |
 | `install_web.sh` | 웹 서버 | Nginx 설치와 설정 넣기 (1단계 또는 2단계) |
 | `nginx/ic26-proxy-all.conf` | 웹 서버 | (가) 1단계: 모든 요청을 WAS로 |
@@ -33,6 +34,7 @@ PC ──(scp, 베스천 거침)──▶ ic26-was1 ─ install_was.sh ─▶ ic
 - **1단계, 토요일 밤**: 2(묶기) → 3(올리기) → 4(설치) → 5(키 넣기) → 6(확인). `ic26-was1` 한 대만 세웁니다.
 - **1단계, 일요일**: 9(웹 서버)와 로드 밸런서. WAS 타겟에는 `ic26-was1`만 넣습니다.
 - **2단계, 월요일**: 완성본을 8(갱신)로 올린 뒤, 7(이미지, 다음 서버)을 **한 번만** 합니다. 주말에는 이미지를 만들지 않습니다(DB, 상권, 보고서가 들어오면 다시 만들어야 하기 때문).
+- **11/18 바뀐 점**: 상권 공식 자료가 들어왔습니다(PR #62, 김진수 님). 자료는 코드 묶음에 넣지 않고 **자료 묶음 하나**로 따로 올립니다. 4(설치) 다음에 **4-1(상권 자료)** 을 합니다. 서버 이미지를 뜨면 자료도 이미지에 담기므로, 이미지로 만든 서버에는 4-1을 다시 하지 않아도 됩니다.
 
 ## 1. 시작 전에
 
@@ -75,6 +77,8 @@ Host ic26-was1
 ```bash
 cd ~/ic26-bundles
 scp ic26-<커밋>.tgz ic26-<커밋>.tgz.sha256 ic26-was1:~/
+# 상권 자료 묶음 (68MB, 처음 한 번. 팀장 PC의 인프라/bundles/ 에 체크섬과 함께 있음)
+scp seoul-market-data-20261116.tar.gz seoul-market-data-20261116.tar.gz.sha256 ic26-was1:~/
 ```
 
 ## 4. 서버에서: 설치
@@ -99,6 +103,33 @@ sudo bash ic26-<커밋>/deploy/install_was.sh
 
 옵션: `--no-start`(등록만), `--skip-apt`, `--skip-pip`, `--no-systemd`(컨테이너 시험용).
 이 시점에는 키가 비어 있어 `APP_MODE=live`라서 `/api/health`에 막힘 항목이 보이는 것이 정상입니다.
+7번에서 상권 공식 자료가 이미 깔려 있으면(`/opt/ic26/services/market-analysis/data/official/onboarding_analysis_catalog.json`과 `data/raw/official/`) `ic26-market`도 enable하고 다시 시작합니다. 처음 설치에는 자료가 없으므로 4-1절로 깝니다.
+
+## 4-1. 서버에서: 상권 자료 깔기 (처음 한 번, 자료가 바뀔 때)
+
+상권 서비스는 서울시 상권분석서비스의 공식 자료(2024년 3분기~2026년 2분기 8분기 + 2026년 2분기 보조자료 4종)를 파일로 읽습니다. 이 자료는 git에 없고(약 740MB) 코드 묶음에도 넣지 않습니다. 팀이 확인한 자료 묶음 하나를 따로 올려 깝니다. **서버에서 서울시 OpenAPI로 새로 모으지 않습니다**(`--collect` 금지: 같은 분기라도 공개·정정 상태에 따라 값이 달라져 검증한 자료와 다른 판이 됨).
+
+```bash
+cd ~
+sha256sum -c seoul-market-data-20261116.tar.gz.sha256      # OK
+sudo bash ic26-<커밋>/deploy/install_market_data.sh ~/seoul-market-data-20261116.tar.gz
+bash ic26-<커밋>/deploy/smoke_test.sh --market
+```
+
+`install_market_data.sh`가 하는 일:
+
+1. 압축 파일의 SHA-256을 옆의 `.sha256`(없으면 스크립트에 적힌 알려진 값)과 대조합니다. 멤버가 모두 보통 파일·폴더이고 절대 경로·`..`·링크가 없는지 봅니다.
+2. `/opt/ic26`과 같은 디스크의 빈 임시 폴더에 풀고, `MANIFEST.json`의 851개 파일마다 바이트 수와 SHA-256을 대조합니다. 하나라도 다르면 멈춥니다. 디스크 여유가 모자라면 풀기 전에 멈춥니다(풀면 약 750MB).
+3. 제자리에 둡니다(root 소유, 폴더 755·파일 644, 서비스 계정은 읽기만).
+   - `services/market-analysis/data/**` → `/opt/ic26/services/market-analysis/data/` (원본 `data/raw/official` 838개, 분석 카탈로그, 보조자료 4종)
+   - `source-downloads/**` → `/opt/ic26/source-downloads/` (가공 전 원본 보존용. 앱은 읽지 않음)
+   - `services/market-analysis/app/*.json`, `data/scenario/snapshot_2026Q2.json`은 코드 묶음에도 있습니다. 줄바꿈만 다르고 내용이 같으면 코드 쪽을 그대로 두고, 다르면 덮지 않고 주의를 띄웁니다.
+4. `ic26-market`을 enable하고 다시 시작합니다(상권 서비스는 켜질 때 자료를 읽어 둠). `/health`가 60초 안에 답하는지 봅니다. `/etc/ic26/env`의 `ASSISTANT_ENABLED=1`, `ASSISTANT_PLANNER=off`, live일 때 `CLOVA_STUDIO_API_KEY`가 있는지 이름만 봅니다.
+
+- 다시 돌려도 안전합니다. 같은 자료면 그대로 두고, 이미 깔린 파일과 내용이 다른 파일이 있으면 **덮지 않고 멈춥니다**. 새 판으로 바꾸려면 `--replace`(옛 자료를 `data.bak-<시각>`으로 옮겨 둠).
+- `--check`는 풀어서 확인만 합니다. `--no-systemd`는 컨테이너 시험용입니다.
+- 어느 묶음을 깔았는지는 `/var/lib/ic26/market-data.installed`에 남습니다.
+- `install_was.sh`로 코드를 갱신해도 상권 자료와 `/opt/ic26/source-downloads/`는 지워지지 않습니다.
 
 ## 5. 서버에서: 키 넣기 (손으로)
 
@@ -134,13 +165,13 @@ ls -l /etc/ic26/env                      # -rw------- root root
 ## 6. 서버에서: 시작과 확인
 
 ```bash
-sudo systemctl restart ic26-review ic26-marketing ic26-was
-systemctl is-active ic26-review ic26-marketing ic26-was ic26-market   # active active active inactive (market 은 월요일까지 inactive)
-sudo ss -ltnp | grep -E ':(8000|8020|8030)'             # 8000 은 0.0.0.0, 8020·8030 은 127.0.0.1 만
+sudo systemctl restart ic26-review ic26-marketing ic26-was ic26-market
+systemctl is-active ic26-review ic26-marketing ic26-was ic26-market   # active 넷 (상권 자료를 깔기 전에는 market 만 inactive)
+sudo ss -ltnp | grep -E ':(8000|8020|8030|8766)'        # 8000 은 0.0.0.0, 8020·8030·8766 은 127.0.0.1 만
 bash ~/ic26-<커밋>/deploy/smoke_test.sh --expect-reviews 40
 ```
 
-`smoke_test.sh`는 `/api/health`(모드, 키 유무, 리뷰 분석 상태 ok, 막힘 목록 비어 있음)와 `/api/briefing`(리뷰 건수), 맞춤 마케팅(10-2절: 비서 화면을 거친 `/api/marketing-survey/health`와 서버 안 `127.0.0.1:8030/health`)을 봅니다. 모두 통과하면 종료 코드 0입니다.
+`smoke_test.sh`는 `/api/health`(모드, 키 유무, 리뷰 분석 상태 ok, 막힘 목록 비어 있음)와 `/api/briefing`(리뷰 건수), 맞춤 마케팅(10-2절: 비서 화면을 거친 `/api/marketing-survey/health`와 서버 안 `127.0.0.1:8030/health`), 상권(10절: 서버 안 `127.0.0.1:8766/health`와 비서 화면을 거친 `/api/assistant/status`가 `ready`)을 봅니다. 상권 서비스가 꺼져 있으면(자료를 아직 안 깜) 주의만 내고, `--market`을 주면 꺼져 있는 것도 실패로 셉니다. 모두 통과하면 종료 코드 0입니다.
 
 글 생성까지 보려면(live는 HCX를 실제로 한 번 부르므로 비용이 듭니다):
 
@@ -148,13 +179,14 @@ bash ~/ic26-<커밋>/deploy/smoke_test.sh --expect-reviews 40
 bash ~/ic26-<커밋>/deploy/smoke_test.sh --generate
 ```
 
-`--generate`는 맞춤 마케팅의 `/plan`(가게 이야기 글)도 한 번 부릅니다(live면 HCX 1~2번). 마케팅 서버를 직접 볼 수 있으면(WAS 서버, 또는 `--marketing`) 시험 방문자 id(`smoke…`)로 쓰고 끝나면 그 기록만 지웁니다. 웹 서버처럼 비서 화면 서버를 거칠 때는 프록시가 쿼리의 방문자 id 를 버리고 쿠키를 쓰므로, 쿠키 파일로 한 방문자를 유지하고 끝나면 그 방문자의 `DELETE /api/approvals`(마케팅 기록도 함께 지움)로 지웁니다.
+`--generate`는 맞춤 마케팅의 `/plan`(가게 이야기 글)도 한 번 부릅니다(live면 HCX 1~2번). 상권 서랍이 `ready`면 조건 맞추기와 질문 1개("요일별 매출 알려줘")도 보내 자료 답(`data_answer`)이 오는지 보고, 시험 대화를 지웁니다. 마케팅 서버를 직접 볼 수 있으면(WAS 서버, 또는 `--marketing`) 시험 방문자 id(`smoke…`)로 쓰고 끝나면 그 기록만 지웁니다. 웹 서버처럼 비서 화면 서버를 거칠 때는 프록시가 쿼리의 방문자 id 를 버리고 쿠키를 쓰므로, 쿠키 파일로 한 방문자를 유지하고 끝나면 그 방문자의 `DELETE /api/approvals`(마케팅 기록도 함께 지움)로 지웁니다.
 
 체크리스트 단계 7의 "확인할 것"과 대응:
 
 | 확인 | 방법 |
 |---|---|
-| 세 서비스 enabled · active | `systemctl is-enabled ic26-review ic26-marketing ic26-was` / `is-active` |
+| 네 서비스 enabled · active | `systemctl is-enabled ic26-review ic26-marketing ic26-was ic26-market` / `is-active` |
+| 상권 서랍 ready, 분기 표기 '2026년 2분기' | `smoke_test.sh --market --generate`, 화면 오른쪽 'AI에게 묻기' |
 | 서버를 중지했다 시작해도 저절로 뜸 | 콘솔에서 서버 정지·시작 뒤 위 명령 |
 | 모드 live, 키 있음, 막힘 목록 비어 있음, 응답에 키 값 없음 | `smoke_test.sh`, `curl -s localhost:8000/api/health` |
 | 리뷰 분석이 저장 파일을 쓸 수 있음 | `sudo journalctl -u ic26-review -n 50` 에 쓰기 오류 없음 |
@@ -177,6 +209,7 @@ DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여
    ```
 
    `<DB 주소>:5432/ic26app 표 6개 확인: approvals, card_reasons, reports, review_labels, reviews, stores`가 나오면 된 것입니다. 여러 번 돌려도 안전합니다(이미 있는 표는 그대로 둡니다).
+   11/18부터 `approvals`에 칸 4개(`draft_text`, `checks`, `used_fallback`, `style`. 이슈 #51 ERD)가 더해졌습니다. 이 명령은 이미 있는 표에도 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 칸을 더합니다(있던 기록은 그대로, 새 칸은 비움·`{}`·`false`).
 3. 서비스를 다시 시작하고 확인합니다.
 
    ```bash
@@ -193,7 +226,7 @@ DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여
 - `표를 만들지 못했습니다: …`가 나오면 그 뒤의 내용을 봅니다. 접속 실패면 ACG와 `DB_HOST`를, 권한 오류면 `DB_USER`가 `ic26app`에 표를 만들 수 있는 계정인지 봅니다.
 - DB에 닿지 못하는 동안에는 승인은 되고(경고가 붙고, 서버가 들고 있다가 DB가 돌아오면 저장), 브리핑, 카드, 리뷰 분석, 붙여넣기는 503입니다. DB가 돌아오면 서비스를 다시 켜지 않아도 이어집니다.
 - DB 없이 되돌리려면 `DB_HOST`를 비우고 서비스를 다시 시작합니다.
-- 표 정의는 `db/schema.sql`이고 임시입니다. ERD가 정해져 이미 있는 표의 칸이 바뀌면 이 명령으로는 고쳐지지 않으니 따로 옮깁니다.
+- 표 정의는 `db/schema.sql`입니다. 칸을 **더하는** 변경은 `schema.sql` 끝의 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 명령이 처리합니다. 칸 이름·형식을 바꾸거나 지우는 변경은 따로 옮깁니다.
 - 선택 변수: `DB_SSLMODE`, `DB_CONNECT_TIMEOUT`(3초), `DB_QUERY_TIMEOUT`(5초), `DB_POOL_MAX`(5). 설명은 `shared/storage/config.py`에 있습니다.
 - **2번의 `systemd-run` 명령과 실제 Cloud DB 연결은 서버에서 아직 돌려 보지 못했습니다(11/14).** 표 만들기와 저장은 로컬 PostgreSQL 16으로 확인했습니다.
 
@@ -233,7 +266,8 @@ bash ic26-<새 커밋>/deploy/smoke_test.sh
 - 코드만 바뀌었으면 `--skip-pip`으로 빠르게 할 수 있습니다. requirements가 바뀐 갱신(예: DB 코드가 처음 들어온 묶음은 `psycopg`가 더해짐)에는 붙이지 않습니다.
 - **PR #49(리뷰 캡처·응대 점수·보고서)와 비서 화면 연결(`feat/connect-care-ui`)이 처음 들어가는 갱신은 `--skip-pip` 없이 돌립니다.** 리뷰 분석 서비스가 `pillow`와 `python-multipart`를 새로 씁니다. `python-multipart`가 없으면 리뷰 분석 서비스(`ic26-review`)가 **아예 켜지지 않고**, 비서 화면의 브리핑·카드·리뷰 분석도 모두 `503`이 됩니다. 갱신 뒤 `curl -s http://127.0.0.1:8020/api/health`와 `curl -s http://127.0.0.1:8000/api/care/status`(`"state":"ready"`)를 봅니다.
 - **맞춤 마케팅(`ic26-marketing`)이 처음 들어가는 갱신**은 `install_was.sh`가 서비스 파일을 넣고 enable·시작하며 `/var/lib/ic26/marketing`을 만듭니다. 새 패키지는 없습니다. 갱신 뒤 `curl -s http://127.0.0.1:8030/health`를 봅니다(10-2절).
-- `db/schema.sql`에 새 표가 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다.
+- `db/schema.sql`에 새 표나 새 칸이 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다. **11/18 묶음(`approvals` 칸 4개)이 그렇습니다.** 돌리기 전에도 승인 기록은 저장됩니다(새 칸이 없으면 칸 없이 예전처럼 쓰고 `journalctl -u ic26-was`에 'init_db 를 다시 돌리세요' 경고). 표 만들기를 돌린 뒤부터 새 칸이 채워집니다.
+- 상권 자료(`/opt/ic26/services/market-analysis/data/`)는 갱신 때 그대로입니다. 자료가 깔려 있으면 `install_was.sh`가 `ic26-market`도 새 코드로 다시 시작합니다. 자료 묶음이 새로 나오면 4-1절(`--replace`).
 - 환경 파일 틀에 새 변수가 생기면 스크립트가 빠진 변수 이름을 알려 줍니다. 편집기로 줄을 추가합니다.
 - 단계 15(Auto Scaling) 뒤에는 그룹 서버를 직접 고치지 않습니다(체크리스트 단계 13-A).
 
@@ -270,20 +304,22 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 ## 10. 상권 서비스와 서랍의 상권 채팅
 
 - 상권 코드(`services/market-analysis`)는 11/14에 `main`에 들어와(PR #12, #18, #13) 묶음에 들어 있습니다. `install_was.sh`가 그 requirements(`pyproj`, `pyshp` 등)도 함께 설치합니다.
-- 서비스는 `ic26-market.service` 파일만 `/etc/systemd/system/`에 넣고 enable 하지 않습니다. 켜면 비서 화면의 오른쪽 "AI에게 묻기" 서랍이 상권 채팅이 됩니다(비서 화면 서버가 `127.0.0.1:8766`을 대신 불러 줌, `docs/api/contract.md` 1.10절). 켜지 않아도 비서 화면은 그대로 돌고, 서랍 안에만 "상권 서비스에 연결하지 못했어요"가 보입니다. 켤 때:
+- 상권 공식 자료를 4-1절(`install_market_data.sh`)로 깔면 `ic26-market`이 켜지고, 비서 화면의 오른쪽 "AI에게 묻기" 서랍이 상권 채팅이 됩니다(비서 화면 서버가 `127.0.0.1:8766`을 대신 불러 줌, `docs/api/contract.md` 1.10절). 자료가 없으면 서비스 파일만 들어가고 켜지지 않습니다. 그래도 비서 화면은 그대로 돌고, 서랍 안에만 "상권 서비스에 연결하지 못했어요"가 보입니다. 확인:
 
   ```bash
-  sudo systemctl enable --now ic26-market
   curl -s -H 'Host: 127.0.0.1:8766' http://127.0.0.1:8766/health
+  curl -s http://127.0.0.1:8000/api/assistant/status          # "state":"ready"
   ```
-- 서비스 파일의 경로(`services/market-analysis`)와 시작 명령(`python -m app.intake_api`)은 `main`에 들어온 코드와 맞습니다(`app/intake_api.py`, `requirements.txt`, `requirements-assistant.txt`). 서버에서 켜 본 적은 없습니다. 다르게 돌면 `WorkingDirectory`, `ExecStart`, `ConditionPathExists`를 고칩니다.
+- **자료 폴더는 통째로 있어야 합니다.** 원본 폴더(`data/raw/official`) 없이 분석 카탈로그(`data/official`)와 보조자료(`data/assistant_context`)만 두면 서랍이 `ready`로 뜨고 조건도 맞춰지지만, 질문의 답이 모두 '자료 없음'이 됩니다(11/18 확인). 그래서 자료 묶음 하나로만 깝니다.
+- 서비스 파일의 경로(`services/market-analysis`)와 시작 명령(`python -m app.intake_api`)은 `main`의 코드와 맞습니다. 11/18 Ubuntu 24.04 컨테이너에서 이 명령과 같은 계정·폴더로 띄워 서랍 `ready`와 질문 답을 확인했습니다. 실제 네이버클라우드 서버의 systemd에서는 아직 켜 보지 않았습니다.
+- 하루 평균 매출은 그 분기의 달력일(평일 월~금, 주말 토·일) 수로 나눕니다(PR #62에서 고침. 그 전에는 5일·2일로 나눠 약 13배 크게 나옴). 개별 가게의 영업일 평균이 아닙니다.
 - **비서 화면 서버가 상권 서비스를 부를 때는 `Host: 127.0.0.1:8766`으로 부르고, 방문자의 쿠키를 넘겨야 합니다.** 상권 서비스는 바깥 주소 이름(로드 밸런서 도메인 등)으로 오는 요청을 막습니다(Host가 `127.0.0.1` 또는 `localhost`가 아니면 400, Origin도 `127.0.0.1:8766`만 허용). `APP_PUBLIC_ORIGIN`은 `/etc/ic26/env`에 적지 않습니다.
 - 상권 대화 기록은 서버 안의 SQLite 파일(`/var/lib/ic26/market/onboarding.sqlite3`)에 남습니다. WAS가 2대이면 서버마다 따로입니다(로드 밸런서가 같은 방문자를 다른 서버로 보내면 기록이 보이지 않을 수 있음). 이미지를 만들기 전에 `prepare_image.sh`가 이 폴더를 비웁니다.
 - 키는 `CLOVA_STUDIO_API_KEY`(가운데 밑줄이 하나 더 있는 이름), 챗봇을 켜는 값은 `ASSISTANT_ENABLED=1`, 하루 호출 한도는 `ASSISTANT_MODEL_DAILY_LIMIT=2000`입니다.
 - **서랍 상태 안내** (서랍 안에서만 보이고 다른 화면은 영향이 없음): 꺼져 있으면 "상권 서비스에 연결하지 못했어요", `ASSISTANT_ENABLED`가 없으면 "챗봇이 꺼져 있어요", 공식 자료가 없으면 "공식 상권 자료가 아직 준비되지 않았어요". 서랍을 처음 열면 우리 가게(온기한식: 장승배기역 · 한식음식점 · 장승배기역 4번 상권 · 최신 분기) 분석 조건이 자동으로 맞춰집니다.
 - **`ASSISTANT_PLANNER=off`로 둡니다**(환경 파일 틀에 들어 있음). 계획기가 켜져 있으면 HCX가 질문에 없는 기간("2022년 2분기")을 지어내 "자료가 없어요"로 답하는 일이 잦았습니다. 끄면 질문은 규칙으로 분류하고 답 문장만 HCX가 씁니다. 상권 파트가 계획기를 고치면 이 줄을 지웁니다.
 - 서버를 두 대 쓰면 상권 대화 기록(SQLite)이 서버마다 따로라서, 로드 밸런서가 방문자를 다른 서버로 보내면 대화가 이어지지 않습니다(분석 조건은 서랍을 다시 열 때 자동으로 다시 맞춰짐). 같은 방문자를 같은 서버로 보내는 설정(고정 세션)이 있으면 켜는 쪽이 낫습니다.
-- 상권 브랜치의 README는 공식 자료(`data/`)를 git에 올리지 않는다고 적고 있습니다. 서버에서 자료가 필요한지 월요일에 코드를 보고 확인합니다. `install_was.sh`는 `/opt/ic26/services/market-analysis/data/`를 갱신할 때 지우지 않습니다.
+- 상권 README대로 공식 자료(`data/`)는 git에 올리지 않습니다. 서버에는 4-1절의 자료 묶음으로 깔고, `install_was.sh`는 갱신 때 이 폴더를 지우지 않습니다.
 
 ## 10-1. 고객응대(캡처 입력·응대 점수·종합 리포트)
 

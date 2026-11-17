@@ -11,24 +11,64 @@ from datetime import date, datetime
 from .times import now_kst, to_date, to_kst_iso
 
 
+STYLES = ("haeyo", "hamnida", "mixed")     # 답글 말투 (c6.output._VALID_STYLES 와 같음)
+MAX_DRAFT_TEXT = 4000
+MAX_CHECKS = 40
+
+
+def clean_detail(detail: dict | None) -> dict:
+    """승인 기록의 초안 정보(이슈 #51 ERD, 11/18)를 표에 넣을 모양으로. 모르는 값은 비움·{}·False.
+    draft_text: AI 가 쓴 원문 / checks: 점검 이름 → 통과 여부 / used_fallback: 점검 2번 실패로 코드 템플릿을 썼는지 /
+    style: 답글 말투 haeyo·hamnida·mixed (답글이 아니면 None)."""
+    d = detail if isinstance(detail, dict) else {}
+    text = d.get("draft_text")
+    raw = d.get("checks") if isinstance(d.get("checks"), dict) else {}
+    checks = {str(k)[:60]: v for k, v in list(raw.items())[:MAX_CHECKS] if isinstance(v, bool) and k != "used_fallback"}
+    style = d.get("style") if d.get("style") in STYLES else None
+    return {"draft_text": text[:MAX_DRAFT_TEXT] if isinstance(text, str) else None, "checks": checks,
+            "used_fallback": d.get("used_fallback") is True, "style": style}
+
+
 class MemoryApprovals:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._rows: dict[tuple[str, str], list[dict]] = {}
+        self._meta: dict[tuple[str, str, str], dict] = {}     # (가게, 방문자, 초안) → 카드·종류·초안 정보 (list() 응답에는 넣지 않음)
 
-    def save(self, store_id: str, visitor_id: str, entry: dict, *, card_id: str | None = None, kind: str | None = None) -> None:
-        """같은 draft_id 는 마지막 것으로 바꾼다 (맨 뒤로 옮김). entry 는 복사하지 않고 그대로 쥔다."""
+    def save(self, store_id: str, visitor_id: str, entry: dict, *, card_id: str | None = None, kind: str | None = None,
+             detail: dict | None = None) -> None:
+        """같은 draft_id 는 마지막 것으로 바꾼다 (맨 뒤로 옮김). entry 는 복사하지 않고 그대로 쥔다.
+        card_id·kind·detail 은 PostgreSQL 과 같은 규칙으로 따로 쥔다 (모르면 앞서 저장한 값을 둠). list() 의 모양은 그대로다."""
         with self._lock:
             rows = self._rows.setdefault((store_id, visitor_id), [])
             self._rows[(store_id, visitor_id)] = [r for r in rows if r["draft_id"] != entry["draft_id"]] + [entry]
+            key = (store_id, visitor_id, entry["draft_id"])
+            old = self._meta.get(key) or {"card_id": None, "kind": None, **clean_detail(None)}
+            meta = {"card_id": card_id or old["card_id"], "kind": kind or old["kind"]}
+            if detail is None:
+                meta.update({k: old[k] for k in ("draft_text", "checks", "used_fallback", "style")})
+            else:
+                new = clean_detail(detail)
+                meta.update(new, draft_text=new["draft_text"] if new["draft_text"] is not None else old["draft_text"])
+            self._meta[key] = meta
 
     def list(self, store_id: str, visitor_id: str) -> list[dict]:
         with self._lock:
             return list(self._rows.get((store_id, visitor_id), []))
 
+    def details(self, store_id: str, visitor_id: str) -> list[dict]:
+        """list() 에 카드·종류와 초안 정보를 더한 것 (PostgreSQL 의 details 와 같은 칸)."""
+        with self._lock:
+            return [{"draft_id": r["draft_id"], "status": r.get("status"), "edited": r.get("edited"), "text": r.get("text"),
+                     "approved_at": r.get("approved_at"), "mode": r.get("mode"),
+                     **self._meta.get((store_id, visitor_id, r["draft_id"]), {})}
+                    for r in self._rows.get((store_id, visitor_id), [])]
+
     def clear(self, store_id: str, visitor_id: str) -> int:
         """이 가게·이 방문자의 승인 기록을 모두 지우고 지운 건수를 돌려준다. 다른 방문자·다른 가게의 기록은 그대로다."""
         with self._lock:
+            for key in [k for k in self._meta if k[:2] == (store_id, visitor_id)]:
+                del self._meta[key]
             return len(self._rows.pop((store_id, visitor_id), []))
 
     def delete(self, store_id: str, visitor_id: str, draft_ids) -> int:
@@ -41,6 +81,8 @@ class MemoryApprovals:
                 return 0
             kept = [r for r in rows if r["draft_id"] not in wanted]
             self._rows[(store_id, visitor_id)] = kept
+            for draft_id in wanted:
+                self._meta.pop((store_id, visitor_id, draft_id), None)
             return len(rows) - len(kept)
 
 

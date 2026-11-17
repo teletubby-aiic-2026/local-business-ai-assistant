@@ -92,10 +92,15 @@ tar --no-xattrs --no-mac-metadata -czf "$TGZ" -C "$STAGE" "$NAME" 2>/dev/null \
 # 필요한 것이 들어 있는지 확인
 LIST="$(tar -tzf "$TGZ")"
 for must in REVISION deploy/install_was.sh deploy/env.example services/web/web/main.py \
+            services/market-analysis/app/intake_api.py \
             services/review-insight/app/main.py shared/contracts.py experiments/marketing/c6/registry.py \
             data/scenario/snapshot_2026Q2.json; do
   grep -qxF "$NAME/$must" <<<"$LIST" || die "묶음에 $must 가 없습니다. 이 커밋으로는 서버에 올릴 수 없습니다."
 done
+# 상권 공식 자료(수백 MB)는 코드 묶음에 넣지 않는다. 자료 묶음(seoul-market-data-….tar.gz)을 따로 올려 install_market_data.sh 로 깐다
+if grep -Eq '^[^/]+/services/market-analysis/data/(raw|official)/|\.tar\.gz$' <<<"$LIST"; then
+  die "묶음에 상권 공식 자료나 .tar.gz 가 들어 있습니다. 자료는 따로 올립니다 (deploy/install_market_data.sh)."
+fi
 if grep -Eq '(^|/)(\.env|\._[^/]*)$|\.pem$' <<<"$LIST"; then
   die "묶음에 .env 나 인증키(.pem), ._ 파일이 들어 있습니다. 올리지 마세요."
 fi

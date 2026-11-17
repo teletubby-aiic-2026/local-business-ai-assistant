@@ -166,6 +166,28 @@ def test_approvals_are_per_visitor(tmp_path):
     assert [a["draft_id"] for a in demo.approvals] == []                                            # 공용 기록은 비어 있음
 
 
+@pytest.mark.skipif(not HAS_C6, reason="C6 저장본 없음")
+def test_approval_keeps_the_draft_detail_this_server_made(tmp_path):
+    """이슈 #51 ERD (11/18): 이 서버가 만든 초안을 승인하면 원문·점검 결과·템플릿 여부·말투가 승인 기록에 남는다.
+    응답과 /api/approvals 의 모양은 그대로다. 이 서버가 모르는 초안은 화면이 보낸 원문만 남는다."""
+    client, demo, _ = make_app(tmp_path)
+    card = client.get("/api/cards").json()["cards"][0]["card"]
+    drafts = client.post(f"/api/cards/{card['card_id']}/run", json={}).json()["drafts"]
+    d = next(x for x in drafts if x["generator"] == "reply_draft")
+    ok = client.post(f"/api/drafts/{d['draft_id']}/approve", json={"text": d["text"] + " 고침", "original": d["text"]}).json()
+    assert set(ok) == {"draft_id", "status", "edited", "text", "approved_at", "mode"}                  # 응답 모양은 그대로
+    assert set(client.get("/api/approvals").json()["items"][0]) == {"draft_id", "status", "edited", "text", "approved_at", "mode"}
+    visitor = client.cookies[VISITOR_COOKIE]
+    row = demo.storage.approvals.details(demo.s.store_id, visitor)[0]
+    assert row["draft_text"] == d["text"] and row["text"] == d["text"] + " 고침"
+    assert row["checks"] == {k: v for k, v in d["checks"].items() if k != "used_fallback"}
+    assert row["used_fallback"] is (d["checks"].get("used_fallback") is True)
+    assert row["style"] == d.get("style") and row["card_id"] == card["card_id"] and row["kind"] == "reply_draft"
+    client.post("/api/drafts/d_unknown01/approve", json={"text": "화면 글", "original": "화면 원문"})       # 다른 서버가 만든 초안
+    other = demo.storage.approvals.details(demo.s.store_id, visitor)[-1]
+    assert (other["draft_text"], other["checks"], other["used_fallback"], other["style"]) == ("화면 원문", {}, False, None)
+
+
 def test_visitor_is_passed_to_the_review_service_only_for_paste_delete_and_reads():
     seen = []
 
@@ -299,7 +321,7 @@ class FlakyApprovals(MemoryApprovals):
         self.up = True
         self.meta = {}
 
-    def save(self, store_id, visitor_id, entry, *, card_id=None, kind=None):
+    def save(self, store_id, visitor_id, entry, *, card_id=None, kind=None, detail=None):
         if not self.up:
             raise StorageError("DB 에 닿지 못했습니다 (PoolTimeout)")
         if entry["text"] == "poison":
@@ -516,7 +538,7 @@ class RecordingApprovals(MemoryApprovals):
         super().__init__()
         self.meta = {}
 
-    def save(self, store_id, visitor_id, entry, *, card_id=None, kind=None):
+    def save(self, store_id, visitor_id, entry, *, card_id=None, kind=None, detail=None):
         self.meta[entry["draft_id"]] = (card_id, kind)
         super().save(store_id, visitor_id, entry, card_id=card_id, kind=kind)
 

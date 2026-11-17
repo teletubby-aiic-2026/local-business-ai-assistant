@@ -119,10 +119,10 @@ class SpyApprovals(MemoryApprovals):
         super().__init__()
         self.saved: list[dict] = []
 
-    def save(self, store_id, visitor_id, entry, *, card_id=None, kind=None):
+    def save(self, store_id, visitor_id, entry, *, card_id=None, kind=None, detail=None):
         self.saved.append({"visitor_id": visitor_id, "draft_id": entry["draft_id"], "card_id": card_id, "kind": kind,
                            "text": entry["text"], "edited": entry["edited"]})
-        super().save(store_id, visitor_id, entry, card_id=card_id, kind=kind)
+        super().save(store_id, visitor_id, entry, card_id=card_id, kind=kind, detail=detail)
 
 
 def build(fake: FakeMarketing | None = None, *, marketing: MarketingProxy | None = None, care: CareProxy | None = None,
@@ -383,6 +383,10 @@ class ApprovalIsRecordedHere(unittest.TestCase):
                                  "text": self.ITEM["text"], "edited": True})
         items = self.client.get("/api/approvals").json()["items"]            # '처리 완료'의 '서버 처리 기록'
         self.assertEqual([i["draft_id"] for i in items], ["mkt-r1-notice"])
+        # 이슈 #51 ERD (11/18): 마케팅 글은 점검 결과를 모르므로 화면이 보낸 원문만 초안 정보로 남는다
+        (detail,) = self.demo.storage.approvals.details(self.demo.s.store_id, self.me)
+        self.assertEqual((detail["draft_text"], detail["checks"], detail["used_fallback"], detail["style"]),
+                         (self.ITEM["original"], {}, False, None))
 
     def test_the_approval_field_never_reaches_the_service(self):
         self.approve([self.ITEM, {**self.ITEM, "draft_id": "r1-reply", "kind": "답글"}])

@@ -8,6 +8,8 @@
 #   bash deploy/smoke_test.sh --base http://127.0.0.1:8000   확인할 주소 (기본 http://127.0.0.1:8000)
 #   bash deploy/smoke_test.sh --marketing http://127.0.0.1:8030   맞춤 마케팅 서버를 직접 볼 주소 (WAS 서버에서는 기본으로 봄)
 #   bash deploy/smoke_test.sh --no-marketing             맞춤 마케팅 확인을 건너뜀
+#   bash deploy/smoke_test.sh --market                   상권 서비스(ic26-market)가 반드시 떠 있어야 함 (서랍 ready 아니면 실패)
+#   bash deploy/smoke_test.sh --no-market                상권 확인을 건너뜀
 #
 # 종료 코드: 모두 통과하면 0, 하나라도 실패하면 1.
 # 확인하는 것
@@ -20,14 +22,21 @@
 #     서버 안에서 직접 GET http://127.0.0.1:8030/health   200, live 면 키 있음, 기록 폴더에 쓸 수 있음
 #       (/opt/ic26 이 있는 WAS 서버에서만 기본으로 봄. 웹 서버·PC 에서는 --marketing 을 줄 때만)
 #     --generate 일 때 POST /plan (가게 이야기 글) 1회 — live 면 HCX 1~2번. 시험 방문자 기록은 끝나고 지움
+#   상권 (ic26-market, 127.0.0.1:8766)
+#     WAS 서버에서 서비스가 켜져 있거나 --market 이면: 직접 /health 200 (Host: 127.0.0.1:8766), 비서 화면 서버를 거친
+#       GET /api/assistant/status 가 "ready" (자료·챗봇·연결이 모두 됨). 꺼져 있으면(자료를 아직 안 깜) 주의만 출력
+#     --generate 일 때 서랍처럼 조건 맞추기(POST /api/assistant/setup) → 질문 1개 → 답이 자료 답(data_answer)인지.
+#       live 면 HCX 1번쯤. 시험 대화는 끝나고 지움
 set -uo pipefail
 
-BASE="http://127.0.0.1:8000"; EXPECT=""; GENERATE=0; MKT=""; MKT_MODE=auto
+BASE="http://127.0.0.1:8000"; EXPECT=""; GENERATE=0; MKT=""; MKT_MODE=auto; MARKET_MODE=auto
 while [ $# -gt 0 ]; do
   case "$1" in
     --base) BASE="${2:-}"; shift ;;
     --marketing) MKT="${2:-}"; MKT_MODE=on; shift ;;
     --no-marketing) MKT_MODE=off ;;
+    --market) MARKET_MODE=on ;;
+    --no-market) MARKET_MODE=off ;;
     --expect-reviews) EXPECT="${2:-}"; shift ;;
     --generate) GENERATE=1 ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
@@ -177,6 +186,51 @@ else
     else
       echo "        맞춤 마케팅 글 생성은 건너뜀 (직접 주소도, 비서 화면을 거친 경로도 없음)"
     fi
+  fi
+fi
+
+# ── 상권 (서랍의 상권 채팅) ──
+if [ "$MARKET_MODE" = off ]; then
+  echo "[5] 상권은 건너뜀 (--no-market)"
+else
+  echo "[5] 상권 (ic26-market)"
+  WANT_MARKET=0; [ "$MARKET_MODE" = on ] && WANT_MARKET=1
+  if [ -d /opt/ic26/services/market-analysis ]; then
+    : > "$TMP/mkhealth"
+    STATUS="$(curl -sS -m 10 -H 'Host: 127.0.0.1:8766' -o "$TMP/mkhealth" -w '%{http_code}' http://127.0.0.1:8766/health 2>/dev/null)" || STATUS=000
+    if [ "$STATUS" = 200 ]; then
+      WANT_MARKET=1; ok "직접 127.0.0.1:8766/health 200 ($(jq_ "$TMP/mkhealth" '",".join(d.get("features") or [])'))"
+    elif [ "$WANT_MARKET" = 1 ] || systemctl is-active --quiet ic26-market.service 2>/dev/null; then
+      WANT_MARKET=1; bad "직접 127.0.0.1:8766/health HTTP $STATUS  → systemctl status ic26-market / journalctl -u ic26-market -n 50"
+    else
+      echo "        상권 서비스가 꺼져 있음 (자료를 아직 깔지 않았으면 정상: deploy/install_market_data.sh). 실패로 세지 않음"
+    fi
+    if [ -f /var/lib/ic26/market-data.installed ]; then echo "        자료 묶음: $(head -n1 /var/lib/ic26/market-data.installed | cut -d= -f2)"; fi
+  fi
+  get mkstatus /api/assistant/status 30
+  MSTATE="$(jq_ "$TMP/mkstatus" 'd.get("state")')"
+  if [ "$STATUS" = 200 ] && [ "$MSTATE" = ready ]; then
+    ok "비서 화면 서버를 거친 /api/assistant/status: ready (모델 연결 $(jq_ "$TMP/mkstatus" 'd.get("model_connected")'))"
+  elif [ "$WANT_MARKET" = 1 ]; then
+    bad "서랍 상태가 ready 가 아님 (HTTP $STATUS, state $MSTATE: $(jq_ "$TMP/mkstatus" 'd.get("message")'))"
+  else
+    echo "        서랍 상태: ${MSTATE:-HTTP $STATUS} (상권 서비스를 켜지 않은 서버면 정상)"
+  fi
+  if [ "$GENERATE" = 1 ] && [ "$MSTATE" = ready ]; then
+    T0=$(date +%s); : > "$TMP/mksetup"
+    STATUS="$(curl -sS -m 90 -c "$TMP/mkcookie" -b "$TMP/mkcookie" -o "$TMP/mksetup" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "$BASE/api/assistant/setup" 2>/dev/null)" || STATUS=000
+    COND="$(jq_ "$TMP/mksetup" '" · ".join(str((d.get("conditions") or {}).get(k) or "?") for k in ("area_name", "industry_name", "period_label"))')"
+    if [ "$STATUS" = 200 ] && [ "$(jq_ "$TMP/mksetup" 'd.get("state")')" = ready ]; then ok "조건 맞추기: $COND"; else bad "조건 맞추기 HTTP $STATUS → $(head -c 300 "$TMP/mksetup")"; fi
+    : > "$TMP/mkmsg"
+    STATUS="$(curl -sS -m 90 -c "$TMP/mkcookie" -b "$TMP/mkcookie" -o "$TMP/mkmsg" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"text":"요일별 매출 알려줘"}' "$BASE/api/assistant/messages" 2>/dev/null)" || STATUS=000
+    T1=$(date +%s)
+    KIND="$(jq_ "$TMP/mkmsg" '(d.get("reply") or {}).get("kind")')"
+    if [ "$STATUS" = 200 ] && [ "$KIND" = data_answer ]; then
+      ok "질문 '요일별 매출 알려줘' → 자료 답 ($((T1 - T0))초, 답 $(jq_ "$TMP/mkmsg" 'len((d.get("reply") or {}).get("text") or "")')자)"
+    else
+      bad "질문 답이 자료 답이 아님 (HTTP $STATUS, kind $KIND) → $(head -c 300 "$TMP/mkmsg")"
+    fi
+    curl -sS -m 30 -b "$TMP/mkcookie" -o /dev/null -X DELETE "$BASE/api/assistant/conversation" 2>/dev/null && echo "        시험 대화 지움"
   fi
 fi
 

@@ -25,7 +25,7 @@ from psycopg_pool import ConnectionPool
 
 from .config import DbConfig
 from .errors import StorageError
-from .memory import check_period
+from .memory import check_period, clean_detail
 from .times import to_date, to_datetime, to_kst_iso
 
 log = logging.getLogger("shared.storage")
@@ -167,21 +167,66 @@ class PgLabels:
 
 # ── 승인 기록 ───────────────────────────────────────────────────────
 class PgApprovals:
+    # 칸 4개(draft_text, checks, used_fallback, style)가 없는 옛 표(11/18 전에 만든 DB)에서 잠시 옛 방식으로 쓰는 시간(초)
+    LEGACY_RETRY_SEC = 60.0
+
     def __init__(self, db: Database):
         self._db = db
+        self._legacy_until = 0.0
 
-    def save(self, store_id: str, visitor_id: str, entry: dict, *, card_id: str | None = None, kind: str | None = None) -> None:
+    def save(self, store_id: str, visitor_id: str, entry: dict, *, card_id: str | None = None, kind: str | None = None,
+             detail: dict | None = None) -> None:
+        """detail: 초안 정보 {draft_text, checks, used_fallback, style} (이슈 #51 ERD, 11/18). 서버가 모르면 None.
+        같은 초안을 다시 승인할 때 detail 이 None 이면 앞서 저장한 초안 정보를 그대로 둔다.
+        표에 그 칸이 아직 없으면(init_db 를 다시 돌리기 전) 칸 없이 옛 방식으로 저장하고 경고를 남긴다."""
+        base = (store_id, visitor_id, entry["draft_id"], card_id, kind, entry.get("status") or "approved",
+                entry.get("text") or "", bool(entry.get("edited")), to_datetime(entry["approved_at"]), entry.get("mode") or "")
+        known = detail is not None
+        d = clean_detail(detail)
+
         def work(conn):
+            conn.execute(
+                "INSERT INTO approvals (store_id, visitor_id, draft_id, card_id, kind, status, approved_text, edited, approved_at, mode, "
+                "draft_text, checks, used_fallback, style) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (store_id, visitor_id, draft_id) DO UPDATE SET "
+                "card_id = COALESCE(EXCLUDED.card_id, approvals.card_id), kind = COALESCE(EXCLUDED.kind, approvals.kind), "
+                "status = EXCLUDED.status, approved_text = EXCLUDED.approved_text, edited = EXCLUDED.edited, "
+                "approved_at = EXCLUDED.approved_at, mode = EXCLUDED.mode, saved_at = now(), "
+                "draft_text = COALESCE(EXCLUDED.draft_text, approvals.draft_text), "
+                "checks = CASE WHEN %s THEN EXCLUDED.checks ELSE approvals.checks END, "
+                "used_fallback = CASE WHEN %s THEN EXCLUDED.used_fallback ELSE approvals.used_fallback END, "
+                "style = CASE WHEN %s THEN EXCLUDED.style ELSE approvals.style END",
+                base + (d["draft_text"], Jsonb(d["checks"]), d["used_fallback"], d["style"], known, known, known))
+
+        def legacy(conn):
             conn.execute(
                 "INSERT INTO approvals (store_id, visitor_id, draft_id, card_id, kind, status, approved_text, edited, approved_at, mode) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 "ON CONFLICT (store_id, visitor_id, draft_id) DO UPDATE SET "
                 "card_id = COALESCE(EXCLUDED.card_id, approvals.card_id), kind = COALESCE(EXCLUDED.kind, approvals.kind), "
                 "status = EXCLUDED.status, approved_text = EXCLUDED.approved_text, edited = EXCLUDED.edited, "
-                "approved_at = EXCLUDED.approved_at, mode = EXCLUDED.mode, saved_at = now()",
-                (store_id, visitor_id, entry["draft_id"], card_id, kind, entry.get("status") or "approved",
-                 entry.get("text") or "", bool(entry.get("edited")), to_datetime(entry["approved_at"]), entry.get("mode") or ""))
-        self._db.run(work)
+                "approved_at = EXCLUDED.approved_at, mode = EXCLUDED.mode, saved_at = now()", base)
+
+        if time.monotonic() < self._legacy_until:
+            self._db.run(legacy)
+            return
+        try:
+            self._db.run(work)
+        except psycopg.errors.UndefinedColumn:
+            log.warning("approvals 표에 초안 정보 칸이 없어 칸 없이 저장했어요. python -m shared.storage.init_db 를 다시 돌리세요")
+            self._legacy_until = time.monotonic() + self.LEGACY_RETRY_SEC
+            self._db.run(legacy)
+
+    def details(self, store_id: str, visitor_id: str) -> list[dict]:
+        """list() 에 카드·종류와 초안 정보(draft_text, checks, used_fallback, style)를 더한 것 (보고서·점검용, 화면 응답에는 쓰지 않음)."""
+        def work(conn):
+            rows = conn.execute(
+                "SELECT draft_id, card_id, kind, status, edited, approved_text AS text, approved_at, mode, "
+                "draft_text, checks, used_fallback, style FROM approvals "
+                "WHERE store_id = %s AND visitor_id = %s ORDER BY saved_at, id", (store_id, visitor_id)).fetchall()
+            return [_kst(r, "approved_at") for r in rows]
+        return self._db.run(work)
 
     def list(self, store_id: str, visitor_id: str) -> list[dict]:
         """메모리 구현과 같은 모양 (draft_id, status, edited, text, approved_at, mode). 다시 승인한 것은 맨 뒤 (저장한 순서)."""

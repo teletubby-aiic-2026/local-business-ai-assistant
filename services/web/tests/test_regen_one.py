@@ -41,7 +41,7 @@ class RecordingApprovals(MemoryApprovals):
         super().__init__()
         self.meta = {}
 
-    def save(self, store_id, visitor_id, entry, *, card_id=None, kind=None):
+    def save(self, store_id, visitor_id, entry, *, card_id=None, kind=None, detail=None):
         self.meta[entry["draft_id"]] = (card_id, kind)
         super().save(store_id, visitor_id, entry, card_id=card_id, kind=kind)
 
