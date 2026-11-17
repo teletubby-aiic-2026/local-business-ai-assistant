@@ -63,11 +63,14 @@ class Demo:
         self._reason_memo: OrderedDict[str, list[CardPlan]] = OrderedDict()
         self._lock = threading.Lock()
         self.storage = storage if storage is not None else MemoryStore()
-        # DB 에 쓰지 못한 승인 기록 (방문자, 기록, 카드 id, 초안 종류). 승인한 순서대로 들고 있다가 DB 가 돌아오면 쓴다 (DB 를 쓸 때만)
-        self._pending: list[tuple[str, dict, str | None, str | None]] = []
+        # DB 에 쓰지 못한 승인 기록 (방문자, 기록, 카드 id, 초안 종류, 초안 정보). 승인한 순서대로 들고 있다가 DB 가 돌아오면 쓴다 (DB 를 쓸 때만)
+        self._pending: list[tuple[str, dict, str | None, str | None, dict | None]] = []
         self._flush_lock = threading.Lock()   # 밀린 승인 기록은 한 번에 한 요청만 쓴다 (순서가 섞이지 않게)
         # 초안 id → (카드 id, 초안 종류, 답글이 가리키는 리뷰 id). 승인 기록에 붙이고, 답글 승인을 리뷰 분석 서비스에 알릴 때 쓴다
         self._drafts: OrderedDict[str, tuple[str, str | None, str | None]] = OrderedDict()
+        # 초안 id → 초안 정보 {draft_text, checks, used_fallback, style}. 승인 기록의 칸 4개(이슈 #51 ERD, 11/18)를 채운다.
+        # ③ 을 이 서버가 만들었을 때만 안다 (서버가 2대이고 다른 서버가 만든 초안이면 화면이 보낸 원문만 남음)
+        self._draft_info: OrderedDict[str, dict] = OrderedDict()
 
     # ── 방문자 ──────────────────────────────────────────────────────
     def _src(self, visitor: str | None):
@@ -259,7 +262,7 @@ class Demo:
     REASON_ROUNDS = 3  # 카드 하나에 대해 이유 쓰기를 다시 시도하는 요청 수 (라운드마다 REASON_TRIES 번)
     REASON_TRIES = 5   # 사용자 지시(11/10): 확실한 결과가 나올 때까지 충분히 부른다
     # 할 일을 완성된 문장으로 준다 ("~하는 것"으로 주면 모델이 "~것을 추천해요"로 끝내서 검사기에 걸림, 11/10 live 6차)
-    REASON_TODO = {"complaint": "같은 불만이 다시 안 생기게 재발 방지 공지를 올리고, 답글도 함께 달아요.",
+    REASON_TODO = {"complaint": "같은 불만이 다시 안 생기게 배달앱 포장·주문 안내문을 올리고, 답글도 함께 달아요.",
                    "promo": "저녁 손님을 다시 부르는 쿠폰 홍보를 제안해요."}
 
     # '사실 카드'라고 부르면 모델이 문장을 "사실 …"로 시작해서 '근거 카드'라고 부른다 (11/10 live 2차)
@@ -456,8 +459,14 @@ class Demo:
             for draft in made.get("drafts", []):
                 if draft.get("draft_id"):
                     self._drafts[draft["draft_id"]] = (card_id, draft.get("generator"), draft.get("target_review_id"))
+                    checks = draft.get("checks") if isinstance(draft.get("checks"), dict) else {}
+                    self._draft_info[draft["draft_id"]] = {
+                        "draft_text": draft.get("text") if isinstance(draft.get("text"), str) else None,
+                        "checks": checks, "used_fallback": checks.get("used_fallback") is True, "style": draft.get("style")}
             while len(self._drafts) > DRAFT_MAX:
                 self._drafts.popitem(last=False)
+            while len(self._draft_info) > DRAFT_MAX:
+                self._draft_info.popitem(last=False)
 
     # 옛 글 id 모양 (replaces). 리뷰 id 와 같은 규칙: C6 의 'd_' + 16진수 8자리, 저장 예시 'd_ex_unfair01_001' 이 모두 들어간다.
     # 승인 API 는 어떤 문자열이든 받지만(1.6), 지우는 쪽은 모양을 본다 (이상한 값으로 DB 를 부르지 않게)
@@ -500,7 +509,13 @@ class Demo:
         entry = {"draft_id": draft_id, "status": "approved", "edited": edited,
                  "text": text if text is not None else original, "approved_at": now_kst(), "mode": self.s.mode}
         known = self._drafts.get(draft_id, (None, None, None))
-        warning = self._save_approval(clean_visitor_id(visitor), entry, card_id or known[0], kind or known[1])
+        with self._lock:
+            info = self._draft_info.get(draft_id)
+        # 초안 정보: 이 서버가 ③ 에서 기억한 것. 모르는 초안(다른 서버가 만든 것, 맞춤 마케팅 글)이면 화면이 보낸 원문만
+        detail = dict(info) if info else {"draft_text": None}
+        if detail.get("draft_text") is None:
+            detail["draft_text"] = original
+        warning = self._save_approval(clean_visitor_id(visitor), entry, card_id or known[0], kind or known[1], detail)
         if warning:
             entry["warning"] = warning
         return entry
@@ -517,11 +532,13 @@ class Demo:
             return None
         return target
 
-    def _save_approval(self, visitor_id: str, entry: dict, card_id: str | None, kind: str | None) -> str | None:
-        """승인 기록을 남긴다. 못 남기면 이유 문장을 돌려준다 (기록은 화면에만 남는다)."""
+    def _save_approval(self, visitor_id: str, entry: dict, card_id: str | None, kind: str | None,
+                       detail: dict | None = None) -> str | None:
+        """승인 기록을 남긴다. 못 남기면 이유 문장을 돌려준다 (기록은 화면에만 남는다).
+        detail(초안 정보)은 저장소에만 넘긴다. 응답(entry)과 approvals.jsonl 의 모양은 그대로다."""
         store_id = self.s.store_id
         if self.storage.kind == "memory":   # 기본: 서버 메모리 + 파일에 덧붙임
-            self.storage.approvals.save(store_id, visitor_id, entry, card_id=card_id, kind=kind)
+            self.storage.approvals.save(store_id, visitor_id, entry, card_id=card_id, kind=kind, detail=detail)
             try:
                 self.s.runtime_dir.mkdir(parents=True, exist_ok=True)
                 with (self.s.runtime_dir / "approvals.jsonl").open("a", encoding="utf-8") as fh:
@@ -532,7 +549,7 @@ class Demo:
         # DB: 먼저 줄 맨 뒤에 세우고, 밀린 것부터 순서대로 쓴다 (멈춘 동안 승인한 것이 DB 가 돌아온 뒤에도 남게)
         with self._lock:
             self._pending = [p for p in self._pending if (p[0], p[1]["draft_id"]) != (visitor_id, entry["draft_id"])]
-            self._pending.append((visitor_id, entry, card_id, kind))
+            self._pending.append((visitor_id, entry, card_id, kind, detail))
             del self._pending[:-PENDING_MAX]
         refused = self._flush_pending()
         if any(e is entry for e in refused):
@@ -549,9 +566,9 @@ class Demo:
         with self._flush_lock:
             with self._lock:
                 waiting, self._pending = self._pending, []
-            for i, (visitor_id, entry, card_id, kind) in enumerate(waiting):
+            for i, (visitor_id, entry, card_id, kind, detail) in enumerate(waiting):
                 try:
-                    self.storage.approvals.save(self.s.store_id, visitor_id, entry, card_id=card_id, kind=kind)
+                    self.storage.approvals.save(self.s.store_id, visitor_id, entry, card_id=card_id, kind=kind, detail=detail)
                 except StorageError as exc:   # DB 장애 전환 중 등
                     log.warning("승인 기록을 DB 에 쓰지 못했어요 (%s). %d건을 들고 있어요", exc.__class__.__name__, len(waiting) - i)
                     with self._lock:

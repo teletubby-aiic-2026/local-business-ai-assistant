@@ -46,10 +46,10 @@ class _AllSource(FakeRankingSource):
 class UnitTests(unittest.TestCase):
     def test_weekday_and_weekend_totals_and_daily_averages(self):
         values = [{"label": day, "value": value, "unit": "원"} for day, value in zip("월화수목금토일", (100,) * 5 + (300, 300))]
-        extra, sentence = weekday_aggregates(values)
+        extra, sentence = weekday_aggregates(values, "20262")
         self.assertEqual({v["label"]: v["value"] for v in extra},
-                         {"평일 합계": 500, "평일 하루 평균": 100, "주말 합계": 600, "주말 하루 평균": 300})
-        self.assertIn("평일(월~금)은 합계 500원, 하루 평균 100원이고, 주말(토·일)은 합계 600원, 하루 평균 300원입니다", sentence)
+                         {"평일 합계": 500, "평일 하루 평균": 8, "주말 합계": 600, "주말 하루 평균": 23})
+        self.assertIn("평일(월~금)은 합계 500원, 달력일 기준 하루 평균 8원이고, 주말(토·일)은 합계 600원, 달력일 기준 하루 평균 23원입니다", sentence)
         card = {"id": "F3", "topic": "sales_weekday", "status": "available", "text": "", "values": values + extra}
         self.assertTrue(check_answer("토요일이 가장 많이 팔려요. [F3]", [card])["ok"], "totals are never compared with one day")
 
@@ -58,7 +58,7 @@ class UnitTests(unittest.TestCase):
         self.assertEqual([card["topic"] for card in cards], ["conditions", "sales_total", "sales_weekday"])
         self.assertIn("강남역 상권의 전체 업종(2개) 2026년 2분기 추정매출을 합치면 10,000원입니다.", cards[1]["text"])
         days = {v["label"]: v["value"] for v in cards[2]["values"]}
-        self.assertEqual((days["토"], days["주말 하루 평균"], days["평일 하루 평균"]), (600, 600, 200))
+        self.assertEqual((days["토"], days["주말 하루 평균"], days["평일 하루 평균"]), (600, 46, 15))
 
     def test_rankings_of_every_industry_and_around_a_market(self):
         source = _AllSource()
@@ -105,11 +105,11 @@ class FlowTests(_RankingEnv, unittest.TestCase):
         self.assertEqual(reply["kind"], "all_industries", reply["text"])
         self.assertTrue(reply["text"].startswith("강남역 상권의 전체 업종을 2026년 2분기 자료로 볼게요."), reply["text"])
         self.assertNotIn("커피", reply["text"])
-        self.assertIn("주말(토·일)은 합계 1,200원, 하루 평균 600원", reply["text"])
+        self.assertIn("주말(토·일)은 합계 1,200원, 달력일 기준 하루 평균 46원", reply["text"])
         self.assertEqual(data["conditions"], base, "the saved conditions stay")
         again = self.say("그럼 평일은?")
         self.assertEqual(again["reply"]["kind"], "all_industries", again["reply"]["text"])
-        self.assertIn("평일(월~금)은 합계 1,000원, 하루 평균 200원", again["reply"]["text"])
+        self.assertIn("평일(월~금)은 합계 1,000원, 달력일 기준 하루 평균 15원", again["reply"]["text"])
 
     def test_around_a_market_without_the_market_itself(self):
         self.say("합정역 카페 매출 어때?")

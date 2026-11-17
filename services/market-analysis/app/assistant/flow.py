@@ -1509,7 +1509,26 @@ class AssistantService:
 
     @staticmethod
     def _finish(reply: dict, cls: dict, *, state=None, cards=None, topics=None, pending=None, site_costs=None) -> dict:
-        reply = {**reply, "text": with_units(reply.get("text") or "")}
+        # Context quarters belong to each dataset, not to the selected sales quarter.
+        # Keep this evidence in the final reply even when a model omits the card's wording.
+        figures = {}
+        for card in cards or []:
+            for value in card.get("values", []):
+                source = value.get("source_ref") or {}
+                if source.get("dataset") not in location.DATASETS or not source.get("period"):
+                    continue
+                key = (value.get("market"), source.get("requested_period"))
+                figure = figures.setdefault(key, {"name": key[0], "context_requested_period": key[1],
+                                                  "context_sources": {}})
+                figure["context_sources"][source["dataset"]] = source
+        text, notes = reply.get("text") or "", list(reply.get("notes") or [])
+        for figure in figures.values():
+            note = location.period_sentence(figure)
+            if note not in text and templates.soften(note) not in text:
+                text = "\n".join(part for part in (text, "참고: " + note) if part)
+            if note not in notes:
+                notes.append(note)
+        reply = {**reply, "text": with_units(text), "notes": notes}
         result = {"schema_version": SCHEMA,
                   "reply": {**{key: reply.get(key) for key in ("text", "kind", "cited", "actions")},
                             "notes": reply.get("notes") or [], "suggestions": reply.get("suggestions") or []},

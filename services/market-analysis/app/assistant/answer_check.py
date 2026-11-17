@@ -18,9 +18,13 @@ _CITATION = re.compile(r"\[(F\d+)\]")
 _CITATION_GROUP = re.compile(r"((?:\[F\d+\]\s*)+)")
 _NUMBER = re.compile(r"(?<![\w.])([+-]?\d[\d,]*(?:\.\d+)?)(%?)")
 # Numbers that are labels, not statistics: 2026년, 2분기, 20대, 11~14시, 3호선 ...
-_LABEL_SUFFIX = re.compile(r"^\s*(?:년|분기|대|시|월|일|호선|번|층|위|개월|가|동|~)")
+# 개월 is an observed duration (e.g. 109개월), so it must be checked as a statistic.
+_LABEL_SUFFIX = re.compile(r"^\s*(?:년|분기|대|시|월|일|호선|번|층|위|가|동|~)")
 # Year and quarter digits are skipped as labels above, so quarters are checked by name.
 _PERIOD = re.compile(r"(\d{4})\s*년\s*([1-4])\s*분기")
+# A short year count is a duration, not a calendar-year label. Keep the
+# supplied month unit: model conversions can silently drop remaining months.
+_YEAR_DURATION = re.compile(r"(?<![\w.])(\d{1,3}(?:\.\d+)?)\s*년")
 # Time ranges such as 11~14시 or 11~14 are labels even when the model drops 시.
 _TIME_RANGE = re.compile(r"\d{1,2}\s*~\s*\d{1,2}(?:\s*시)?")
 INSIGHT = "해석:"
@@ -185,7 +189,9 @@ _SUPERLATIVE = re.compile(r"가장|제일|최고")
 # '일반 점포는 오히려 연남동이 훨씬 적고' (2026-11-08 server test): two markets, one named, a comparative word.
 _COMPARATIVE = re.compile(r"더|훨씬|오히려|압도적")
 _CLAUSES = re.compile(r",\s+")
-# What may stand between the compared item and 보다: '저녁보다', '저녁 매출보다', '강남역 쪽보다'.
+# Each marker follows the reference item, in either 'A가 B보다' or 'B에 비해 A가'.
+_COMPARISON_MARKER = re.compile(r"보다|에\s*비(?:해(?:서)?|하면|하여)|(?:와|과)\s*비교(?:하면|해(?:서)?|하여)|대비")
+# What may stand between the reference item and its comparison marker.
 _GAP = re.compile(r"\s*(?:의\s*)?(?:매출|시간대|시간|연령대|손님|유동인구|상권|쪽|점포 수|점포)?\s*"
                   r"(?:[+-]?\d[\d,.]*\s*(?:원|명|개|곳|%)?)?\s*(?:\([^)]*\))?\s*")
 TIME_WORDS = {"새벽": "00~06시", "아침": "06~11시", "오전": "06~11시", "점심": "11~14시", "오후": "14~17시",
@@ -351,7 +357,7 @@ def _one_sided(clause: str, sentence: str, aliases: list, groups: dict, market_c
 
 
 def comparison_problems(text: str, cards: list[dict]) -> list[dict]:
-    """'A가 B보다 많아요' and 'A가 가장 많아요' that the card values contradict."""
+    """Explicit comparisons and superlatives that the card values contradict."""
     groups, aliases = _comparables(cards)
     if not groups:
         return []
@@ -361,15 +367,22 @@ def comparison_problems(text: str, cards: list[dict]) -> list[dict]:
         clean = _CITATION.sub(" ", line)
         for sentence in _SENTENCES.split(clean):
             mentions = _mentions(sentence, aliases)
-            at = sentence.find("보다")
-            if at > 0 and mentions:
+            markers = list(_COMPARISON_MARKER.finditer(sentence))
+            explicit = False
+            for index, marker in enumerate(markers):
+                at = marker.start()
                 right = [m for m in mentions if m[1] <= at and _GAP.fullmatch(sentence[m[1]:at])]
                 if right:
+                    explicit = True
                     _start, _end, member_b, kind = right[-1]
                     others = [m for m in mentions if m[3] == kind and m[2] != member_b]
+                    # Use the neighbouring subject, not an earlier unrelated mention
+                    # when a sentence contains more than one comparison.
+                    others.sort(key=lambda m: min(abs(at - m[1]), abs(m[0] - marker.end())))
                     group = (_group_for(kind, sentence, groups, mentions)
                              or _group_for(kind, clean, groups, _mentions(clean, aliases)))  # the line's subject
-                    direction = _direction(sentence[at + 2:])
+                    end = markers[index + 1].start() if index + 1 < len(markers) else len(sentence)
+                    direction = _direction(sentence[marker.end():end])
                     if others and group and direction:
                         values = groups[group]
                         member_a = others[0][2]
@@ -378,9 +391,11 @@ def comparison_problems(text: str, cards: list[dict]) -> list[dict]:
                             problems.append({"type": "no_counterpart", "sentence": line.strip(), "detail": next(iter(values))})
                         elif member_a in values and member_b in values:
                             a, b = values[member_a], values[member_b]
-                            if (direction > 0 and not a > b) or (direction < 0 and not a < b):
+                            holds = a > b if direction > 0 else a < b
+                            if not holds:
                                 problems.append({"type": "wrong_comparison", "sentence": line.strip(),
                                                  "detail": f"{member_a} {a} vs {member_b} {b}"})
+            if explicit:
                 continue
             for clause in _CLAUSES.split(sentence):
                 problem = _one_sided(clause, sentence, aliases, groups, market_count)
@@ -413,6 +428,8 @@ _ADVICE = {
     "place_not_on_card": "'{detail}'은 카드에 없는 장소예요. 카드의 상권 이름으로 말하세요.",
     "industry_not_on_card": "'{detail}'은 카드에 없는 업종이에요. 카드의 업종으로만 말하세요.",
     "period_not_on_card": "'{detail}'은 카드에 없는 기간이에요.",
+    "context_period_mismatch": "입지 자료의 기준분기가 달라요({detail}). 분석 선택 분기 대신 각 자료의 실제 기준분기를 쓰세요.",
+    "duration_unit_changed": "영업 기간을 년으로 바꾸지 말고 카드의 개월 수를 그대로 쓰세요({detail}).",
     "unknown_citation": "{detail}은 없는 카드 번호예요.",
     "number_in_interpretation": "해석 줄에는 숫자를 쓰지 마세요.",
     "change_in_interpretation": "해석 줄에서는 증감을 말하지 마세요.",
@@ -659,18 +676,89 @@ def repair_citations(text: str, cards: list[dict]) -> str:
     return "\n".join(out)
 
 
+def _context_period_problems(text: str, cards: list[dict]) -> list[dict]:
+    """A date present elsewhere on a card cannot re-date an older context metric."""
+    by_id = {card["id"]: card for card in cards}
+    problems = []
+    previous = {}
+    last_subjects = []
+    collective = re.compile(r"(?:두|모든)\s*자료|둘\s*다|모두|전부")
+    missing = re.compile(r"(?:자료|데이터|수치|정보|인구)(?:는|가|를|도)?(?:현재|아직)?"
+                         r"(?:없|미제공|미수집|누락|제공되지않|확인할수없|확인되지않)")
+    for segment, citations in _segments(text):
+        cited = [by_id[c] for c in citations if c in by_id]
+        candidates = [value for card in (cited or cards) for value in card.get("values", [])
+                      if value.get("source_period") and value.get("label")
+                      and not value["label"].endswith("자료 기준분기")]
+        owners = {}
+        for value in candidates:
+            if value.get("market"):
+                for alias in market_aliases(value["market"]):
+                    owners.setdefault(alias, set()).add(value["market"])
+        aliases = [(alias, next(iter(owner)), "market") for alias, owner in owners.items() if len(owner) == 1]
+        scope_key = tuple(sorted(citations))
+        subjects = []
+        segment_markets = set()
+        # Keep the absence word on its clause: naming the unavailable current
+        # quarter does not claim that the older observed value belongs to it.
+        for sentence in re.split(r"(?<=[.!?])\s+|,\s+|;|이고|이며|그리고|반면|지만|(?<=없고)|(?<=없어서)", segment):
+            compact = re.sub(r"\s+", "", sentence)
+            entries = [value for value in candidates if re.sub(r"\s+", "", value["label"]) in compact]
+            named = {mention[2] for mention in _mentions(sentence, aliases) if mention[3] == "market"}
+            if named:
+                segment_markets = named
+            if segment_markets:
+                entries = [value for value in entries if value.get("market") in segment_markets]
+            # Remember the named subjects even when their numbers and date are
+            # written on separate lines ("직장인구 ... 상주인구 ... / 두 자료 모두 ...").
+            subjects.extend(value for value in entries if all(value is not prior for prior in subjects))
+            dates = _periods(sentence)
+            if len(dates) != 1:
+                continue  # A sentence explicitly contrasting two quarters is not a single-date claim.
+            if missing.search(compact):
+                continue
+            all_named = bool(collective.search(sentence))
+            if all_named and not entries:
+                prior = previous.get(scope_key) if citations else last_subjects
+                entries = candidates if re.search(r"모든\s*자료", sentence) else subjects or prior or candidates
+                if named:
+                    entries = [value for value in entries if value.get("market") in named]
+            for label in dict.fromkeys(value["label"] for value in entries):
+                periods = {value["source_period"] for value in entries if value["label"] == label}
+                matching = [(period[:4], period[4:]) in dates for period in periods]
+                # An explicit shared date must hold for every named source. An
+                # unqualified metric on a multi-market card remains ambiguous.
+                if not (all(matching) if all_named or named else any(matching)):
+                    actual = ", ".join(f"{period[:4]}년 {period[4:]}분기" for period in sorted(periods))
+                    problems.append({"type": "context_period_mismatch", "detail": f"{label}: {actual}",
+                                     "sentence": sentence.strip()})
+        if subjects:
+            previous[scope_key] = subjects
+            last_subjects = subjects
+    return problems
+
+
 def check_answer(text: str, cards: list[dict], *, opinion: bool = False) -> dict:
     """``opinion``: an answer to '너라면 어디?'. Recommendation wording and reasons ('때문') are allowed there;
     every number, citation, comparison and place is checked the same way."""
     by_id = {card["id"]: card for card in cards}
     names = _names(cards)
-    problems = comparison_problems(text, cards)
+    problems = comparison_problems(text, cards) + _context_period_problems(text, cards)
     if opinion:
         problems += tier_problems(text, cards) + median_problems(text, cards) + verdict_problems(text, cards)
     known_periods = _card_periods(cards)
     for segment, _citations in _segments(text):
         for year, quarter in sorted(_periods(segment) - known_periods):
             problems.append({"type": "period_not_on_card", "detail": f"{year}년 {quarter}분기"})
+    for line in text.splitlines():
+        cited = [by_id[c] for c in _CITATION.findall(line) if c in by_id]
+        values = [value for card in (cited or cards) for value in card.get("values", [])]
+        if any(value.get("unit") == "개월" for value in values):
+            for match in _YEAR_DURATION.finditer(line):
+                number = float(match.group(1))
+                if not any(value.get("unit") == "년" and value.get("value") == number for value in values):
+                    problems.append({"type": "duration_unit_changed", "detail": match.group(0),
+                                     "sentence": line.strip()})
     for cited in _CITATION.findall(text):
         if cited not in by_id:
             problems.append({"type": "unknown_citation", "detail": cited})

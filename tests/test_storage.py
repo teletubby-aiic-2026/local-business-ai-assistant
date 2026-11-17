@@ -178,6 +178,55 @@ def test_approvals_delete_removes_only_those_drafts_of_that_visitor_in_that_stor
     assert [i["draft_id"] for i in backend.approvals.list(s1, a)] == ["d2", "d1"]
 
 
+DETAIL = {"draft_text": "AI 원문", "checks": {"no_bad_number": True, "no_bad_promise": False, "used_fallback": True},
+          "used_fallback": True, "style": "haeyo"}
+
+
+def test_approvals_store_draft_detail_without_changing_the_list_shape(backend):
+    """이슈 #51 ERD (11/18): 승인 기록에 초안 정보 4칸(draft_text, checks, used_fallback, style). list() 응답 모양은 그대로."""
+    sid, v = uid("store"), uid("v")
+    backend.approvals.save(sid, v, entry("d1", text="고친 글", edited=True), card_id="card_a", kind="reply_draft", detail=DETAIL)
+    backend.approvals.save(sid, v, entry("d2", at="2026-11-14T10:00:01+09:00"), kind="prevention_notice")   # 초안 정보를 모름
+    assert set(backend.approvals.list(sid, v)[0]) == {"draft_id", "status", "edited", "text", "approved_at", "mode"}
+    rows = {r["draft_id"]: r for r in backend.approvals.details(sid, v)}
+    d1, d2 = rows["d1"], rows["d2"]
+    assert (d1["card_id"], d1["kind"], d1["text"], d1["draft_text"]) == ("card_a", "reply_draft", "고친 글", "AI 원문")
+    assert d1["checks"] == {"no_bad_number": True, "no_bad_promise": False}      # used_fallback 은 따로 칸
+    assert d1["used_fallback"] is True and d1["style"] == "haeyo"
+    assert (d2["draft_text"], d2["checks"], d2["used_fallback"], d2["style"]) == (None, {}, False, None)   # 모르면 빈 값
+
+
+def test_approvals_detail_rules_on_reapprove_and_bad_values(backend):
+    sid, v = uid("store"), uid("v")
+    backend.approvals.save(sid, v, entry("d1"), detail=DETAIL)
+    backend.approvals.save(sid, v, entry("d1", text="다시", at="2026-11-14T10:00:05+09:00"))            # 정보 없이 다시 승인 → 앞의 것을 둠
+    d = backend.approvals.details(sid, v)[0]
+    assert (d["text"], d["draft_text"], d["used_fallback"], d["style"]) == ("다시", "AI 원문", True, "haeyo")
+    backend.approvals.save(sid, v, entry("d1"), detail={"draft_text": None, "checks": {"a": True}, "style": "반말"})
+    d = backend.approvals.details(sid, v)[0]
+    assert d["draft_text"] == "AI 원문"                                  # 원문을 모르면 앞의 원문을 둠
+    assert (d["checks"], d["used_fallback"], d["style"]) == ({"a": True}, False, None)   # 모르는 말투는 비움
+    backend.approvals.save(sid, v, entry("d2"), detail={"checks": {"x": "yes", "y": True}, "used_fallback": "true",
+                                                      "draft_text": "가" * 5000})
+    d2 = backend.approvals.details(sid, v)[1]
+    assert d2["checks"] == {"y": True} and d2["used_fallback"] is False and len(d2["draft_text"]) == 4000
+
+
+def test_approvals_clear_and_delete_also_drop_the_detail(backend):
+    s1, a, b = uid("store"), uid("v"), uid("v")
+    for d in ("d1", "d2", "d3"):
+        backend.approvals.save(s1, a, entry(d), detail={**DETAIL, "draft_text": f"원문 {d}"})
+    backend.approvals.save(s1, b, entry("d1"), detail=DETAIL)
+    assert backend.approvals.delete(s1, a, ["d2"]) == 1
+    assert [(r["draft_id"], r["draft_text"]) for r in backend.approvals.details(s1, a)] == [("d1", "원문 d1"), ("d3", "원문 d3")]
+    backend.approvals.save(s1, a, entry("d2"))                           # 지운 뒤 다시 승인: 옛 초안 정보가 되살아나지 않음
+    assert backend.approvals.details(s1, a)[-1]["draft_text"] is None
+    assert backend.approvals.clear(s1, a) == 3 and backend.approvals.details(s1, a) == []
+    backend.approvals.save(s1, a, entry("d1"))
+    assert backend.approvals.details(s1, a)[0]["draft_text"] is None     # clear 뒤에도 되살아나지 않음
+    assert backend.approvals.details(s1, b)[0]["draft_text"] == "AI 원문"   # 다른 방문자 것은 그대로
+
+
 def test_card_reasons_put_get_overwrite(backend):
     sid = uid("store")
     assert backend.card_reasons.get(sid, "card_a", "k1") is None
@@ -304,6 +353,70 @@ def test_pg_approval_keeps_card_and_kind_columns(db):
     db.approvals.save(sid, v, entry("d1", text="고침", edited=True, at="2026-11-14T10:05:00+09:00"))     # 다시 승인(카드·종류를 안 줘도 유지)
     row = db.run(lambda c: c.execute("SELECT card_id, kind, status, approved_text, edited, mode FROM approvals WHERE store_id=%s", (sid,)).fetchone())
     assert row == {"card_id": "card_ongi_a", "kind": "reply_draft", "status": "approved", "approved_text": "고침", "edited": True, "mode": "mock"}
+
+
+def test_pg_approval_detail_columns_have_erd_types(db):
+    """이슈 #51 합의: draft_text TEXT, checks JSONB NOT NULL DEFAULT '{}', used_fallback BOOLEAN NOT NULL DEFAULT FALSE, style TEXT."""
+    cols = db.run(lambda c: c.execute(
+        "SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns "
+        "WHERE table_schema = current_schema() AND table_name = 'approvals' "
+        "AND column_name IN ('draft_text', 'checks', 'used_fallback', 'style')").fetchall())
+    got = {r["column_name"]: (r["data_type"], r["is_nullable"], (r["column_default"] or "").lower()) for r in cols}
+    assert got["draft_text"][:2] == ("text", "YES") and got["style"][:2] == ("text", "YES")
+    assert got["checks"][:2] == ("jsonb", "NO") and got["checks"][2].startswith("'{}'::jsonb")
+    assert got["used_fallback"][:2] == ("boolean", "NO") and got["used_fallback"][2] == "false"
+    sid, v = uid("store"), uid("v")
+    db.approvals.save(sid, v, entry("d1"), detail=DETAIL)
+    row = db.run(lambda c: c.execute("SELECT draft_text, checks, used_fallback, style FROM approvals WHERE store_id=%s", (sid,)).fetchone())
+    assert row == {"draft_text": "AI 원문", "checks": {"no_bad_number": True, "no_bad_promise": False}, "used_fallback": True, "style": "haeyo"}
+
+
+def test_pg_old_approvals_table_gets_the_new_columns_and_keeps_rows(db):
+    """11/18 전에 만든 DB: 칸 4개가 없는 approvals 표에 init_db 를 다시 돌리면 칸이 더해지고 기록은 남는다.
+    init_db 전에는 칸 없이 옛 방식으로 저장된다 (승인이 빠지지 않음). 시험용 스키마 하나를 따로 만들어 본다."""
+    from psycopg import sql
+    from shared.storage.init_db import create_tables
+    schema = uid("old").replace("-", "_").lower()
+    db.run(lambda c: c.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema))))
+    scoped = _scoped_db(schema)
+    try:
+        def make_old(c):
+            c.execute("CREATE TABLE approvals (id BIGSERIAL PRIMARY KEY, store_id TEXT NOT NULL, visitor_id TEXT NOT NULL, "
+                      "draft_id TEXT NOT NULL, card_id TEXT, kind TEXT, status TEXT NOT NULL DEFAULT 'approved', "
+                      "approved_text TEXT NOT NULL, edited BOOLEAN NOT NULL DEFAULT FALSE, approved_at TIMESTAMPTZ NOT NULL, "
+                      "mode TEXT NOT NULL, saved_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (store_id, visitor_id, draft_id))")
+            c.execute("INSERT INTO approvals (store_id, visitor_id, draft_id, approved_text, approved_at, mode) "
+                      "VALUES ('s', 'v', 'd_old', '옛 글', now(), 'live')")
+        scoped.run(make_old)
+        # 칸이 없을 때 저장 → 옛 방식으로 들어감 (승인이 빠지지 않음)
+        scoped.approvals.save("s", "v", entry("d_new"), detail=DETAIL)
+        names = scoped.run(lambda c: [r["draft_id"] for r in c.execute("SELECT draft_id FROM approvals ORDER BY id").fetchall()])
+        assert names == ["d_old", "d_new"]
+        create_tables(scoped)                       # init_db 다시 → ALTER ADD COLUMN IF NOT EXISTS
+        create_tables(scoped)                       # 두 번째도 안전
+        scoped.approvals._legacy_until = 0.0
+        scoped.approvals.save("s", "v", entry("d_after"), detail=DETAIL)
+        rows = {r["draft_id"]: r for r in scoped.approvals.details("s", "v")}
+        assert rows["d_old"]["text"] == "옛 글" and rows["d_old"]["checks"] == {} and rows["d_old"]["used_fallback"] is False
+        assert rows["d_after"]["draft_text"] == "AI 원문" and rows["d_after"]["style"] == "haeyo"
+    finally:
+        scoped.close()
+        db.run(lambda c: c.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))))
+
+
+def _scoped_db(schema: str):
+    """search_path 를 schema 로 둔 연결 풀 (시험용 따로 만든 스키마 안의 표만 봄)."""
+    from shared.storage.pg import Database
+    db = Database(db_config(), app_name="ic26-test-scoped")
+    original = db.run
+
+    def run(work):
+        def scoped(conn):
+            conn.execute(f'SET LOCAL search_path TO "{schema}"')
+            return work(conn)
+        return original(scoped)
+    db.run = run
+    return db.open()
 
 
 def test_init_db_twice_is_safe_and_creates_every_table(db):

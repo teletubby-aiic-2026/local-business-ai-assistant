@@ -3,7 +3,8 @@
     python -m shared.storage.init_db
 
 DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD 환경 변수로 접속해 db/schema.sql 을 실행한다.
-여러 번 돌려도 안전하다 (CREATE ... IF NOT EXISTS). 이미 있는 표의 칸을 고치지는 않는다.
+여러 번 돌려도 안전하다 (CREATE ... IF NOT EXISTS). 이미 있는 표에 칸을 더하는 것은 schema.sql 의 ALTER TABLE ... ADD COLUMN IF NOT EXISTS 가 한다
+(11/18 approvals 칸 4개). 칸 이름·형식을 바꾸거나 지우지는 않는다.
 앱이 켜질 때 자동으로 부르지 않는다. 비밀번호는 출력하지 않는다.
 """
 from __future__ import annotations

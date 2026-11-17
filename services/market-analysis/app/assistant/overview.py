@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
 
-from app.assistant.facts import weekday_aggregates
+from app.assistant.facts import CALENDAR_AVERAGE_NOTE, weekday_aggregates
 from app.assistant.korean import josa
 from app.assistant.opinion import _count, _money
 from app.assistant.ranking import period_label
@@ -109,16 +109,21 @@ def summed_cards(source, topics, *, industry_code: str | None = None, industry_n
         name = (lambda value: value["label"] + "요일") if topic == "sales_weekday" else (lambda value: value["label"])
         speech = (f"{LABELS[topic]}은 {josa(name(high), '이')} {high['value']:,}원으로 가장 크고(비중 {high['share_percent']:.2f}%), "
                   f"{josa(name(low), '이')} 가장 작습니다.")
+        warnings = [warning]
         if topic == "sales_weekday":
-            extra, sentence = weekday_aggregates(values)
+            extra, sentence = weekday_aggregates(values, period)
             values += extra
             text += sentence
-            daily = {value["label"]: value["value"] for value in extra}
+            daily = {value["label"]: value["value"] for value in extra if value.get("average_basis") == "calendar_day"}
             if daily:
-                speech += f" 하루 평균은 평일 {daily['평일 하루 평균']:,}원, 주말 {daily['주말 하루 평균']:,}원입니다."
+                speech += (f" 달력일 기준 하루 평균은 평일 {daily['평일 하루 평균']:,}원, "
+                           f"주말 {daily['주말 하루 평균']:,}원입니다(원 단위 반올림). 가게의 실제 영업일 평균은 아닙니다.")
+                warnings.append(CALENDAR_AVERAGE_NOTE)
+            else:
+                speech += sentence
         values.append(count_value(count))
         cards.append({"id": f"F{len(cards) + 1}", "topic": topic, "status": "available", "text": text, "speech": speech,
-                      "values": values, "warnings": [warning],
+                      "values": values, "warnings": warnings,
                       "source_ref": {"analysis": "summed", "data_version": version}})
     if any(topic in wanted for topic in STORE_TOPICS) and hasattr(source, "store_table"):
         sums, units = {name: 0 for name, _field in _STORE_FIELDS}, set()

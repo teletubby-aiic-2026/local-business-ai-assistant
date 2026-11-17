@@ -113,7 +113,7 @@ def _fix_first_steps(today: date, strategy) -> list[PlaybookStep]:
         return [
             PlaybookStep(
                 "notice", _date_label(today, 0), "가게 공지 올리기", _channel_where("naver_place"), 5,
-                generator="prevention_notice", tip="재발 방지 다짐이 들어갔는지 확인해요", channel="naver_place",
+                generator="prevention_notice", tip="앞으로 바꾸는 점(포장·주문 확인)이 들어갔는지 확인해요", channel="naver_place",
             ),
             PlaybookStep(
                 "reply", _date_label(today, 0), "불만 리뷰 답글 달기",

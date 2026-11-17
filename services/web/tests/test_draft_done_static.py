@@ -141,7 +141,7 @@ class RulesWording(unittest.TestCase):
     def test_measures_read_as_things_to_do_in_the_shop(self):
         self.assertIn('const RULES_TITLE = "오늘부터 실천할 주방 점검 수칙";', JS)
         box = func("measureBox")
-        self.assertIn('<legend class="small">${RULES_TITLE}${mock ? "" : " (공지에 반영)"}</legend>', box)
+        self.assertIn('<legend class="small">${RULES_TITLE}${mock ? "" : " (안내문에 반영)"}</legend>', box)
         self.assertIn('const mock = state.health?.mode === "mock";', box)            # 시험용 실행에서는 글에 반영된다고 말하지 않는다
         self.assertIn("const picked = made ? new Set(made.map((x) => x.id)) : on;", box)   # 만든 카드는 고른 수칙을 그대로 체크해 둔다
         self.assertIn("${RULES_TITLE}: ${r.chosen_measures.map((m) => esc(m.text)).join(\", \")}", func("renderDraft"))

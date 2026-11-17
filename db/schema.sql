@@ -1,6 +1,6 @@
 -- 표 정의 (임시). 실행 중에 생기는 데이터만 담는다. 합성 리뷰 100건과 그 분류 결과(data/replay/classify.json)는 git 파일이라 넣지 않는다.
 -- DB 설계(ERD)가 오면 이 파일과 shared/storage/pg.py 의 SQL 만 고치면 된다. 표 이름·칸 이름이 SQL 로 나오는 곳은 이 두 곳뿐이다.
--- 실행: python -m shared.storage.init_db   (여러 번 돌려도 안전: 이미 있으면 건너뜀. 있는 표의 칸을 바꾸지는 않는다)
+-- 실행: python -m shared.storage.init_db   (여러 번 돌려도 안전: 이미 있으면 건너뜀. 있는 표에 칸을 더할 때는 파일 안의 ALTER ... ADD COLUMN IF NOT EXISTS)
 -- 시각은 TIMESTAMPTZ. 코드는 한국 시간(+09:00) ISO 문자열로 읽고 쓴다.
 -- visitor_id: 브라우저 쿠키의 임의 값. 'common' 은 방문자를 안 가린 호출(공용).
 
@@ -57,9 +57,19 @@ CREATE TABLE IF NOT EXISTS approvals (
     approved_at    TIMESTAMPTZ NOT NULL,
     mode           TEXT        NOT NULL,                 -- 실행 방식: mock | live
     saved_at       TIMESTAMPTZ NOT NULL DEFAULT now(),   -- 마지막으로 저장한 시각. 목록은 이 순서 (다시 승인하면 맨 뒤로)
+    -- 초안 정보 (이슈 #51 ERD, 11/18). 승인할 때 같이 저장한다 (초안 표는 따로 두지 않음)
+    draft_text     TEXT,                                 -- AI 가 쓴 원문. approved_text 와 비교해 사장님이 고친 비율을 봄. 서버가 모르면 NULL
+    checks         JSONB       NOT NULL DEFAULT '{}'::jsonb,  -- 자동 점검 결과 {점검 이름: true/false} (c6 DraftOutput.checks). 보고서·KPI 의 점검 통과율
+    used_fallback  BOOLEAN     NOT NULL DEFAULT FALSE,   -- 점검에 두 번 걸려 코드 템플릿 글을 썼는지
+    style          TEXT,                                 -- 답글 말투 haeyo | hamnida | mixed. 답글이 아니면 NULL
     UNIQUE (store_id, visitor_id, draft_id)
 );
 CREATE INDEX IF NOT EXISTS approvals_by_visitor ON approvals (store_id, visitor_id, saved_at, id);
+-- 11/18 전에 만든 approvals 표에 칸 4개를 더한다 (있으면 그대로. 있던 기록의 새 칸은 NULL·'{}'·false)
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS draft_text    TEXT;
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS checks        JSONB   NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS used_fallback BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS style         TEXT;
 
 -- 카드 추천 이유 문장. 방문자와 상관없이 근거가 같으면 같은 문장이다.
 -- evidence_key: 가게·카드 종류·근거 카드(숫자)·참조 문장·프롬프트·모델·버전을 합친 해시. 이 중 하나가 바뀌면 새 키가 된다.

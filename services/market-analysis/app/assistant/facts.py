@@ -1,11 +1,16 @@
 """Turn B2~B6 results into short, citable fact cards.
 
-Every number on a card is copied from a PR #12 result; nothing is recalculated
-here. A card carries its own warnings so that an answer which cites it can
-repeat the caveats. Card ids (F1, F2, ...) follow the team convention for
+Source numbers are copied from a PR #12 result. Weekday/weekend totals and
+calendar-day averages are explicitly marked as derived. A card carries its
+own warnings so that an answer which cites it can repeat the caveats.
+Card ids (F1, F2, ...) follow the team convention for
 evidence ids and are stable for one snapshot.
 """
 from __future__ import annotations
+
+import calendar
+from decimal import Decimal, ROUND_HALF_UP
+import re
 
 from app.assistant.korean import josa
 
@@ -71,22 +76,53 @@ def conditions_card(selection: dict, profile: dict) -> dict:
 
 
 WEEKDAYS, WEEKEND = ("월", "화", "수", "목", "금"), ("토", "일")
+CALENDAR_AVERAGE_NOTE = ("하루 평균은 선택 분기의 월~금·토·일 달력일 수로 나누고 원 단위로 반올림한 계산값입니다. "
+                         "공휴일을 제외하거나 가게의 실제 영업일로 나눈 평균이 아닙니다.")
 
 
-def weekday_aggregates(values: list[dict]) -> tuple[list[dict], str]:
-    """평일(월~금)·주말(토·일) totals and per-day averages from the seven day values (computed, marked so).
+def _quarter_day_counts(period: str | None) -> tuple[int, int] | None:
+    """Count calendar weekdays/weekend days for a known YYYYQ, without guessing a period."""
+    if not isinstance(period, str) or re.fullmatch(r"[0-9]{4}[1-4]", period) is None:
+        return None
+    year, quarter = int(period[:4]), int(period[4])
+    if year == 0:
+        return None
+    counts = [0, 0]
+    for month in range(quarter * 3 - 2, quarter * 3 + 1):
+        first_weekday, length = calendar.monthrange(year, month)
+        for offset in range(length):
+            counts[(first_weekday + offset) % 7 >= 5] += 1
+    return tuple(counts)
+
+
+def weekday_aggregates(values: list[dict], period: str | None = None) -> tuple[list[dict], str]:
+    """Sum the seven quarterly day-of-week amounts; divide by calendar days in that quarter.
 
     Marked ``aggregate`` so they are never compared with single days ('토요일이 가장 많아요').
+    Missing/invalid periods retain the totals and withhold averages. Incomplete,
+    duplicate or invalid day amounts cannot support either calculation.
     """
-    days = {v["label"]: v["value"] for v in values if v.get("label") in WEEKDAYS + WEEKEND and type(v.get("value")) is int}
-    if len(days) != 7:
+    day_values = [v for v in values if v.get("label") in WEEKDAYS + WEEKEND]
+    if (len(day_values) != 7 or len({v["label"] for v in day_values}) != 7
+            or any(type(v.get("value")) is not int or v["value"] < 0 for v in day_values)):
         return [], ""
+    days = {v["label"]: v["value"] for v in day_values}
     weekday, weekend = sum(days[d] for d in WEEKDAYS), sum(days[d] for d in WEEKEND)
     extra = [{"label": label, "value": value, "unit": "원", "derived": True, "aggregate": True}
-             for label, value in (("평일 합계", weekday), ("평일 하루 평균", weekday // 5),
-                                  ("주말 합계", weekend), ("주말 하루 평균", weekend // 2))]
-    sentence = (f" 평일(월~금)은 합계 {weekday:,}원, 하루 평균 {weekday // 5:,}원이고, "
-                f"주말(토·일)은 합계 {weekend:,}원, 하루 평균 {weekend // 2:,}원입니다(계산값).")
+             for label, value in (("평일 합계", weekday), ("주말 합계", weekend))]
+    counts = _quarter_day_counts(period)
+    if counts is None:
+        return extra, (f" 평일(월~금) 합계는 {weekday:,}원, 주말(토·일) 합계는 {weekend:,}원입니다(계산값). "
+                       "선택 분기를 확인할 수 없어 하루 평균은 계산하지 않았습니다.")
+    averages = [int((Decimal(total) / Decimal(count)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                for total, count in zip((weekday, weekend), counts)]
+    extra.extend({"label": label, "value": value, "unit": "원", "derived": True, "aggregate": True,
+                  "average_basis": "calendar_day", "denominator_days": count, "period": period,
+                  "rounding": "won_half_up"}
+                 for label, value, count in zip(("평일 하루 평균", "주말 하루 평균"), averages, counts))
+    sentence = (f" 평일(월~금)은 합계 {weekday:,}원, 달력일 기준 하루 평균 {averages[0]:,}원이고, "
+                f"주말(토·일)은 합계 {weekend:,}원, 달력일 기준 하루 평균 {averages[1]:,}원입니다(원 단위 반올림). "
+                "가게의 실제 영업일 평균은 아닙니다.")
     return extra, sentence
 
 
@@ -122,9 +158,11 @@ def sales_cards(result: dict) -> list[dict]:
                     + f"이고, 가장 낮은 항목은 {josa(low, '으로')} {_number(ranking['lowest_value'], '원')}입니다.")
             warnings = list(dist.get("warnings", []))
             if kind == "weekday":
-                extra, sentence = weekday_aggregates(values)
+                extra, sentence = weekday_aggregates(values, (result.get("selection") or {}).get("period"))
                 values += extra
                 text += sentence
+                if any(value.get("average_basis") == "calendar_day" for value in extra):
+                    warnings.append(CALENDAR_AVERAGE_NOTE)
             if kind == "age" and dist.get("classified_share_of_total_percent") is not None:
                 text += f" 연령이 분류된 매출은 전체의 {_percent(dist['classified_share_of_total_percent'])}입니다."
                 values.append({"label": "연령 분류 매출 비율", "value": dist["classified_share_of_total_percent"], "unit": "%"})

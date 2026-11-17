@@ -112,7 +112,7 @@ class StatusRule(unittest.TestCase):
 
     def test_kind_comes_from_generator(self):
         self.assertEqual([ml.draft_kind(draft(generator=g)) for g in ("reply_draft", "prevention_notice", "coupon_promo")],
-                         ["답글", "재발 방지 공지", "홍보글"])
+                         ["답글", "포장·주문 안내문", "홍보글"])
         self.assertEqual(ml.draft_kind(draft(generator="new_thing")), "new_thing")   # 모르는 종류도 센다
 
     def test_failed_check_names(self):
@@ -161,7 +161,7 @@ class StatusRule(unittest.TestCase):
                      'const checksOf = (d) => [...(d.needs_input || []), ...(d.c7_flags || [])];',
                      '? ["bad", "점검 실패"] : checksOf(d).length ? ["warn", "확인 필요"] : ["ok", "점검 통과"]',
                      'failedOf(d).length ?',
-                     'reply_draft: "답글", prevention_notice: "재발 방지 공지"',
+                     'reply_draft: "답글", prevention_notice: "포장·주문 안내문"',
                      'JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) })',
                      'const on = new Set(m.default || []);'):
             self.assertIn(rule, js)
@@ -200,7 +200,7 @@ class MockTwoRounds(unittest.TestCase):
             self.assertEqual([c["kind"] for c in rnd["cards_call"]["cards"]], ["complaint", "promo"])
             complaint, promo = rnd["runs"]
             # mock: 불만 카드는 답글 3 + 공지 1, 홍보 카드는 홍보글 1
-            self.assertEqual(sorted(d["kind"] for d in complaint["drafts"]), ["답글"] * 3 + ["재발 방지 공지"])
+            self.assertEqual(sorted(d["kind"] for d in complaint["drafts"]), ["답글"] * 3 + ["포장·주문 안내문"])
             self.assertEqual([d["kind"] for d in promo["drafts"]], ["홍보글"])
             self.assertEqual((complaint["source"], promo["source"]), ("seed", "seed"))
         self.assertEqual(self.rec.posts, [("/api/cards/card_ongi_a/run", {"measures": ["M1"]}),
@@ -211,10 +211,10 @@ class MockTwoRounds(unittest.TestCase):
         # 실패·확인 필요를 세는 규칙은 위 단위 시험(failed_check_names·needs_check_names·status_of)이 본다.
         self.assertEqual(self.summary["counts"], {
             "답글": {PASS: 6, CHECK: 0, FAIL: 0, "합계": 6},
-            "재발 방지 공지": {PASS: 2, CHECK: 0, FAIL: 0, "합계": 2},
+            "포장·주문 안내문": {PASS: 2, CHECK: 0, FAIL: 0, "합계": 2},
             "홍보글": {PASS: 2, CHECK: 0, FAIL: 0, "합계": 2}})
         self.assertEqual(self.summary["total"], {PASS: 10, CHECK: 0, FAIL: 0, "합계": 10})
-        self.assertEqual(list(self.summary["counts"]), ["답글", "재발 방지 공지", "홍보글"])
+        self.assertEqual(list(self.summary["counts"]), ["답글", "포장·주문 안내문", "홍보글"])
         self.assertEqual(self.summary["call_failures"], [])
 
     def test_totals_agree_with_the_servers_own_flag_count(self):
@@ -247,7 +247,7 @@ class MockTwoRounds(unittest.TestCase):
 
     def test_korean_report(self):
         text = ml.format_report(self.result)
-        for part in ("실시간이 아님", "종류", "통과", "확인 필요", "실패", "합계", "답글", "재발 방지 공지", "홍보글", "전체",
+        for part in ("실시간이 아님", "종류", "통과", "확인 필요", "실패", "합계", "답글", "포장·주문 안내문", "홍보글", "전체",
                      "호출 실패: 0건", "걸린 점검(실패): 없음", "걸린 점검(확인 필요): 없음",
                      "/api/cards 걸린 시간(초): ", "중앙값", "카드 실행 걸린 시간(초): 불만 카드 중앙값", "홍보 카드 중앙값"):
             self.assertIn(part, text)
@@ -275,7 +275,7 @@ class CallFailures(unittest.TestCase):
         self.assertEqual(errors[3], "시간 초과 (120초)")
         # 성공한 호출만 센다: 2라운드 불만 카드(답글 3 + 공지 1) + 3라운드 홍보 카드(홍보글 1)
         self.assertEqual(s["counts"], {"답글": {PASS: 3, CHECK: 0, FAIL: 0, "합계": 3},
-                                       "재발 방지 공지": {PASS: 1, CHECK: 0, FAIL: 0, "합계": 1},
+                                       "포장·주문 안내문": {PASS: 1, CHECK: 0, FAIL: 0, "합계": 1},
                                        "홍보글": {PASS: 1, CHECK: 0, FAIL: 0, "합계": 1}})
         self.assertEqual(len(s["cards_seconds"]["values"]), 1)       # 성공한 목록 호출은 2라운드 하나
         self.assertEqual(len(result["rounds"]), 3)
