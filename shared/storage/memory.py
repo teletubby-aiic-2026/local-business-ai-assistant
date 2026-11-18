@@ -6,8 +6,9 @@ services/web 의 Demo 가 한다 (경로가 웹 설정이라서).
 from __future__ import annotations
 
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
+from .errors import DuplicateLogin
 from .times import now_kst, to_date, to_kst_iso
 
 
@@ -144,6 +145,92 @@ def check_period(period_kind: str, start: date, end: date) -> None:
         raise ValueError("끝일이 시작일보다 빠릅니다")
 
 
+class MemoryUsers:
+    """사장님 계정과 가진 가게 (로그인, 5차 회의 11/18). PostgreSQL 의 users·user_stores 와 같은 동작."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._users: dict[str, dict] = {}        # user_id → {user_id, login_id, password_hash, display_name, created_at}
+        self._stores: dict[str, list[str]] = {}
+
+    @staticmethod
+    def _public(row: dict) -> dict:
+        return {k: row[k] for k in ("user_id", "login_id", "display_name", "created_at")}
+
+    def create(self, user_id: str, login_id: str, password_hash: str, display_name: str, store_ids: list[str]) -> dict:
+        login = login_id.lower()
+        with self._lock:
+            if user_id in self._users or any(u["login_id"] == login for u in self._users.values()):
+                raise DuplicateLogin("이미 있는 아이디예요")
+            row = {"user_id": user_id, "login_id": login, "password_hash": password_hash, "display_name": display_name,
+                   "created_at": now_kst()}
+            self._users[user_id] = row
+            self._stores[user_id] = list(dict.fromkeys(store_ids))
+            return self._public(row)
+
+    def ensure(self, user_id: str, login_id: str, password_hash: str, display_name: str, store_ids: list[str]) -> dict:
+        with self._lock:
+            row = self._users.get(user_id)
+            if row is None:
+                row = {"user_id": user_id, "login_id": login_id.lower(), "password_hash": password_hash,
+                       "display_name": display_name, "created_at": now_kst()}
+                self._users[user_id] = row
+            have = self._stores.setdefault(user_id, [])
+            self._stores[user_id] = list(dict.fromkeys(list(store_ids) + [s for s in have if s not in store_ids]))
+            return self._public(row)
+
+    def by_login(self, login_id: str) -> dict | None:
+        login = login_id.lower()
+        with self._lock:
+            row = next((u for u in self._users.values() if u["login_id"] == login), None)
+            return {**self._public(row), "password_hash": row["password_hash"]} if row else None
+
+    def get(self, user_id: str) -> dict | None:
+        with self._lock:
+            row = self._users.get(user_id)
+            return self._public(row) if row else None
+
+    def stores(self, user_id: str) -> list[str]:
+        with self._lock:
+            return list(self._stores.get(user_id, []))
+
+
+class MemoryAuthSessions:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._rows: dict[str, dict] = {}
+
+    def create(self, token_hash: str, user_id: str, active_store_id: str, expires_at: datetime) -> None:
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            self._rows = {k: v for k, v in self._rows.items() if v["_expires"] > now}
+            self._rows[token_hash] = {"token_hash": token_hash, "user_id": user_id, "active_store_id": active_store_id,
+                                      "created_at": now_kst(), "expires_at": to_kst_iso(expires_at),
+                                      "_expires": expires_at.astimezone(timezone.utc)}
+
+    def get(self, token_hash: str) -> dict | None:
+        with self._lock:
+            row = self._rows.get(token_hash)
+            if row is None:
+                return None
+            if row["_expires"] <= datetime.now(timezone.utc):
+                del self._rows[token_hash]
+                return None
+            return {k: v for k, v in row.items() if not k.startswith("_")}
+
+    def set_store(self, token_hash: str, store_id: str) -> bool:
+        with self._lock:
+            row = self._rows.get(token_hash)
+            if row is None or row["_expires"] <= datetime.now(timezone.utc):
+                return False
+            row["active_store_id"] = store_id
+            return True
+
+    def delete(self, token_hash: str) -> bool:
+        with self._lock:
+            return self._rows.pop(token_hash, None) is not None
+
+
 class MemoryStore:
     """승인 기록·카드 이유·보고서를 메모리에 둔다. (붙여넣은 리뷰와 분류 결과는 리뷰 분석 서비스가 자기 파일로 다룬다.)"""
     kind = "memory"
@@ -152,6 +239,8 @@ class MemoryStore:
         self.approvals = MemoryApprovals()
         self.card_reasons = MemoryCardReasons()
         self.reports = MemoryReports()
+        self.users = MemoryUsers()
+        self.auth_sessions = MemoryAuthSessions()
 
     def close(self) -> None:
         pass

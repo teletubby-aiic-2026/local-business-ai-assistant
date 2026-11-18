@@ -101,3 +101,33 @@ CREATE TABLE IF NOT EXISTS reports (
     UNIQUE (store_id, period_kind, period_start, period_end, prompt_version)
 );
 CREATE INDEX IF NOT EXISTS reports_by_period ON reports (store_id, period_kind, period_start DESC);
+
+-- ── 로그인과 사장님 가게 (5차 회의 11/18) ─────────────────────────────────
+-- 로그인하지 않은 방문자는 지금처럼 쿠키 visitor_id 로만 나뉜다 (이 표들을 쓰지 않음).
+-- 로그인한 사장님은 승인 기록·붙여넣은 리뷰·마케팅 기록을 방문자 id 'u-<user_id>' 로 남긴다 (다른 표의 visitor_id 칸 그대로).
+CREATE TABLE IF NOT EXISTS users (
+    user_id        TEXT        PRIMARY KEY,                 -- 영문·숫자·하이픈 (방문자 id 'u-<user_id>' 가 64자 안에 들게)
+    login_id       TEXT        UNIQUE NOT NULL,             -- 소문자로 저장
+    password_hash  TEXT        NOT NULL,                    -- 'scrypt$N$r$p$소금$해시' (hashlib.scrypt). 비밀번호 로그인을 막은 계정은 '!'
+    display_name   TEXT        NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 사장님이 가진 가게 (가게 목록 순서는 position)
+CREATE TABLE IF NOT EXISTS user_stores (
+    user_id   TEXT NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
+    store_id  TEXT NOT NULL,
+    position  INT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, store_id)
+);
+
+-- 로그인 세션. 쿠키 ic26_session 의 값은 저장하지 않고 SHA-256 만 둔다 (DB 를 봐도 세션을 훔칠 수 없게)
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token_hash       TEXT        PRIMARY KEY,
+    user_id          TEXT        NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
+    active_store_id  TEXT        NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at       TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS auth_sessions_by_user ON auth_sessions (user_id);
+CREATE INDEX IF NOT EXISTS auth_sessions_by_expiry ON auth_sessions (expires_at);

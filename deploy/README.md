@@ -255,7 +255,8 @@ DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여
 
    두 번째 `EnvironmentFile`은 5-1절(Secret Manager)을 쓸 때 `DB_PASSWORD`를 거기서 읽기 위한 것입니다. 쓰지 않으면 건너뜁니다.
 
-   `<DB 주소>:5432/ic26app 표 6개 확인: approvals, card_reasons, reports, review_labels, reviews, stores`가 나오면 된 것입니다. 여러 번 돌려도 안전합니다(이미 있는 표는 그대로 둡니다).
+   `<DB 주소>:5432/ic26app 표 9개 확인: approvals, auth_sessions, card_reasons, reports, review_labels, reviews, stores, user_stores, users`가 나오면 된 것입니다. 여러 번 돌려도 안전합니다(이미 있는 표는 그대로 둡니다).
+   11/18 5차 회의 묶음부터 로그인 표 3개(`users`, `user_stores`, `auth_sessions`)가 더해져 9개입니다. **이미 DB를 쓰고 있는 서버도 이 명령을 한 번 더 돌려야** 로그인·가게 바꾸기가 됩니다(돌리기 전에는 로그인 요청이 '로그인 정보를 불러오지 못했어요'로 실패하고, 로그인하지 않은 화면은 그대로).
    11/18부터 `approvals`에 칸 4개(`draft_text`, `checks`, `used_fallback`, `style`. 이슈 #51 ERD)가 더해졌습니다. 이 명령은 이미 있는 표에도 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 칸을 더합니다(있던 기록은 그대로, 새 칸은 비움·`{}`·`false`).
 3. 서비스를 다시 시작하고 확인합니다.
 

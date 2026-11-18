@@ -35,6 +35,7 @@
 """
 from __future__ import annotations
 
+import copy
 import http.cookiejar
 import logging
 import re
@@ -48,6 +49,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from shared import store_profiles
 from shared.contracts import StoreProfile
 
 from .sources import load_snapshots, to_store_profile
@@ -107,6 +109,11 @@ STORE_DEFAULTS: dict[str, SetupDefaults] = {
         business_status="operating",
         label="온기한식 · 장승배기역 · 한식음식점"),
 }
+# 5차 회의(11/18): 바삭치킨·몽글카페. 역·업종·상권 코드는 shared.store_profiles (상권 서비스 표에 있는 값, 시험이 확인)
+for _sid in ("store_basak", "store_mongle"):
+    _b = store_profiles.BUNDLES[_sid]
+    STORE_DEFAULTS[_sid] = SetupDefaults(station_id=_b.station_id, industry_code=_b.industry_code, area_code=_b.area_code,
+                                         period="20262", business_status="operating", label=_b.label)
 
 
 # ── 분기 표기 ───────────────────────────────────────────────────────────
@@ -481,6 +488,14 @@ class AssistantProxy:
         if self.market is not None:
             self.market.close()
 
+    def for_store(self, store_id: str) -> "AssistantProxy":
+        """다른 가게의 프록시 (얕은 사본: 같은 상권 서비스 연결·동시 요청 한도). 기본 조건과 가게 프로필만 그 가게 것."""
+        view = copy.copy(self)
+        view.defaults = STORE_DEFAULTS.get(store_id)
+        view.home = None
+        view.read_store = None
+        return view
+
     def attach_store(self, demo) -> None:
         """가게 기본 질문에 답할 때 가게 프로필을 읽을 곳을 붙인다 (create_app 이 부른다).
         Demo 가 ③ 생성에 쓰는 것과 같은 값이다: 리뷰 분석 서비스의 가게 정보 + 상권 지표 파일의 상권 이름.
@@ -680,16 +695,19 @@ def _token(request: Request) -> str | None:
     return value if value and TOKEN.fullmatch(value) else None
 
 
-def create_assistant_router(proxy: AssistantProxy) -> APIRouter:
+def create_assistant_router(proxy: AssistantProxy, proxy_of: Callable[[Request], AssistantProxy] | None = None) -> APIRouter:
+    """proxy_of(요청) 이 있으면 요청마다 그 가게의 프록시를 쓴다 (로그인한 사장님이 고른 가게, 5차 회의 11/18). 없으면 proxy 하나."""
     router = APIRouter(prefix="/api/assistant")
+    pick = proxy_of or (lambda request: proxy)
 
-    def guarded(request: Request, work: Callable[[str | None], tuple[Any, str | None]]) -> JSONResponse:
-        """work(세션 값) → (응답 본문, 새 세션 값). 상권 서비스 문제와 예상 못한 오류 모두 서랍용 오류 응답이 된다. 500 은 없다."""
+    def guarded(request: Request, work: Callable[[AssistantProxy, str | None], tuple[Any, str | None]]) -> JSONResponse:
+        """work(프록시, 세션 값) → (응답 본문, 새 세션 값). 상권 서비스 문제와 예상 못한 오류 모두 서랍용 오류 응답이 된다. 500 은 없다."""
+        proxy = pick(request)
         token, secure = _token(request), _secure(request)
         if not proxy.slots.acquire(timeout=1.0):
             return _fail(MarketError("error", BUSY_MESSAGE), token, secure)
         try:
-            data, token_out = work(token)
+            data, token_out = work(proxy, token)
             return _ok(data, token_out, secure)
         except MarketError as exc:
             return _fail(exc, token, secure)
@@ -702,13 +720,14 @@ def create_assistant_router(proxy: AssistantProxy) -> APIRouter:
     @router.get("/status")
     def status(request: Request):
         try:
-            return _ok(proxy.status(), _token(request), _secure(request))
+            return _ok(pick(request).status(), _token(request), _secure(request))
         except Exception as exc:     # status 는 어떤 경우에도 200
             log.exception("상권 비서 status 오류 (%s)", exc.__class__.__name__)
             return _ok({"state": "error", "message": MESSAGES["error"], "setup": {"label": None}}, None, False)
 
     @router.post("/setup")
     def setup(request: Request, force: bool = False):
+        proxy = pick(request)
         token, secure = _token(request), _secure(request)
         if not proxy.slots.acquire(timeout=1.0):
             return _ok({"status": "unavailable", "state": "error", "message": BUSY_MESSAGE, "conditions": None}, token, secure)
@@ -723,20 +742,20 @@ def create_assistant_router(proxy: AssistantProxy) -> APIRouter:
 
     @router.post("/messages")
     def messages(body: MessageIn, request: Request):
-        return guarded(request, lambda token: proxy.message(token, body.model_dump(exclude_none=True)))
+        return guarded(request, lambda proxy, token: proxy.message(token, body.model_dump(exclude_none=True)))
 
     @router.post("/actions")
     def actions(body: ActionIn, request: Request):
-        return guarded(request, lambda token: proxy.forward("POST", "/api/assistant/actions", token,
-                                                            body.model_dump(exclude_none=True)))
+        return guarded(request, lambda proxy, token: proxy.forward("POST", "/api/assistant/actions", token,
+                                                                   body.model_dump(exclude_none=True)))
 
     @router.get("/conversation")
     def conversation(request: Request):
-        return guarded(request, lambda token: proxy.forward("GET", "/api/assistant/conversation", token))
+        return guarded(request, lambda proxy, token: proxy.forward("GET", "/api/assistant/conversation", token))
 
     @router.delete("/conversation")
     def clear(request: Request):
-        return guarded(request, lambda token: proxy.forward("DELETE", "/api/assistant/conversation", token))
+        return guarded(request, lambda proxy, token: proxy.forward("DELETE", "/api/assistant/conversation", token))
 
     return router
 

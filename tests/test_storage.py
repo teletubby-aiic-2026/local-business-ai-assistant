@@ -227,6 +227,48 @@ def test_approvals_clear_and_delete_also_drop_the_detail(backend):
     assert backend.approvals.details(s1, b)[0]["draft_text"] == "AI 원문"   # 다른 방문자 것은 그대로
 
 
+def test_users_create_login_and_stores(backend):
+    """로그인 (5차 회의 11/18): 계정·가진 가게·로그인 아이디 중복. 두 구현이 같은 모양으로 돌려준다."""
+    from shared.storage.errors import DuplicateLogin
+    uid_ = uuid.uuid4().hex[:16]
+    login = "owner" + uid_[:8]
+    made = backend.users.create(uid_, login.upper(), "scrypt$x", "김사장", ["store_basak", "store_ongi"])
+    assert set(made) == {"user_id", "login_id", "display_name", "created_at"} and made["login_id"] == login
+    assert backend.users.get(uid_)["display_name"] == "김사장"
+    found = backend.users.by_login(login.upper())
+    assert found["user_id"] == uid_ and found["password_hash"] == "scrypt$x"
+    assert "password_hash" not in backend.users.get(uid_)
+    assert backend.users.stores(uid_) == ["store_basak", "store_ongi"]          # 고른 순서 그대로
+    with pytest.raises(DuplicateLogin):
+        backend.users.create(uuid.uuid4().hex[:16], login, "scrypt$y", "다른 사람", ["store_ongi"])
+    assert backend.users.by_login("nobody-" + uid_) is None and backend.users.get("nobody") is None
+
+
+def test_users_ensure_is_idempotent(backend):
+    uid_ = "demo-" + uuid.uuid4().hex[:12]
+    first = backend.users.ensure(uid_, uid_, "!", "시연 사장님", ["store_ongi", "store_basak", "store_mongle"])
+    again = backend.users.ensure(uid_, uid_, "!", "시연 사장님", ["store_ongi", "store_basak", "store_mongle"])
+    assert first["user_id"] == again["user_id"] == uid_
+    assert backend.users.stores(uid_) == ["store_ongi", "store_basak", "store_mongle"]
+
+
+def test_auth_sessions_create_get_switch_delete_and_expire(backend):
+    from datetime import datetime, timedelta, timezone
+    uid_ = uuid.uuid4().hex[:16]
+    backend.users.create(uid_, "s" + uid_[:10], "scrypt$x", "사장", ["store_ongi", "store_basak"])
+    live, old = "h" + uuid.uuid4().hex, "h" + uuid.uuid4().hex
+    backend.auth_sessions.create(live, uid_, "store_ongi", datetime.now(timezone.utc) + timedelta(days=7))
+    backend.auth_sessions.create(old, uid_, "store_ongi", datetime.now(timezone.utc) - timedelta(seconds=1))
+    got = backend.auth_sessions.get(live)
+    assert (got["user_id"], got["active_store_id"]) == (uid_, "store_ongi")
+    assert backend.auth_sessions.get(old) is None                                   # 지난 세션은 없는 것
+    assert backend.auth_sessions.set_store(live, "store_basak") is True
+    assert backend.auth_sessions.get(live)["active_store_id"] == "store_basak"
+    assert backend.auth_sessions.set_store(old, "store_basak") is False
+    assert backend.auth_sessions.delete(live) is True and backend.auth_sessions.get(live) is None
+    assert backend.auth_sessions.delete(live) is False
+
+
 def test_card_reasons_put_get_overwrite(backend):
     sid = uid("store")
     assert backend.card_reasons.get(sid, "card_a", "k1") is None
@@ -430,7 +472,7 @@ def test_init_db_command_runs_twice_and_without_db_host(db):
     for _ in range(2):
         done = subprocess.run([sys.executable, "-m", "shared.storage.init_db"], cwd=REPO, env=env, capture_output=True, text=True, timeout=60)
         assert done.returncode == 0, done.stderr
-        assert "표 6개 확인" in done.stdout and env["DB_PASSWORD"] not in done.stdout + done.stderr
+        assert "표 9개 확인" in done.stdout and env["DB_PASSWORD"] not in done.stdout + done.stderr
     bare = {k: v for k, v in env.items() if k != "DB_HOST"}
     done = subprocess.run([sys.executable, "-m", "shared.storage.init_db"], cwd=REPO, env=bare, capture_output=True, text=True, timeout=60)
     assert done.returncode == 2 and "DB_HOST" in done.stderr

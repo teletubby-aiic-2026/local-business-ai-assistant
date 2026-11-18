@@ -45,6 +45,7 @@
 """
 from __future__ import annotations
 
+import copy
 import http.cookiejar
 import json
 import logging
@@ -174,6 +175,14 @@ class MarketingProxy:
             return cls(None, store_id=store_id, timeout=timeout,
                        config_error="맞춤 마케팅 서비스 주소(MARKETING_SURVEY_URL) 설정이 올바르지 않아요.")
         return cls(raw, store_id=store_id, timeout=timeout)
+
+    def for_store(self, store_id: str) -> "MarketingProxy":
+        """다른 가게의 프록시 (얕은 사본: 같은 연결·동시 요청 한도). 쿼리 store 만 그 가게 (5차 회의 11/18)."""
+        if store_id == self.store:
+            return self
+        view = copy.copy(self)
+        view.store = store_id
+        return view
 
     def close(self) -> None:
         if self.client is not None:
@@ -326,27 +335,32 @@ async def _read_capped(request: Request, limit: int) -> bytes | None:
 
 
 def create_marketing_router(proxy: MarketingProxy, record: Callable[[str | None, dict], dict] | None = None,
-                            visitor_of: Callable[[Request], str | None] | None = None) -> APIRouter:
-    """main.py 가 붙인다. record(방문자, 글) 은 승인한 마케팅 글을 이 서버의 승인 기록에 남기는 함수 (demo.approve)."""
+                            visitor_of: Callable[[Request], str | None] | None = None,
+                            proxy_of: Callable[[Request], MarketingProxy] | None = None,
+                            record_store: Callable[[str | None, dict, str], dict] | None = None) -> APIRouter:
+    """main.py 가 붙인다. record(방문자, 글) 은 승인한 마케팅 글을 이 서버의 승인 기록에 남기는 함수 (demo.approve).
+    가게가 여럿일 때(5차 회의 11/18): proxy_of(요청) 이 그 요청의 가게 프록시를, record_store(방문자, 글, 가게) 가 그 가게의
+    승인 기록에 남긴다. 둘 다 없으면 예전처럼 proxy 하나·record."""
     visitor_of = visitor_of or (lambda request: getattr(request.state, "visitor_id", None))
+    pick = proxy_of or (lambda request: proxy)
     api = APIRouter(prefix=SERVICE_PREFIX, tags=["marketing-survey-proxy"])
 
     @api.get("/health")
-    def health():
+    def health(request: Request):
         try:
-            data = proxy.status()
+            data = pick(request).status()
         except Exception as exc:          # health 는 어떤 경우에도 200
             log.exception("맞춤 마케팅 health 오류 (%s)", exc.__class__.__name__)
             data = {"state": "error", "message": MESSAGES["error"], "service": "marketing-survey"}
         return _ok(data)
 
-    def save(visitor: str | None, items: list[dict]) -> tuple[list[dict], str | None]:
-        if record is None or not items:
+    def save(visitor: str | None, items: list[dict], store: str) -> tuple[list[dict], str | None]:
+        if (record is None and record_store is None) or not items:
             return [], None
         done: list[dict] = []
         for item in items:
             try:
-                entry = record(visitor, item)
+                entry = record_store(visitor, item, store) if record_store is not None else record(visitor, item)
             except Exception as exc:      # 마케팅 승인은 이미 끝났다. 기록을 못 남겨도 승인을 실패시키지 않는다
                 log.warning("마케팅 승인 기록을 남기지 못함 (%s)", exc.__class__.__name__)
                 return done, RECORD_WARNING
@@ -358,6 +372,7 @@ def create_marketing_router(proxy: MarketingProxy, record: Callable[[str | None,
         return done, None
 
     async def _forward(path: str, request: Request) -> JSONResponse:
+        proxy = pick(request)
         route = ROUTES.get(path)
         if route is None or route.method != request.method:
             return fail("not_found", 404)
@@ -386,7 +401,7 @@ def create_marketing_router(proxy: MarketingProxy, record: Callable[[str | None,
         except MarketingError as exc:
             return fail(exc.state, exc.http, exc.message)
         if path == "approve" and isinstance(out, dict) and not out.get("edit_failed"):
-            recorded, warning = await run_in_threadpool(save, visitor, approvals)
+            recorded, warning = await run_in_threadpool(save, visitor, approvals, proxy.store)
             out["recorded"] = recorded
             if warning:
                 out["record_warning"] = warning

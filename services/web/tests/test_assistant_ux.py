@@ -332,7 +332,7 @@ class TestStoreDefaultFlag(Base):
 
     def test_unknown_for_a_store_without_defaults_and_for_conditions_without_codes(self):
         market = FakeMarket()
-        client, proxy = build(market, store_id="store_basak")
+        client, proxy = build(market, store_id="store_unknown")
         self.assertIsNone(proxy._conditions({"area_code": "3110826", "industry_code": "CS100001", "period": "20262"})["is_store_default"])
         self.assertIsNone(client.post("/api/assistant/setup").json()["conditions"])
         self.make()

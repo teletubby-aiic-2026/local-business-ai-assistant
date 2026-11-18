@@ -340,8 +340,8 @@ class TestVisitorRecords(unittest.TestCase):
         res = self.client.delete(f"{API}/records")
         self.assertEqual(res.status_code, 400)
         self.assertTrue(records.records_path(STORE).is_file())          # 가게 공용 파일은 지우지 않는다
-        self.assertEqual(self.client.delete(f"{API}/records", params={"store": "store_basak", "visitor_id": "v1"})
-                         .status_code, 404)
+        self.assertEqual(self.client.delete(f"{API}/records", params={"store": "store_unknown", "visitor_id": "v1"})
+                         .status_code, 404)   # 등록하지 않은 가게 (11/18 부터 store_basak 은 쓸 수 있는 가게)
 
     def test_records_module_rejects_bad_visitor(self):
         with self.assertRaises(ValueError):

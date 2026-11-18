@@ -24,18 +24,18 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from .config import DbConfig
-from .errors import StorageError
+from .errors import DuplicateLogin, StorageError
 from .memory import check_period, clean_detail
 from .times import to_date, to_datetime, to_kst_iso
 
 log = logging.getLogger("shared.storage")
 T = TypeVar("T")
 
-TABLES = ("stores", "reviews", "review_labels", "approvals", "card_reasons", "reports")
+TABLES = ("stores", "reviews", "review_labels", "approvals", "card_reasons", "reports", "users", "user_stores", "auth_sessions")
 
 
 class Database:
-    """연결 풀 하나와 표별 저장소 (reviews, labels, approvals, card_reasons, reports)."""
+    """연결 풀 하나와 표별 저장소 (reviews, labels, approvals, card_reasons, reports, users, auth_sessions)."""
     kind = "postgres"
 
     def __init__(self, config: DbConfig, *, app_name: str = ""):
@@ -49,6 +49,8 @@ class Database:
         self.approvals = PgApprovals(self)
         self.card_reasons = PgCardReasons(self)
         self.reports = PgReports(self)
+        self.users = PgUsers(self)
+        self.auth_sessions = PgAuthSessions(self)
 
     def __repr__(self) -> str:   # 비밀번호는 넣지 않는다
         return f"Database({self.config.host}:{self.config.port}/{self.config.dbname})"
@@ -327,4 +329,95 @@ class PgReports:
                 f"SELECT {_REPORT_COLUMNS} FROM reports WHERE store_id = %s AND (%s::text IS NULL OR period_kind = %s) "
                 "ORDER BY period_start DESC, created_at DESC LIMIT %s", (store_id, period_kind, period_kind, limit)).fetchall()
             return [_report(r) for r in rows]
+        return self._db.run(work)
+
+
+# ── 로그인 (5차 회의 11/18) ──────────────────────────────────────────
+_USER_COLUMNS = "user_id, login_id, display_name, created_at"
+
+
+class PgUsers:
+    """사장님 계정과 가진 가게. MemoryUsers 와 같은 이름·인자·돌려주는 모양."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    def create(self, user_id: str, login_id: str, password_hash: str, display_name: str, store_ids: list[str]) -> dict:
+        def work(conn):
+            try:
+                row = conn.execute(
+                    f"INSERT INTO users (user_id, login_id, password_hash, display_name) VALUES (%s, %s, %s, %s) "
+                    f"RETURNING {_USER_COLUMNS}", (user_id, login_id.lower(), password_hash, display_name)).fetchone()
+            except psycopg.errors.UniqueViolation:
+                raise DuplicateLogin("이미 있는 아이디예요") from None
+            with conn.cursor() as cur:
+                cur.executemany("INSERT INTO user_stores (user_id, store_id, position) VALUES (%s, %s, %s)",
+                                [(user_id, s, i) for i, s in enumerate(store_ids)])
+            return _kst(row, "created_at")
+        return self._db.run(work)
+
+    def ensure(self, user_id: str, login_id: str, password_hash: str, display_name: str, store_ids: list[str]) -> dict:
+        """없으면 만들고 있으면 그대로 (가진 가게는 store_ids 로 맞춤). 시연 계정처럼 여러 서버가 동시에 불러도 안전하다."""
+        def work(conn):
+            conn.execute("INSERT INTO users (user_id, login_id, password_hash, display_name) VALUES (%s, %s, %s, %s) "
+                         "ON CONFLICT (user_id) DO NOTHING", (user_id, login_id.lower(), password_hash, display_name))
+            with conn.cursor() as cur:
+                cur.executemany("INSERT INTO user_stores (user_id, store_id, position) VALUES (%s, %s, %s) "
+                                "ON CONFLICT (user_id, store_id) DO UPDATE SET position = EXCLUDED.position",
+                                [(user_id, s, i) for i, s in enumerate(store_ids)])
+            row = conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE user_id = %s", (user_id,)).fetchone()
+            return _kst(row, "created_at")
+        return self._db.run(work)
+
+    def by_login(self, login_id: str) -> dict | None:
+        """비밀번호 해시까지 (로그인 확인용)."""
+        def work(conn):
+            row = conn.execute(f"SELECT {_USER_COLUMNS}, password_hash FROM users WHERE login_id = %s",
+                               (login_id.lower(),)).fetchone()
+            return _kst(row, "created_at") if row else None
+        return self._db.run(work)
+
+    def get(self, user_id: str) -> dict | None:
+        def work(conn):
+            row = conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE user_id = %s", (user_id,)).fetchone()
+            return _kst(row, "created_at") if row else None
+        return self._db.run(work)
+
+    def stores(self, user_id: str) -> list[str]:
+        def work(conn):
+            rows = conn.execute("SELECT store_id FROM user_stores WHERE user_id = %s ORDER BY position, store_id",
+                                (user_id,)).fetchall()
+            return [r["store_id"] for r in rows]
+        return self._db.run(work)
+
+
+class PgAuthSessions:
+    def __init__(self, db: Database):
+        self._db = db
+
+    def create(self, token_hash: str, user_id: str, active_store_id: str, expires_at: datetime) -> None:
+        def work(conn):
+            conn.execute("INSERT INTO auth_sessions (token_hash, user_id, active_store_id, expires_at) VALUES (%s, %s, %s, %s)",
+                         (token_hash, user_id, active_store_id, to_datetime(expires_at)))
+            # 오래된 세션을 가끔 치운다 (만들 때마다 지난 것만)
+            conn.execute("DELETE FROM auth_sessions WHERE expires_at < now()")
+        self._db.run(work)
+
+    def get(self, token_hash: str) -> dict | None:
+        """살아 있는 세션 {token_hash, user_id, active_store_id, created_at, expires_at}. 지났거나 없으면 None."""
+        def work(conn):
+            row = conn.execute("SELECT token_hash, user_id, active_store_id, created_at, expires_at FROM auth_sessions "
+                               "WHERE token_hash = %s AND expires_at > now()", (token_hash,)).fetchone()
+            return _kst(row, "created_at", "expires_at") if row else None
+        return self._db.run(work)
+
+    def set_store(self, token_hash: str, store_id: str) -> bool:
+        def work(conn):
+            return conn.execute("UPDATE auth_sessions SET active_store_id = %s WHERE token_hash = %s AND expires_at > now()",
+                                (store_id, token_hash)).rowcount > 0
+        return self._db.run(work)
+
+    def delete(self, token_hash: str) -> bool:
+        def work(conn):
+            return conn.execute("DELETE FROM auth_sessions WHERE token_hash = %s", (token_hash,)).rowcount > 0
         return self._db.run(work)
