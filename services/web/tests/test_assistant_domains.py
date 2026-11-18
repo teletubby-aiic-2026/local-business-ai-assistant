@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -117,7 +118,14 @@ class Answers(unittest.TestCase):
 
     def test_store_questions_are_unchanged(self):
         self.assertEqual(ask(self.client, "우리 가게 메뉴 뭐야?")["reply"]["kind"], "store_profile")
-        self.assertEqual(ask(self.client, "리뷰 어디서 봐?")["reply"]["kind"], "store_guide")
+        where = ask(self.client, "리뷰 어디서 봐?")["reply"]
+        self.assertEqual((where["kind"], where["actions"]), ("store_guide", []))
+        # 화면 위치 안내에 새 메뉴가 있고, 예전 '리뷰 내용은 여기서 답하지 않아요'는 없다 (서랍이 이제 리뷰 질문에도 답함)
+        self.assertIn(f"'{ap.MARKET_SCREEN}'", where["text"])
+        self.assertNotIn("답하지 않아요", where["text"])
+        html = (Path(ap.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+        link = re.search(r'<a href="#/market" data-route="market">([\s\S]*?)</a>', html).group(1)
+        self.assertEqual(re.sub(r"\s+", " ", re.sub(r"<svg[\s\S]*?</svg>|<[^>]+>", "", link)).strip(), ap.MARKET_SCREEN)   # 메뉴 글자와 같다
         self.assertEqual(self.market_calls(), [])
 
     def test_domain_answers_work_while_the_market_service_is_off(self):

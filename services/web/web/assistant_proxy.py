@@ -286,6 +286,7 @@ MAX_STORE_QUESTION = 40                 # 공백·기호를 뺀 글자 수. 이�
 # 화면 메뉴 이름. static/index.html 의 메뉴 글자와 같아야 한다 (시험이 확인)
 SCREENS = {"reviews": "리뷰 분석", "cards": "추천 카드", "drafts": "승인할 글", "done": "처리 완료", "marketing": "맞춤 마케팅",
            "report": "종합 리포트"}
+MARKET_SCREEN = "상권 분석"          # 11/18 메뉴 (#/market). SCREENS 는 리뷰·마케팅 쪽 화면만 (가게 질문 시험이 그 목록을 고정)
 BACK_TO_MARKET = ["우리 가게 상권 매출은 어때?", "주변에 같은 업종 점포는 몇 개야?"]     # 답 아래 '이어서 물어보기' (서랍 첫 추천 질문과 같은 문장)
 STORE_NOTE = "가게 이름·업종·메뉴는 저장된 가게 프로필이에요. 상권 통계가 아니에요."
 STORE_DOWN = "가게 정보를 지금 불러오지 못했어요. 잠시 뒤 다시 물어봐 주세요."
@@ -465,7 +466,10 @@ def _where_answer(text: str) -> dict:
                          f"- 맞춤 홍보 제안·광고비 점검·마케팅 보고서: '{SCREENS['marketing']}'",
                          f"- 승인한 글: '{SCREENS['done']}'",
                          f"- 응대 점수·월간 보고서: '{SCREENS['report']}'",
-                         "참고: 이 채팅은 동네 상권·업종 매출 상담이라 리뷰 내용은 여기서 답하지 않아요."], "store_guide", "where")
+                         f"- 상권 매출·점포·유동인구 표와 차트: '{MARKET_SCREEN}'",
+                         # 11/18부터 서랍이 리뷰·마케팅·리포트 질문에도 현황과 화면 이동 버튼으로 답한다 (예전 '리뷰는 여기서 답하지 않아요'는 맞지 않음)
+                         "참고: 동네 상권·업종 매출 상담은 이 채팅에서 바로 답하고, 불만 리뷰·쿠폰·리포트를 물으면 지금 가게 현황과 그 화면으로 가는 버튼을 드려요."],
+                        "store_guide", "where")
 
 
 def store_answer(kind: str, text: str, store: StoreProfile | None) -> dict:

@@ -69,6 +69,8 @@ curl -s http://localhost:8000/api/health
   - 1.10 `/api/assistant/*` (상권 채팅 서랍. 상권 서비스 프록시)
   - 1.11 `/api/care/*` (캡처 입력·응대 점수·보고서. 리뷰 분석 서비스의 고객응대 프록시)
   - 1.12 `/api/marketing-survey/*` (맞춤 마케팅 프록시. 김수현 님 설문형 마케팅 서비스를 중계, 11/16)
+  - 1.13 `/api/auth/*` (로그인·가게 고르기, 5차 회의 11/18) · 1.14 `/api/market/*` (상권 분석 화면 프록시, 11/18)
+  - 1.15 서랍의 전 파트 질문과 화면 이동 버튼 (11/18)
 - 2부. 화면을 다듬을 때 유지해야 하는 것
   - 2.1 파일 세 개와 정적 파일 경로 · 2.2 `id` 목록 · 2.3 id 말고도 app.js가 기대하는 것
   - 2.4 시험이 직접 확인하는 것 · 2.5 화면 주소 · 2.6 화면 흐름과 부르는 API
@@ -171,7 +173,9 @@ curl -s http://localhost:8000/api/health
 ### 1.0 한눈에 보기
 
 경로 9개는 `services/web/web/main.py`와 같습니다. **11/16 덧붙임**: 승인 기록을 지우는 `DELETE /api/approvals`(7-1, 1.7.1절)가 생겨 지금은 10개입니다. 5번은 본문에 `generator`를 보내면 글 한 건만 다시 만듭니다(1.5절 '개별 다시 만들기').
-이 표 밖에 다른 서비스를 대신 불러 주는 프록시가 셋 있습니다: 상권 채팅 `/api/assistant/*`(1.10), 고객응대 `/api/care/*`(1.11), **맞춤 마케팅 `/api/marketing-survey/*`(1.12, 11/16)**.
+이 표 밖에 다른 서비스를 대신 불러 주는 프록시가 넷 있습니다: 상권 채팅 `/api/assistant/*`(1.10), 고객응대 `/api/care/*`(1.11), **맞춤 마케팅 `/api/marketing-survey/*`(1.12, 11/16)**, **상권 분석 화면 `/api/market/*`(1.14, 11/18)**. 로그인·가게 고르기는 `/api/auth/*`(1.13, 11/18)입니다.
+
+**11/18 5차 회의 뒤 모든 경로에 해당하는 것**: 로그인하지 않으면 예전과 같습니다(가게 `store_ongi`, 방문자는 쿠키 `visitor_id`). 로그인하면 이 서버가 요청마다 가게를 세션의 '고른 가게'로, 방문자 id 를 `u-<user_id>`로 바꿔서 위 표와 네 프록시의 아래 서비스에 똑같이 넘깁니다. 응답 모양은 같고, 담긴 가게만 다릅니다(브리핑의 `store`, 카드, 승인 기록 등). 화면은 가게 id 를 보내지 않습니다.
 
 | # | 메서드와 경로 | 하는 일 | 쓰는 화면 | 성공 |
 |---|---|---|---|---|
@@ -1807,13 +1811,89 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 ---
 
+### 1.13 `/api/auth/*` — 로그인과 사장님 가게 고르기 (5차 회의 11/18)
+
+`services/web/web/auth.py`. 저장은 `users`·`user_stores`·`auth_sessions` 표(DB_HOST 가 없으면 서버 메모리, 3.4절).
+
+| 메서드 | 경로 | 본문 | 응답 |
+|---|---|---|---|
+| GET | `/api/auth/me` | | 아래 '신원' 모양. 늘 200 |
+| POST | `/api/auth/login` | `{login_id, password}` | 신원 + 세션 쿠키. 틀리면 401(아이디가 있는지 알려 주지 않는 한 문장), 10분에 10번 넘게 틀리면 429 |
+| POST | `/api/auth/signup` | `{login_id, password, display_name, stores?}` | 201 신원 + 세션 쿠키. 아이디 중복 409, 입력 오류 422. `stores`를 안 보내면 `["store_ongi"]`, 빈 목록은 422 |
+| POST | `/api/auth/logout` | | 게스트 신원. 세션 쿠키와 상권 세션 쿠키(`/api/assistant`·`/api/market`)를 지움 |
+| POST | `/api/auth/store` | `{store_id}` | 신원. 게스트 401, 가진 가게가 아니면 403. 상권 세션 쿠키를 지움(새 가게의 조건으로 다시 시작) |
+| POST | `/api/auth/demo-login` | | 시연 사장님(가게 세 곳)으로 로그인. `DEMO_ACCOUNT_ENABLED=0` 이면 403. 브라우저(방문자 쿠키)마다 다른 시연 사장님이라 기록이 섞이지 않음 |
+
+신원 모양:
+
+```json
+{"authenticated": true,
+ "user": {"user_id": "demo-0123456789ab", "login_id": "demo-0123456789ab", "display_name": "시연 사장님", "demo": true},
+ "store_id": "store_basak",
+ "stores": [{"store_id": "store_ongi", "name": "온기한식", "business_type_name": "한식음식점", "area_name": "장승배기역 4번", "station_name": "장승배기역"},
+            {"store_id": "store_basak", "name": "바삭치킨", "business_type_name": "치킨전문점", "area_name": "상도역 5번", "station_name": "상도역"},
+            {"store_id": "store_mongle", "name": "몽글카페", "business_type_name": "커피-음료", "area_name": "장승배기역", "station_name": "장승배기역"}],
+ "demo_login": true}
+```
+
+로그인 전: `{"authenticated": false, "user": null, "store_id": "store_ongi", "stores": [온기한식 하나], "demo_login": true}`. 세션 저장소에 닿지 못하면 게스트로 보고 `notice`를 더합니다.
+
+- 아이디: 영문 소문자·숫자로 시작하는 3~32자(`. _ -` 가능, 대문자는 소문자로 저장). 비밀번호 8~128자. 이름 1~20자.
+- 비밀번호는 `hashlib.scrypt`(N=2^14, r=8, p=1, 소금 16바이트, 32바이트)로 저장합니다. 세션 쿠키 `ic26_session` 의 값은 저장하지 않고 SHA-256 만 둡니다(7일).
+- 쿠키: `HttpOnly`, `SameSite=Lax`, `Secure`는 `https`이거나 `X-Forwarded-Proto: https`일 때만(지금 공개 주소가 http 라서). 화면 JS 는 쿠키를 다루지 않습니다.
+- 아래 서비스로 넘기는 방문자 id: `u-<user_id>` (영문·숫자·하이픈, 64자 이하. 리뷰 분석·맞춤 마케팅의 방문자 규칙과 기록 파일 이름 `records_<가게>_<방문자>.json`에 맞게 `_`를 쓰지 않음).
+- 가게 세 곳의 업종·역·상권 코드와 가정 가격·말투는 `shared/store_profiles.py`. 바삭치킨은 상도역 5번(3110836)·치킨전문점(CS100007), 몽글카페는 장승배기역(3120154)·커피-음료(CS100010). 상권 지표는 `data/scenario/<가게>/snapshot_2026Q2.json`(서울시 공식 원본으로 만든 값, `scripts/reproduce_store_snapshots.py`).
+- mock 에서 저장 예시(온기한식)가 없는 가게의 글은 코드 틀이고, 모든 글에 `needs_input` "시험용 예시 글이에요 … 실제 AI 결과 아님"이 붙어 '확인 필요'로 보입니다.
+
+### 1.14 `/api/market/*` — 상권 분석 화면 프록시 (11/18)
+
+`services/web/web/market_proxy.py`. 상권 서비스(`ic26-market`, 127.0.0.1:8766)를 `Host: 127.0.0.1:8766`으로 대신 부릅니다.
+
+| 메서드 | 경로 | 상권 서비스 | 넘기는 쿼리 |
+|---|---|---|---|
+| GET | `status` | `/health` + `/api/onboarding/data-status`. 늘 200: `{state: ready·no_data·down·off·error, message, data, store}` | |
+| POST | `setup[?force=1]` | 지금 가게의 기본 상권·업종·분기로 맞춤. `{status: ok·already·unavailable, state, conditions}` | `force` |
+| GET·POST | `profile` · `analysis-selection` | 같은 이름 | |
+| GET | `options` · `analysis-options` · `data-status` | 같은 이름 | |
+| GET | `sales` · `stores` · `population` · `area-context` · `comparison-options` | 같은 이름 | `expected_revision` |
+| GET | `changes` | 같은 이름 | `comparison`(qoq·yoy), `expected_revision` |
+| GET | `comparison` | 같은 이름 | `comparison_area_code`, `expected_revision` |
+| POST | `data-sync` | 서울 열린데이터광장 실시간 확인 (60초까지 기다림) | |
+| GET | `cultural-events` | 서울시 문화행사. 구를 안 주면 가게의 구(동작구) | `district` |
+
+- `conditions`: `{area_code, area_name, industry_code, industry_name, period, period_label, location_label, revision, home}`. `home`은 지금 가게의 기본 조건인지(서버가 판단).
+- 세션 쿠키 `market_onboarding_session`의 경로는 `/api/market`이라 서랍(`/api/assistant`)과 따로입니다. 화면에서 조건을 바꿔도 서랍 대화가 흔들리지 않습니다.
+- 상권 서비스의 입력 오류는 그 상태 그대로(409: 다른 곳에서 조건이 바뀜 → 화면이 서버 조건으로 다시 불러옴, 422), 꺼짐·느림·5xx·이상한 응답은 503 `{"error": {"message", "state"}}`. 500 은 없고, 다른 화면은 영향이 없습니다.
+- 사람이 읽는 칸(`message`·`label`·`note(s)`·`warning(s)`·`title`·`summary`·`text`·`sentence`·`period_note` 등)의 분기 코드만 '2026년 2분기'로 바꿉니다. `value`·`value_text`·`period` 같은 숫자·코드 칸은 그대로입니다. `period`만 있는 곳에는 `period_label`을 붙입니다.
+- `area-context`(11/18 상권 서비스에 더함): 고른 상권의 직장인구·상주인구·세대·집객시설·지하철역·버스정류장·초중고·병원·상권 변화 지표. 챗봇과 같은 출처 확인 파일(`data/assistant_context`)을 읽기만 하고, 없으면 `status: "not_collected"`(지어내지 않음). 자료마다 실제 기준분기(`period_note`).
+- `data-status`·`data-sync`·`cultural-events`의 응답 모양은 `services/market-analysis/README.md` '자료 상태·실시간 발행 확인·문화행사 API'.
+
+### 1.15 서랍의 전 파트 질문과 화면 이동 버튼 (11/18)
+
+`POST /api/assistant/messages`는 질문을 이렇게 나눕니다 (`assistant_proxy.domain_question`).
+
+| 질문 | 답하는 곳 | 답 | 버튼 (`payload.type: "navigate"`) |
+|---|---|---|---|
+| 가게 기본(이름·메뉴·화면 위치) | 이 서버 (예전 그대로) | `store_profile`·`store_guide` | |
+| 상권 자료 낱말(상권·유동·인구·점포·주변…)이 있는 질문, 그 밖 | 상권 서비스 (예전 그대로) | 상권 답 | 자료 답에 '상권 분석 표·차트 보기' `{route: "market"}`를 붙임 |
+| 리포트·보고서·응대 점수·성적·PDF | 이 서버 | `report_guide` | 종합 리포트·PDF 저장 열기 `{route: "report"}` |
+| 쿠폰·본전·할인·남은 재료·재고·광고비·홍보·가게 이야기·마케팅 | 이 서버 | `marketing_guide`: 칭찬 인기 메뉴(카드 ⓑ 와 같은 함수)와 카드 ⓑ 지표를 그 이름 그대로 | 맞춤 마케팅 `{route: "marketing", sub}` + 추천 카드 ⓑ `{route: "cards"}` |
+| 리뷰·불만·답글·캡처·별점·진상·억울… | 이 서버 | `care_guide`: 리뷰·불만 수, 반복 불만 1위·몰린 시간대 | 추천 카드 `{route: "cards"}`, 리뷰 캡처·붙여넣기 `{route: "analysis", sub: "paste"}`, 불만 묶음 `{route: "analysis", sub: "issues"}` |
+
+- 이 서버가 답한 응답은 `answered_by: "web_domain"`, `classification.domain`이 `customer`·`marketing`·`report`. 상권 서비스는 부르지 않고, 상권 서비스가 꺼져 있어도 답합니다.
+- 맞춤 마케팅의 `sub`: `promo` 맞춤 홍보 제안 · `leftover` 남은 재료 팔기 · `ad` 광고비 점검 · `story` 가게 이야기 글 · `repeat` 쿠폰 결과 확인 (`assistant_proxy.MKT_SUBS` = `app.js`의 `MKT_SUB`, 시험이 같은지 확인).
+- 가게 기본 질문 중 화면 위치(`store_guide`)는 예전처럼 버튼 없이 답하고(가게 질문 시험이 `actions: []`를 고정), 안내 목록 끝에 '상권 분석'(`assistant_proxy.MARKET_SCREEN`, 메뉴 글자와 같은지 시험)을 더했습니다. 맺음말은 '동네 상권·업종 매출 상담은 이 채팅에서 바로 답하고, 불만 리뷰·쿠폰·리포트를 물으면 지금 가게 현황과 그 화면으로 가는 버튼을 드려요'입니다 (예전 '리뷰 내용은 여기서 답하지 않아요'는 지움). 그래서 '리포트 보여줘'·'리뷰 보여줘'처럼 '보여줘'로 끝나는 말은 화면 위치 안내로 답합니다.
+- 화면(`app.js` `chatChoose`)은 `navigate`(그리고 `handoff`의 `domain` marketing·customer) 버튼을 `/api/assistant/actions`로 보내지 않고 `navTo`로 그 화면·탭·시작 모드로 바로 갑니다. 폭이 1279px 이하(서랍이 본문을 덮는 폭)면 서랍을 닫습니다.
+
+---
+
 ## 2부. 화면을 다듬을 때 유지해야 하는 것
 
 ### 2.1 파일 세 개와 정적 파일 경로
 
 | 파일 | 서버가 주는 주소 | 하는 일 |
 |---|---|---|
-| `services/web/web/static/index.html` | `/` | 화면의 뼈대. 화면 7개(홈·추천 카드·초안·완료·리뷰 분석·맞춤 마케팅·종합 리포트)와 서랍, 바닥 |
+| `services/web/web/static/index.html` | `/` | 화면의 뼈대. 화면 8개(홈·추천 카드·초안·완료·리뷰 분석·맞춤 마케팅·종합 리포트·상권 분석)와 서랍, 로그인 대화상자, 바닥 |
 | `services/web/web/static/style.css` | `/static/style.css` | 모든 모양 |
 | `services/web/web/static/app.js` | `/static/app.js` | 모든 동작. API 호출, 화면 그리기, 화면 전환 |
 
@@ -1826,6 +1906,8 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 ### 2.2 `id` 목록
 
 (11/16 `feat/imkt-b-screen`(맞춤 마케팅) 기준으로 다시 셈. 서랍·캡처·종합 리포트·맞춤 마케팅 id, 왼쪽 메뉴 접기의 `menu-toggle`·`menu-toggle-count` 포함) `app.js`가 찾는 id는 **144개**입니다. `$("…")`로 글자 그대로 적힌 127개(맞춤 마케팅 19개 포함), `"an-" + t`처럼 이어 붙여 찾는 11개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`, 맞춤 마케팅의 `"mkt-tab-" + t`로만 찾는 `mkt-tab-report`), 종합 리포트의 `RP_STATE` 표로 찾는 6개(`rp-daily-state`·`rp-score-state`·`rp-praise-state`·`rp-month-state`·`rp-market-state`·`rp-mkt-state`)를 합한 수입니다. 그중 `approvals`, `restart`, `rp-approvals`와 맞춤 마케팅 입력칸 `mkt-num`·`mkt-text`·`mkt-free`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 138개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 139개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
+
+**11/18 더한 id** (지우거나 이름을 바꾸면 안 됨): 계정 `acct`·`acct-guest`·`acct-login`·`acct-user`·`acct-store-wrap`·`acct-store`·`acct-logout`, 로그인 대화상자 `auth-dialog`·`auth-title`·`auth-close`·`auth-demo`·`auth-tab-login`·`auth-tab-signup`·`auth-login`·`auth-signup`·`auth-login-id`·`auth-login-pw`·`auth-su-id`·`auth-su-pw`·`auth-su-name`·`auth-error`, AI 직원 `dot-data`·`dot-market`·`staff-market`(`staff-go` 버튼 안), 상권 분석 `mk-`로 시작하는 id(`mk-state`·`mk-store`·`mk-cond-text`·`mk-area`·`mk-industry`·`mk-period`·`mk-apply`·`mk-home`·`mk-ask`·`mk-sync`·`mk-data`·`mk-sync-result`·`mk-events`·`mk-events-note`·`mk-tiles`·`mk-t-*`·`mk-tab-*`·`mk-sales`·`mk-stores`·`mk-pop`·`mk-compare`·`mk-cmp-*`). 서랍 첫 안내의 문장 두 개(역할·기본 정보)는 시험이 지킵니다.
 
 `index.html`에는 id가 151개 있습니다. 139개를 뺀 나머지 12개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`·`aria-controls`)이나 자리 표시로만 씁니다 (표의 마지막 묶음). 세는 법: `app.js`에서 정규식 ``\$\(\s*["']([\w-]+)["']\s*\)``로 찾은 id + 위의 이어 붙인 id + `RP_STATE` 표의 값, `index.html`에서 `id="([\w-]+)"`.
 
@@ -2131,6 +2213,15 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 ### 2.4 시험이 직접 확인하는 것
 
+**11/18 5차 회의 뒤 더한 것** (먼저 읽어 두세요)
+
+- `test_post_m5_ui_static.py`: 상권 분석 화면(메뉴 자리·조건 바·서울시 최신화·지표 4칸·탭 4개, `marketApi`로 `/api/market/*`만, 전역 `api()`·`showAlert`·다른 화면의 호출 함수와 `is_store_default` 없음, 서버 글 `esc()`·새 탭 링크 `rel="noopener"`, 탭 키보드, 409 다시 불러오기, 표는 칸 안에서 가로 스크롤, 새 색 토큰 없음), 계정(상단 바의 `acct-*`, `<dialog>`의 '시연 다점포 사장님으로 1초 시작', `/api/auth/*` 경로, `storeChanged`가 모든 화면을 다시 불러옴, `document.cookie`·`localStorage`를 쓰지 않음), AI 직원 네 명(버튼, `dot-*`·`staff-*`, 상태가 읽는 것), 화면 이동(`MKT_SUB` = 서버의 `MKT_SUBS`, `navTo`), 서랍 입력칸 안내 "상권·리뷰·마케팅 무엇이든 물어보세요". `node`가 있으면 `chatNavTarget`·`marketScope`·`wonShort`를 실제로 돌림.
+- `test_assistant_drawer_static.py`: 첫 추천 질문이 6개(상권 3 · 불만 리뷰 · 쿠폰 손익 · 남은 재료), `navigate` 버튼은 서버로 보내지 않음. `test_assistant_ux.py`: 추천 질문 6개 중 상권 3개는 상권 서비스로, 3개는 전 파트 답으로.
+- `test_web.py` `test_later_menu_slots`: `LATER`가 빈 목록이고, 상권이 `ROUTES`의 진짜 화면.
+- 서버 쪽: `test_auth_stores.py`(로그인·쿠키·잠금·가게별 기록·아래 서비스로 가는 가게/방문자, PostgreSQL 두 서버), `test_market_proxy.py`(1.14), `test_assistant_domains.py`(1.15).
+
+**`app.js`에 이 낱말을 새로 쓰지 마세요** (다른 화면의 시험이 파일 전체에서 셉니다): `is_store_default`(서랍 한 곳), `?store=`, 주석 밖의 `/api/marketing-survey`(한 곳), `원본`(지표 칩 한 곳). 상권 분석 화면은 기본 조건 여부를 `conditions.home`으로 받습니다.
+
 기존 시험 69건은 `services/web/tests/`의 `test_web.py` 45건과 `test_measure_live.py` 24건입니다 (main `d7c1305`에서 모두 통과함을 확인함). 그중 **화면 파일(`index.html`, `app.js`)을 글자로 읽어 확인하는 시험은 아래 6개**입니다. 나머지는 화면 파일을 읽지 않습니다. 이 6개를 바꾸면 시험이 깨집니다.
 
 | # | 시험 | 확인하는 것 |
@@ -2207,7 +2298,7 @@ const on = new Set(m.default || []);
 | `#/analysis` | `analysis` | 리뷰 분석 | 탭 3개 (요약·불만 묶음·리뷰 붙여넣기) | `index.html` |
 | `#/marketing` | `marketing` | 맞춤 마케팅 (760px 이하 가로 메뉴는 "마케팅") | 탭 두 개: 맞춤 제안(시작 모드 다섯 개 → 질문 → 결과 카드 → 고쳐서 승인) · 마케팅 보고서(주간·월간) (11/16) | `index.html`의 껍데기 + JS가 대화를 채움 |
 | `#/report` | `report` | 종합 리포트 | 오늘 요약 · 응대 점수 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약 (11/15, 칭찬 요약·PDF 저장은 11/16) | `index.html` |
-| `#/market` | `market` | 상권 (준비 중) | 빈 자리 | `app.js`의 `LATER`가 만듦 |
+| `#/market` | `market` | 상권 분석 (760px 이하 가로 메뉴는 "분석"이 아니라 `<span class="long">상권 </span>분석`) | 11/18: 조건 바 · 서울 열린데이터광장 실시간 최신화와 우리 동네 문화행사 · 핵심 지표 4칸 · 세부 탭 4개(매출 · 점포·개폐업 · 유동·배후인구·집객시설 · 타 상권 1:1 비교). `/api/market/*`만 부름 (1.14) | `index.html` + JS가 채움. `LATER`는 11/18부터 비어 있음 |
 
 - 알 수 없는 해시, 해시가 없는 주소는 `#/today`로 봅니다 (`currentRoute()`가 `ROUTES`에 없는 이름을 홈으로 돌림).
 - `ROUTES` 배열(`["today", "cards", "draft", "done", "analysis", "marketing", "report", ...LATER의 이름]`)에 없는 화면 이름은 쓸 수 없습니다.
@@ -2438,6 +2529,7 @@ const LATER = [
 | `reports` | 가게 주간·월간 보고서 | 없음 (새로 만듦) |
 | `approvals` | 승인 기록 | `approvals.jsonl` 한 줄(`draft_id`, `status`, `edited`, `text`, `approved_at`, `mode`) |
 | `card_reasons` | 카드 추천 이유 | `GET /api/cards`의 `card.reason_text`, `reason_source`, `checked_text`, `facts`, `evidence`, `problems`. 지금은 서버 메모리(`_reason_memo`)에만 있음 |
+| `users` · `user_stores` · `auth_sessions` (11/18, 실제 표) | 사장님 계정·가진 가게·로그인 세션 | `db/schema.sql`. `users(user_id PK, login_id UNIQUE, password_hash, display_name, created_at)`, `user_stores(user_id, store_id, position, PK(user_id, store_id))`, `auth_sessions(token_hash PK, user_id, active_store_id, created_at, expires_at)`. 로그인한 사장님의 승인 기록 등은 다른 표의 `visitor_id` 칸에 `u-<user_id>`로 남음 (1.13) |
 
 지금 쓰는 id 모양 (DB 설계 때 참고. 예시 값):
 

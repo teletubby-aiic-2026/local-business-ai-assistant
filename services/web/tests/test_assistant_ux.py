@@ -361,11 +361,15 @@ class TestStoreQuestionRules(unittest.TestCase):
                 self.assertIsNone(ap.store_question(text))
 
     def test_the_drawer_starters_are_market_questions(self):
+        # 5차 회의(11/18): 첫 추천 질문은 상권 질문과 전 파트 질문(고객응대·마케팅)이 섞인다. 가게 기본 질문은 없다
         js = (REPO_ROOT / "services" / "web" / "web" / "static" / "app.js").read_text(encoding="utf-8")
-        starters = re.findall(r'"([^"]+)"', re.search(r"const CHAT_STARTERS = \[(.*?)\];", js).group(1))
-        self.assertEqual(len(starters), 4)
+        starters = re.findall(r'"([^"]+)"', re.search(r"const CHAT_STARTERS = \[(.*?)\];", js, re.S).group(1))
+        self.assertEqual(len(starters), 6)
         for text in starters:
             self.assertIsNone(ap.store_question(text), text)
+        domains = [ap.domain_question(text) for text in starters]
+        self.assertEqual(domains.count(None), 3)                      # 상권 서비스로 가는 질문 셋
+        self.assertEqual(sorted(d for d in domains if d), ["care", "marketing", "marketing"])
         for text in ap.BACK_TO_MARKET:                 # 가게 답 아래 '이어서 물어보기'는 첫 추천 질문과 같은 문장이고 상권으로 간다
             self.assertIn(text, starters)
 

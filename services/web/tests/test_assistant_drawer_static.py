@@ -102,8 +102,21 @@ class DrawerScript(unittest.TestCase):
         self.assertNotIn("/api/assistant", boot)
 
     def test_first_suggestions(self):
-        for q in ("우리 가게 상권 매출은 어때?", "주말 매출은 어때?", "주변에 같은 업종 점포는 몇 개야?", "점심과 저녁 중 매출은 어디가 커?"):
+        # 5차 회의(11/18): 상권 질문 3개 + 전 파트 질문 3개(불만 리뷰·쿠폰 손익·남은 재료)
+        for q in ("우리 가게 상권 매출은 어때?", "주변에 같은 업종 점포는 몇 개야?", "점심과 저녁 중 매출은 어디가 커?",
+                  "불만 리뷰 제일 많은 게 뭐야?", "쿠폰 2천원 할인하면 몇 개 팔아야 본전이야?", "남은 재료 묶어서 팔고 싶어"):
             self.assertIn(f'"{q}"', JS)
+
+    def test_navigate_buttons_move_without_calling_the_market_service(self):
+        """11/18: 답의 navigate·handoff 버튼은 /api/assistant/actions 로 보내지 않고 navTo 로 화면을 바꾼다. 덮는 폭이면 서랍을 닫는다."""
+        js = drawer_js()
+        body = js[js.index("async function chatChoose("):js.index("// 대화 지우기")]
+        self.assertLess(body.index("chatNavTarget(action)"), body.index('"/api/assistant/actions"'))
+        self.assertIn("navTo(target.route, target.sub)", body)
+        self.assertIn('toggleAssistant(false)', body)
+        nav = js[js.index("function chatNavTarget("):js.index("async function chatChoose(")]
+        self.assertIn('p.type === "navigate"', nav)
+        self.assertIn('p.type === "handoff"', nav)
 
     def test_unsafe_source_links_are_dropped(self):
         self.assertIn('u.protocol === "https:" || u.protocol === "http:"', drawer_js())

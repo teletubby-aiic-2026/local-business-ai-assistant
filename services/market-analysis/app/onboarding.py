@@ -588,6 +588,34 @@ def create_onboarding_router(store: OnboardingStore, *, cookie_secure=False) -> 
             raise HTTPException(409, "조회 중 분석 조건이 변경됐습니다. 최신 조건을 불러온 뒤 다시 조회해 주세요.")
         return response({**result, "revision": state["revision"], "feature": "sales", "analysis_stage": "sales_result"}, token)
 
+    @router.get("/area-context")
+    def area_context(request: Request, expected_revision: int | None = Query(default=None, ge=0)):
+        """고른 상권의 직장인구·상주인구·세대·집객시설·상권 변화 (5차 회의 11/18, 상권 화면의 '유동·배후인구·집객시설' 탭).
+        챗봇이 쓰는 것과 같은 출처 확인 파일(data/assistant_context, app/assistant/context.py)을 읽기만 한다.
+        파일이 없거나 그 상권 값이 없으면 status 'not_collected' (지어내지 않음). 자료마다 실제 기준분기를 같이 준다."""
+        if (set(request.query_params) - {"expected_revision"}
+                or len(request.query_params.getlist("expected_revision")) > 1):
+            raise HTTPException(422, "입지 자료는 저장한 분석 조건을 사용합니다. 다른 상권·기간을 직접 전달할 수 없습니다.")
+        owner, token = owned(request)
+        state = analysis_state(owner)
+        if expected_revision is not None and expected_revision != state["revision"]:
+            raise HTTPException(409, "분석 조건이 변경됐습니다. 최신 조건을 불러온 뒤 다시 조회해 주세요.")
+        if not state["conditions_confirmed"]:
+            raise HTTPException(409, "분석할 상권과 기간을 먼저 선택하거나 현재 자료로 다시 확인해 주세요.")
+        selected = state["analysis_selection"]
+        from app.assistant.context import WARNING, area_table, card_values, period_sentence, sentence
+
+        row = area_table(selected["period"]).get(selected["area_code"])
+        name = selected.get("area_name")
+        result = {"status": "not_collected", "selection": {k: selected.get(k) for k in ("area_code", "area_name", "period",
+                                                                                       "period_label", "industry_code")},
+                  "values": [], "sentence": None, "period_note": None, "warnings": [WARNING]}
+        if row:
+            figure = {**row, "name": name}
+            result.update(status="available", values=card_values(figure), sentence=sentence(figure) or None,
+                          period_note=period_sentence(figure) or None)
+        return response({**result, "revision": state["revision"], "feature": "area_context"}, token)
+
     @router.get("/stores")
     def stores(request: Request, expected_revision: int | None = Query(default=None, ge=0)):
         if (set(request.query_params) - {"expected_revision"}

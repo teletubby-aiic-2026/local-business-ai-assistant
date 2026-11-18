@@ -192,7 +192,7 @@ class SetupPerStore(unittest.TestCase):
     def test_guest_gets_the_default_store_conditions(self):
         client, fake = build()
         data = client.post("/api/market/setup").json()
-        self.assertEqual((data["status"], data["conditions"]["area_code"], data["conditions"]["is_store_default"]),
+        self.assertEqual((data["status"], data["conditions"]["area_code"], data["conditions"]["home"]),
                          ("ok", "3110826", True))
         profile = next(r for r in fake.requests if r["method"] == "POST" and r["path"].endswith("/profile"))
         self.assertEqual((profile["json"]["industry_code"], profile["json"]["location"]["station_id"]),
@@ -207,7 +207,7 @@ class SetupPerStore(unittest.TestCase):
         data = client.post("/api/market/setup?force=1").json()
         self.assertEqual((data["conditions"]["area_code"], data["conditions"]["industry_code"], data["conditions"]["period"]),
                          ("3110836", "CS100007", "20262"))
-        self.assertTrue(data["conditions"]["is_store_default"])
+        self.assertTrue(data["conditions"]["home"])
         client.post("/api/auth/store", json={"store_id": "store_mongle"})
         data = client.post("/api/market/setup?force=1").json()
         self.assertEqual((data["conditions"]["area_code"], data["conditions"]["industry_code"]), ("3120154", "CS100010"))

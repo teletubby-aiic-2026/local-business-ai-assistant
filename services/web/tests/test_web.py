@@ -556,13 +556,16 @@ class AnalysisScreen(unittest.TestCase):
             self.assertIn(key, js)
 
     def test_later_menu_slots(self):
-        """준비 중 자리는 '상권' 하나만 남았다. 종합 리포트는 11/15 진짜 화면(#/report)이 됐다 (test_care_ui_static.py)."""
+        """준비 중 자리는 비었다: 종합 리포트(11/15)와 상권 분석(11/18 5차 회의)이 진짜 화면이 됐다.
+        자리를 다시 만들 때 쓰는 mountLater 는 남기되, 목록이 비면 '준비 중' 제목도 만들지 않는다."""
         js = (STATIC / "app.js").read_text(encoding="utf-8")
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn("const LATER = [];", js)
         self.assertIn("회의에서 정한 뒤 넣을 자리입니다", js)
-        later = js[js.index("const LATER = ["):js.index("];", js.index("const LATER = ["))]
-        self.assertIn('"상권"', later)
-        self.assertNotIn('route: "report"', later)
-        self.assertIn("준비 중", js)
+        self.assertIn("if (!LATER.length) return;", js)
+        self.assertIn('"report", "market"', js)                       # ROUTES 에 진짜 화면으로
+        self.assertEqual(html.count('data-route="market"'), 1)
+        self.assertEqual(html.count('data-view="market"'), 1)
 
     def test_every_id_the_script_uses_exists(self):
         """app.js 의 $("…") 가 찾는 id 는 index.html 에 있거나 app.js 가 직접 그린다."""

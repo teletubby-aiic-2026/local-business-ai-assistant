@@ -11,7 +11,7 @@ assistant_proxy.py 처럼 Host: 127.0.0.1:8766 을 고정해서 부른다.
 | GET      | /api/market/options              | /api/onboarding/options                       |
 | GET      | /api/market/analysis-options     | /api/onboarding/analysis-options              |
 | GET·POST | /api/market/analysis-selection   | /api/onboarding/analysis-selection            |
-| GET      | /api/market/{sales,stores,population} | /api/onboarding/… (expected_revision)   |
+| GET      | /api/market/{sales,stores,population,area-context} | /api/onboarding/… (expected_revision) |
 | GET      | /api/market/changes?comparison=qoq·yoy | /api/onboarding/changes                |
 | GET      | /api/market/comparison-options   | /api/onboarding/comparison-options            |
 | GET      | /api/market/comparison?comparison_area_code=… | /api/onboarding/comparison       |
@@ -68,6 +68,7 @@ ROUTES: dict[str, tuple[tuple[str, ...], str, tuple[str, ...], float]] = {
     "sales": (("GET",), "/api/onboarding/sales", ("expected_revision",), 30.0),
     "stores": (("GET",), "/api/onboarding/stores", ("expected_revision",), 30.0),
     "population": (("GET",), "/api/onboarding/population", ("expected_revision",), 30.0),
+    "area-context": (("GET",), "/api/onboarding/area-context", ("expected_revision",), 20.0),
     "changes": (("GET",), "/api/onboarding/changes", ("comparison", "expected_revision"), 30.0),
     "comparison-options": (("GET",), "/api/onboarding/comparison-options", ("expected_revision",), 30.0),
     "comparison": (("GET",), "/api/onboarding/comparison", ("comparison_area_code", "expected_revision"), 30.0),
@@ -76,7 +77,7 @@ ROUTES: dict[str, tuple[tuple[str, ...], str, tuple[str, ...], float]] = {
     "cultural-events": (("GET",), "/api/onboarding/cultural-events", ("district",), 20.0),
 }
 TEXT_KEYS = frozenset({"message", "detail", "label", "note", "notes", "warning", "warnings", "title", "reason", "description",
-                       "summary", "text", "hint", "apply_hint", "notice"})
+                       "summary", "text", "hint", "apply_hint", "notice", "sentence", "period_note"})
 
 
 def present(value: Any, key: str = "") -> Any:
@@ -228,7 +229,8 @@ class MarketProxy:
                "industry_code": industry.get("code"), "industry_name": industry.get("name"),
                "period": sel.get("period"), "period_label": period_words(sel.get("period_label") or sel.get("period")),
                "location_label": location.get("label") or location.get("name"), "revision": state.get("revision")}
-        out["is_store_default"] = bool(wanted) and (out["area_code"], out["industry_code"], out["period"]) == (
+        # 우리 가게 기본 조건인지 (서버가 판단. 화면의 서랍 플래그 이름과 겹치지 않게 home)
+        out["home"] = bool(wanted) and (out["area_code"], out["industry_code"], out["period"]) == (
             wanted.area_code, wanted.industry_code, wanted.period)
         return out
 

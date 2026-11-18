@@ -22,11 +22,10 @@ const SOURCE_NAMES = { live: "실시간 HCX-005", seed: "시험용 저장 예시
 // 메뉴 링크와 빈 화면을 둘 다 이 목록에서 만든다 (mountLater). 지우려면 여기서 빼면 끝.
 // 채울 때는 index.html 에 진짜 화면(section data-view)을 만들고 여기서 빼서 ROUTES 에 이름을 넣는다. 모양은 style.css '준비 중 자리' 한 덩어리.
 // long: 375px 메뉴에서 숨기는 앞부분 (다른 메뉴의 '추천 '·'처리 '와 같은 방식)
-// 종합 리포트(#/report)는 11/15 진짜 화면으로 채웠다 (index.html section data-view="report", 아래 '종합 리포트' 덩어리)
-const LATER = [
-  { route: "market", long: "", short: "상권", desc: "가게 주변 상권 지표를 볼 화면이에요. 지금은 홈의 '상권 저녁 매출' 칸, 종합 리포트의 상권 요약, 추천 카드 ⓑ의 근거에서 볼 수 있어요." },
-];
-const ROUTES = ["today", "cards", "draft", "done", "analysis", "marketing", "report", ...LATER.map((x) => x.route)];
+// 종합 리포트(#/report)는 11/15, 상권 분석(#/market)은 11/18 5차 회의 뒤 진짜 화면으로 채웠다. 지금은 비어 있다
+// (비면 mountLater 가 메뉴의 '준비 중' 제목도 만들지 않는다)
+const LATER = [];
+const ROUTES = ["today", "cards", "draft", "done", "analysis", "marketing", "report", "market", ...LATER.map((x) => x.route)];
 
 const state = {
   health: null, briefing: null, cards: [], results: {}, approved: new Set(), approvedLog: [],
@@ -62,6 +61,7 @@ function route() {
   if (name === "today") renderDash();
   if (name === "report") loadReport(); else rpStop();
   if (name === "marketing") mktOpen();   // 맞춤 마케팅은 이 화면을 처음 열 때 시작한다 (첫 화면 로딩에 영향 없음)
+  if (name === "market") mkvOpen();      // 상권 분석도 처음 열 때 시작한다 (11/18)
   document.querySelectorAll("[data-view]").forEach((v) => (v.hidden = v.dataset.view !== name));
   document.querySelectorAll(".menu a").forEach((a) => {
     if (a.dataset.route === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
@@ -163,7 +163,7 @@ function renderBriefing(b) {
   // 범위를 숫자 옆에 붙인다 (11/18): -19.31% 는 '장승배기역 4번 · 공통 업종 17~24시'. 서랍의 답(한식음식점 하루 전체, 예: +2.35%)과
   // 범위가 달라 나란히 보면 모순처럼 보이므로, 업종·시간대를 늘 함께 보여 준다
   $("stat-market-sub").textContent = snap ? [snap.area_name, marketScope(snap), "전년 같은 분기 대비"].filter(Boolean).join(" · ") : "상권 지표 없음";
-  $("stat-market").closest(".stat-card").title = snap ? `${snap.metric_name}. ${SCOPE_NOT_ONE}` : "";
+  $("stat-market").closest(".stat-card").title = snap ? `${snap.metric_name}. ${scopeNote(snap)}` : "";
   chatScopeNote();
   $("staff-data").textContent = `리뷰 ${c.review_count}건 정리 끝`;
   syncStaffStrip();
@@ -289,7 +289,7 @@ function todosOf() {
   if (mkt) {
     const made = !!state.results[mkt.card.card_id];
     const menu = praiseOf(mkt).menu;   // 손님 칭찬 리뷰에 나온 쿠폰 메뉴 (칭찬 근거가 없으면 빈 글자 → 예전 문구)
-    items.push({ key: "promo", card: mkt, cid: mkt.card.card_id, gen: "coupon_promo", title: "쿠폰 홍보글", sub: `상권 저녁 ${$("stat-market").textContent}(공통 업종) · ${menu ? `손님이 칭찬한 ${menu} 쿠폰으로 ` : ""}저녁 손님 다시 부르기`, agent: "마케팅 에이전트", st: status(mkt, of(mkt, "coupon_promo"), made) });
+    items.push({ key: "promo", card: mkt, cid: mkt.card.card_id, gen: "coupon_promo", title: "쿠폰 홍보글", sub: `상권 저녁 ${$("stat-market").textContent}(${marketScope(homeSnap(state.briefing)) || "상권 지표"}) · ${menu ? `손님이 칭찬한 ${menu} 쿠폰으로 ` : ""}저녁 손님 다시 부르기`, agent: "마케팅 에이전트", st: status(mkt, of(mkt, "coupon_promo"), made) });
   }
   return items;
 }
@@ -312,16 +312,7 @@ function renderDash() {
   $("nav-draft-count").hidden = !waiting;
   $("nav-draft-count").textContent = waiting;
   syncMenuCount(waiting);   // 메뉴가 접혀 있을 때는 토글 버튼 위에
-  const staff = (prefix, list) => {
-    const made = list.some((t) => t.st[0] !== "none");
-    const done = list.length && list.every((t) => t.st[0] === "done");
-    const wait = list.flatMap((t) => draftsOf(t.cid).filter((d) => d.generator === t.gen && !state.approved.has(d.draft_id))).length;
-    $("dot-" + prefix).className = "dot " + (done ? "ok" : "warn");
-    $("staff-" + prefix).textContent = !list.length ? "오늘 할 일 없음" : done ? "오늘 몫 끝" : made ? `승인 대기 ${wait}개` : "만들 차례";
-  };
-  staff("care", items.filter((t) => t.agent === "고객 응대 비서"));
-  staff("mkt", items.filter((t) => t.agent === "마케팅 에이전트"));
-  syncStaffStrip();
+  renderStaff(items);   // AI 직원 네 명의 상태 (아래 'AI 직원' 덩어리, 11/18)
 }
 // 375px 홈의 직원 상태 줄: 왼쪽 메뉴 'AI 직원' 목록(#staff)을 그대로 옮겨 그린다 (내용은 한 곳에서만 정함)
 function syncStaffStrip() {
@@ -1251,13 +1242,18 @@ function rpPraise(m, error) {
 // 홈 '상권 저녁 매출' 칸의 지표: 값이 있고 개발용 가짜가 아닌 첫 지표
 const homeSnap = (b) => (b?.snapshots || []).find((x) => x.value !== null && !x.dev_fake) || null;
 const snapValue = (s) => `${s.value > 0 ? "+" : ""}${Number(s.value).toFixed(2)}${s.unit || ""}`;
-// 상권 지표의 범위(업종·시간대)를 지표 이름에서 읽는다. '저녁 시간대(17~24시) … · 두 분기 공통 업종' → '공통 업종 17~24시'
+// 상권 지표의 범위(업종·시간대)를 지표 이름에서 읽는다. ' · ' 뒤가 업종 범위다 (11/18 가게마다 다름)
+//   '저녁 시간대(17~24시) … · 두 분기 공통 업종' → '공통 업종 17~24시' (온기한식)
+//   '저녁 시간대(17~24시) … · 치킨전문점' → '치킨전문점 17~24시' (바삭치킨)
 function marketScope(s) {
   const name = String(s?.metric_name || "");
   const hours = (name.match(/([0-9]{1,2}~[0-9]{1,2}시)/) || [])[1] || "";
-  return [name.includes("공통 업종") ? "공통 업종" : "", hours].filter(Boolean).join(" ");
+  const tail = name.includes(" · ") ? name.split(" · ").pop().replace(/^두 분기\s*/, "").trim() : "";
+  return [tail, hours].filter(Boolean).join(" ");
 }
 const SCOPE_NOT_ONE = "한 업종(예: 한식음식점)의 하루 전체 매출이 아니에요.";
+// 지표가 여러 업종 합계면 SCOPE_NOT_ONE, 한 업종이면 '하루 전체가 아니라 그 시간대' 라고만
+const scopeNote = (s) => String(s?.metric_name || "").includes("공통 업종") ? SCOPE_NOT_ONE : "하루 전체 매출이 아니라 그 시간대의 매출이에요.";
 // 서랍의 조건 줄 아래: 홈 숫자와 서랍 답의 범위가 다르다는 한 줄 (홈 지표가 있을 때만)
 function chatScopeNote() {
   const el = $("assistant-cond-note");
@@ -1284,7 +1280,7 @@ function rpMarket() {
           <span class="small muted">${esc([s.area_name, s.compared_with_quarter ? "전년 같은 분기 대비" : "", shortBasis(s.basis_label)].filter(Boolean).join(" · "))}${sourceUrl(s.source) ? ` · <a href="${esc(sourceUrl(s.source))}" target="_blank" rel="noopener">원본</a>` : ""}</span>
           ${s.dev_fake ? '<span class="badge bad">개발용 가짜 값 · 발표에 쓰지 마세요</span>' : ""}</span></li>`).join("")
       || '<li class="small muted">상권 지표가 없어요.</li>'}</ul>
-    ${snaps.some((s) => marketScope(s)) ? `<p class="small muted rp-scope">위 숫자는 ${esc(snaps.map((s) => [s.area_name, marketScope(s)].filter(Boolean).join(" · ")).join(", "))} 기준이에요. ${esc(SCOPE_NOT_ONE)} 'AI에게 묻기'는 고른 업종 하나의 하루 전체로 답해서 숫자가 다를 수 있어요.</p>` : ""}
+    ${snaps.some((s) => marketScope(s)) ? `<p class="small muted rp-scope">위 숫자는 ${esc(snaps.map((s) => [s.area_name, marketScope(s)].filter(Boolean).join(" · ")).join(", "))} 기준이에요. ${esc(scopeNote(snaps[0]))} 'AI에게 묻기'는 고른 업종 하나의 하루 전체로 답해서 숫자가 다를 수 있어요.</p>` : ""}
     <p class="small muted">상권 통계는 상권·업종 전체의 추정치예요. 우리 가게 매출이 아니에요.</p>
     <button type="button" class="ghost rp-ask" data-rp-ask>AI에게 묻기로 상권 더 보기</button>`;
   rpState("market", "");
@@ -1377,6 +1373,7 @@ async function rpPdf() {
 
 // ── 준비 중 자리: LATER 목록으로 왼쪽 메뉴 링크와 빈 화면을 만든다 ─────────────
 function mountLater() {
+  if (!LATER.length) return;   // 준비 중 자리가 없으면 '준비 중' 제목도 만들지 않는다
   const menu = document.querySelector(".side .menu");
   const main = document.querySelector(".shell > main");
   menu.insertAdjacentHTML("beforeend", '<p class="later-title" aria-hidden="true">준비 중</p>' + LATER.map((x) => `
@@ -2280,8 +2277,10 @@ const CHAT_STATES = {
   no_data: ["상권 자료를 준비하고 있어요", "공식 상권 자료가 아직 준비되지 않았어요. 자료가 들어오면 바로 쓸 수 있어요."],
   error: ["상권 비서를 불러오지 못했어요", "상권 비서에 문제가 생겼어요. 잠시 뒤 다시 시도해 주세요."],
 };
-// 처음 추천 질문 (11/15 실제 상권 서버로 확인한 4개. 다른 말투는 AI 계획기가 없는 기간을 지어내 '자료가 없어요'로 답하기도 함)
-const CHAT_STARTERS = ["우리 가게 상권 매출은 어때?", "주말 매출은 어때?", "주변에 같은 업종 점포는 몇 개야?", "점심과 저녁 중 매출은 어디가 커?"];
+// 처음 추천 질문: 상권 질문(11/15 실제 상권 서버로 확인한 말투) + 전 파트 질문(5차 회의 11/18: 불만 리뷰·쿠폰 손익·남은 재료).
+// 상권 질문은 다른 말투면 AI 계획기가 없는 기간을 지어내 '자료가 없어요'로 답하기도 해서 확인한 문장만 쓴다
+const CHAT_STARTERS = ["우리 가게 상권 매출은 어때?", "주변에 같은 업종 점포는 몇 개야?", "불만 리뷰 제일 많은 게 뭐야?",
+  "쿠폰 2천원 할인하면 몇 개 팔아야 본전이야?", "남은 재료 묶어서 팔고 싶어", "점심과 저녁 중 매출은 어디가 커?"];
 const CHAT_WAIT_MS = 90000;   // 실제 AI 호출이라 60~90초 걸릴 수 있다. 넘으면 끊고 입력을 풀어 준다
 const CHAT_SLOW = "답이 늦어지고 있어요. 잠시 뒤 다시 물어봐 주세요";
 const chat = {
@@ -2362,7 +2361,7 @@ function chatInput() {
   const q = $("assistant-q"), off = !chat.ready || chat.busy;
   q.disabled = off;
   // 340px 서랍에서도 한 줄에 들어가게 짧게 (글 칸은 한 줄 높이에서 시작)
-  q.placeholder = chat.busy ? "답을 기다리고 있어요…" : chat.ready ? "상권에 대해 물어보세요" : chat.loading ? "준비하고 있어요…" : "지금은 물어볼 수 없어요";
+  q.placeholder = chat.busy ? "답을 기다리고 있어요…" : chat.ready ? "상권·리뷰·마케팅 무엇이든 물어보세요" : chat.loading ? "준비하고 있어요…" : "지금은 물어볼 수 없어요";
   $("assistant-send").disabled = off || !q.value.trim();
   $("assistant-clear").hidden = !chat.ready || !$("assistant-log").children.length;
   $("assistant-clear").disabled = chat.busy;
@@ -2623,7 +2622,22 @@ async function chatSend(text) {
     if (!q.value.trim()) { q.value = value; chatGrow(); }   // 다시 보내기 쉽게 입력칸에 돌려놓는다
   } finally { chatBusy(false); chatFocus(); }
 }
+// 답의 버튼 중 화면으로 가는 것(payload.type "navigate", 또는 고객응대·마케팅으로 넘기는 handoff)은 서버로 보내지 않고
+// 그 화면으로 바로 간다 (navTo, 아래 '화면 이동' 덩어리). 서랍이 본문을 덮는 폭에서는 서랍을 닫는다 (11/18)
+function chatNavTarget(action) {
+  const p = action && action.payload;
+  if (!p || typeof p !== "object") return null;
+  if (p.type === "navigate" && typeof p.route === "string") return { route: p.route, sub: typeof p.sub === "string" ? p.sub : null };
+  if (p.type === "handoff") return p.domain === "marketing" ? { route: "marketing", sub: null } : p.domain === "customer" ? { route: "cards", sub: null } : null;
+  return null;
+}
 async function chatChoose(group, button, action) {
+  const target = chatNavTarget(action);
+  if (target) {
+    navTo(target.route, target.sub);
+    if (window.matchMedia("(max-width: 1279px)").matches) toggleAssistant(false);
+    return;
+  }
   if (chat.busy || !chat.ready || group !== chat.latest) return;
   const chips = chat.chips;
   chatError(""); chatDisarm();
@@ -2714,6 +2728,18 @@ function chatState(st, message) {
   $("assistant-state").hidden = false;
   chatStatus(`${title}. ${message || fallback}`, false, true);
 }
+// 가게를 바꾸거나 로그인·로그아웃하면 (11/18): 서버가 상권 세션을 지웠으니 대화·조건을 비우고, 서랍이 열려 있으면 새 가게로 다시 시작
+function chatReset() {
+  chat.started = false; chat.ready = false; chat.setupTried = false; chat.latest = null; chat.label = "";
+  $("assistant-log").replaceChildren();
+  chatChips([]);
+  chatConditions(null);
+  $("assistant-state").hidden = true;
+  $("assistant-welcome").hidden = true;
+  chatError("");
+  chatStatus("");
+  if (!$("assistant").hidden) { chat.started = true; chatStart(); }
+}
 // 시작 (서랍을 처음 열 때, 또는 '다시 확인'): 상태 → (ready 이면) 이전 대화·조건 → 조건이 없으면 setup 한 번
 async function chatStart() {
   if (chat.loading) return;
@@ -2773,6 +2799,504 @@ function toggleAssistant(open, opener) {
   if (!back.hidden) back.focus();
 }
 
+// ── 로그인·가게 바꾸기 (5차 회의 11/18) ──────────────────────────────────
+// /api/auth/* 만 부른다. 로그인하지 않으면 '게스트 체험'(기본 가게 온기한식). 로그인하면 가진 가게를 고르고, 바꾸면 모든 화면
+// (브리핑·추천 카드·리뷰 분석·맞춤 마케팅·상권 분석·종합 리포트·서랍)이 새 가게 기준으로 다시 불러온다 (storeChanged).
+// 세션은 HttpOnly 쿠키라 JS 가 만지지 않는다. 비밀번호는 보낸 뒤 입력칸을 비운다.
+const acct = { me: null, busy: false };
+function acctRender() {
+  const me = acct.me, on = !!(me && me.authenticated);
+  $("acct-guest").hidden = on;
+  $("acct-login").hidden = on;
+  $("acct-user").hidden = !on;
+  $("acct-logout").hidden = !on;
+  $("acct-store-wrap").hidden = !on;
+  if (on) {
+    const name = String(me.user.display_name || "");
+    $("acct-user").textContent = name.endsWith("사장님") ? name : `${name} 사장님`;
+    $("acct-store").innerHTML = (me.stores || []).map((s) =>
+      `<option value="${esc(s.store_id)}"${s.store_id === me.store_id ? " selected" : ""}>${esc(s.name)}</option>`).join("");
+  }
+  $("auth-demo").hidden = !!(me && me.demo_login === false);
+  if (me && me.notice) showAlert(me.notice);
+}
+async function acctLoad() {
+  try { acct.me = await api("/api/auth/me"); } catch { acct.me = null; }
+  acctRender();
+}
+function authErr(msg) { const el = $("auth-error"); el.hidden = !msg; el.textContent = msg || ""; }
+function authTab(name, focus = false) {
+  ["login", "signup"].forEach((t) => {
+    const tab = $("auth-tab-" + t), on = t === name;
+    tab.setAttribute("aria-selected", String(on));
+    tab.tabIndex = on ? 0 : -1;
+    $("auth-" + t).hidden = !on;
+    if (on && focus) tab.focus();
+  });
+  authErr("");
+}
+function authOpen() {
+  authErr("");
+  const d = $("auth-dialog");
+  if (typeof d.showModal === "function") { if (!d.open) d.showModal(); } else d.setAttribute("open", "");
+  $("auth-demo").hidden ? $("auth-login-id").focus() : $("auth-demo").focus();
+}
+function authClose() {
+  const d = $("auth-dialog");
+  if (typeof d.close === "function" && d.open) d.close(); else d.removeAttribute("open");
+  ["auth-login-pw", "auth-su-pw"].forEach((id) => { $(id).value = ""; });
+  $("acct-login").focus();
+}
+async function authDo(path, body) {
+  if (acct.busy) return;
+  acct.busy = true;
+  authErr("");
+  document.querySelectorAll("#auth-dialog button").forEach((b) => { b.disabled = true; });
+  try {
+    acct.me = await api("/api/auth/" + path, { method: "POST", body: JSON.stringify(body || {}) });
+    ["auth-login-pw", "auth-su-pw"].forEach((id) => { $(id).value = ""; });
+    const d = $("auth-dialog");
+    if (typeof d.close === "function" && d.open) d.close(); else d.removeAttribute("open");
+    await storeChanged();
+    $("acct-store").focus();
+  } catch (e) { authErr(e.message); }
+  finally {
+    acct.busy = false;
+    document.querySelectorAll("#auth-dialog button").forEach((b) => { b.disabled = false; });
+  }
+}
+function authLogin(e) {
+  e.preventDefault();
+  const id = $("auth-login-id").value.trim(), pw = $("auth-login-pw").value;
+  if (!id || !pw) { authErr("아이디와 비밀번호를 적어 주세요."); return; }
+  authDo("login", { login_id: id, password: pw });
+}
+function authSignup(e) {
+  e.preventDefault();
+  const stores = [...document.querySelectorAll("[data-auth-store]:checked")].map((x) => x.value);
+  const id = $("auth-su-id").value.trim(), pw = $("auth-su-pw").value, name = $("auth-su-name").value.trim();
+  if (!id || !pw || !name) { authErr("아이디·비밀번호·이름을 모두 적어 주세요."); return; }
+  if (pw.length < 8) { authErr("비밀번호는 8자 이상으로 정해 주세요."); return; }
+  if (!stores.length) { authErr("가진 가게를 하나 이상 골라 주세요."); return; }
+  authDo("signup", { login_id: id, password: pw, display_name: name, stores });
+}
+async function acctLogout() {
+  if (acct.busy) return;
+  acct.busy = true;
+  try { acct.me = await api("/api/auth/logout", { method: "POST" }); await storeChanged(); }
+  catch (e) { showAlert(e.message); }
+  finally { acct.busy = false; $("acct-login").focus(); }
+}
+async function acctSwitch(storeId) {
+  if (acct.busy || !acct.me || storeId === acct.me.store_id) return;
+  acct.busy = true;
+  $("acct-store").disabled = true;
+  try { acct.me = await api("/api/auth/store", { method: "POST", body: JSON.stringify({ store_id: storeId }) }); await storeChanged(); }
+  catch (e) { showAlert(e.message); acctRender(); }
+  finally { acct.busy = false; $("acct-store").disabled = false; }
+}
+// 가게가 바뀌었다 (로그인·로그아웃·가게 고르기): 이 브라우저가 들고 있던 그 가게의 진행을 비우고 모든 화면을 새 가게로
+async function storeChanged() {
+  acctRender();
+  Object.assign(state, { results: {}, pending: {}, reviews: {}, current: null, draftId: null, cards: [], insight: null, joined: [], approvedLog: [] });
+  state.approved.clear();
+  staffInfo.mktServer = 0;
+  rp.loadedAt = 0; rp.month = null;
+  mktReset();
+  mkvReset();
+  chatReset();
+  showAlert("");
+  try {
+    state.health = await api("/api/health"); renderHealth(state.health);
+    await refresh();
+    $("start").disabled = false; $("start").textContent = "무엇을 할까요?";
+  } catch (e) { showAlert(e.message); }
+  staffMarket();
+  route();
+}
+
+// ── AI 직원 (5차 회의 11/18) ─────────────────────────────────────────────
+// 왼쪽 메뉴의 직원 네 명. 상태는 추천 카드 두 장만이 아니라 리뷰(붙여넣은 새 리뷰)·불만 답글·맞춤 마케팅 승인·상권 자료 상태를 본다.
+// 누르면(Enter·Space 포함, button) 맡은 화면으로 간다. 375px 홈의 직원 줄(#staff-strip)은 이 목록을 그대로 옮겨 그린다.
+const staffInfo = { market: null, mktServer: 0 };
+function setStaff(key, ok, text) {
+  $("dot-" + key).className = "dot " + (ok ? "ok" : "warn");
+  $("staff-" + key).textContent = text;
+}
+function renderStaff(items = state.cards.length ? todosOf() : []) {
+  const b = state.briefing, c = (b && b.counts) || {};
+  const pasted = ((b && b.pasted) || []).length;
+  setStaff("data", !!b, b ? `리뷰 ${c.review_count ?? 0}건 정리 끝${pasted ? ` · 새로 붙인 리뷰 ${pasted}건` : ""}` : state.booted ? "리뷰를 불러오지 못했어요" : "리뷰 정리 중");
+  const care = items.filter((t) => t.agent === "고객 응대 비서");
+  const mktItems = items.filter((t) => t.agent === "마케팅 에이전트");
+  const waitOf = (list) => list.flatMap((t) => draftsOf(t.cid).filter((d) => d.generator === t.gen && !state.approved.has(d.draft_id))).length;
+  const doneOf = (list) => list.length > 0 && list.every((t) => t.st[0] === "done");
+  const madeOf = (list) => list.some((t) => t.st[0] !== "none");
+  // 불만 리뷰 가운데 답글을 아직 승인하지 않은 것 (이 브라우저에서 승인한 답글 기준)
+  const replied = new Set(Object.values(state.results).flatMap((r) => r.drafts || [])
+    .filter((d) => d.generator === "reply_draft" && state.approved.has(d.draft_id)).map((d) => d.target_review_id));
+  // 한 리뷰가 주제 묶음 여럿에 들어 있을 수 있어 id 로 한 번씩만 센다
+  const complaints = b ? [...new Set([...(b.groups || []).flatMap((g) => (g.reviews || []).map((r) => r.review_id)),
+    ...(b.single_complaints || []).map((x) => x.review_id)].filter(Boolean))] : [];
+  const open = complaints.filter((id) => !replied.has(id)).length;
+  const careText = !care.length ? "오늘 할 일 없음" : doneOf(care) ? "오늘 몫 끝" : madeOf(care) ? `승인 대기 ${waitOf(care)}개` : "만들 차례";
+  setStaff("care", doneOf(care) && open === 0, b ? `${careText} · 답글 안 단 불만 ${open}건` : careText);
+  const mktDone = Math.max(state.approvedLog.filter((x) => x.mkt).length, staffInfo.mktServer);
+  const mktText = !mktItems.length ? "오늘 할 일 없음" : doneOf(mktItems) ? "오늘 몫 끝" : madeOf(mktItems) ? `승인 대기 ${waitOf(mktItems)}개` : "만들 차례";
+  setStaff("mkt", doneOf(mktItems) || mktDone > 0, `${mktText}${mktDone ? ` · 맞춤 마케팅 승인 ${mktDone}건` : ""}`);
+  const m = staffInfo.market;
+  setStaff("market", !!m && m.state === "ready", !m ? "확인 중" : m.state === "ready"
+    ? `상권 자료 준비${m.data && m.data.latest_period_label ? ` · ${m.data.latest_period_label}까지` : ""}` : m.state === "no_data" ? "상권 자료 준비 전" : "상권 서비스 연결 안 됨");
+  syncStaffStrip();
+}
+// 서버에 남은 이 방문자(로그인하면 사장님)의 맞춤 마케팅 승인 수 (글 id 가 mkt- 로 시작, marketing_proxy.py)
+async function staffApprovals() {
+  try {
+    const a = await api("/api/approvals");
+    staffInfo.mktServer = (a.items || []).filter((x) => String(x.draft_id).startsWith("mkt-")).length;
+  } catch { /* 승인 기록을 못 읽어도 직원 상태는 화면 기록으로 */ }
+  renderStaff();
+}
+async function staffMarket() {
+  try { staffInfo.market = await marketApi("status", {}, 8000); } catch (e) { staffInfo.market = { state: e.state || "down" }; }
+  renderStaff();
+}
+function staffGo(key) {
+  if (menuOverlayOpen()) closeMenuOverlay();
+  if (key === "data") navTo("analysis", "summary");
+  else if (key === "care") {
+    const waiting = Object.values(state.results).flatMap((r) => r.drafts || []).some((d) => !state.approved.has(d.draft_id));
+    go(waiting ? "draft" : "cards");
+  } else if (key === "mkt") go("marketing");
+  else if (key === "market") go("market");
+}
+
+// ── 화면 이동 (서랍 버튼·AI 직원, 11/18) ───────────────────────────────────
+// route: 화면 이름(ROUTES), sub: 리뷰 분석의 탭(summary·issues·paste), 맞춤 마케팅의 시작 모드, 상권 분석의 탭
+const MKT_SUB = { promo: "맞춤 홍보 제안", leftover: "남은 재료 팔기", ad: "광고비 점검", story: "가게 이야기 글", repeat: "쿠폰 결과 확인" };
+function navTo(name, sub) {
+  if (!ROUTES.includes(name)) return;
+  go(name);
+  if (name === "analysis" && AN_TABS.includes(sub)) showTab(sub, true);
+  if (name === "market" && MKV_TABS.includes(sub)) mkvTab(sub, true);
+  if (name === "marketing" && MKT_SUB[sub]) mktJump(MKT_SUB[sub]);
+}
+// 맞춤 마케팅을 그 시작 모드로 바로: 첫 질문(시작 모드 다섯 개)이 나오면 그 보기를 고른다. 다른 대화 중이면 처음부터
+let mktWant = null;
+async function mktJump(label) {
+  mktWant = label;
+  mktTab("chat");
+  for (let i = 0; i < 120 && mktWant === label; i += 1) {
+    if (mkt.ready && !mkt.busy && !mkt.loading) {
+      const atStart = mkt.flow && mkt.flow.node === "start" && mkt.prompt && (mkt.prompt.opts || []).some((o) => o.label === label);
+      if (atStart) { mktWant = null; mktAnswer(label, label); return; }
+      if (mkt.flow && mkt.flow.node !== "start") { await mktFirst(++mkt.gen); continue; }
+    }
+    if (!mkt.started && currentRoute() === "marketing") mktOpen();
+    await new Promise((r) => setTimeout(r, 150));
+  }
+}
+
+// ── 상권 분석 (#/market, 5차 회의 11/18) ─────────────────────────────────
+// 이 서버의 /api/market/* 만 부른다 (marketApi). 전역 api()·#alert 를 쓰지 않아 상권 서비스가 꺼져도 안내는 이 화면(#mk-state) 안에만.
+// 분석 조건은 상권 서비스의 세션에 있고, 화면은 서버가 준 조건(conditions)을 그대로 보여 준다 (가게 기본 조건 여부도 서버가 판단: home).
+// 서버 글은 esc() 를 거쳐서만 innerHTML 에 넣는다. 금액은 원 단위 그대로를 '억·만'으로만 줄여 보인다 (반올림 표기).
+const MKV_TABS = ["sales", "stores", "pop", "compare"];
+const MKV_WAIT_MS = 30000;
+const mkv = { started: false, gen: 0, cond: null, options: null, industries: null, data: {}, tab: "sales", cmp: null, syncing: false, events: false };
+async function marketApi(path, options = {}, ms = MKV_WAIT_MS) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const res = await fetch("/api/market/" + path, { headers: { "Content-Type": "application/json" }, signal: ctl.signal, ...options });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error((body && body.error && body.error.message) || `상권 분석 요청 실패 (${res.status})`);
+      err.state = body && body.error && body.error.state; err.status = res.status;
+      throw err;
+    }
+    return body;
+  } catch (e) {
+    if (e.name === "AbortError") { const err = new Error("상권 서비스가 답하는 데 너무 오래 걸렸어요. 잠시 뒤 다시 해 주세요."); err.state = "error"; throw err; }
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+// 분기: 코드('20262') 또는 상권 서비스의 {code, label} 둘 다 받는다
+const qLabel = (p) => p && typeof p === "object" ? (p.label || qLabel(p.code)) : /^[0-9]{4}[1-4]$/.test(String(p || "")) ? `${String(p).slice(0, 4)}년 ${String(p)[4]}분기` : String(p || "");
+function wonShort(n) {
+  if (typeof n !== "number" || !isFinite(n)) return "–";
+  const sign = n < 0 ? "-" : "", v = Math.abs(n);
+  if (v >= 1e8) { const man = Math.round((v % 1e8) / 1e4); return `${sign}${Math.floor(v / 1e8).toLocaleString("ko-KR")}억${man ? ` ${man.toLocaleString("ko-KR")}만` : ""} 원`; }
+  if (v >= 1e4) return `${sign}${Math.round(v / 1e4).toLocaleString("ko-KR")}만 원`;
+  return `${sign}${v.toLocaleString("ko-KR")}원`;
+}
+const numKo = (n, unit = "") => typeof n === "number" ? `${n.toLocaleString("ko-KR")}${unit}` : "–";
+const pctKo = (p) => typeof p === "number" ? `${p > 0 ? "+" : ""}${p.toFixed(2)}%` : "–";
+function mkvState(msg, warn = false) {
+  const el = $("mk-state");
+  el.hidden = !msg; el.textContent = msg || "";
+  el.className = "alert" + (warn ? " warn" : "");
+}
+function mkvBusy(on) { ["mk-apply", "mk-home", "mk-area", "mk-industry", "mk-period"].forEach((id) => { $(id).disabled = on || !mkv.cond; }); }
+function mkvReset() {
+  mkv.gen += 1;
+  Object.assign(mkv, { started: false, cond: null, options: null, data: {}, cmp: null, events: false });
+  ["mk-sales", "mk-stores", "mk-pop"].forEach((id) => { $(id).replaceChildren(); });
+  $("mk-cmp-result").innerHTML = '<p class="small muted">우리 가게 상권과 비교할 상권을 골라 주세요.</p>';
+  $("mk-cmp-area").replaceChildren(); $("mk-cmp-district").replaceChildren(); $("mk-cmp-run").disabled = true;
+  $("mk-sync-result").textContent = "";
+  ["mk-t-sales", "mk-t-yoy", "mk-t-stores", "mk-t-pop"].forEach((id) => { $(id).textContent = "–"; $(id + "-sub").textContent = ""; });
+  $("mk-cond-text").textContent = "";
+  mkvState("");
+  mkvBusy(true);
+  if (currentRoute() === "market") mkvOpen();
+}
+function mkvOpen() {
+  if (!mkv.started) { mkv.started = true; mkvStart(); }
+  if (!mkv.events) mkvEvents();
+}
+async function mkvStart() {
+  const gen = ++mkv.gen;
+  mkvState("상권 자료를 확인하고 있어요");
+  mkvBusy(true);
+  try {
+    const st = await marketApi("status", {}, 10000);
+    if (gen !== mkv.gen) return;
+    staffInfo.market = st; renderStaff();
+    mkvDataStatus(st.data);
+    $("mk-store").textContent = st.store ? `${st.store.name} · ${st.store.station_name} · ${st.store.business_type_name}` : "";
+    if (st.state !== "ready") { mkvState(st.message || "상권 서비스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요.", true); return; }
+    const s = await marketApi("setup", { method: "POST" });
+    if (gen !== mkv.gen) return;
+    if (!s.conditions) { mkvState(s.message || "우리 가게 상권을 정하지 못했어요.", true); return; }
+    await mkvLoad(s.conditions, gen);
+  } catch (e) { if (gen === mkv.gen) mkvState(e.message, true); }
+}
+// 조건 하나로 화면 전체를 그린다 (보기 목록 · 핵심 지표 · 지금 탭)
+async function mkvLoad(cond, gen = mkv.gen) {
+  mkv.cond = cond;
+  $("mk-cond-text").textContent = `${cond.area_name || ""} · ${cond.industry_name || ""} · ${cond.period_label || qLabel(cond.period)}${cond.home ? " · 우리 가게 기준" : ""}`;
+  mkvState("");
+  const [opts, all] = await Promise.all([marketApi("analysis-options"), mkv.industries ? Promise.resolve(null) : marketApi("options")]);
+  if (gen !== mkv.gen) return;
+  if (all) mkv.industries = all.industries || [];
+  mkv.options = opts;
+  mkvSelects();
+  const rev = cond.revision != null ? `expected_revision=${encodeURIComponent(cond.revision)}` : "";
+  const q = (path, extra = "") => marketApi(path + ([extra, rev].filter(Boolean).length ? "?" + [extra, rev].filter(Boolean).join("&") : ""));
+  const names = ["sales", "stores", "pop", "ctx", "yoy"];
+  const got = await Promise.allSettled([q("sales"), q("stores"), q("population"), q("area-context"), q("changes", "comparison=yoy")]);
+  if (gen !== mkv.gen) return;
+  if (got.some((r) => r.status === "rejected" && r.reason && r.reason.status === 409)) {   // 다른 화면에서 조건이 바뀜 → 서버의 지금 조건으로 한 번 더
+    const s = await marketApi("setup", { method: "POST" });
+    if (gen === mkv.gen && s.conditions && s.conditions.revision !== cond.revision) return mkvLoad(s.conditions, gen);
+  }
+  mkv.data = {};
+  got.forEach((r, i) => { mkv.data[names[i]] = r.status === "fulfilled" ? r.value : { error: r.reason ? r.reason.message : "불러오지 못했어요" }; });
+  mkvTiles();
+  mkvRender();
+  mkvBusy(false);
+}
+function mkvSelects() {
+  const cand = (mkv.options && mkv.options.candidates) || [];
+  const c = mkv.cond || {};
+  $("mk-area").innerHTML = cand.map((a) => `<option value="${esc(a.area_code)}"${a.area_code === c.area_code ? " selected" : ""}${a.selection_blocked_reason ? " disabled" : ""}>${esc(a.name)}${a.relation === "inside" ? " (역 안쪽)" : ""}</option>`).join("");
+  $("mk-industry").innerHTML = (mkv.industries || []).map((x) => `<option value="${esc(x.code)}"${x.code === c.industry_code ? " selected" : ""}>${esc(x.name)}</option>`).join("");
+  mkvPeriods();
+}
+function mkvPeriods() {
+  const cand = ((mkv.options && mkv.options.candidates) || []).find((a) => a.area_code === $("mk-area").value);
+  const periods = ((cand && cand.available_periods) || []).slice().sort().reverse();
+  const want = (mkv.cond && mkv.cond.period) || periods[0];
+  $("mk-period").innerHTML = periods.map((p) => `<option value="${esc(p)}"${p === want ? " selected" : ""}>${esc(qLabel(p))}</option>`).join("");
+}
+async function mkvApply() {
+  const area = $("mk-area").value, period = $("mk-period").value, industry = $("mk-industry").value;
+  const gen = ++mkv.gen;
+  mkvBusy(true);
+  mkvState("조건을 바꾸고 있어요");
+  try {
+    let sel = await marketApi("analysis-selection");
+    const profile = sel.profile || {};
+    if (industry && profile.industry && industry !== profile.industry.code) {
+      sel = await marketApi("profile", { method: "POST", body: JSON.stringify({
+        location: { kind: "station", station_id: profile.location && profile.location.station_id }, industry_code: industry,
+        business_status: profile.business_status || "operating", expected_revision: sel.revision }) });
+    }
+    const opts = await marketApi("analysis-options");
+    const cands = (opts.candidates || []).filter((a) => !a.selection_blocked_reason);
+    const pick = cands.find((a) => a.area_code === area) || cands[0];
+    if (!pick) { mkvState("이 업종은 고를 수 있는 상권이 없어요.", true); mkvBusy(false); return; }
+    const periods = (pick.available_periods || []).slice().sort();
+    const per = periods.includes(period) ? period : periods[periods.length - 1];
+    const fresh = await marketApi("analysis-selection");
+    await marketApi("analysis-selection", { method: "POST", body: JSON.stringify({ area_code: pick.area_code, period: per,
+      expected_revision: fresh.revision, expected_catalog_version: opts.catalog_version }) });
+    const s = await marketApi("setup", { method: "POST" });
+    if (gen !== mkv.gen) return;
+    mkv.cmp = null;
+    await mkvLoad(s.conditions, gen);
+  } catch (e) { if (gen === mkv.gen) { mkvState(e.message, true); mkvBusy(false); } }
+}
+async function mkvHome() {
+  const gen = ++mkv.gen;
+  mkvBusy(true);
+  mkvState("우리 가게 기준으로 되돌리고 있어요");
+  try {
+    const s = await marketApi("setup?force=1", { method: "POST" });
+    if (gen !== mkv.gen) return;
+    mkv.cmp = null;
+    if (s.conditions) await mkvLoad(s.conditions, gen); else { mkvState(s.message || "우리 가게 상권을 정하지 못했어요.", true); }
+  } catch (e) { if (gen === mkv.gen) { mkvState(e.message, true); mkvBusy(false); } }
+}
+function mkvTiles() {
+  const d = mkv.data, c = mkv.cond || {};
+  const sales = d.sales && d.sales.total, stores = d.stores && d.stores.counts, pop = d.pop && d.pop.total;
+  const yoy = ((d.yoy && d.yoy.metrics) || []).find((m) => m.key === "sales");
+  $("mk-t-sales").textContent = sales && typeof sales.value === "number" ? wonShort(sales.value) : "–";
+  $("mk-t-sales-sub").textContent = `${c.period_label || qLabel(c.period)} · ${c.industry_name || ""}`;
+  $("mk-t-yoy").textContent = yoy ? pctKo(yoy.percent) : "–";
+  $("mk-t-yoy").classList.toggle("bad-n", !!yoy && yoy.percent < 0);
+  $("mk-t-yoy-sub").textContent = d.yoy && d.yoy.previous_period ? `${qLabel(d.yoy.previous_period)} 대비 추정매출` : "추정매출";
+  $("mk-t-stores").textContent = stores && stores.total ? numKo(stores.total.value, "개") : "–";
+  $("mk-t-stores-sub").textContent = stores ? `개업 ${numKo(stores.opened && stores.opened.value)} · 폐업 ${numKo(stores.closed && stores.closed.value)}` : "";
+  $("mk-t-pop").textContent = pop && typeof pop.value === "number" ? numKo(pop.value, "명") : "–";
+  $("mk-t-pop-sub").textContent = "상권 전체 원천 지표";
+}
+function mkvBars(dist) {
+  if (!dist || !(dist.items || []).length) return '<p class="small muted">자료가 없어요.</p>';
+  // 비중을 주지 않는 자료(예: 연령별 유동인구 원천 지표)는 값의 합으로 나눠 막대 길이만 맞춘다 (보이는 숫자는 원래 값)
+  const total = dist.items.reduce((s, i) => s + (typeof i.value === "number" ? i.value : 0), 0);
+  return `<ul class="plain mk-bars" aria-label="${esc(dist.label || "")}">${dist.items.map((i) => {
+    const share = typeof i.share_percent === "number" ? i.share_percent : total > 0 && typeof i.value === "number" ? (i.value / total) * 100 : null;
+    const pct = share === null ? 0 : Math.max(0, Math.min(100, share));
+    const shown = typeof i.share_percent === "number" ? `${i.share_percent.toFixed(2)}%` : typeof i.value === "number" ? numKo(i.value) : "–";
+    return `<li><span class="mk-bar-l">${esc(String(i.label).replace(/\s*\(원천 분류\)/, ""))}</span><span class="mk-bar" aria-hidden="true"><span style="--w:${pct}%"></span></span><span class="mk-bar-v">${esc(shown)}</span></li>`;
+  }).join("")}</ul>`;
+}
+const mkvWarn = (x) => ((x && x.warnings) || []).filter((w) => typeof w === "string").map((w) => `<p class="small muted">${esc(w)}</p>`).join("");
+const mkvErr = (x) => x && x.error ? `<p class="small mk-err">${esc(x.error)}</p>` : "";
+function mkvChanges(keys) {
+  const metrics = ((mkv.data.yoy && mkv.data.yoy.metrics) || []).filter((m) => !keys || keys.includes(m.key));
+  if (!metrics.length) return "";
+  const money = (m, x) => x && typeof x.value === "number" ? (m.unit === "원" ? wonShort(x.value) : numKo(x.value, m.unit || "")) : "–";
+  return `<div class="mk-table-wrap"><table class="mk-table"><caption>${esc(mkv.data.yoy.comparison_label || "전년 같은 분기와 비교")}</caption>
+    <thead><tr><th scope="col">지표</th><th scope="col">${esc(qLabel(mkv.data.yoy.previous_period))}</th><th scope="col">${esc(qLabel(mkv.data.yoy.current_period))}</th><th scope="col">변화</th></tr></thead>
+    <tbody>${metrics.map((m) => `<tr><th scope="row">${esc(m.label)}</th><td>${esc(money(m, m.previous))}</td><td>${esc(money(m, m.current))}</td><td class="${m.percent < 0 ? "neg" : ""}">${esc(pctKo(m.percent))}</td></tr>`).join("")}</tbody></table></div>`;
+}
+function mkvRender() {
+  const d = mkv.data;
+  const s = d.sales || {}, st = d.stores || {}, p = d.pop || {}, ctx = d.ctx || {};
+  const dist = s.distributions || {};
+  $("mk-sales").innerHTML = mkvErr(s) + (s.total ? `<p class="mk-lead">분기 추정매출 <b>${esc(wonShort(s.total.value))}</b> <span class="small muted">(${esc(numKo(s.total.value, "원"))})</span></p>` : "")
+    + `<div class="mk-grid"><section><h3>시간대별</h3>${mkvBars(dist.time)}</section><section><h3>요일별</h3>${mkvBars(dist.weekday)}</section><section><h3>연령별</h3>${mkvBars(dist.age)}</section></div>`
+    + mkvChanges(["sales"]) + mkvWarn(s);
+  const counts = st.counts || {};
+  $("mk-stores").innerHTML = mkvErr(st) + `<ul class="plain mk-facts">${Object.values(counts).filter((x) => x && x.label).map((x) =>
+    `<li><span>${esc(x.label)}</span><b>${esc(numKo(x.value, x.unit || ""))}</b></li>`).join("") || '<li class="small muted">자료가 없어요.</li>'}</ul>`
+    + mkvChanges(["stores_total", "stores_general", "stores_franchise", "stores_opened", "stores_closed"]) + mkvWarn(st);
+  const pd = p.distributions || {};
+  const vals = (ctx.values || []).filter((v) => v && v.label && !/기준분기|분석 선택/.test(v.label));
+  $("mk-pop").innerHTML = mkvErr(p) + (p.total ? `<p class="mk-lead">유동인구(상권 전체 원천 지표) <b>${esc(numKo(p.total.value, "명"))}</b></p>` : "")
+    + `<div class="mk-grid"><section><h3>시간대별 유동인구</h3>${mkvBars(pd.time)}</section><section><h3>연령별 유동인구</h3>${mkvBars(pd.age)}</section>`
+    + `<section><h3>배후인구·집객시설</h3>${ctx.status === "available" ? `<ul class="plain mk-facts">${vals.map((v) =>
+      `<li><span>${esc(v.label)}</span><b>${esc(typeof v.value === "number" ? numKo(v.value, v.unit || "") : String(v.value))}</b></li>`).join("")}</ul>`
+      : `<p class="small muted">${esc(ctx.error || "이 상권의 직장인구·상주인구·집객시설 자료가 아직 없어요.")}</p>`}${ctx.period_note ? `<p class="small muted">${esc(ctx.period_note)}</p>` : ""}</section></div>`
+    + mkvChanges(["floating_population"]) + mkvWarn(p) + mkvWarn(ctx);
+  mkvTab(mkv.tab);
+}
+function mkvTab(name, focus = false) {
+  mkv.tab = MKV_TABS.includes(name) ? name : "sales";
+  MKV_TABS.forEach((t) => {
+    const tab = $("mk-tab-" + t), on = t === mkv.tab;
+    tab.setAttribute("aria-selected", String(on));
+    tab.tabIndex = on ? 0 : -1;
+    $("mk-" + t).hidden = !on;
+    if (on && focus) tab.focus();
+  });
+  if (mkv.tab === "compare" && mkv.cond && !mkv.cmp) mkvCompareOptions();
+}
+function mkvTabKey(e) {
+  const i = MKV_TABS.indexOf(mkv.tab);
+  const next = { ArrowRight: (i + 1) % MKV_TABS.length, ArrowLeft: (i - 1 + MKV_TABS.length) % MKV_TABS.length, Home: 0, End: MKV_TABS.length - 1 }[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  mkvTab(MKV_TABS[next], true);
+}
+async function mkvCompareOptions() {
+  const gen = mkv.gen;
+  $("mk-cmp-result").innerHTML = '<p class="small muted">비교할 상권 목록을 불러오는 중…</p>';
+  try {
+    const o = await marketApi("comparison-options" + (mkv.cond.revision != null ? `?expected_revision=${encodeURIComponent(mkv.cond.revision)}` : ""));
+    if (gen !== mkv.gen) return;
+    mkv.cmp = o;
+    const here = ((mkv.options && mkv.options.candidates) || []).find((a) => a.area_code === mkv.cond.area_code);
+    const district = (here && here.district_code) || ((o.districts || [])[0] || {}).code;
+    $("mk-cmp-district").innerHTML = (o.districts || []).map((x) => `<option value="${esc(x.code)}"${x.code === district ? " selected" : ""}>${esc(x.name)}</option>`).join("");
+    mkvCompareAreas();
+    $("mk-cmp-result").innerHTML = '<p class="small muted">우리 가게 상권과 비교할 상권을 골라 주세요.</p>';
+  } catch (e) { if (gen === mkv.gen) $("mk-cmp-result").innerHTML = `<p class="small mk-err">${esc(e.message)}</p>`; }
+}
+function mkvCompareAreas() {
+  const d = $("mk-cmp-district").value;
+  const list = ((mkv.cmp && mkv.cmp.areas) || []).filter((a) => a.district_code === d && a.area_code !== (mkv.cond && mkv.cond.area_code));
+  $("mk-cmp-area").innerHTML = list.map((a) => `<option value="${esc(a.area_code)}"${a.selectable === false ? " disabled" : ""}>${esc(a.name)}${a.type ? ` · ${esc(a.type)}` : ""}</option>`).join("");
+  $("mk-cmp-run").disabled = !list.some((a) => a.selectable !== false);
+}
+async function mkvCompare() {
+  const code = $("mk-cmp-area").value;
+  if (!code) return;
+  const gen = mkv.gen;
+  $("mk-cmp-run").disabled = true;
+  $("mk-cmp-result").innerHTML = '<p class="small muted">비교하는 중…</p>';
+  try {
+    const r = await marketApi(`comparison?comparison_area_code=${encodeURIComponent(code)}${mkv.cond.revision != null ? `&expected_revision=${encodeURIComponent(mkv.cond.revision)}` : ""}`);
+    if (gen !== mkv.gen) return;
+    const money = (m, x) => x && typeof x.value === "number" ? (m.unit === "원" ? wonShort(x.value) : numKo(x.value, m.unit || "")) : "–";
+    $("mk-cmp-result").innerHTML = `<div class="mk-table-wrap"><table class="mk-table"><caption>${esc(qLabel(mkv.cond.period))} · ${esc(mkv.cond.industry_name || "")}</caption>
+      <thead><tr><th scope="col">지표</th><th scope="col">${esc((r.base_area || {}).name || "우리 상권")}</th><th scope="col">${esc((r.comparison_area || {}).name || "비교 상권")}</th><th scope="col">차이</th></tr></thead>
+      <tbody>${(r.metrics || []).map((m) => `<tr><th scope="row">${esc(m.label)}</th><td>${esc(money(m, m.base))}</td><td>${esc(money(m, m.comparison))}</td><td>${esc(pctKo(m.percent))}</td></tr>`).join("")}</tbody></table></div>${mkvWarn(r)}`;
+  } catch (e) { if (gen === mkv.gen) $("mk-cmp-result").innerHTML = `<p class="small mk-err">${esc(e.message)}</p>`; }
+  finally { $("mk-cmp-run").disabled = false; }
+}
+function mkvDataStatus(d) {
+  if (!d) { $("mk-data").textContent = "적재된 자료 상태를 불러오지 못했어요."; return; }
+  const parts = [d.message || ""];
+  if (d.verified_files != null) parts.push(`검증한 원본 파일 ${numKo(d.verified_files, "개")}`);
+  parts.push(d.last_synced_at ? `마지막 서울시 확인 ${String(d.last_synced_at).slice(0, 16).replace("T", " ")}` : "인증키로 서울시와 맞춰 본 기록 없음 (샘플 키 확인은 기록하지 않아요)");
+  $("mk-data").textContent = parts.filter(Boolean).join(" · ");
+}
+async function mkvSync() {
+  if (mkv.syncing) return;
+  mkv.syncing = true;
+  const b = $("mk-sync"), out = $("mk-sync-result");
+  b.disabled = true; b.textContent = "서울시에 확인하는 중…";
+  out.textContent = "";
+  try {
+    const r = await marketApi("data-sync", { method: "POST", body: "{}" }, 70000);
+    const totals = Object.entries(r.totals || {}).map(([k, v]) => `${({ sales: "추정매출", stores: "점포", population: "유동인구" })[k] || k} ${numKo(v, "건")}`).join(", ");
+    out.textContent = [r.message, r.checked_at ? `확인 시각 ${String(r.checked_at).slice(0, 16).replace("T", " ")}` : "", totals ? `서울시 총 건수: ${totals}` : "",
+      r.sample_only ? (r.notice || "키가 없어 서울시 공개 샘플(1~5건)로만 확인했어요.") : "", r.apply_hint || ""].filter(Boolean).join(" · ");
+    out.classList.toggle("warn", r.status !== "up_to_date");
+    try { const st = await marketApi("status", {}, 8000); staffInfo.market = st; mkvDataStatus(st.data); renderStaff(); } catch { /* 자료 상태는 다음에 */ }
+  } catch (e) { out.textContent = e.message; out.classList.add("warn"); }
+  finally { mkv.syncing = false; b.disabled = false; b.textContent = "서울시 최신 데이터 확인·동기화"; }
+}
+async function mkvEvents() {
+  mkv.events = true;
+  const ul = $("mk-events");
+  try {
+    const r = await marketApi("cultural-events", {}, 20000);
+    $("mk-events-note").textContent = r.demo ? "(예시 · 실제 행사 아님)" : `(${r.district || "서울"}${r.fallback ? " 행사가 없어 서울 전체" : ""} · 서울시 문화행사 정보)`;
+    ul.innerHTML = (r.events || []).slice(0, 8).map((ev) => {
+      const link = chatUrl(ev.link);
+      const title = link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(ev.title)}<span class="sr"> (새 탭)</span></a>` : esc(ev.title);
+      const when = [ev.start, ev.end].filter(Boolean).join(" ~ ");
+      return `<li><b>${title}</b><span class="small muted">${esc([ev.category, ev.place, when, ev.is_free === true ? "무료" : ev.is_free === false ? "유료" : ""].filter(Boolean).join(" · "))}</span></li>`;
+    }).join("") || '<li class="small muted">지금 열리는 행사가 없어요.</li>';
+    if (r.notice) ul.insertAdjacentHTML("beforeend", `<li class="small muted">${esc(r.notice)}</li>`);
+  } catch (e) { ul.innerHTML = `<li class="small muted">${esc(e.message)}</li>`; mkv.events = false; }
+}
+
 // ── 시작 ─────────────────────────────────────────────────────────
 async function refresh() {
   state.briefing = await api("/api/briefing"); renderBriefing(state.briefing);
@@ -2782,9 +3306,12 @@ async function refresh() {
   if (before && before !== after) { state.results = {}; state.approved.clear(); state.approvedLog = []; state.pending = {}; state.current = null; state.draftId = null; }
   renderCards(cards);
   await loadInsight();   // 리뷰 분석(요약·불만 묶음). 실패해도 홈·카드는 그대로 두고 분석 화면에만 알린다
+  staffApprovals();      // AI 직원: 서버에 남은 맞춤 마케팅 승인 수 (기다리지 않음)
 }
 
 async function boot() {
+  await acctLoad();      // 게스트인지·사장님인지와 지금 가게 (11/18). 실패하면 게스트로 보고 계속
+  staffMarket();         // AI 직원의 상권 분석 비서 상태 (기다리지 않음)
   try {
     state.health = await api("/api/health"); renderHealth(state.health);
     await refresh();
@@ -2918,6 +3445,37 @@ $("assistant-q").addEventListener("keydown", (e) => {
 });
 $("assistant-q").addEventListener("input", () => { chatGrow(); chatInput(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.isComposing && !$("assistant").hidden) toggleAssistant(false); });
+// 로그인·가게 (11/18)
+$("acct-login").addEventListener("click", authOpen);
+$("acct-logout").addEventListener("click", acctLogout);
+$("acct-store").addEventListener("change", (e) => acctSwitch(e.target.value));
+$("auth-close").addEventListener("click", authClose);
+$("auth-demo").addEventListener("click", () => authDo("demo-login"));
+$("auth-login").addEventListener("submit", authLogin);
+$("auth-signup").addEventListener("submit", authSignup);
+document.querySelectorAll("[data-auth-tab]").forEach((t) => {
+  t.addEventListener("click", () => authTab(t.dataset.authTab));
+  t.addEventListener("keydown", (e) => {
+    if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    authTab(t.dataset.authTab === "login" ? "signup" : "login", true);
+  });
+});
+$("auth-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) authClose(); });   // 바깥(어두운 곳)을 누르면 닫기
+// AI 직원: 누르면 맡은 화면으로 (button 이라 Enter·Space 도 같음)
+$("staff").addEventListener("click", (e) => { const b = e.target.closest("[data-staff-go]"); if (b) staffGo(b.dataset.staffGo); });
+// 상권 분석 (11/18)
+$("mk-area").addEventListener("change", mkvPeriods);
+$("mk-apply").addEventListener("click", mkvApply);
+$("mk-home").addEventListener("click", mkvHome);
+$("mk-ask").addEventListener("click", (e) => toggleAssistant(true, e.currentTarget));
+$("mk-sync").addEventListener("click", mkvSync);
+$("mk-cmp-district").addEventListener("change", mkvCompareAreas);
+$("mk-cmp-run").addEventListener("click", mkvCompare);
+document.querySelectorAll("[data-mk-tab]").forEach((t) => {
+  t.addEventListener("click", () => mkvTab(t.dataset.mkTab));
+  t.addEventListener("keydown", mkvTabKey);
+});
 window.addEventListener("hashchange", route);
 route();
 boot();
