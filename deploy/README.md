@@ -285,6 +285,7 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 
 - `--lb`는 콘솔에서 `ic26-was-alb1`의 접속 주소입니다(`http://` 없이. 포트가 80이 아니면 `주소:포트`). 설정 검사(`nginx -t`)가 실패하면 이전 설정으로 되돌립니다. 내부 로드 밸런서 이름이 이 서버에서 풀리지 않을 때도 실패합니다.
 - Nginx는 시작·reload 때 이 주소를 한 번만 IP로 바꿉니다. 로드 밸런서를 다시 만들었다면 `sudo systemctl reload nginx`.
+- **IPv6가 없는 서버**(네이버클라우드 Ubuntu 24.04, `/proc/sys/net/ipv6` 없음): nginx 패키지가 설치 중에 기본 사이트(`listen [::]:80`)로 켜지다 `socket() [::]:80 failed (97: …)`로 실패해 apt가 멈추던 문제(11/18 web1)를, 스크립트가 apt 동안만 `/usr/sbin/policy-rc.d`(exit 101)를 두고(원래 있던 파일은 건드리지 않음) 기본 사이트 링크를 치운 뒤 `dpkg --configure -a`를 해서 피합니다. 이미 apt에서 멈춘 서버도 같은 명령을 다시 돌리면 회복됩니다.
 - 두 설정 모두 `/healthz`는 Nginx가 직접 `ok`(200)로 답하고, `/docs`, `/redoc`, `/openapi.json`은 404입니다.
 - **대기 시간 120초**: Nginx의 `proxy_read_timeout 120s`(`proxy_send_timeout`도 120초)입니다. 글 생성이 14초를 넘을 때가 있습니다.
   **콘솔에서 사람이: 공개 ALB(`ic26-web-alb1`)와 내부 ALB(`ic26-was-alb1`)의 유휴 시간 제한(idle timeout)도 120초로 맞춥니다.** 둘 중 하나라도 짧으면 글 생성 중에 연결이 끊깁니다. 설정 화면의 위치와 이름은 확인하지 못했습니다. WAS의 keep-alive는 130초로 이미 로드 밸런서보다 길게 해 두었습니다(`ic26-was.service`).

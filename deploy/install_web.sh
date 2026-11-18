@@ -53,11 +53,67 @@ fi
 echo "모드: $MODE   내부 로드 밸런서: $LB"
 [ "$MODE" = static ] && echo "화면 파일: $STATIC_SRC → $WWW/"
 
+AVAIL=/etc/nginx/sites-available/ic26
+ENABLED=/etc/nginx/sites-enabled/ic26
+DEFAULT_LINK=/etc/nginx/sites-enabled/default
+POLICY_RC=/usr/sbin/policy-rc.d
+POLICY_MARK='# ic26 install_web.sh: apt 동안만 두는 임시 파일 (남아 있으면 지워도 됨)'
+OUR_POLICY=0        # 1: 이 스크립트가 둔 policy-rc.d → 끝날 때 반드시 지운다
+HAD_DEFAULT_LINK=0  # 1: 기본 사이트 링크가 apt 전이나 후에 있었다 → 도중에 실패하면 되살린다
+CONF_DONE=0         # 1: ic26 설정이 검사(nginx -t)를 통과했다
+BACKUP=""
+NGINX_PKG_BEFORE=""; NGINX_PKG_AFTER=""   # nginx 패키지 상태·버전 (apt 전후)
+
+restore_default_link() {
+  [ "$HAD_DEFAULT_LINK" = 1 ] && [ -e /etc/nginx/sites-available/default ] \
+    && ln -sfn /etc/nginx/sites-available/default "$DEFAULT_LINK"
+  return 0
+}
+remove_our_policy() {
+  [ "$OUR_POLICY" = 1 ] && grep -qF "$POLICY_MARK" "$POLICY_RC" 2>/dev/null && rm -f "$POLICY_RC"
+  OUR_POLICY=0
+}
+cleanup() {
+  local st=$?
+  remove_our_policy
+  [ -n "$BACKUP" ] && rm -f "$BACKUP"
+  # 설정 검사 전에 멈췄다면(apt 실패 등) 기본 사이트 링크를 원래대로 둔다
+  [ "$st" != 0 ] && [ "$CONF_DONE" = 0 ] && restore_default_link
+  exit "$st"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM   # ssh 가 끊기거나 Ctrl-C 여도 cleanup 이 돈다
+
 if [ "$DO_APT" = 1 ]; then
   export DEBIAN_FRONTEND=noninteractive
+  # IPv6 가 없는 서버(네이버클라우드 Ubuntu 24.04, /proc/sys/net/ipv6 없음)에서는 nginx 패키지의 postinst 가
+  # 기본 사이트(listen [::]:80)로 nginx 를 켜다 'socket() [::]:80 failed (97: ...)' 로 실패하고,
+  # dpkg 가 nginx 를 설정 미완료(iF)로 남겨 apt 가 멈춘다 (11/18 web1). 그래서
+  #  (1) 설치하는 동안만 policy-rc.d(exit 101)로 패키지가 서비스를 켜지 못하게 한다. 원래 있던 파일은 건드리지 않는다.
+  #  (2) 이미 그렇게 멈춘 서버도 다시 돌리면 회복되게, 기본 사이트 링크를 먼저 치우고 dpkg --configure -a 를 한다.
+  #      (링크는 아래 설정 단계에서 어차피 지운다. 설정 검사 전에 실패하면 되살린다.)
+  if [ -e "$POLICY_RC" ] && ! grep -qF "$POLICY_MARK" "$POLICY_RC" 2>/dev/null; then
+    warn "$POLICY_RC 가 이미 있어 그대로 씁니다 (이 스크립트는 지우지 않음)"
+  else
+    # 없거나, 지난 실행이 강제로 끊겨 남은 우리 파일이면 (다시) 두고 끝날 때 지운다
+    printf '#!/bin/sh\n%s\nexit 101\n' "$POLICY_MARK" > "$POLICY_RC"
+    chmod 755 "$POLICY_RC"
+    OUR_POLICY=1
+  fi
+  if [ -e "$DEFAULT_LINK" ]; then HAD_DEFAULT_LINK=1; rm -f "$DEFAULT_LINK"; fi
+  NGINX_PKG_BEFORE="$(dpkg-query -W -f='${Status} ${Version}' nginx 2>/dev/null || true)"
+  dpkg --configure -a || die "dpkg --configure -a 에 실패했습니다. 'sudo dpkg --audit' 로 어떤 패키지인지 보세요"
+
   echo "apt 로 설치합니다 (1분 안팎)"
   apt-get -qq update
-  apt-get -qq install -y --no-install-recommends nginx ca-certificates curl rsync
+  apt-get -qq install -y --no-install-recommends nginx ca-certificates curl rsync \
+    || die "apt 설치에 실패했습니다. 원인을 고친 뒤 같은 명령을 다시 돌리면 이어서 설치합니다 ('sudo dpkg --audit' 로 상태 확인)"
+  remove_our_policy
+  NGINX_PKG_AFTER="$(dpkg-query -W -f='${Status} ${Version}' nginx 2>/dev/null || true)"
+  case "$NGINX_PKG_AFTER" in
+    "install ok installed "*) ;;
+    *) die "nginx 패키지 설치가 끝나지 않았습니다 (${NGINX_PKG_AFTER:-없음}). 'sudo dpkg --audit' 로 확인하세요" ;;
+  esac
 fi
 command -v nginx >/dev/null 2>&1 || die "nginx 가 없습니다"
 
@@ -69,28 +125,32 @@ if [ "$MODE" = static ]; then
 fi
 
 # 설정 넣기. 문법 검사에 실패하면 이전 설정으로 되돌린다.
-AVAIL=/etc/nginx/sites-available/ic26
-ENABLED=/etc/nginx/sites-enabled/ic26
 install -d /etc/nginx/sites-available /etc/nginx/sites-enabled
-BACKUP="$(mktemp)"; trap 'rm -f "$BACKUP"' EXIT
+BACKUP="$(mktemp)"
 HAD_CONF=0; [ -f "$AVAIL" ] && { cp -p "$AVAIL" "$BACKUP"; HAD_CONF=1; }
-HAD_DEFAULT_LINK=0; [ -e /etc/nginx/sites-enabled/default ] && HAD_DEFAULT_LINK=1
+[ -e "$DEFAULT_LINK" ] && HAD_DEFAULT_LINK=1   # 새로 설치하면 패키지가 기본 사이트 링크를 만든다
 
 sed "s/__INTERNAL_LB__/$LB/g" "$CONF_SRC" > "$AVAIL"
 chmod 644 "$AVAIL"
 ln -sfn "$AVAIL" "$ENABLED"
-rm -f /etc/nginx/sites-enabled/default      # 기본 사이트도 80번 default_server 라서 충돌한다
+rm -f "$DEFAULT_LINK"      # 기본 사이트도 80번 default_server 라서 충돌한다 (IPv6 가 없는 서버에서는 [::]:80 이 실패한다)
 
 if ! nginx -t; then
   if [ "$HAD_CONF" = 1 ]; then cp -p "$BACKUP" "$AVAIL"; else rm -f "$AVAIL" "$ENABLED"; fi
-  [ "$HAD_DEFAULT_LINK" = 1 ] && [ -e /etc/nginx/sites-available/default ] && ln -sfn /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+  restore_default_link
   die "nginx 설정 검사에 실패해 이전 설정으로 되돌렸습니다. (내부 로드 밸런서 주소가 이 서버에서 풀리는지 확인: getent hosts $LB)"
 fi
+CONF_DONE=1
 
 if [ "$USE_SYSTEMD" = 1 ]; then
   [ -d /run/systemd/system ] || die "systemd 로 돌고 있지 않습니다. 컨테이너라면 --no-systemd 를 붙이세요."
   systemctl enable nginx.service
-  systemctl reload nginx.service 2>/dev/null || systemctl restart nginx.service
+  if [ "$NGINX_PKG_BEFORE" != "$NGINX_PKG_AFTER" ]; then
+    # 이번에 nginx 를 새로 깔았거나 올렸다. 설치 중에는 policy-rc.d 로 켜지 않았으므로 여기서 새로 띄운다
+    systemctl restart nginx.service
+  else
+    systemctl reload nginx.service 2>/dev/null || systemctl restart nginx.service
+  fi
   echo "nginx: $(systemctl is-active nginx.service)"
   echo "확인:  curl -s http://localhost/healthz   (ok)   /   curl -s http://localhost/api/health   (WAS 의 응답)"
   echo "       curl -s -o /dev/null -w '%{http_code}\n' http://localhost/docs   (404)"
