@@ -50,6 +50,7 @@ class StoreBundle:
     tone: ToneProfile
     owner_replies: tuple[str, ...] = ()
     signature: str = ""
+    district_name: str = "동작구"   # 자치구 (서울 문화행사 등 구 단위 자료를 고를 때). 세 가게 모두 동작구
     extras: dict = field(default_factory=dict)
 
     @property

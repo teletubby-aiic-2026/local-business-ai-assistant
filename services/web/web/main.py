@@ -16,6 +16,7 @@
 | *      | /api/care/*                   | 캡처 입력·응대 점수·보고서. 리뷰 분석 서비스의 고객응대 API 를 대신 불러 줌 (care_proxy.py) |
 | *      | /api/marketing-survey/*       | 맞춤 마케팅(#/marketing). 마케팅 서비스(김수현 님 설문형)를 대신 불러 줌 (marketing_proxy.py) |
 | *      | /api/auth/*                   | 로그인·회원가입·로그아웃·가게 바꾸기·시연 로그인 (auth.py, 5차 회의 11/18) |
+| *      | /api/market/*                 | 상권 분석 화면(#/market). 상권 서비스의 분석·서울시 자료 확인·문화행사를 대신 불러 줌 (market_proxy.py) |
 
 리뷰 답글을 승인하면(④) 리뷰 분석 서비스에 '답글 달았음'을 따로 기록한다 (care_proxy.mark_replied_later, 승인 응답은 기다리지 않음).
 캡처 후보 저장은 붙여넣기와 같은 POST /api/reviews 에 source="capture" 를 붙여 보낸다.
@@ -49,6 +50,7 @@ from .assistant_proxy import AssistantProxy, create_assistant_router, validation
 from .auth import SESSION_COOKIE, AuthService, create_auth_router
 from .care_proxy import CareProxy, create_care_routers
 from .demo import Demo, DemoError
+from .market_proxy import MarketProxy, create_market_router
 from .marketing_proxy import MARKETING_CARD_ID, MarketingProxy, create_marketing_router
 from .settings import Settings
 from .stores import StoreHub
@@ -89,13 +91,15 @@ class PasteIn(BaseModel):
 
 
 def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None, care: CareProxy | None = None,
-               marketing: MarketingProxy | None = None, auth: AuthService | None = None) -> FastAPI:
+               marketing: MarketingProxy | None = None, auth: AuthService | None = None,
+               market: MarketProxy | None = None) -> FastAPI:
     # 저장 위치는 여기서만 환경 변수로 정한다 (DB_HOST 가 있으면 PostgreSQL, 없으면 메모리·파일)
     demo = demo or Demo(Settings.from_env(), storage=open_store(app_name="ic26-web"))
     assistant = assistant or AssistantProxy.from_settings(demo.s)   # 시험에서는 가짜 상권 서비스를 넣은 것을 줄 수 있다
     assistant.attach_store(demo)                                    # 서랍의 가게 기본 질문(이름·메뉴)에 답할 때 가게 프로필을 읽을 곳
     care = care or CareProxy.from_settings(demo.s)                  # 고객응대 프록시 (시험에서는 가짜 리뷰 분석 서비스)
     marketing = marketing or MarketingProxy.from_settings(demo.s)   # 맞춤 마케팅 프록시 (시험에서는 가짜 마케팅 서비스)
+    market = market or MarketProxy.from_settings(demo.s)            # 상권 분석 화면(#/market) 프록시 (시험에서는 가짜 상권 서비스)
     hub = StoreHub(demo, assistant, care, marketing)                # 가게마다의 Demo·프록시 (기본 가게는 위의 객체 그대로)
     auth = auth or AuthService.from_env(demo.storage, demo.s.store_id)
 
@@ -106,6 +110,7 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
         assistant.close()
         care.close()
         marketing.close()
+        market.close()
 
     app = FastAPI(title="텔레토비 AI 비서 — 한 화면", docs_url="/docs", redoc_url=None, lifespan=lifespan)
     app.state.demo = demo
@@ -113,6 +118,7 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     app.state.care = care
     app.state.marketing = marketing
     app.state.hub = hub
+    app.state.market = market
     app.state.auth = auth
 
     def sid(request: Request) -> str:
@@ -213,6 +219,7 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
 
     app.include_router(create_auth_router(auth, who_of=lambda request: request.state.who))
     app.include_router(create_assistant_router(assistant, proxy_of=lambda request: hub.assistant(sid(request))))
+    app.include_router(create_market_router(market, store_of=sid))
 
     def record_marketing(visitor: str | None, item: dict, store: str) -> dict:
         # 맞춤 마케팅에서 승인한 글을 이 방문자·이 가게의 승인 기록에 (리뷰 답글이 아니므로 '답글 달았음'은 부르지 않는다)

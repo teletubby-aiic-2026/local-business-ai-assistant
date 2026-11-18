@@ -22,9 +22,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.config import ROOT
+from app.cultural_events import DISTRICT_PATTERN, CulturalEventsService
+from app.data_sync import DataSyncBusy, DataSyncService
 from app.intake_location import declared_region, resolve_location, _candidate as parse_geocode_candidate
 from app.naver_clients import NaverApiError
-from app.onboarding_catalog import get_options
+from app.onboarding_catalog import SEOUL_DISTRICTS, get_options
 
 COOKIE_NAME = "market_onboarding_session"
 SEARCH_TTL = 600
@@ -38,6 +40,12 @@ def _database_path(path=None):
     if configured and not Path(configured).is_absolute():
         raise ValueError("ONBOARDING_DB_PATH must be an absolute database path")
     return str(path if path is not None else configured or ROOT / "data" / "onboarding.sqlite3")
+
+
+def _writable_dir():
+    """서비스 계정이 쓸 수 있는 폴더: 설정한 사용자 DB가 있는 곳. 공식 자료 폴더가 아니다."""
+    target = _database_path()
+    return None if target == ":memory:" else Path(target).parent
 
 
 class InputModel(BaseModel):
@@ -261,6 +269,16 @@ class OnboardingStore:
 def create_onboarding_router(store: OnboardingStore, *, cookie_secure=False) -> APIRouter:
     router = APIRouter(prefix="/api/onboarding")
     search_slot = threading.BoundedSemaphore(2)
+    # 시험은 app.state.data_sync / app.state.cultural_events 로 가짜 서비스를 넣는다.
+    default_data_sync = DataSyncService(state_dir=_writable_dir)
+    default_cultural_events = CulturalEventsService()
+    district_names = frozenset(d["name"] for d in SEOUL_DISTRICTS)
+
+    def data_sync_service(request):
+        return getattr(request.app.state, "data_sync", None) or default_data_sync
+
+    def cultural_events_service(request):
+        return getattr(request.app.state, "cultural_events", None) or default_cultural_events
 
     def owned(request):
         return store.session(request.cookies.get(COOKIE_NAME))
@@ -698,5 +716,32 @@ def create_onboarding_router(store: OnboardingStore, *, cookie_secure=False) -> 
                          "analysis_setup_complete": saved["analysis_setup_complete"],
                          "conditions_confirmed": saved["conditions_confirmed"],
                          "analysis_stage": "configuration_only", "ready_for_analysis": False}, token)
+
+    @router.get("/data-status")
+    def data_status(request: Request):
+        _owner, token = owned(request)
+        return response(data_sync_service(request).status(), token)
+
+    @router.post("/data-sync")
+    def data_sync(request: Request):
+        # 서울시 최신 발행 분기만 확인한다. 서비스 자료를 바꾸거나 수집하지 않는다.
+        _owner, token = owned(request)
+        try:
+            result = data_sync_service(request).sync()
+        except DataSyncBusy as error:
+            raise HTTPException(429, "다른 자료 확인이 진행 중이에요. 잠시 후 다시 시도해 주세요.",
+                                headers={"Retry-After": "5"}) from error
+        return response(result, token)
+
+    @router.get("/cultural-events")
+    def cultural_events(request: Request, district: str = Query(default="", max_length=10)):
+        if (set(request.query_params) - {"district"}
+                or len(request.query_params.getlist("district")) > 1):
+            raise HTTPException(422, "문화행사는 서울 자치구 이름 하나로만 조회할 수 있어요.")
+        district = district.strip()
+        if district and (DISTRICT_PATTERN.fullmatch(district) is None or district not in district_names):
+            raise HTTPException(422, "서울 자치구 이름을 확인해 주세요. 예: 동작구")
+        _owner, token = owned(request)
+        return response(cultural_events_service(request).events(district or None), token)
 
     return router
