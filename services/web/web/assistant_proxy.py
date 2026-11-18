@@ -365,6 +365,64 @@ def store_question(text: str) -> str | None:
     return None
 
 
+# ── 전 파트 질문 (5차 회의 11/18) ──────────────────────────────────────────────
+# 상권 질문은 지금처럼 상권 서비스가 8분기 자료로 답한다. 입력·설정이 필요한 고객응대·마케팅·리포트 질문은 여기서
+# 지금 가게의 현황 1~2줄과 그 기능 화면으로 바로 가는 버튼(payload.type "navigate")을 준다. 상권 서비스는 부르지 않는다.
+# 버튼은 상권 서비스의 /actions 로 보내지 않고 화면(app.js)이 그 자리에서 이동한다.
+DOMAIN_ANSWER = "web_domain"        # 여기서 답한 전 파트 응답의 answered_by
+_STRONG_MARKET = ("상권", "유동", "인구", "점포", "경쟁", "개업", "폐업", "창업", "월세", "임대료", "권리금", "보증금", "통계",
+                  "연령", "나이대", "배후", "집객", "직장인", "동네", "주변", "근처")
+_REPORT_Q = ("리포트", "보고서", "응대점수", "성적", "pdf", "결산")
+_MKT_Q = ("쿠폰", "본전", "할인", "남은재료", "남는재료", "재고", "떨이", "광고비", "광고", "홍보", "가게이야기", "소개글", "스토리",
+          "마케팅", "이벤트", "단골", "재주문", "사용률", "전단", "프로모션")
+_CARE_Q = ("리뷰", "후기", "불만", "답글", "댓글", "캡처", "캡쳐", "별점", "진상", "테러", "억울", "악플", "응대", "컴플레인", "클레임",
+           "블랙컨슈머")
+# 맞춤 마케팅 화면의 시작 모드 (app.js 의 MKT_SUB 와 같은 값)
+MKT_SUBS = {"promo": "맞춤 홍보 제안", "leftover": "남은 재료 팔기", "ad": "광고비 점검", "story": "가게 이야기 글",
+            "repeat": "쿠폰 결과 확인"}
+
+
+def nav(label: str, route: str, sub: str | None = None) -> dict:
+    payload = {"type": "navigate", "route": route}
+    if sub:
+        payload["sub"] = sub
+    return {"label": label, "payload": payload}
+
+
+def domain_question(text: str) -> str | None:
+    """'care' · 'marketing' · 'report' 또는 None(상권 서비스로). 상권 자료 낱말(_STRONG_MARKET)이 있으면 상권 서비스."""
+    c = re.sub(r"[^0-9a-z가-힣]", "", (text or "").lower())
+    if not c or any(w in c for w in _STRONG_MARKET):
+        return None
+    if any(w in c for w in _REPORT_Q):
+        return "report"
+    if any(w in c for w in _MKT_Q):
+        return "marketing"
+    if any(w in c for w in _CARE_Q):
+        return "care"
+    return None
+
+
+def marketing_sub(text: str) -> str:
+    c = re.sub(r"[^0-9a-z가-힣]", "", (text or "").lower())
+    for sub, words in (("leftover", ("남은재료", "남는재료", "재고", "떨이", "세트")), ("ad", ("광고비", "광고")),
+                       ("story", ("가게이야기", "소개글", "스토리")), ("repeat", ("쿠폰결과", "사용률", "지난쿠폰"))):
+        if any(w in c for w in words):
+            return sub
+    return "promo"
+
+
+def _domain_reply(lines: list[str], kind: str, domain: str, actions: list[dict], suggestions: list[str]) -> dict:
+    """상권 서비스 messages 와 같은 칸. conditions 는 싣지 않는다 (분석 조건을 바꾸지 않음)."""
+    return {"schema_version": REPLY_SCHEMA,
+            "reply": {"text": "\n".join(x for x in lines if x), "kind": kind, "cited": [], "actions": actions, "notes": [],
+                      "suggestions": suggestions},
+            "model_used": False, "cards": [], "topics": [],
+            "classification": {"domain": domain, "turn_type": kind, "topics": [], "needs_user_choice": False,
+                               "needs_model": False, "analyzer": "web_proxy"},
+            "pending": None, "answered_by": DOMAIN_ANSWER}
+
+
 def _ieyo(word: str) -> str:
     """'한식음식점' 뒤에는 '이에요', '카페' 뒤에는 '예요' (마지막 한글 글자의 받침으로 고른다)."""
     last = next((ch for ch in reversed(word) if "가" <= ch <= "힣"), None)
@@ -469,6 +527,7 @@ class AssistantProxy:
         # '우리 가게 기본 조건'을 알아보려고 기억한다. 자료가 같으면 모든 방문자에게 같은 값이라 서버에 하나만 둔다
         self.home: tuple[str, str, str] | None = None
         self.read_store: Callable[[], StoreProfile] | None = None      # 가게 프로필을 읽는 함수 (attach_store 가 넣는다)
+        self.demo = None                                               # 지금 가게의 Demo (전 파트 질문의 현황 1~2줄, attach_store)
 
     @classmethod
     def from_settings(cls, settings) -> "AssistantProxy":
@@ -494,6 +553,7 @@ class AssistantProxy:
         view.defaults = STORE_DEFAULTS.get(store_id)
         view.home = None
         view.read_store = None
+        view.demo = None
         return view
 
     def attach_store(self, demo) -> None:
@@ -504,6 +564,7 @@ class AssistantProxy:
             snapshots = load_snapshots(demo.s.snapshot_path)
             return to_store_profile(demo.source.store(demo.s.store_id), snapshots[0].area_name if snapshots else None)
         self.read_store = read
+        self.demo = demo
 
     def _store_profile(self) -> StoreProfile | None:
         """가게 프로필. 리뷰 분석 서비스가 꺼져 있거나 값이 이상하면 None (서랍에는 '불러오지 못했어요'로 답한다)."""
@@ -644,15 +705,106 @@ class AssistantProxy:
         up = self.market.request(method, path, token, body)
         return self._present(up.data), up.token or token
 
-    def message(self, token: str | None, body: dict) -> tuple[Any, str | None]:
-        """질문 1개. 가게 자체를 묻는 질문은 여기서 답하고(상권 서비스를 부르지 않는다) 나머지는 상권 서비스로 넘긴다."""
+    def message(self, token: str | None, body: dict, visitor: str | None = None) -> tuple[Any, str | None]:
+        """질문 1개. 가게 자체를 묻는 질문과 고객응대·마케팅·리포트 질문은 여기서 답하고(상권 서비스를 부르지 않는다),
+        나머지(상권 질문)는 상권 서비스로 넘긴다. 상권 답에는 '상권 분석 표·차트 보기' 버튼을 붙인다."""
+        text = body.get("text") or ""
+        kind = store_question(text)
+        if kind is not None:
+            problem = self._unavailable()
+            if problem is not None:
+                raise problem
+            return store_answer(kind, body["text"], None if kind == "where" else self._store_profile()), token
+        domain = domain_question(text)
+        if domain is not None:          # 상권 서비스가 꺼져 있어도 답한다 (가게의 리뷰·마케팅 현황은 이 서버가 안다)
+            return self.domain_answer(domain, text, visitor), token
         problem = self._unavailable()
         if problem is not None:
             raise problem
-        kind = store_question(body.get("text") or "")
-        if kind is None:
-            return self.forward("POST", "/api/assistant/messages", token, body)
-        return store_answer(kind, body["text"], None if kind == "where" else self._store_profile()), token
+        data, token_out = self.forward("POST", "/api/assistant/messages", token, body)
+        reply = data.get("reply") if isinstance(data, dict) else None
+        if isinstance(reply, dict) and reply.get("kind") in ("data_answer", "opinion", "summary") and isinstance(reply.get("actions"), list):
+            reply["actions"] = [*reply["actions"], nav("상권 분석 표·차트 보기", "market")]
+        return data, token_out
+
+    # 전 파트 질문 ---------------------------------------------------------------
+    def _briefing(self, visitor: str | None) -> dict | None:
+        if self.demo is None:
+            return None
+        try:
+            return self.demo.briefing(visitor)
+        except Exception as exc:          # 리뷰 분석 서비스가 꺼져 있어도 버튼은 준다
+            log.warning("서랍 현황: 브리핑을 읽지 못함 (%s)", exc.__class__.__name__)
+            return None
+
+    def _shop(self) -> str:
+        label = self.defaults.label if self.defaults else ""
+        return label.split(" · ")[0] if label else "우리 가게"
+
+    def domain_answer(self, domain: str, text: str, visitor: str | None = None) -> dict:
+        shop = self._shop()
+        c = re.sub(r"[^0-9a-z가-힣]", "", (text or "").lower())
+        b = self._briefing(visitor)
+        counts = (b or {}).get("counts") or {}
+        top = next((g for g in (b or {}).get("groups", []) if g.get("issue_id") == (b or {}).get("top_issue_id")), None)
+        if counts:
+            status = f"{shop}: 리뷰 {counts.get('review_count', 0)}건 중 불만 {counts.get('complaint_count', 0)}건이에요."
+            if top:
+                band = f", {top['main_time_band']}에 몰렸어요" if top.get("main_time_band") else ""
+                status += f" 가장 많은 불만은 '{top['topic_name']}' {top['review_count']}건{band}."
+        else:
+            status = f"{shop}의 리뷰 현황을 지금 불러오지 못했어요."
+        if domain == "care":
+            if any(w in c for w in ("억울", "진상", "테러", "악플", "블랙컨슈머")):
+                tip = ("가게 잘못이 아닌 별점에는 사과 없이 사실과 가게 원칙을 담담하게 쓰는 답글이 좋아요. "
+                       "추천 카드에서 답글을 만들면 억울한 리뷰는 설명하는 답글로 나와요.")
+            elif any(w in c for w in ("캡처", "캡쳐")):
+                tip = "리뷰 분석의 '리뷰 붙여넣기' 탭에서 배달앱 리뷰 캡처를 올리면 글자와 별점을 읽어 와요. 저장하기 전에 한 번 확인해 주세요."
+            else:
+                tip = "추천 카드에서 답글과 포장·주문 안내문을 바로 만들고, 고쳐서 승인할 수 있어요."
+            return _domain_reply([status, tip], "care_guide", "customer",
+                                 [nav("추천 카드에서 답글·안내문 만들기", "cards"), nav("리뷰 캡처·붙여넣기 열기", "analysis", "paste"),
+                                  nav("불만 묶음 보기", "analysis", "issues")],
+                                 ["억울한 별점 답글은 어떻게 달아?", "불만 리뷰 제일 많은 게 뭐야?", *BACK_TO_MARKET[:1]])
+        if domain == "marketing":
+            sub = marketing_sub(text)
+            lines = [self._marketing_status(visitor, shop)]
+            if any(w in c for w in ("본전", "할인", "쿠폰")) and sub in ("promo", "repeat"):
+                lines.append("쿠폰 할인액·장수에 따른 본전 주문 수는 맞춤 마케팅이 메뉴 가격으로 계산해 드려요 (맞춤 홍보 제안의 재주문 쿠폰, "
+                             "쿠폰 결과 확인).")
+            else:
+                lines.append(f"맞춤 마케팅의 '{MKT_SUBS[sub]}'에서 몇 가지 질문에 답하면 계산과 글을 만들어 드려요.")
+            actions = [nav(f"맞춤 마케팅: {MKT_SUBS[sub]}", "marketing", sub)]
+            if sub != "promo":
+                actions.append(nav("맞춤 마케팅: 맞춤 홍보 제안", "marketing", "promo"))
+            actions.append(nav("추천 카드 ⓑ 쿠폰 홍보글 보기", "cards"))
+            return _domain_reply(lines, "marketing_guide", "marketing", actions,
+                                 ["남은 재료 묶어서 팔고 싶어", "배달앱 광고비 괜찮은지 봐줘", "쿠폰 2천원 할인하면 몇 개 팔아야 본전이야?"])
+        tip = "종합 리포트에서 오늘 요약·응대 점수·손님 칭찬 요약·월간 보고서·상권·마케팅 요약을 한 번에 보고 PDF로 저장할 수 있어요."
+        return _domain_reply([status, tip], "report_guide", "report", [nav("종합 리포트·PDF 저장 열기", "report")],
+                             ["불만 리뷰 제일 많은 게 뭐야?", *BACK_TO_MARKET[:1]])
+
+    def _marketing_status(self, visitor: str | None, shop: str) -> str:
+        """칭찬 인기 메뉴(shared.praise, 카드 ⓑ 와 같은 함수)와 상권 저녁 매출 지표 한 줄."""
+        if self.demo is None:
+            return f"{shop}의 마케팅 현황을 지금 불러오지 못했어요."
+        parts = []
+        try:
+            from .cards import praised_coupon_menu
+            st = self.demo._state(visitor)
+            store, reviews = self.demo._contract_inputs(st)
+            found = praised_coupon_menu(store, reviews)
+            if found:
+                parts.append(f"손님 칭찬 리뷰에 '{found['menu']}' 언급이 {found['count']}건 있어요.")
+            from .cards import pick_card_b_snapshot, short_metric
+            s = pick_card_b_snapshot(st["snapshots"])          # 카드 ⓑ 가 쓰는 지표와 같은 것
+            if s is not None and s.value is not None:
+                way = "줄었어요" if s.value < 0 else "늘었어요"
+                # 지표 이름에 시간대·업종 범위가 들어 있다 (예: 저녁 시간대(17~24시) 추정매출(두 분기 공통 업종))
+                parts.append(f"{short_metric(s.metric_name)}은 전년 같은 분기보다 {abs(s.value):.2f}% {way} ({s.area_name}).")
+        except Exception as exc:
+            log.warning("서랍 현황: 마케팅 현황을 읽지 못함 (%s)", exc.__class__.__name__)
+        return " ".join(parts) or f"{shop}의 칭찬 메뉴·상권 지표를 지금 불러오지 못했어요."
 
 
 def _pick_area(candidates: list[dict], wanted: SetupDefaults) -> dict | None:
@@ -742,7 +894,8 @@ def create_assistant_router(proxy: AssistantProxy, proxy_of: Callable[[Request],
 
     @router.post("/messages")
     def messages(body: MessageIn, request: Request):
-        return guarded(request, lambda proxy, token: proxy.message(token, body.model_dump(exclude_none=True)))
+        visitor = getattr(request.state, "visitor_id", None)
+        return guarded(request, lambda proxy, token: proxy.message(token, body.model_dump(exclude_none=True), visitor))
 
     @router.post("/actions")
     def actions(body: ActionIn, request: Request):
