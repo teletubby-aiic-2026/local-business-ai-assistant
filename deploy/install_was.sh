@@ -15,6 +15,8 @@
 # 서비스: ic26-review(8020) · ic26-was(8000) · ic26-marketing(맞춤 마케팅, 127.0.0.1:8030) 를 켠다.
 #   ic26-market(상권, 127.0.0.1:8766)은 상권 공식 자료가 깔려 있으면 함께 켜고(다시 시작), 없으면 파일만 넣는다.
 #   자료는 코드 묶음에 없다. 따로 받은 자료 묶음을 install_market_data.sh 로 깐다 (그 스크립트가 ic26-market 도 켬).
+#   ic26-secrets(비밀 값 받아 오기, 한 번 돌고 끝남)도 등록한다. /etc/ic26/env 의 IC26_SM_ID 가 있으면 Secret Manager 에서
+#   키를 받아 /run/ic26/secrets.env 에 두고, 비어 있으면 아무것도 하지 않는다 (README 5-1절).
 # 하지 않는 일: 키·비밀번호를 쓰거나 읽어 출력하는 일, 상권 자료 깔기, 로드 밸런서 설정
 # 갱신 때 건드리지 않는 것: /etc/ic26/env, /opt/ic26/.venv, 쓰기 폴더 안의 내용(붙여넣은 리뷰, 로그, 승인 기록, 상권 DB, 마케팅 기록),
 #   상권 자료(/opt/ic26/services/market-analysis/data/, /opt/ic26/source-downloads/)
@@ -25,8 +27,9 @@ APP_DIR=/opt/ic26
 ENV_DIR=/etc/ic26
 ENV_FILE=$ENV_DIR/env
 STATE_DIR=/var/lib/ic26
-UNITS=(ic26-review ic26-was ic26-market ic26-marketing)   # market 은 상권 자료가 있을 때만 enable 한다 (아래 7)
+UNITS=(ic26-secrets ic26-review ic26-was ic26-market ic26-marketing)   # market 은 상권 자료가 있을 때만 enable 한다 (아래 7)
 ENABLED_UNITS=(ic26-review ic26-marketing ic26-was)      # 켜는 서비스 (마케팅을 화면 서버보다 먼저 시작)
+SECRETS_OUT=/run/ic26/secrets.env                        # ic26-secrets 가 쓰는 파일 (메모리 영역, 재부팅하면 다시 받음)
 
 die() { echo "오류: $*" >&2; exit 1; }
 warn() { echo "주의: $*" >&2; }
@@ -160,9 +163,11 @@ if [ "${#missing[@]}" -gt 0 ]; then
 fi
 mode_line="$(sed -n 's/^APP_MODE=//p' "$ENV_FILE" | tail -n1 | tr -d '[:space:]')"
 echo "APP_MODE: ${mode_line:-(비어 있음 → mock 으로 돎)}"
-if [ "$mode_line" = live ]; then
+if grep -q '^IC26_SM_ID=.' "$ENV_FILE"; then
+  echo "IC26_SM_ID: 값 있음 → 키는 서버가 켜질 때 Secret Manager 에서 받습니다 (ic26-secrets, 아래 7에서 한 번 받아 봄)"
+elif [ "$mode_line" = live ]; then
   for k in CLOVA_API_KEY CLOVASTUDIO_API_KEY CLOVA_STUDIO_API_KEY; do
-    grep -q "^${k}=." "$ENV_FILE" && echo "  $k: 값 있음" || echo "  $k: 비어 있음  ← live 에서는 채워야 합니다"
+    grep -q "^${k}=." "$ENV_FILE" && echo "  $k: 값 있음" || echo "  $k: 비어 있음  ← live 에서는 채우거나 IC26_SM_ID 를 넣습니다"
   done
 fi
 
@@ -224,7 +229,7 @@ else
     install -m 644 -o root -g root "$SRC/deploy/systemd/$u.service" "/etc/systemd/system/$u.service"
   done
   systemctl daemon-reload
-  systemctl enable "${ENABLED_UNITS[@]/%/.service}"
+  systemctl enable ic26-secrets.service "${ENABLED_UNITS[@]/%/.service}"
   if [ "$MARKET_DATA" = 1 ]; then
     systemctl enable ic26-market.service
     echo "ic26-market: 상권 자료가 깔려 있어 enable 했습니다 ($(head -n1 /var/lib/ic26/market-data.installed 2>/dev/null || echo '자료 묶음 기록 없음'))"
@@ -232,6 +237,12 @@ else
     echo "ic26-market 은 파일만 넣었고 켜지 않았습니다. 상권 자료 묶음을 받은 뒤: sudo bash $SRC/deploy/install_market_data.sh <seoul-market-data-….tar.gz>"
   fi
   if [ "$DO_START" = 1 ]; then
+    # 비밀 값을 새로 받는다 (IC26_SM_ID 가 비어 있으면 아무것도 안 함). 실패해도 서비스는 env 의 값으로 켠다
+    if systemctl restart ic26-secrets.service; then
+      journalctl -u ic26-secrets.service -n 3 --no-pager -o cat 2>/dev/null | sed 's/^/  ic26-secrets: /' || true
+    else
+      warn "ic26-secrets 가 실패했습니다 (서비스는 env 의 값으로 켭니다). 이유: journalctl -u ic26-secrets -n 20"
+    fi
     systemctl restart ic26-review.service
     systemctl restart ic26-marketing.service
     systemctl restart ic26-was.service
@@ -259,6 +270,7 @@ echo "설치가 끝났습니다. 커밋 $REV"
 if [ "$USE_SYSTEMD" = 1 ]; then
   echo "다음 할 일"
   echo "  1. 환경 파일에 값을 넣습니다 (처음 설치일 때):   sudo vi -n -i NONE $ENV_FILE"
+  echo "     키를 Secret Manager 에 두면 env 에는 IC26_SM_ID 만 넣고 비밀 값 줄은 비웁니다 (README 5-1절)"
   echo "  2. 서비스를 다시 시작합니다:                    sudo systemctl restart ic26-review ic26-marketing ic26-was$([ "$MARKET_DATA" = 1 ] && echo ' ic26-market')"
   [ "$MARKET_DATA" = 1 ] || echo "  (상권) 자료 묶음을 깝니다:                      sudo bash $SRC/deploy/install_market_data.sh <seoul-market-data-….tar.gz>"
   echo "  3. 확인합니다:                                  bash $SRC/deploy/smoke_test.sh"

@@ -8,8 +8,8 @@
 # 기록(설문 결과·승인·쿠폰 결과·광고비 점검)은 MARKETING_RECORDS_DIR 에 방문자마다 파일 하나로 남습니다 (install_was.sh 가 ic26 소유로 만듦).
 [Unit]
 Description=ic26 marketing-survey (127.0.0.1:8030)
-After=network-online.target
-Wants=network-online.target
+After=network-online.target ic26-secrets.service
+Wants=network-online.target ic26-secrets.service
 
 [Service]
 Type=simple
@@ -17,6 +17,8 @@ User=ic26
 Group=ic26
 WorkingDirectory=/opt/ic26/experiments/marketing
 EnvironmentFile=/etc/ic26/env
+# Secret Manager 에서 받은 비밀 값 (ic26-secrets.service, deploy/README.md 5-1절). 파일이 없으면 건너뜀. 같은 이름이면 이쪽이 이김
+EnvironmentFile=-/run/ic26/secrets.env
 # 저장소 루트(shared/)와 마케팅 폴더(config, c6, marketing_survey) 둘 다 필요합니다
 Environment=PYTHONPATH=/opt/ic26:/opt/ic26/experiments/marketing
 Environment=PYTHONDONTWRITEBYTECODE=1

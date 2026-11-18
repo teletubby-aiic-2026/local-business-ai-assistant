@@ -10,6 +10,7 @@
 # 하는 일
 #   1 ic26 서비스를 멈춘다 (실행 중에 파일이 다시 쓰이지 않게)
 #   2 /etc/ic26/env 에서 이름에 KEY, PASSWORD, TOKEN, SECRET 이 들어간 줄의 값을 비운다 (변수 이름은 남김)
+#     Secret Manager 에서 받은 /run/ic26/secrets.env 도 지운다. IC26_SM_ID 는 남긴다 (새 서버가 켜질 때 그 ID 로 다시 받음)
 #   3 실행 중에 생긴 데이터를 지운다: 붙여넣은 리뷰와 분류 결과, 승인 기록, 사용량 기록, 모델 원문 응답, 상권 대화 기록, 마케팅 기록
 #   4 키가 남아 있을 만한 곳을 이름만 찾아 알려 준다 (값은 출력하지 않는다)
 # 하지 않는 일: 서비스를 다시 시작하는 일, 이미지를 만드는 일(콘솔에서 사람이), 셸 히스토리 지우기(아래 안내)
@@ -58,6 +59,11 @@ for f in /etc/ic26/.env.swp /etc/ic26/.env.swo /etc/ic26/env~ /etc/ic26/env.bak 
 done
 extra="$(find /etc/ic26 -mindepth 1 ! -name env 2>/dev/null | head -n 5)"
 [ -z "$extra" ] || warn "/etc/ic26 에 env 말고 다른 파일이 있습니다. 값이 들어 있는지 확인하고 지우세요: $(echo $extra)"
+# Secret Manager 에서 받은 값 (메모리 영역이라 이미지에 담기지 않지만, 서비스를 멈춘 김에 지운다)
+[ -e /run/ic26/secrets.env ] && { rm -f /run/ic26/secrets.env; echo "  /run/ic26/secrets.env 지움 (Secret Manager 에서 받은 값)"; }
+if grep -q '^IC26_SM_ID=.' "$ENV_FILE" 2>/dev/null; then
+  echo "  IC26_SM_ID 는 남김 → 이 이미지로 뜬 서버는 켜질 때 Secret Manager 에서 키를 받습니다 (그 서버에도 Server Role 이 있어야 함)"
+fi
 
 echo "[3/4] 실행 중에 생긴 데이터 지우기"
 clear_dir() {
@@ -96,7 +102,10 @@ cat <<'EOF'
      sudo -i 나 root 로 들어갔다면 그 셸에서도 같은 명령을 합니다.
   2. 올려 둔 묶음(~/ic26-*.tgz)과 풀어 둔 폴더에는 비밀이 없습니다. 지우지 않아도 됩니다.
   3. 콘솔에서 이 서버로 서버 이미지를 만듭니다 (ic26-was-img1).
-이미지를 만든 뒤에는 이 서버의 /etc/ic26/env 에 값을 다시 넣고 서비스를 시작합니다.
-  sudo vi -n -i NONE /etc/ic26/env
-  sudo systemctl restart ic26-review ic26-marketing ic26-was
+이미지를 만든 뒤 이 서버를 다시 켭니다.
+  Secret Manager 를 쓰면(IC26_SM_ID 가 있음) 값을 다시 넣지 않습니다:
+    sudo systemctl restart ic26-secrets && sudo systemctl restart ic26-review ic26-marketing ic26-was ic26-market
+  쓰지 않으면 /etc/ic26/env 에 값을 다시 넣고 서비스를 시작합니다:
+    sudo vi -n -i NONE /etc/ic26/env
+    sudo systemctl restart ic26-review ic26-marketing ic26-was ic26-market
 EOF
