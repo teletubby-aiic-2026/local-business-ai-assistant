@@ -160,7 +160,51 @@ ls -l /etc/ic26/env                      # -rw------- root root
 
 키 없이 먼저 설치만 확인하고 싶으면 `APP_MODE=mock`으로 바꿔 5·6절을 해 보고, 끝나면 `live`로 되돌립니다. mock은 저장된 예시를 보여 주며 실제 AI 결과가 아닙니다.
 
-키 보관을 "비밀 저장소 + 서버 역할"로 바꾸는 시험(체크리스트 D15)이 되면 이 5절만 바뀝니다. 설치 스크립트와 서비스 파일은 그대로입니다.
+키를 서버 디스크에 두지 않으려면 5-1절(Secret Manager)을 씁니다. 11/18부터 권장하는 방법입니다.
+
+## 5-1. 키를 Secret Manager에 두기 (권장, 11/18)
+
+키와 DB 비밀번호를 `/etc/ic26/env`(디스크)와 서버 이미지에 두지 않는 방법입니다. `/etc/ic26/env`에는 이름만 남기고(값은 빈 칸), 서버가 켜질 때마다 `ic26-secrets` 서비스가 Secret Manager에서 값을 받아 `/run/ic26/secrets.env`(메모리 영역, 재부팅하면 사라지고 다시 받음)에 둡니다. 서비스 4개는 env를 읽은 뒤 이 파일을 한 번 더 읽습니다(같은 이름이면 이 파일이 이김). 11/18 `ic26-was1`에서 서버 역할의 임시 키로 값을 읽는 것까지 확인했습니다.
+
+**콘솔에서 한 번**
+
+1. Security > Secret Manager에서 비밀을 만듭니다. 값은 **env 이름을 키로 한 JSON**입니다.
+
+   ```json
+   {"CLOVA_API_KEY": "…", "CLOVASTUDIO_API_KEY": "…", "CLOVA_STUDIO_API_KEY": "…", "DB_PASSWORD": "…",
+    "SEOUL_OPENAPI_KEY": "…", "NAVER_MAPS_CLIENT_ID": "…", "NAVER_MAPS_CLIENT_SECRET": "…"}
+   ```
+
+2. Sub Account > Roles > [역할 생성]: 유형 **Server Role** → 정책 탭에서 `NCP_SECRETMANAGER_USER`(조회만) → 역할 적용 대상 탭에서 WAS 서버를 고르고 [적용]. 서버 한 대에 역할은 하나만 붙습니다.
+
+**서버마다**
+
+1. `sudo vi -n -i NONE /etc/ic26/env`에서 `IC26_SM_ID=<비밀 ID>`를 넣습니다(줄이 없으면 더함). 비밀 ID는 비밀번호가 아니지만 문서·이슈에는 적지 않습니다.
+2. 받아 보고, 지금 env 값과 같은지 이름마다 확인합니다(값은 출력하지 않음).
+
+   ```bash
+   sudo python3 /opt/ic26/deploy/fetch_secrets.py --check     # 이름: 길이, env 와 같음/다름/비어 있음
+   ```
+
+3. 받아서 쓰고, **env에서 받아 온 이름의 줄만 값을 비웁니다.** env 파일의 다른 줄·주석·순서는 그대로입니다. 받기에 실패하면 env를 건드리지 않습니다.
+
+   ```bash
+   sudo python3 /opt/ic26/deploy/fetch_secrets.py --blank-env
+   sudo systemctl restart ic26-secrets
+   sudo systemctl restart ic26-review ic26-marketing ic26-was ic26-market
+   bash ~/ic26-<커밋>/deploy/smoke_test.sh --expect-reviews 40 --market --generate
+   ```
+
+4. 재부팅해도 되는지 봅니다: `sudo reboot` → 다시 접속해 `journalctl -u ic26-secrets -b -o cat`(“Secret Manager 에서 N개를 받아 …”, 이름만)과 `smoke_test.sh`.
+
+알아 둘 것
+
+- Secret Manager의 값만 바꿨을 때: 서버마다 `sudo systemctl restart ic26-secrets && sudo systemctl restart ic26-review ic26-marketing ic26-was ic26-market`. 서비스만 다시 시작하면 예전 값(메모리의 파일)을 씁니다.
+- 받아 오는 이름은 **env에 줄(`NAME=`)이 있는 이름만**입니다. env에 없는 이름은 건너뛰고 이름만 알려 줍니다. 그래서 env의 줄을 지우지 말고 값만 비웁니다.
+- `ic26-secrets`가 실패하면(역할 없음, 비밀 ID 틀림, 네트워크) 서비스 4개는 env의 값(빈 칸)으로 켜져 `/api/health`에 막힘 항목이 보입니다. 원인은 `journalctl -u ic26-secrets -n 20`. 서버가 막 켜졌을 때 네트워크가 늦으면 6초 간격으로 20번까지 다시 시도합니다.
+- 되돌리기: env에 값을 다시 넣고 `IC26_SM_ID`를 비운 뒤 `sudo systemctl restart ic26-secrets`(남은 `/run` 파일을 지움)와 서비스 재시작.
+- 서버 이미지(7절): `prepare_image.sh`는 `IC26_SM_ID`를 비우지 않으므로, 그 이미지로 뜬 서버는 켜질 때 스스로 값을 받습니다. **그 서버에도 역할이 붙어 있어야 합니다**(Auto Scaling 서버에 역할이 붙는지는 11/19에 확인).
+- 같은 서버 안의 모든 프로그램이 메타데이터로 임시 키를 받을 수 있습니다. 정책은 조회만(`NCP_SECRETMANAGER_USER`)으로 두고, 역할은 WAS에만 붙입니다(웹 서버에는 붙이지 않음).
 
 ## 6. 서버에서: 시작과 확인
 
@@ -205,8 +249,11 @@ DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여
 
    ```bash
    sudo systemd-run --quiet --wait --pipe -p User=ic26 -p WorkingDirectory=/opt/ic26 \
-     -p EnvironmentFile=/etc/ic26/env /opt/ic26/.venv/bin/python -m shared.storage.init_db
+     -p EnvironmentFile=/etc/ic26/env -p EnvironmentFile=-/run/ic26/secrets.env \
+     /opt/ic26/.venv/bin/python -m shared.storage.init_db
    ```
+
+   두 번째 `EnvironmentFile`은 5-1절(Secret Manager)을 쓸 때 `DB_PASSWORD`를 거기서 읽기 위한 것입니다. 쓰지 않으면 건너뜁니다.
 
    `<DB 주소>:5432/ic26app 표 6개 확인: approvals, card_reasons, reports, review_labels, reviews, stores`가 나오면 된 것입니다. 여러 번 돌려도 안전합니다(이미 있는 표는 그대로 둡니다).
    11/18부터 `approvals`에 칸 4개(`draft_text`, `checks`, `used_fallback`, `style`. 이슈 #51 ERD)가 더해졌습니다. 이 명령은 이미 있는 표에도 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 칸을 더합니다(있던 기록은 그대로, 새 칸은 비움·`{}`·`false`).
@@ -228,7 +275,8 @@ DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여
 - DB 없이 되돌리려면 `DB_HOST`를 비우고 서비스를 다시 시작합니다.
 - 표 정의는 `db/schema.sql`입니다. 칸을 **더하는** 변경은 `schema.sql` 끝의 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 명령이 처리합니다. 칸 이름·형식을 바꾸거나 지우는 변경은 따로 옮깁니다.
 - 선택 변수: `DB_SSLMODE`, `DB_CONNECT_TIMEOUT`(3초), `DB_QUERY_TIMEOUT`(5초), `DB_POOL_MAX`(5). 설명은 `shared/storage/config.py`에 있습니다.
-- **2번의 `systemd-run` 명령과 실제 Cloud DB 연결은 서버에서 아직 돌려 보지 못했습니다(11/14).** 표 만들기와 저장은 로컬 PostgreSQL 16으로 확인했습니다.
+- 2번 명령과 실제 Cloud DB 연결은 11/18 `ic26-was1`에서 확인했습니다(표 6개). 처음에 `no pg_hba.conf entry for host …`가 나왔는데, 네트워크가 아니라 콘솔 DB User 관리의 **접근 제어(Client CIDR)**에 WAS 대역이 없어서였습니다.
+- DB Failover 직후 약 30초 동안 DB 도메인이 옛 서버(읽기 전용 standby)를 가리킵니다(11/18 시험). 그때 연결 풀이 standby에 붙으면 최대 30분 저장이 실패할 수 있어 env에 `PGTARGETSESSIONATTRS=read-write`를 둡니다(틀에 들어 있음).
 
 ## 7. 서버 이미지 만들기 전에 (`ic26-was-img1`)
 
@@ -244,7 +292,7 @@ history -c && history -w          # 이 셸의 히스토리. sudo -i 나 root �
 그 뒤:
 
 1. 콘솔에서 `ic26-was1` → 서버 이미지 `ic26-was-img1`. 서버를 정지해야 하는지는 화면 안내를 따릅니다.
-2. 이미지가 끝나면 `ic26-was1`에 5절처럼 값을 다시 넣고 `sudo systemctl restart ic26-review ic26-marketing ic26-was`.
+2. 이미지가 끝나면 `ic26-was1`을 다시 켭니다. 5-1절(Secret Manager)을 쓰면 값을 다시 넣지 않고 `sudo systemctl restart ic26-secrets && sudo systemctl restart ic26-review ic26-marketing ic26-was ic26-market`. 쓰지 않으면 5절처럼 값을 다시 넣고 같은 재시작.
 3. `ic26-was2`는 `ic26-was-img1`로 만든 뒤 베스천을 거쳐 접속해 5절처럼 값을 넣고 재시작합니다. 서비스는 이미 enable 되어 있고, 이미지에 값이 없으므로 키를 넣기 전에는 막힘 항목이 보이는 것이 정상입니다.
 4. 두 서버에서 `smoke_test.sh`가 통과하고 `cat /opt/ic26/REVISION`이 같은지 봅니다.
 

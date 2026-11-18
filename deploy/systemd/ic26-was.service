@@ -9,8 +9,8 @@
 [Unit]
 Description=ic26 was (0.0.0.0:8000)
 # ic26-marketing 은 순서(After)만 둔다. Wants 에 넣으면 마케팅을 꺼 둬도 이 서비스를 다시 시작할 때 같이 켜진다
-After=network-online.target ic26-review.service ic26-marketing.service
-Wants=network-online.target ic26-review.service
+After=network-online.target ic26-review.service ic26-marketing.service ic26-secrets.service
+Wants=network-online.target ic26-review.service ic26-secrets.service
 
 [Service]
 Type=simple
@@ -18,6 +18,8 @@ User=ic26
 Group=ic26
 WorkingDirectory=/opt/ic26/services/web
 EnvironmentFile=/etc/ic26/env
+# Secret Manager 에서 받은 비밀 값 (ic26-secrets.service, deploy/README.md 5-1절). 파일이 없으면 건너뜀. 같은 이름이면 이쪽이 이김
+EnvironmentFile=-/run/ic26/secrets.env
 Environment=PYTHONPATH=/opt/ic26
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1

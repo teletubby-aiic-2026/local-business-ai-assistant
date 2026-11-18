@@ -6,8 +6,8 @@
 # DB_HOST 가 있으면 붙여넣은 리뷰를 DB 에 둡니다. 그 코드(shared/storage)가 저장소 루트에 있어 PYTHONPATH 를 적어 둡니다.
 [Unit]
 Description=ic26 review-insight (127.0.0.1:8020)
-After=network-online.target
-Wants=network-online.target
+After=network-online.target ic26-secrets.service
+Wants=network-online.target ic26-secrets.service
 
 [Service]
 Type=simple
@@ -15,6 +15,8 @@ User=ic26
 Group=ic26
 WorkingDirectory=/opt/ic26/services/review-insight
 EnvironmentFile=/etc/ic26/env
+# Secret Manager 에서 받은 비밀 값 (ic26-secrets.service, deploy/README.md 5-1절). 파일이 없으면 건너뜀. 같은 이름이면 이쪽이 이김
+EnvironmentFile=-/run/ic26/secrets.env
 Environment=PYTHONPATH=/opt/ic26
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1

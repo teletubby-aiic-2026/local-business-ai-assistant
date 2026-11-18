@@ -15,8 +15,8 @@
 #   - HCX 키는 CLOVA_STUDIO_API_KEY (가운데 밑줄이 하나 더 있는 이름), ASSISTANT_ENABLED=1 이어야 챗봇이 켜집니다.
 [Unit]
 Description=ic26 market (127.0.0.1:8766)
-After=network-online.target
-Wants=network-online.target
+After=network-online.target ic26-secrets.service
+Wants=network-online.target ic26-secrets.service
 # 상권 코드가 아직 없으면 오류 없이 건너뜁니다 (systemctl status 에 조건 실패로 보임)
 ConditionPathExists=/opt/ic26/services/market-analysis/app/intake_api.py
 
@@ -26,6 +26,8 @@ User=ic26
 Group=ic26
 WorkingDirectory=/opt/ic26/services/market-analysis
 EnvironmentFile=/etc/ic26/env
+# Secret Manager 에서 받은 비밀 값 (ic26-secrets.service, deploy/README.md 5-1절). 파일이 없으면 건너뜀. 같은 이름이면 이쪽이 이김
+EnvironmentFile=-/run/ic26/secrets.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 Environment=ONBOARDING_DB_PATH=/var/lib/ic26/market/onboarding.sqlite3
