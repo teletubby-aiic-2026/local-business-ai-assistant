@@ -207,6 +207,106 @@ class LoginFlow(unittest.TestCase):
         self.assertEqual(self.client.get("/api/auth/me").status_code, 200)
 
 
+def _request(peer, forwarded=None, visitor="visitor-a"):
+    """auth._client 에 넘길 요청 (바로 앞 주소·X-Forwarded-For·방문자 쿠키만)."""
+    from starlette.requests import Request
+    headers = [(b"x-forwarded-for", forwarded.encode("ascii"))] if forwarded is not None else []
+    request = Request({"type": "http", "method": "POST", "path": "/api/auth/login", "headers": headers,
+                       "client": (peer, 50000)})
+    request.state.guest_visitor_id = visitor
+    return request
+
+
+class BehindProxies(unittest.TestCase):
+    """실서버: 공개 ALB → Nginx → 내부 ALB → WAS. WAS 가 보는 주소는 늘 내부 ALB 의 사설 주소다 (11/19 보완)."""
+
+    def setUp(self):
+        self.client, *_ = build()
+
+    def at(self, peer, forwarded=None):
+        headers = {"X-Forwarded-For": forwarded} if forwarded else None
+        return TestClient(self.client.app, client=(peer, 50000), headers=headers)
+
+    def fail_until_blocked(self, client, login="stranger01"):
+        codes = [client.post("/api/auth/login", json={"login_id": login, "password": "nope-nope"}).status_code
+                 for _ in range(auth_mod.FAIL_LIMIT + 1)]
+        self.assertEqual(codes, [401] * auth_mod.FAIL_LIMIT + [429])
+
+    def test_rightmost_public_address_is_the_client(self):
+        self.assertEqual(auth_mod._client(_request("10.0.1.9", "1.2.3.4, 203.0.113.9, 10.0.1.5")), "203.0.113.9")
+        self.assertEqual(auth_mod._client(_request("127.0.0.1", "198.51.100.20")), "198.51.100.20")
+        self.assertEqual(auth_mod._client(_request("::ffff:10.0.2.6", "198.51.100.20")), "198.51.100.20")
+        self.assertEqual(auth_mod._client(_request("testclient", "198.51.100.20")), "198.51.100.20")
+
+    def test_forwarded_header_from_a_public_peer_is_ignored(self):
+        self.assertEqual(auth_mod._client(_request("198.51.100.7", "1.2.3.4")), "198.51.100.7")
+        self.assertEqual(auth_mod._client(_request("198.51.100.7")), "198.51.100.7")
+
+    def test_unknown_public_address_falls_back_to_the_visitor(self):
+        self.assertEqual(auth_mod._client(_request("10.0.2.6")), "10.0.2.6:v:visitor-a")
+        self.assertEqual(auth_mod._client(_request("10.0.2.6", "10.0.0.3, 192.168.1.4")), "10.0.2.6:v:visitor-a")
+        # 주소가 아닌 값을 만나면 그 왼쪽(손님이 지어낼 수 있는 쪽)은 믿지 않는다
+        self.assertEqual(auth_mod._client(_request("10.0.2.6", "1.2.3.4, nonsense, 10.0.1.5")), "10.0.2.6:v:visitor-a")
+        self.assertEqual(auth_mod._client(_request("10.0.2.6", visitor="visitor-b")), "10.0.2.6:v:visitor-b")
+
+    def test_one_visitor_failing_behind_a_private_proxy_does_not_lock_the_others(self):
+        signup(TestClient(self.client.app), login="owner02")
+        a, b = self.at("10.0.2.6"), self.at("10.0.2.6")
+        a.get("/api/auth/me"), b.get("/api/auth/me")                       # 방문자 쿠키를 받아 둠
+        self.assertNotEqual(a.cookies.get("visitor_id"), b.cookies.get("visitor_id"))
+        self.fail_until_blocked(a)
+        # A 는 다른 아이디로도 막힌다 (주소 키가 A 의 방문자와 묶였으므로)
+        self.assertEqual(a.post("/api/auth/login", json={"login_id": "owner02", "password": "pass-word-1"}).status_code, 429)
+        # 같은 사설 주소 뒤의 B 는 그대로 로그인된다
+        res = b.post("/api/auth/login", json={"login_id": "owner02", "password": "pass-word-1"})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertTrue(res.json()["authenticated"])
+
+    def test_forwarded_public_address_is_counted_per_person(self):
+        signup(TestClient(self.client.app), login="owner03")
+        a = self.at("10.0.2.6", "203.0.113.9, 10.0.1.5")
+        self.fail_until_blocked(a)
+        # 같은 공인 주소면 방문자 쿠키를 바꿔도 막힌다 (쿠키를 지워 피해 갈 수 없게)
+        same_place = self.at("10.0.2.6", "203.0.113.9, 10.0.1.5")
+        self.assertEqual(same_place.post("/api/auth/login", json={"login_id": "owner03", "password": "pass-word-1"}).status_code, 429)
+        # 다른 공인 주소의 손님은 같은 내부 ALB 를 거쳐도 로그인된다
+        other = self.at("10.0.2.6", "198.51.100.20, 10.0.1.5")
+        self.assertEqual(other.post("/api/auth/login", json={"login_id": "owner03", "password": "pass-word-1"}).status_code, 200)
+
+    def test_id_limit_still_holds_behind_a_proxy(self):
+        signup(TestClient(self.client.app), login="owner04")
+        self.fail_until_blocked(self.at("10.0.2.6"), login="owner04")
+        # 다른 방문자라도 같은 아이디는 잠시 막힌다 (아이디마다 10분에 10번은 그대로)
+        self.assertEqual(self.at("10.0.2.6").post("/api/auth/login", json={"login_id": "owner04", "password": "pass-word-1"}).status_code, 429)
+
+
+class DemoPrefix(unittest.TestCase):
+    """'demo-' 아이디는 시연 계정 몫 (11/19 보완)."""
+
+    def setUp(self):
+        self.client, self.demo, *_ = build()
+
+    def test_signup_refuses_demo_prefix(self):
+        for login in ("demo-abc", "DEMO-owner", "demo-0123456789ab"):
+            res = signup(TestClient(self.client.app), login=login)
+            self.assertEqual(res.status_code, 422, (login, res.text))
+            self.assertIn("시연 계정", res.json()["error"]["message"])
+        self.assertEqual(signup(TestClient(self.client.app), login="demoowner").status_code, 201)   # 'demo-' 만 막음
+
+    def test_demo_login_is_a_clear_error_if_its_id_was_taken_before(self):
+        import hashlib
+        guest = TestClient(self.client.app)
+        guest.get("/api/auth/me")
+        visitor = guest.cookies.get("visitor_id")
+        demo_id = auth_mod.DEMO_PREFIX + hashlib.sha256(f"ic26-demo:{visitor}".encode("utf-8")).hexdigest()[:12]
+        # 예약 전에 누군가 그 아이디로 가입해 둔 경우 (저장소에 바로 넣음)
+        self.demo.storage.users.create("someone0001", demo_id, hash_password("pass-word-1"), "먼저 가입", ["store_ongi"])
+        res = guest.post("/api/auth/demo-login")
+        self.assertEqual(res.status_code, 409, res.text)
+        self.assertIn("시연 계정", res.json()["error"]["message"])
+        self.assertFalse(guest.get("/api/auth/me").json()["authenticated"])
+
+
 class StoresPerOwner(unittest.TestCase):
     def setUp(self):
         self.client, self.demo, self.source, self.care, self.mkt = build()

@@ -172,6 +172,8 @@ class MemoryUsers:
         with self._lock:
             row = self._users.get(user_id)
             if row is None:
+                if any(u["login_id"] == login_id.lower() for u in self._users.values()):
+                    raise DuplicateLogin("이미 있는 아이디예요")      # 다른 계정이 이 아이디를 씀 (PgUsers 와 같게)
                 row = {"user_id": user_id, "login_id": login_id.lower(), "password_hash": password_hash,
                        "display_name": display_name, "created_at": now_kst()}
                 self._users[user_id] = row

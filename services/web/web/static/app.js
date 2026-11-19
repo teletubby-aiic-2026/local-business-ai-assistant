@@ -66,11 +66,21 @@ function route() {
   document.querySelectorAll(".menu a").forEach((a) => {
     if (a.dataset.route === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
+  menuReveal();
   window.scrollTo(0, 0);
   const h = document.querySelector(`[data-view="${name}"] h1`);
   if (h) h.focus({ preventScroll: true });
 }
 const go = (name) => { if (currentRoute() === name) route(); else location.hash = "#/" + name; };
+// 760px 이하 가로 메뉴: 지금 화면 항목이 잘려 있으면 메뉴 줄만 가로로 민다 (scrollLeft, 문서 세로 위치는 그대로).
+// 세로 메뉴(넓은 화면)는 가로로 넘치지 않아 아무것도 하지 않는다
+function menuReveal() {
+  const menu = document.querySelector(".side .menu"), a = menu && menu.querySelector('a[aria-current="page"]');
+  if (!a || menu.scrollWidth <= menu.clientWidth) return;
+  const m = menu.getBoundingClientRect(), r = a.getBoundingClientRect(), room = 24;   // 옆 항목이 조금 보이게 남기는 폭
+  if (r.left < m.left) menu.scrollLeft -= m.left - r.left + room;
+  else if (r.right > m.right) menu.scrollLeft += r.right - m.right + room;
+}
 
 // ── 테마 ─────────────────────────────────────────────────────────
 // 운영체제 설정(라이트·다크)을 따른다. 주소 뒤 ?theme=light 를 붙이면 라이트로 고정한다.
@@ -106,6 +116,7 @@ function setMenu(open) {
 function applyMenu() {
   menuBand = menuBandNow();
   setMenu(menuBand === "mid" ? false : menuBand === "wide" ? menuRead() !== "closed" : true);
+  menuReveal();   // 휴대전화 폭(가로 메뉴)이 되면 지금 화면 항목이 보이게
 }
 function toggleMenu() {
   const open = !menuIsOpen();
@@ -314,12 +325,15 @@ function renderDash() {
   syncMenuCount(waiting);   // 메뉴가 접혀 있을 때는 토글 버튼 위에
   renderStaff(items);   // AI 직원 네 명의 상태 (아래 'AI 직원' 덩어리, 11/18)
 }
-// 375px 홈의 직원 상태 줄: 왼쪽 메뉴 'AI 직원' 목록(#staff)을 그대로 옮겨 그린다 (내용은 한 곳에서만 정함)
+// 375px 홈의 직원 상태 줄: 왼쪽 메뉴 'AI 직원' 목록(#staff)을 그대로 옮겨 그린다 (내용은 한 곳에서만 정함).
+// 왼쪽 메뉴가 안 보이는 폭에서도 누르면 맡은 화면으로 가도록 같은 버튼(data-staff-go)으로 그린다 (11/19)
+let staffStripHtml = "";
 function syncStaffStrip() {
-  $("staff-strip").innerHTML = [...document.querySelectorAll("#staff li")].map((li) => {
-    const dot = li.querySelector(".dot");
-    return `<li><span class="${esc(dot ? dot.className : "dot")}" aria-hidden="true"></span><b>${esc(li.querySelector("b")?.textContent)}</b> <span class="muted">${esc(li.querySelector("b + span")?.textContent)}</span></li>`;
+  const html = [...document.querySelectorAll("#staff li")].map((li) => {
+    const dot = li.querySelector(".dot"), key = li.querySelector("[data-staff-go]")?.dataset.staffGo || "";
+    return `<li><button type="button" class="staff-go" data-staff-go="${esc(key)}"><span class="${esc(dot ? dot.className : "dot")}" aria-hidden="true"></span><b>${esc(li.querySelector("b")?.textContent)}</b> <span class="muted">${esc(li.querySelector("b + span")?.textContent)}</span></button></li>`;
   }).join("");
+  if (html !== staffStripHtml) { staffStripHtml = html; $("staff-strip").innerHTML = html; }   // 같으면 다시 그리지 않는다 (누르려던 버튼의 포커스가 날아가지 않게)
 }
 async function runTodo(t, button) {
   if (!t) return;
@@ -3331,6 +3345,9 @@ applyMenu();  // 왼쪽 메뉴: 넓은 폭은 기억한 상태로, 761~1024px �
 $("menu-toggle").addEventListener("click", toggleMenu);
 // 창 폭이 구간(760px 이하 · 761~1024px · 1025px 이상)을 넘으면 그 구간의 처음 상태로
 window.addEventListener("resize", () => { if (menuBandNow() !== menuBand) applyMenu(); });
+// 휴대전화 폭 안에서 폭만 바뀌어도(화면 돌리기 등) 지금 화면 항목이 보이게. 주소창이 접히며 높이만 바뀔 때는 손님이 민 메뉴를 그대로 둔다
+let menuW = window.innerWidth;
+window.addEventListener("resize", () => { if (window.innerWidth !== menuW) { menuW = window.innerWidth; menuReveal(); } });
 if (window.ResizeObserver) new ResizeObserver(setTopH).observe(document.querySelector(".top"));   // 상단 바가 두 줄이 되면 덮는 메뉴도 그 아래로
 // 덮는 메뉴(761~1024px)가 열려 있는 동안: 바깥(어두운 배경)이나 메뉴 항목을 누르면 닫는다
 document.addEventListener("click", (e) => {
@@ -3338,12 +3355,12 @@ document.addEventListener("click", (e) => {
   if (e.target.closest(".side") && !e.target.closest(".side a[href]")) return;   // 메뉴 안의 빈 곳
   closeMenuOverlay();
 });
-// Esc 로 닫고(캡처 단계에서 받아 서랍의 Esc 처리보다 먼저, 서랍은 그대로 둔다), Tab 은 토글 버튼과 메뉴 항목 안에서만 돈다
+// Esc 로 닫고(캡처 단계에서 받아 서랍의 Esc 처리보다 먼저, 서랍은 그대로 둔다), Tab 은 토글 버튼과 메뉴 항목·AI 직원 버튼 안에서만 돈다
 document.addEventListener("keydown", (e) => {
   if (!menuOverlayOpen() || e.isComposing) return;
   if (e.key === "Escape") { e.stopPropagation(); closeMenuOverlay(); return; }
   if (e.key !== "Tab") return;
-  const stops = [$("menu-toggle"), ...document.querySelectorAll(".side a[href]")].filter((x) => x.getClientRects().length);
+  const stops = [$("menu-toggle"), ...document.querySelectorAll(".side a[href], .side button:not([disabled])")].filter((x) => x.getClientRects().length);
   const i = stops.indexOf(document.activeElement);
   e.preventDefault();
   stops[e.shiftKey ? (i <= 0 ? stops.length - 1 : i - 1) : (i + 1) % stops.length].focus();
@@ -3464,6 +3481,7 @@ document.querySelectorAll("[data-auth-tab]").forEach((t) => {
 $("auth-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) authClose(); });   // 바깥(어두운 곳)을 누르면 닫기
 // AI 직원: 누르면 맡은 화면으로 (button 이라 Enter·Space 도 같음)
 $("staff").addEventListener("click", (e) => { const b = e.target.closest("[data-staff-go]"); if (b) staffGo(b.dataset.staffGo); });
+$("staff-strip").addEventListener("click", (e) => { const b = e.target.closest("[data-staff-go]"); if (b) staffGo(b.dataset.staffGo); });   // 홈 직원 줄도 같게
 // 상권 분석 (11/18)
 $("mk-area").addEventListener("change", mkvPeriods);
 $("mk-apply").addEventListener("click", mkvApply);

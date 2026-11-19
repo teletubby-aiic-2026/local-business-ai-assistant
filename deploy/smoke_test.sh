@@ -8,13 +8,14 @@
 #   bash deploy/smoke_test.sh --base http://127.0.0.1:8000   확인할 주소 (기본 http://127.0.0.1:8000)
 #   bash deploy/smoke_test.sh --marketing http://127.0.0.1:8030   맞춤 마케팅 서버를 직접 볼 주소 (WAS 서버에서는 기본으로 봄)
 #   bash deploy/smoke_test.sh --no-marketing             맞춤 마케팅 확인을 건너뜀
-#   bash deploy/smoke_test.sh --market                   상권 서비스(ic26-market)가 반드시 떠 있어야 함 (서랍 ready 아니면 실패)
+#   bash deploy/smoke_test.sh --market                   상권 서비스(ic26-market)가 반드시 떠 있어야 함 (서랍·상권 분석 화면 ready 아니면 실패)
 #   bash deploy/smoke_test.sh --no-market                상권 확인을 건너뜀
 #
 # 종료 코드: 모두 통과하면 0, 하나라도 실패하면 1.
 # 확인하는 것
 #   /api/health     200, 모드와 키 유무, 리뷰 분석 상태 ok, 막힘 목록(blocking) 비어 있음
 #   /api/briefing   200, 리뷰 건수 > 0 (--expect-reviews 를 주면 그 건수와 같음)
+#   /api/auth/me    200, 로그인 기능이 켜져 있음(게스트로 보이고 가게 목록이 있음). 로그인 표가 없는 DB 면 notice 로 알림
 #   /api/cards 와 POST /api/cards/{id}/run (--generate 일 때만)   200, 초안이 1개 이상
 #   맞춤 마케팅 (ic26-marketing)
 #     비서 화면 서버를 거친 GET /api/marketing-survey/health   200 이면 모드 확인. 404 는 실패로 세지 않음(프록시가 없는 묶음
@@ -24,7 +25,8 @@
 #     --generate 일 때 POST /plan (가게 이야기 글) 1회 — live 면 HCX 1~2번. 시험 방문자 기록은 끝나고 지움
 #   상권 (ic26-market, 127.0.0.1:8766)
 #     WAS 서버에서 서비스가 켜져 있거나 --market 이면: 직접 /health 200 (Host: 127.0.0.1:8766), 비서 화면 서버를 거친
-#       GET /api/assistant/status 가 "ready" (자료·챗봇·연결이 모두 됨). 꺼져 있으면(자료를 아직 안 깜) 주의만 출력
+#       GET /api/assistant/status 가 "ready" (자료·챗봇·연결이 모두 됨), 상권 분석 화면 프록시 GET /api/market/status 가 "ready".
+#       꺼져 있으면(자료를 아직 안 깜) 주의만 출력
 #     --generate 일 때 서랍처럼 조건 맞추기(POST /api/assistant/setup) → 질문 1개 → 답이 자료 답(data_answer)인지.
 #       live 면 HCX 1번쯤. 시험 대화는 끝나고 지움
 set -uo pipefail
@@ -93,6 +95,25 @@ if [ "$STATUS" = 200 ]; then
   fi
 else
   bad "HTTP $STATUS  → $(head -c 300 "$TMP/briefing")"
+fi
+
+echo "[2b] GET /api/auth/me (로그인·가게 여러 개)"
+get authme /api/auth/me 30
+if [ "$STATUS" = 200 ]; then
+  AUTHED="$(jq_ "$TMP/authme" 'd.get("authenticated")')"
+  ASTORE="$(jq_ "$TMP/authme" 'd.get("store_id")')"
+  ASTORES="$(jq_ "$TMP/authme" 'len(d.get("stores") or [])')"
+  ANOTICE="$(jq_ "$TMP/authme" 'd.get("notice") or ""')"
+  if [ "$AUTHED" = False ] && [ -n "$ASTORE" ] && [ "$ASTORE" != None ] && [ "${ASTORES:-0}" -ge 1 ] 2>/dev/null; then
+    ok "HTTP 200, 게스트·가게 $ASTORE (시연 로그인 $(jq_ "$TMP/authme" 'd.get("demo_login")'))"
+  else
+    bad "/api/auth/me 모양이 다름 (authenticated $AUTHED, store $ASTORE, 가게 ${ASTORES}개)"
+  fi
+  [ -n "$ANOTICE" ] && bad "로그인 정보를 읽지 못함: $ANOTICE  → DB 에 로그인 표 3개가 있는지 (python -m shared.storage.init_db, deploy/README.md 6-1절)"
+elif [ "$STATUS" = 404 ]; then
+  bad "/api/auth/me 가 404 (로그인이 없는 옛 묶음)"
+else
+  bad "HTTP $STATUS  → $(head -c 300 "$TMP/authme")"
 fi
 
 if [ "$GENERATE" = 1 ]; then
@@ -215,6 +236,17 @@ else
     bad "서랍 상태가 ready 가 아님 (HTTP $STATUS, state $MSTATE: $(jq_ "$TMP/mkstatus" 'd.get("message")'))"
   else
     echo "        서랍 상태: ${MSTATE:-HTTP $STATUS} (상권 서비스를 켜지 않은 서버면 정상)"
+  fi
+  get mkview /api/market/status 30
+  VSTATE="$(jq_ "$TMP/mkview" 'd.get("state")')"
+  if [ "$STATUS" = 200 ] && [ "$VSTATE" = ready ]; then
+    ok "상권 분석 화면 /api/market/status: ready (적재 분기 $(jq_ "$TMP/mkview" '((d.get("data") or {}).get("latest_period_label")) or "?"'))"
+  elif [ "$STATUS" = 404 ]; then
+    bad "/api/market/status 가 404 (상권 분석 화면 프록시가 없는 옛 묶음)"
+  elif [ "$WANT_MARKET" = 1 ]; then
+    bad "상권 분석 화면 상태가 ready 가 아님 (HTTP $STATUS, state $VSTATE: $(jq_ "$TMP/mkview" 'd.get("message")'))"
+  else
+    echo "        상권 분석 화면 상태: ${VSTATE:-HTTP $STATUS} (상권 서비스를 켜지 않은 서버면 정상)"
   fi
   if [ "$GENERATE" = 1 ] && [ "$MSTATE" = ready ]; then
     T0=$(date +%s); : > "$TMP/mksetup"

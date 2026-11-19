@@ -174,6 +174,79 @@ class Navigation(unittest.TestCase):
         self.assertIn('"상권·리뷰·마케팅 무엇이든 물어보세요"', JS)
 
 
+def phone_css() -> str:
+    """760px 이하(휴대전화) 덩어리."""
+    i = CSS.index("@media (max-width: 760px) {")
+    return CSS[i:CSS.index("\n}\n", i)]
+
+
+def menu_labels(short: bool) -> dict[str, str]:
+    """왼쪽(760px 이하는 위쪽 가로) 메뉴 항목의 글자. short 면 760px 이하처럼 .long 을 뺀다."""
+    menu = HTML[HTML.index('<div class="menu">'):HTML.index("</div>", HTML.index('<div class="menu">'))]
+    out = {}
+    for route, inner in re.findall(r'<a href="#/[\w-]+" data-route="([\w-]+)">(.*?)</a>', menu, re.S):
+        inner = re.sub(r"<svg.*?</svg>", "", inner, flags=re.S)
+        inner = re.sub(r'<span id="nav-draft-count"[^>]*></span>', "", inner)
+        if short:
+            inner = re.sub(r'<span class="long">[^<]*</span>', "", inner)
+        out[route] = re.sub(r"<[^>]+>", "", inner).strip()
+    return out
+
+
+class FollowUps1119(unittest.TestCase):
+    """교차 검증·UI 점검 뒤 보완 (11/19)."""
+
+    def test_phone_menu_labels_are_all_different(self):
+        short, full = menu_labels(True), menu_labels(False)
+        self.assertEqual(short["market"], "상권")                   # 760px 이하: '분석'이 두 번 나오지 않게
+        self.assertEqual(short["analysis"], "분석")
+        self.assertEqual(full["market"], "상권 분석")
+        self.assertEqual(len(set(short.values())), len(short), short)
+
+    def test_active_menu_item_is_scrolled_into_the_row(self):
+        self.assertIn("menuReveal();", func("route"))
+        reveal = code(func("menuReveal"))
+        self.assertIn("scrollLeft", reveal)                         # 메뉴 줄만 가로로 (문서 세로 위치는 그대로)
+        self.assertNotIn("scrollIntoView", reveal)
+        self.assertIn('a[aria-current="page"]', reveal)
+        self.assertIn("menuReveal();", func("applyMenu"))                  # 휴대전화 폭이 되었을 때
+        self.assertIn('if (window.innerWidth !== menuW) { menuW = window.innerWidth; menuReveal(); }', JS)   # 폭만 바뀌었을 때
+        css = phone_css()
+        self.assertIn(".side .menu a { flex: 0 0 auto; min-height: 36px; padding: 0 8px;", css)
+        self.assertIn("overflow-x: auto;", css)
+
+    def test_phone_top_bar_wraps_instead_of_overflowing(self):
+        top = re.search(r"\.top-right \{([^}]*)\}", phone_css()).group(1)
+        for want in ("min-width: 0;", "flex-wrap: wrap;", "flex-shrink: 1;"):
+            self.assertIn(want, top)
+        self.assertIn("min-width: 0;", re.search(r"\.acct \{([^}]*)\}", phone_css()).group(1))
+        self.assertIn("white-space: nowrap;", re.search(r"\n\.staff-strip b \{([^}]*)\}", CSS).group(1))
+
+    def test_overlay_menu_tab_reaches_staff_buttons(self):
+        trap = JS[JS.index('if (e.key !== "Tab") return;'):]
+        trap = trap[:trap.index("}, true);")]
+        self.assertIn('.side a[href], .side button:not([disabled])', trap)
+
+    def test_home_staff_strip_is_clickable(self):
+        strip = func("syncStaffStrip")
+        self.assertIn('<button type="button" class="staff-go" data-staff-go="${esc(key)}">', strip)
+        self.assertIn('$("staff-strip").addEventListener("click"', JS)
+        self.assertIn("staffGo(b.dataset.staffGo)", JS[JS.index('$("staff-strip").addEventListener("click"'):][:200])
+
+    def test_condition_row_secondary_buttons_have_a_border(self):
+        css = CSS[CSS.index("/* ── 상권 분석 (#/market, 11/18)"):CSS.index("/* ── 바닥")]
+        self.assertIn(".mk-cond-row > .ghost { border-color: var(--line-strong);", css)
+        self.assertIn(".mk-field #mk-industry { max-width: 9em; }", css)
+        # 긴 옵션이 있는 셀렉트(비교할 상권)도 좁은 화면 폭 안으로 줄어든다 (360px 에서 7px 넘치던 것)
+        self.assertIn(".mk-field { display: grid; grid-template-columns: minmax(0, 1fr);", css)
+        row = HTML[HTML.index('<div class="mk-cond-row">'):HTML.index("</div>", HTML.index('<div class="mk-cond-row">'))]
+        self.assertIn('id="mk-home" class="ghost"', row)
+        self.assertIn('id="mk-ask" class="ghost"', row)
+
+    def test_drawer_subtitle_covers_every_part(self):
+        self.assertIn('<p class="drawer-sub">동네 상권·업종 매출 상담 · 리뷰·마케팅 안내</p>', HTML)
+
+
 @unittest.skipUnless(shutil.which("node"), "node 없음")
 class PureFunctionsWithNode(unittest.TestCase):
     def run_js(self, names: list[str], expr: str):

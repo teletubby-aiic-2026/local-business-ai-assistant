@@ -16,6 +16,10 @@
 - 비밀번호는 hashlib.scrypt (N=2^14, r=8, p=1, 소금 16바이트). 세션 쿠키 값은 저장하지 않고 SHA-256 만 둔다.
 - 세션 쿠키 ic26_session: HttpOnly, SameSite=Lax, Secure 는 https(또는 X-Forwarded-Proto: https)일 때만 — 지금 공개 주소가 http 라서.
 - 로그인 실패가 몰리면(아이디·주소마다 10분에 10번) 429. 실패 문장은 아이디가 있는지 알려 주지 않는다.
+  실서버는 공개 ALB → Nginx → 내부 ALB → WAS 라 WAS 가 보는 주소는 늘 내부 ALB 의 사설 주소다. 그래서 바로 앞이
+  사설·루프백 주소면 X-Forwarded-For 를 오른쪽부터 훑어 처음 나오는 공인 주소를 쓰고(_client), 그래도 모르면
+  사설 주소 하나로 모두를 막지 않도록 방문자 쿠키와 묶는다. 공인 주소로 바로 붙은 요청의 X-Forwarded-For 는 믿지 않는다.
+- 'demo-' 로 시작하는 아이디는 시연 계정 몫이라 회원가입에서 받지 않는다.
 - 시연 로그인은 브라우저마다 따로인 시연 사장님을 만든다(방문자 쿠키에서 정함). 심사위원 여럿이 같은 주소를 열어도
   승인 기록·붙여넣은 리뷰가 섞이지 않는다. 같은 브라우저에서 다시 누르면 같은 시연 사장님이다.
 """
@@ -24,6 +28,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import ipaddress
 import logging
 import os
 import re
@@ -52,6 +57,7 @@ LOGIN_ID = re.compile(r"[a-z0-9][a-z0-9._-]{2,31}")
 TOKEN = re.compile(r"[A-Za-z0-9_-]{30,100}")
 FAIL_LIMIT, FAIL_WINDOW = 10, 600.0     # 10분에 10번
 DEMO_NAME = "시연 사장님"
+DEMO_PREFIX = "demo-"                   # 시연 사장님의 user_id·아이디 앞부분. 회원가입에서는 받지 않는다
 # 상권 서비스 세션 쿠키 (assistant_proxy·market_proxy 가 쓰는 이름). 로그인·로그아웃·가게 바꾸기 때 지워 새 대화로 시작한다
 MARKET_COOKIE = "market_onboarding_session"
 MARKET_COOKIE_PATHS = ("/api/assistant", "/api/market")
@@ -63,6 +69,8 @@ MESSAGES = {
     "login_needed": "로그인한 사장님만 가게를 바꿀 수 있어요.",
     "not_your_store": "가지고 계신 가게만 고를 수 있어요.",
     "demo_off": "시연 로그인이 꺼져 있어요.",
+    "reserved": "'demo-'로 시작하는 아이디는 시연 계정용이라 쓸 수 없어요. 다른 아이디를 골라 주세요.",
+    "demo_taken": "시연 계정을 준비하지 못했어요. 아이디와 비밀번호로 로그인해 주세요.",
     "down": "지금 로그인 정보를 불러오지 못했어요. 잠시 뒤 다시 해 주세요.",
 }
 
@@ -173,7 +181,7 @@ class AuthService:
             return self.guest(guest_visitor)
         store = session["active_store_id"] if session["active_store_id"] in stores else stores[0]
         public = {"user_id": user["user_id"], "login_id": user["login_id"], "display_name": user["display_name"],
-                  "demo": user["user_id"].startswith("demo-")}
+                  "demo": user["user_id"].startswith(DEMO_PREFIX)}
         return Who(public, store, stores, visitor_for(user["user_id"]), token_hash=h)
 
     def view(self, who: Who) -> dict:
@@ -232,6 +240,8 @@ class AuthService:
         login = (login_id or "").strip().lower()
         if not LOGIN_ID.fullmatch(login):
             raise AuthError("invalid", 422, "아이디는 영문 소문자·숫자로 시작하는 3~32자(. _ - 가능)로 정해 주세요.")
+        if login.startswith(DEMO_PREFIX):          # 시연 사장님의 아이디(demo-<12자>)와 겹치지 않게
+            raise AuthError("reserved", 422)
         if not (8 <= len(password or "") <= 128):
             raise AuthError("invalid", 422, "비밀번호는 8~128자로 정해 주세요.")
         name = re.sub(r"\s+", " ", display_name or "").strip()
@@ -252,10 +262,12 @@ class AuthService:
     def demo_login(self, guest_visitor: str) -> str:
         if not self.demo_enabled:
             raise AuthError("demo_off", 403)
-        user_id = "demo-" + hashlib.sha256(f"ic26-demo:{guest_visitor}".encode("utf-8")).hexdigest()[:12]
+        user_id = DEMO_PREFIX + hashlib.sha256(f"ic26-demo:{guest_visitor}".encode("utf-8")).hexdigest()[:12]
         try:
             self.storage.users.ensure(user_id, user_id, DISABLED_PASSWORD, DEMO_NAME, list(store_profiles.STORE_IDS))
             return self._new_session(user_id, self.default_store)
+        except DuplicateLogin:                       # 다른 계정이 이 아이디를 먼저 씀 (예약 전에 가입한 경우). 500 대신
+            raise AuthError("demo_taken", 409) from None
         except StorageError:
             raise AuthError("down", 503) from None
 
@@ -299,8 +311,57 @@ def secure_request(request: Request) -> bool:
     return request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"
 
 
+# 로드밸런서·Nginx 가 쓰는 내부 주소. 파이썬의 is_private 는 문서용 공인 대역(203.0.113.0/24 등)까지 사설로 보아 직접 정한다
+_INTERNAL_NETS = tuple(ipaddress.ip_network(n) for n in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",        # 사설 (NCP VPC 서브넷)
+    "100.64.0.0/10",                                        # 통신사·클라우드 공유 대역
+    "127.0.0.0/8", "169.254.0.0/16",                        # 루프백·링크 로컬
+    "::1/128", "fc00::/7", "fe80::/10"))
+_FORWARDED_MAX = 20                                         # X-Forwarded-For 는 오른쪽 20개까지만 본다
+
+
+def _ip(text: str):
+    """주소 글자 → ip_address. IPv4 를 담은 IPv6(::ffff:10.0.0.1)는 IPv4 로. 주소가 아니면 None."""
+    try:
+        ip = ipaddress.ip_address((text or "").strip())
+    except ValueError:
+        return None
+    return ip.ipv4_mapped if ip.version == 6 and ip.ipv4_mapped else ip
+
+
+def _internal(ip) -> bool:
+    return any(ip.version == net.version and ip in net for net in _INTERNAL_NETS)
+
+
+def _forwarded_public(values: list[str]) -> str | None:
+    """X-Forwarded-For 를 오른쪽(우리 쪽 프록시가 붙인 것)부터 훑어 처음 나오는 공인 주소.
+    내부 주소는 건너뛰고, 주소가 아닌 값을 만나면 그 왼쪽은 손님이 지어낸 것일 수 있어 멈춘다."""
+    parts = [p.strip() for v in values for p in v.split(",") if p.strip()]
+    for part in reversed(parts[-_FORWARDED_MAX:]):
+        ip = _ip(part)
+        if ip is None:
+            return None
+        if not _internal(ip):
+            return str(ip)
+    return None
+
+
 def _client(request: Request) -> str:
-    return request.client.host if request.client else "?"
+    """로그인 실패를 세는 '주소' 키 (AuthService.login 이 앞에 'ip:' 를 붙인다).
+
+    - 바로 앞이 공인 주소: 그 주소. 손님이 직접 붙었으니 X-Forwarded-For 는 지어낸 것일 수 있어 보지 않는다.
+    - 바로 앞이 내부 주소(ALB·Nginx)이거나 주소가 아님(시험·유닉스 소켓): X-Forwarded-For 의 오른쪽 첫 공인 주소.
+    - 그래도 모르면 '<내부 주소>:v:<방문자 쿠키>' — 한 사람이 틀렸다고 그 서버의 모든 방문자가 잠기지 않게.
+    """
+    peer = request.client.host if request.client else ""
+    ip = _ip(peer)
+    if ip is not None and not _internal(ip):
+        return str(ip)
+    found = _forwarded_public(request.headers.getlist("x-forwarded-for"))
+    if found:
+        return found
+    visitor = getattr(request.state, "guest_visitor_id", "") or "-"
+    return f"{peer or '?'}:v:{visitor}"
 
 
 def _json(data: Any, status: int = 200) -> JSONResponse:

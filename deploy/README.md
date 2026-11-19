@@ -23,7 +23,7 @@ PC ──(scp, 베스천 거침)──▶ ic26-was1 ─ install_was.sh ─▶ ic
 | `systemd/ic26-was.service` | WAS 서버 | 비서 화면 서버 (0.0.0.0:8000, 상태 확인 `/api/health`) |
 | `systemd/ic26-market.service` | WAS 서버 | 상권 서비스 (127.0.0.1:8766). 상권 자료를 깔면 켬 (자료가 없으면 파일만) |
 | `systemd/ic26-marketing.service` | WAS 서버 | 맞춤 마케팅 서버 (127.0.0.1:8030, 상태 확인 `/health`). 10-2절 |
-| `smoke_test.sh` | WAS 서버, 웹 서버 | `/api/health`와 `/api/briefing`, 맞춤 마케팅 `/health`, 상권 `/health`와 서랍 `ready` 확인. `--generate`로 글 생성·상권 질문 1회씩 |
+| `smoke_test.sh` | WAS 서버, 웹 서버 | `/api/health`와 `/api/briefing`, 로그인 `/api/auth/me`, 맞춤 마케팅 `/health`, 상권 `/health`와 서랍·상권 분석 화면(`/api/market/status`) `ready` 확인. `--generate`로 글 생성·상권 질문 1회씩 |
 | `prepare_image.sh` | WAS 서버 | 서버 이미지를 만들기 전에 키 값과 실행 중 데이터를 비움 |
 | `install_web.sh` | 웹 서버 | Nginx 설치와 설정 넣기 (1단계 또는 2단계) |
 | `nginx/ic26-proxy-all.conf` | 웹 서버 | (가) 1단계: 모든 요청을 WAS로 |
@@ -215,7 +215,7 @@ sudo ss -ltnp | grep -E ':(8000|8020|8030|8766)'        # 8000 은 0.0.0.0, 8020
 bash ~/ic26-<커밋>/deploy/smoke_test.sh --expect-reviews 40
 ```
 
-`smoke_test.sh`는 `/api/health`(모드, 키 유무, 리뷰 분석 상태 ok, 막힘 목록 비어 있음)와 `/api/briefing`(리뷰 건수), 맞춤 마케팅(10-2절: 비서 화면을 거친 `/api/marketing-survey/health`와 서버 안 `127.0.0.1:8030/health`), 상권(10절: 서버 안 `127.0.0.1:8766/health`와 비서 화면을 거친 `/api/assistant/status`가 `ready`)을 봅니다. 상권 서비스가 꺼져 있으면(자료를 아직 안 깜) 주의만 내고, `--market`을 주면 꺼져 있는 것도 실패로 셉니다. 모두 통과하면 종료 코드 0입니다.
+`smoke_test.sh`는 `/api/health`(모드, 키 유무, 리뷰 분석 상태 ok, 막힘 목록 비어 있음)와 `/api/briefing`(리뷰 건수), `/api/auth/me`(로그인 기능, 로그인 표가 없으면 실패), 맞춤 마케팅(10-2절: 비서 화면을 거친 `/api/marketing-survey/health`와 서버 안 `127.0.0.1:8030/health`), 상권(10절: 서버 안 `127.0.0.1:8766/health`와 비서 화면을 거친 `/api/assistant/status`·`/api/market/status`가 `ready`)을 봅니다. 상권 서비스가 꺼져 있으면(자료를 아직 안 깜) 주의만 내고, `--market`을 주면 꺼져 있는 것도 실패로 셉니다. 모두 통과하면 종료 코드 0입니다.
 
 글 생성까지 보려면(live는 HCX를 실제로 한 번 부르므로 비용이 듭니다):
 

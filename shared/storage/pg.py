@@ -357,15 +357,19 @@ class PgUsers:
         return self._db.run(work)
 
     def ensure(self, user_id: str, login_id: str, password_hash: str, display_name: str, store_ids: list[str]) -> dict:
-        """없으면 만들고 있으면 그대로 (가진 가게는 store_ids 로 맞춤). 시연 계정처럼 여러 서버가 동시에 불러도 안전하다."""
+        """없으면 만들고 있으면 그대로 (가진 가게는 store_ids 로 맞춤). 시연 계정처럼 여러 서버가 동시에 불러도 안전하다.
+        다른 계정이 이 로그인 아이디를 이미 쓰면 DuplicateLogin (처리 안 된 UniqueViolation 이 500 으로 새지 않게)."""
         def work(conn):
+            # 대상 없는 ON CONFLICT: user_id 든 login_id 든 겹치면 넣지 않는다. 넣었는지는 아래 SELECT 로 본다
             conn.execute("INSERT INTO users (user_id, login_id, password_hash, display_name) VALUES (%s, %s, %s, %s) "
-                         "ON CONFLICT (user_id) DO NOTHING", (user_id, login_id.lower(), password_hash, display_name))
+                         "ON CONFLICT DO NOTHING", (user_id, login_id.lower(), password_hash, display_name))
+            row = conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE user_id = %s", (user_id,)).fetchone()
+            if row is None:
+                raise DuplicateLogin("이미 있는 아이디예요")            # 트랜잭션은 되돌려진다
             with conn.cursor() as cur:
                 cur.executemany("INSERT INTO user_stores (user_id, store_id, position) VALUES (%s, %s, %s) "
                                 "ON CONFLICT (user_id, store_id) DO UPDATE SET position = EXCLUDED.position",
                                 [(user_id, s, i) for i, s in enumerate(store_ids)])
-            row = conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE user_id = %s", (user_id,)).fetchone()
             return _kst(row, "created_at")
         return self._db.run(work)
 

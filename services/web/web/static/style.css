@@ -977,8 +977,14 @@ body:has(> .shell > .drawer:not([hidden])) { padding-right: 400px; }
 /* ── 상권 분석 (#/market, 11/18): 조건 바 → 서울시 최신화·문화행사 → 핵심 지표 4칸 → 세부 탭 4개 ───────────────────── */
 .market .page-head p { margin: 4px 0 0; }
 .market > .panel { margin: 0 0 16px; }
-.mk-cond-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
-.mk-field { display: grid; gap: 4px; min-width: 0; font-size: .875rem; font-weight: 500; color: var(--ink-2); }
+.mk-cond-row { display: flex; flex-wrap: wrap; gap: 10px 8px; align-items: flex-end; }
+/* 조건 줄의 버튼: 셀렉트와 같은 높이·한 단계 작은 글자로 넓은 화면에서 한 줄에. 보조 버튼(우리 가게 기준으로·AI에게 묻기)은 옅은 테두리로 버튼임을 보인다 */
+.mk-cond-row > button { padding: 8px 12px; font-size: .875rem; }
+.mk-cond-row > .ghost { border-color: var(--line-strong); color: var(--ink-2); }
+/* 업종 목록은 100개라 가장 긴 이름('자전거 및 기타운송장비')에 맞춰 넓어진다. 가게 업종은 다섯 글자 안팎이라 폭을 묶는다 (펼친 목록은 다 보임) */
+.mk-field #mk-industry { max-width: 9em; }
+/* 칸을 minmax(0, 1fr) 로: 긴 옵션('… · 골목상권 강남시장(동작구 강남시장)')이 있는 셀렉트도 360px 화면 폭 안으로 줄어든다 */
+.mk-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; font-size: .875rem; font-weight: 500; color: var(--ink-2); }
 .mk-field select { min-height: 40px; max-width: 100%; padding: 6px 12px; border: 1px solid var(--field-line); border-radius: 10px; background: var(--panel); color: var(--ink); }
 .mk-cond .panel-head { flex-wrap: wrap; gap: 4px 12px; }
 .mk-seoul .panel-head { flex-wrap: wrap; gap: 8px 12px; }
@@ -1054,7 +1060,10 @@ body:has(.view.narrow:not([hidden])) > .foot { max-width: calc(720px + 80px); } 
 /* 왼쪽 메뉴가 늘 보이지 않을 때 홈에 보이는 AI 직원 한 줄 (보이는 조건은 아래 두 곳, 760px 이하는 그 덩어리에서 세로로) */
 .staff-strip { flex-wrap: wrap; gap: 6px 24px; margin: 0 0 20px; padding: 12px 16px; border-radius: 14px; background: var(--surface); }
 .staff-strip li { display: flex; align-items: center; gap: 8px; font-size: .875rem; }
-.staff-strip b { font-weight: 600; }
+.staff-strip b { font-weight: 600; white-space: nowrap; }   /* '상권 분석 비서'가 두 줄로 꺾이지 않게 */
+/* 홈 직원 줄도 누르면 맡은 화면으로 (11/19). 버튼 모양은 왼쪽 메뉴의 .staff-go 를 따르되 한 줄로 */
+.staff-strip .staff-go { align-items: center; gap: 8px; width: auto; margin: -4px -8px; padding: 4px 8px; }
+.staff-strip .staff-go > span:last-child { display: inline; }
 .staff-strip .dot { margin-top: 0; }
 /* 761px 이상: 토글 버튼이 보인다. 메뉴를 접으면 메뉴는 왼쪽 밖으로(키보드·읽기 프로그램에서도 빠짐), 상단 바에 로고·승인 대기 수, 홈에 AI 직원 한 줄 */
 @media screen and (min-width: 761px) {
@@ -1096,15 +1105,19 @@ body:has(.view.narrow:not([hidden])) > .foot { max-width: calc(720px + 80px); } 
 @media (max-width: 760px) {
   body { padding-left: 0; }
   .bar { padding: 10px 16px; gap: 4px 10px; }
+  /* 로그인 뒤(이름·가게 고르기·로그아웃·AI에게 묻기)가 360px 에서 한 줄을 넘으면 넘치지 않고 다음 줄로 */
+  .top-right { flex-shrink: 1; min-width: 0; flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+  .acct { min-width: 0; gap: 6px; }
   .top-brand { display: inline-flex; }
   .store { order: 3; flex-basis: 100%; white-space: normal; color: var(--muted); font-size: var(--meta); font-weight: 400; }
   .shell { display: block; }
-  .side { position: static; width: auto; height: auto; overflow: visible; flex-direction: row; gap: 0; padding: 0 12px;
+  .side { position: static; width: auto; height: auto; overflow: visible; flex-direction: row; gap: 0; padding: 0 8px;
     background: var(--bg); border-bottom: 1px solid var(--line); }
   .side-brand, .staff, .later-title { display: none; }
   .side .menu { flex-direction: row; width: 100%; gap: 2px; padding: 6px 0 8px; overflow-x: auto; scrollbar-width: none; }
   .side .menu::-webkit-scrollbar { display: none; }
-  .side .menu a { flex: 0 0 auto; min-height: 36px; padding: 0 12px; gap: 6px; border-radius: 999px; }
+  /* 메뉴 8개가 390px 에서 다 보이게 좌우 여백을 줄인다 (더 좁으면 가로로 밀리고, 지금 화면 항목은 app.js menuReveal 이 보이게 민다) */
+  .side .menu a { flex: 0 0 auto; min-height: 36px; padding: 0 8px; gap: 6px; border-radius: 999px; }
   .side .ico, .side .long { display: none; }
   .nav-count { margin-left: 2px; }
   .later-badge { position: static; width: auto; height: auto; overflow: visible; clip: auto; }

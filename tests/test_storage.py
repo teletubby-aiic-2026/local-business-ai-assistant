@@ -252,6 +252,19 @@ def test_users_ensure_is_idempotent(backend):
     assert backend.users.stores(uid_) == ["store_ongi", "store_basak", "store_mongle"]
 
 
+def test_users_ensure_refuses_a_login_taken_by_another_user(backend):
+    """다른 계정이 그 로그인 아이디를 이미 쓰면 DuplicateLogin (PG 의 UniqueViolation 이 500 으로 새지 않게, 11/19)."""
+    from shared.storage.errors import DuplicateLogin
+    demo_id = "demo-" + uuid.uuid4().hex[:12]
+    other = uuid.uuid4().hex[:16]
+    backend.users.create(other, demo_id, "scrypt$x", "먼저 가입", ["store_ongi"])
+    with pytest.raises(DuplicateLogin):
+        backend.users.ensure(demo_id, demo_id, "!", "시연 사장님", ["store_ongi", "store_basak", "store_mongle"])
+    assert backend.users.get(demo_id) is None and backend.users.stores(demo_id) == []   # 아무것도 남지 않음
+    assert backend.users.by_login(demo_id)["user_id"] == other
+    assert backend.users.stores(other) == ["store_ongi"]
+
+
 def test_auth_sessions_create_get_switch_delete_and_expire(backend):
     from datetime import datetime, timedelta, timezone
     uid_ = uuid.uuid4().hex[:16]
