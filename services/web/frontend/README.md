@@ -25,10 +25,10 @@ services/web/run.sh       # 서버(8000)가 / 에 dist/index.html, /assets/* 에
 ## 시험
 
 ```bash
-npm test                  # vitest: 공통 계산(오늘 할 일·AI 비서 상태 등)과 화면별 순수 함수
+npm test                  # vitest: 화면 틀·계정·덮는 메뉴 포커스, 화면별 계산과 화면 (140건, 11/20)
 ```
 
-서버 스위치 시험: `services/web/tests/test_frontend_dist.py`.
+서버 시험 중 화면 소스를 글자로 읽는 것과 서빙 시험은 `docs/api/contract.md` 2.4 에 정리했습니다 (`services/web/tests/frontend_src.py`, `test_frontend_dist.py`).
 
 ## 폴더
 
@@ -46,4 +46,5 @@ npm test                  # vitest: 공통 계산(오늘 할 일·AI 비서 상�
 - 색·글자 크기는 `tokens.css` 의 변수만 씁니다. 다크 값도 같은 파일에 있어서, 변수만 쓰면 다크 모드가 저절로 맞습니다.
 - 화면 모양: 운영체제 설정을 따르고, 상단 바 버튼으로 시스템 → 밝게 → 어둡게를 고릅니다(`src/lib/theme.js`, localStorage `ic26.theme`, 주소 `?theme=light|dark` 는 저장하지 않고 그 화면만). 인쇄(종합 리포트 PDF)는 늘 밝게 나옵니다.
 - 가게가 바뀌면(로그인·로그아웃·가게 바꾸기·기록 지우기) 상태의 `epoch` 가 1 오르고, 각 화면은 자기 상태를 처음으로 되돌립니다.
-- 아이콘·로고는 아직 자리 모양입니다(`Icon` 부품). Figma `04 에셋`의 자리 부품에 그림이 들어오면 `ui.jsx` 의 `ICONS` 에 SVG 를 넣습니다.
+- 아이콘은 `ui.jsx` 의 `ICONS`(24×24 선 SVG, JSX)에 이름으로 넣습니다. 메뉴 8·숫자 타일 6·맞춤 마케팅 카드 6·공용 아이콘이 있고, 모르는 이름은 글자 없는 기본 모양이 나옵니다. 로고는 `Logo`(말풍선).
+- 폭은 본문 실제 폭으로 가릅니다: `.content` 가 크기 컨테이너(`content`)라 화면 CSS 는 `@container content (max-width: …)` 를 씁니다. 서랍은 본문이 680px 이상 남을 때만 본문을 밀고 아니면 덮습니다 (`docs/api/contract.md` 2.9).

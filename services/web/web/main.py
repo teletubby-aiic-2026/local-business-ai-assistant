@@ -257,7 +257,8 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     @app.get("/")
     def page():
         if index.is_file():   # 서버를 띄운 뒤 빌드해도 새로고침하면 보이게 요청마다 확인
-            return FileResponse(index)
+            # 늘 새로 확인하게 한다: 새 묶음으로 바꾸면 해시가 붙은 /assets 파일 이름이 바뀌어, 옛 index.html 을 쓰면 빈 화면이 된다
+            return FileResponse(index, headers={"Cache-Control": "no-cache"})
         return HTMLResponse(NO_BUILD_HTML)
 
     app.mount("/assets", BuildFiles(directory=dist / "assets", check_dir=False), name="assets")

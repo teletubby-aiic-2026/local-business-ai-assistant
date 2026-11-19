@@ -146,3 +146,6 @@
   .flow-log-item { flex-wrap: wrap; }
   .flow-todo-foot .btn { width: 100%; }
 }
+
+/* 카드 이유 문장의 줄바꿈(\n)을 살린다 (서버가 문장마다 줄을 나눠 보냄) */
+.card-reason { white-space: pre-line; }

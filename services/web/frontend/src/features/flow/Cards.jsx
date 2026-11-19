@@ -46,7 +46,7 @@ function CardPanel({ p, index, made, busy, picked, mock }) {
         {KIND_AGENT[c.kind] && <Badge tone="brand">{KIND_AGENT[c.kind]}</Badge>}
       </div>
       <h2 id={titleId}>{p.title}</h2>
-      <p>{c.reason_text}</p>
+      <p className="card-reason">{c.reason_text}</p>
       <p className="small muted">근거: {sourceLine(p)}</p>
       <Measures p={p} picked={picked} mock={mock} />
       <details className="flow-more">

@@ -59,9 +59,9 @@ export default function Sidebar({ route, onNavigate, overlay = false, onClose })
         <div className="who">
           <b>{on ? displayName(me) : "게스트"}</b>
           {on
-            ? <span className="btn-row"><button type="button" className="btn text" disabled={busy} onClick={() => setState({ acctOpen: true })}>내 계정</button>
-                <button type="button" className="btn text" disabled={busy} onClick={acctLogout}>로그아웃</button></span>
-            : <button type="button" className="btn text" disabled={busy} onClick={() => setState({ authOpen: true })}>로그인</button>}
+            ? <span className="btn-row"><button type="button" className="btn text" disabled={busy} onClick={() => { onNavigate?.(); setState({ acctOpen: true }); }}>내 계정</button>
+                <button type="button" className="btn text" disabled={busy} onClick={() => { onNavigate?.(); acctLogout(); }}>로그아웃</button></span>
+            : <button type="button" className="btn text" disabled={busy} onClick={() => { onNavigate?.(); setState({ authOpen: true }); }}>로그인</button>}
         </div>
       </div>
     </nav>

@@ -63,6 +63,23 @@ describe("덮는 메뉴 (761~1024px)", () => {
     expect(document.querySelector(".main").hasAttribute("inert")).toBe(false);
   });
 
+  it("메뉴 안 [로그인]으로 창을 열면 메뉴가 먼저 닫혀 창 안 키보드 이동을 막지 않는다", () => {
+    mockWidth("mid");
+    render(<App />);
+    fireEvent.click(document.getElementById("menu-toggle"));
+    const side = document.getElementById("side-menu");
+    const login = [...side.querySelectorAll("button")].find((b) => b.textContent === "로그인");
+    fireEvent.click(login);
+    expect(document.querySelector(".app").classList.contains("menu-over")).toBe(false);
+    expect(document.querySelector(".main").hasAttribute("inert")).toBe(false);
+    // 창이 떠 있는 동안 Tab·Esc 는 메뉴 처리기가 가로채지 않는다 (메뉴가 다시 열려 있어도)
+    fireEvent.click(document.getElementById("menu-toggle"));
+    document.getElementById("auth-dialog")?.setAttribute("open", "");
+    const ev = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    document.body.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
   it("바깥을 누르거나 [메뉴 닫기]로 닫아도 토글 버튼으로 돌아온다", () => {
     mockWidth("mid");
     render(<App />);

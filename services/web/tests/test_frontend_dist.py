@@ -71,6 +71,7 @@ class FrontendDistTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertTrue(page.headers["content-type"].startswith("text/html"))
         self.assertIn('data-build="default"', page.text)
+        self.assertEqual(page.headers.get("cache-control"), "no-cache")   # 새 묶음으로 바꾼 뒤 옛 index.html 이 남지 않게
         asset = client.get("/assets/app.js")
         self.assertEqual(asset.status_code, 200)
         self.assertIn("javascript", asset.headers["content-type"])

@@ -35,6 +35,7 @@ export default function App() {
   const alert = useStore((s) => s.alert);
   const drawerOpen = useStore((s) => s.drawerOpen);
   const epoch = useStore((s) => s.epoch);
+  const dialogOpen = useStore((s) => s.authOpen || s.acctOpen);
   const [menuOpen, setMenuOpen] = useState(readMenu);
   const [over, setOver] = useState(false);   // 761~1024px 에서 덮는 메뉴가 열림
   const toggleRef = useRef(null);
@@ -43,6 +44,8 @@ export default function App() {
 
   useEffect(() => { window.scrollTo(0, 0); setOver(false); }, [name, key]);
   useEffect(() => { setOver(false); }, [band]);   // 폭 구간이 바뀌면 그 구간의 처음 상태로
+  // 로그인·내 계정 창이 열리면 덮는 메뉴를 닫는다. 메뉴의 Tab 가두기·Esc 와 본문 inert 가 창 안의 키보드 이동을 막지 않게
+  useEffect(() => { if (dialogOpen) setOver(false); }, [dialogOpen]);
 
   // 덮는 메뉴가 열려 있는 동안: 첫 메뉴 항목으로 포커스, Tab 은 메뉴 안에서만, Esc 로 닫기 (서랍이 열려 있어도 메뉴부터).
   // 뒤의 본문은 inert (읽기 프로그램·마우스가 닿지 않게)
@@ -53,6 +56,7 @@ export default function App() {
     (side.querySelector(".menu-item") || focusables(side)[0])?.focus();
     mainRef.current?.setAttribute("inert", "");
     const onKey = (e) => {
+      if (document.querySelector("dialog[open]")) return;   // 창이 떠 있으면 키는 창 몫
       if (e.key === "Escape" && !e.isComposing) { e.preventDefault(); e.stopPropagation(); setOver(false); return; }
       if (e.key !== "Tab") return;
       const list = focusables(side);
