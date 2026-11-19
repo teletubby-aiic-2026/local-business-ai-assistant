@@ -7,18 +7,20 @@
 > **11/15 덧붙임 (`feat/connect-care-ui`)**: 고객응대 프록시 `/api/care/*`(1.11절), 리뷰 붙여넣기 탭의 '캡처로 넣기', 왼쪽 메뉴 '종합 리포트'(`#/report`)가 생겼습니다. 1.6(승인)·1.8(붙여넣기)에 선택 칸이 하나씩 늘었고, 2부의 id 표·개수·시험 표를 지금 코드에 맞춰 고쳤습니다.
 >
 > **11/16 덧붙임 (`feat/uxp-e-report`)**: 일일·월간 보고서 응답에 `praise` 칸(손님 칭찬 요약, 코드 집계)이 생겼고(1.11절), 종합 리포트에 '손님 칭찬 요약' 칸과 '전체 리포트 PDF 저장' 버튼, 인쇄 전용 CSS가 생겼습니다 (2.2·2.3·2.4·2.6절).
+>
+> **11/20 덧붙임 (`feat/react-cutover-ux`)**: 화면을 React 18 + Vite 5(`services/web/frontend/`) 하나로 바꿨습니다 (PR #69 병합 뒤 예전 `services/web/web/static/` 삭제, 박건영 결정). 1부 API는 그대로이고, **2부는 React 화면 기준으로 새로 썼습니다.** 예전 화면의 id 목록·`app.js` 규칙은 git 이력(`d3113b0` 이전)에만 있습니다.
 
 ## 요약
 
 이 서비스는 배달 음식점 사장님을 돕는 AI 비서입니다. 사장님은 밤 11시 브리핑에서 리뷰와 상권 숫자를 보고, 추천 카드 2장 중 하나를 고르고, AI가 쓴 답글·재발 방지 공지·쿠폰 홍보글을 고쳐서 승인합니다.
 
-화면은 파일 세 개(`index.html`, `app.js`, `style.css`)이고, 서버(`services/web`)는 JSON만 줍니다. 이 문서는 세 가지를 적었습니다.
+화면은 React 18 + Vite 5 앱(`services/web/frontend/`)이고, 서버(`services/web`)는 그 빌드(`frontend/dist`)와 JSON을 줍니다. 이 문서는 세 가지를 적었습니다.
 
 1. **1부**: 서버가 주는 API 9개와 프록시 두 묶음(1.10 상권 채팅, 1.11 고객응대). 요청, 실제 응답 예시, 칸마다 뜻, 오류.
-2. **2부**: 화면을 다듬을 때 **바꿔도 되는 것**과 **바꾸면 깨지는 것**. 바꾸면 화면이 멈추거나 기존 시험 69건이 깨집니다.
+2. **2부**: 화면을 다듬을 때 **바꿔도 되는 것**과 **바꾸면 깨지는 것**. 바꾸면 화면이 멈추거나 서버 시험·화면 시험(vitest)이 깨집니다.
 3. **3부**: 데이터가 지금 어디에 저장되는지, 앞으로 무엇이 바뀔 예정인지.
 
-**쓰는 기술**: 프레임워크 없이 HTML·CSS·JS, 서버는 JSON. React·HTMX 등으로 바꾸지 않음 (팀에서 정한 방침).
+**쓰는 기술**: 화면은 React 18 + Vite 5 (상태 관리 라이브러리 없음, `useSyncExternalStore`), 서버는 FastAPI가 JSON과 화면 빌드를 줌. 11/20 박건영 결정으로 예전 '프레임워크 없이 HTML·CSS·JS' 방침을 바꿨습니다 (PR #69).
 
 **로컬에서 띄우기** (키 없이 돎):
 
@@ -26,7 +28,7 @@
 # 처음 한 번만, 저장소 루트에서
 python3.11 -m venv .venv && .venv/bin/pip install -r services/web/requirements.txt -r services/review-insight/requirements.txt
 
-# 키 없이 도는 시험용 실행
+# 키 없이 도는 시험용 실행 (화면 빌드가 없거나 오래되면 run.sh 가 먼저 npm ci·npm run build. Node.js 20 이상 필요)
 APP_MODE=mock services/web/run.sh
 
 # 브라우저에서 열기 (macOS. 다른 OS는 주소창에 http://localhost:8000 을 입력)
@@ -38,24 +40,24 @@ curl -s http://localhost:8000/api/health
 
 - `run.sh`가 리뷰 분석 서버(8020번 포트), 맞춤 마케팅 서버(8030번 포트), 비서 화면 서버(8000번 포트)를 같이 띄웁니다. `Ctrl+C`(또는 스크립트 `kill`)로 셋 다 끕니다. 맞춤 마케팅을 빼려면 `MARKETING_SURVEY_URL=off` (4부).
 - `APP_MODE=mock`이면 키 파일이 있어도 모델(HCX)을 부르지 않습니다. 키가 없어도 됩니다.
-- 주소 뒤에 `?theme=light`를 붙이면 라이트 테마로 고정됩니다 (아니면 운영체제 설정을 따름).
+- 화면 모양은 상단 바 버튼으로 시스템 → 밝게 → 어둡게를 고릅니다 (localStorage `ic26.theme`). 주소 뒤 `?theme=light|dark`는 그 화면에서만 고정합니다.
 - 자동 API 문서는 `http://localhost:8000/docs`에 있습니다 (로컬에서만. 배포 계획서의 Nginx 설정은 `/docs`를 막음).
 
 ## 이 문서를 읽는 법
 
 - 화면만 다듬는 사람은 **2부**를 먼저 보세요. API는 1부에서 찾아봅니다.
-- LLM에게 맡길 때는 `index.html`, `app.js`, `style.css`, 이 문서를 함께 주고, 아래 상자를 먼저 읽히세요.
+- LLM에게 맡길 때는 `services/web/frontend/`(특히 `src/`)와 이 문서를 함께 주고, 아래 상자를 먼저 읽히세요.
 
 > **화면을 바꾸기 전에 지킬 규칙 (LLM에게 먼저 읽히세요)**
 >
-> 1. 화면 파일은 `services/web/web/static/`의 세 개뿐입니다. 서버가 `/`로 `index.html`을, `/static/…`으로 나머지를 줍니다. 파일을 더하면 이 폴더 안에 두고 `/static/…` 주소로 부릅니다.
-> 2. `app.js`가 찾는 `id`(11/15 기준 114개, 2.2)를 지우거나 이름을 바꾸지 않습니다. 지우면 화면이 멈춥니다.
-> 3. `app.js` 안의 문장 일곱 군데는 글자 그대로 둡니다 (2.4 표의 시험 6). 코드 정리 도구가 따옴표·괄호를 바꾸면 시험이 깨집니다.
-> 4. `index.html`과 `app.js`(주석 포함)에 `replay`, `c9`, `/api/review-insight` 같은 글자가 들어가면 시험이 깨집니다 (2.4). 인라인 SVG 경로 데이터에 `c9`가 우연히 들어가는 경우를 조심하세요.
-> 5. API 경로와 요청·응답의 칸 이름은 바꾸지 않습니다. 필요하면 서버 담당(박건영)에게 요청하세요.
-> 6. 색·글꼴·간격·배치·아이콘은 자유롭게 바꿔도 됩니다. 단, CSS의 `[hidden] { display: none !important; }`는 유지합니다. JS가 `hidden` 속성으로 보이고 숨기는 곳이 많습니다.
-> 7. CSS 클래스 이름을 바꾸면 `app.js` 안의 같은 이름도 같이 바꿔야 합니다 (2.3). `app.js`가 클래스로 찾는 것은 `.top`, `.side .menu`, `.shell > main`, `.menu a`, `.dot`, `.todo-st` 입니다.
-> 8. 바꾼 뒤 시험 69건을 돌립니다 (2.8).
+> 1. 화면 소스는 `services/web/frontend/src/`입니다. 서버는 빌드(`frontend/dist`)의 `index.html`을 `/`로, 빌드 파일을 `/assets/…`로 줍니다. 그림은 SVG를 JSX로 넣거나 `src/` 안에서 import 합니다 (외부 CDN 없음).
+> 2. 화면 주소 8개(`#/today` `#/cards` `#/draft` `#/done` `#/analysis` `#/marketing` `#/report` `#/market`)와 API 경로·요청·응답 칸 이름은 바꾸지 않습니다. API가 더 필요하면 서버 담당(박건영)에게 요청하세요.
+> 3. 서버 시험이 글자로 읽는 곳이 있습니다 (2.4 표): `features/flow/calc.js`의 점검 상태 규칙·`REPLACES_MAX`, `features/assistant/chat.js`의 `CHAT_QUARTER`·`CHAT_STARTERS`(서랍 첫 추천 질문, `assistant/state.js`가 가져다 씀), `components/Sidebar.jsx`의 메뉴 글자('상권 분석' 등), `App.jsx`·`lib/router.js`·`Sidebar.jsx`의 화면 주소, `features/marketing/logic.js`의 `MKT_SUB`, `features/analysis/calc.js`의 `PASTE_SAMPLES`·`AN_TABS`, `lib/domain.js`의 `GEN_NAMES`. 이름이나 위치를 바꾸면 서버 시험이 깨집니다.
+> 4. `frontend/src`와 `frontend/index.html`(주석 포함)에 `replay`, `c9`, `/api/review-insight` 같은 글자가 들어가면 시험이 깨집니다. SVG 경로 데이터에 `c9`가 우연히 들어가는 경우를 조심하세요.
+> 5. 서버가 준 글은 JSX로만 넣습니다 (`dangerouslySetInnerHTML` 쓰지 않음).
+> 6. 색·글자 크기·간격은 `src/styles/tokens.css` 변수를 씁니다. 변수만 쓰면 밝게·어둡게가 저절로 맞습니다.
+> 7. 정직 표시(실제 AI 결과 아님, 합성 데이터, 서울시 출처·기준 분기, 우리 가게 매출 아님, 되돌릴 수 없어요)는 지우지 않습니다. 한 화면에 같은 표시가 여러 번이면 한 곳으로 모읍니다.
+> 8. 바꾼 뒤 `npm test`·`npm run build`와 서버 시험을 돌립니다 (2.8).
 
 ## 목차
 
@@ -72,11 +74,11 @@ curl -s http://localhost:8000/api/health
   - 1.13 `/api/auth/*` (로그인·가게 고르기, 5차 회의 11/18) · 1.14 `/api/market/*` (상권 분석 화면 프록시, 11/18)
   - 1.15 서랍의 전 파트 질문과 화면 이동 버튼 (11/18)
 - 2부. 화면을 다듬을 때 유지해야 하는 것
-  - 2.1 파일 세 개와 정적 파일 경로 · 2.2 `id` 목록 · 2.3 id 말고도 app.js가 기대하는 것
-  - 2.4 시험이 직접 확인하는 것 · 2.5 화면 주소 · 2.6 화면 흐름과 부르는 API
-  - 2.7 자유롭게 바꿔도 되는 것 · 2.8 바꾼 뒤 확인하는 법 · 2.9 왼쪽 메뉴 접기와 폭 기준
+  - 2.1 폴더와 서빙 · 2.2 상태와 화면 전환 · 2.3 공통 부품과 디자인 토큰
+  - 2.4 시험이 지키는 것 · 2.5 화면 주소 · 2.6 화면 흐름과 부르는 API
+  - 2.7 자유롭게 바꿔도 되는 것 · 2.8 바꾼 뒤 확인하는 법 · 2.9 왼쪽 메뉴 · 서랍 · 폭 기준
 - 3부. 데이터가 어디에 저장되나, 무엇이 바뀔 예정인가
-  - 3.1 지금 · 3.2 예정(아직 없음) · 3.3 지금 화면에 있는 빈 자리 · 3.4 임시 DB 표 이름
+  - 3.1 지금 · 3.2 예정(아직 없음) · 3.3 화면의 빈 자리 (11/20 없음) · 3.4 임시 DB 표 이름
 - 4부. 맞춤 마케팅 서비스 자체 API · 실행 · 배포 (11/16)
   - 4.1 한눈에 · 4.2 경로 · 4.3 `visitor_id` · 4.4 기록 파일 · 4.5 `DELETE /records` · 4.6 `/health` · 4.7 모드 · 4.8 실행 · 4.9 배포
 - 부록. 알려진 특이점, 코드에서 확인하지 못한 것
@@ -105,7 +107,7 @@ curl -s http://localhost:8000/api/health
 | 키 | 필요 없음 | HCX-005 키 필요 (호출마다 비용) |
 | 추천 카드 이유 문장 | 고정 문장 | HCX-005가 쓰고, 규칙 검사를 못 넘으면 고정 문장 |
 | 글(답글·공지·홍보글) | 미리 저장된 예시 파일(`experiments/marketing/c6/replay/c6_cache_best.json`)을 이 카드에 맞게 바꿔 보여 줌. **실제 AI 결과가 아님** | HCX-005가 실시간으로 씀. 파일에 저장하지 않음 |
-| 화면 맨 위 띠 | "시험용 실행 · 키 없이 저장된 예시 결과를 보여 줍니다 (실제 AI 결과 아님)" | 없음 |
+| 화면 맨 위 띠 | 서버가 `health.mode_notice`("시험용 실행 · 키 없이 저장된 예시 결과를 보여 줍니다 (실제 AI 결과 아님)")를 주고, 화면은 그 칸이 있으면 상단 안내 띠에 짧은 한 줄 "시험용 예시 화면 · 실제 AI 생성 결과가 아니에요"(`src/lib/domain.js`의 `MODE_BAND_MOCK`)를 띄움 | 없음 |
 
 이 문서의 응답 예시는 모두 `mock`입니다.
 
@@ -124,7 +126,7 @@ curl -s http://localhost:8000/api/health
 |---|---|
 | 카드 ⓐ | 불만 대응 카드 (`kind`가 `complaint`). 반복되는 불만 묶음 하나를 가리킵니다. 카드 id 끝이 `_a`. |
 | 카드 ⓑ | 쿠폰 홍보 카드 (`kind`가 `promo`). 상권 지표 하나를 가리킵니다. 카드 id 끝이 `_b`. |
-| 글 종류 3가지 | `reply_draft`(답글), `prevention_notice`(포장·주문 안내문), `coupon_promo`(쿠폰 홍보글). 화면 이름은 `app.js`의 `GEN_NAMES`. 11/18부터 `prevention_notice`의 화면 이름은 '재발 방지 공지'가 아니라 **'배달앱 포장·주문 안내문'**(짧게 '포장·주문 안내문')입니다(반성문처럼 읽히지 않게, 김수현 님 동의). 내부 이름·API 칸·점검 이름은 그대로입니다. |
+| 글 종류 3가지 | `reply_draft`(답글), `prevention_notice`(포장·주문 안내문), `coupon_promo`(쿠폰 홍보글). 화면 이름은 `src/lib/domain.js`의 `GEN_NAMES`. 11/18부터 `prevention_notice`의 화면 이름은 '재발 방지 공지'가 아니라 **'배달앱 포장·주문 안내문'**(짧게 '포장·주문 안내문')입니다(반성문처럼 읽히지 않게, 김수현 님 동의). 내부 이름·API 칸·점검 이름은 그대로입니다. |
 | 묶음 · 반복 | 같은 불만이 2건 이상이면 **묶음**, 3건 이상이면 **반복**입니다 (화면 문구 기준). |
 | 상권 지표 | 서울시 상권분석 자료에서 뽑은 숫자 한 줄 (예: 저녁 시간대 추정매출 변화율). 코드 이름은 `snapshot`. |
 | 합성 데이터 | 실제 가게가 아니라 만들어 낸 리뷰·가게. 지금 화면의 리뷰는 모두 합성입니다. |
@@ -135,7 +137,7 @@ curl -s http://localhost:8000/api/health
 
 ### 0.5 모든 API에 해당하는 규칙
 
-- **주소와 형식**: 모두 같은 서버(8000번)의 `/api/…`입니다. 요청과 응답은 JSON(UTF-8)입니다. 본문이 있는 요청은 `Content-Type: application/json`으로 보냅니다 (`app.js`의 `api()`는 모든 요청에 이 헤더를 붙임).
+- **주소와 형식**: 모두 같은 서버(8000번)의 `/api/…`입니다. 요청과 응답은 JSON(UTF-8)입니다. 본문이 있는 요청은 `Content-Type: application/json`으로 보냅니다 (`src/lib/api.js`의 `api()`는 모든 요청에 이 헤더를 붙임).
 - **로그인·토큰 없음**: 비서 화면 서버는 인증을 하지 않습니다. CORS 설정도 없습니다. 화면과 API를 **같은 주소(origin)** 에서 받는 것이 전제입니다 (`main.py`에 CORS 설정이 없음을 확인함. 다른 포트에서 부르면 브라우저가 막는지는 실행해 보지 않아 확인하지 못함).
 - **가게는 하나**: 서버 설정 `DEMO_STORE_ID`(기본 `store_ongi`)로 고정입니다. 요청에 가게를 고르는 칸이 없습니다.
 - **시각**: 한국 시간 ISO 8601입니다 (`2026-11-14T19:19:46+09:00`).
@@ -145,12 +147,12 @@ curl -s http://localhost:8000/api/health
 
 | 모양 | 언제 | 본문 | 화면이 보여 주는 것 |
 |---|---|---|---|
-| ① 이 서버가 직접 만든 오류 | 리뷰 분석 서버 문제, 카드 id 틀림, 글 만들기 실패 | `{"error": {"message": "…"}}` | `error.message` 그대로 (`#alert` 또는 붙여넣기 메시지) |
+| ① 이 서버가 직접 만든 오류 | 리뷰 분석 서버 문제, 카드 id 틀림, 글 만들기 실패 | `{"error": {"message": "…"}}` | `error.message` 그대로 (맨 위 알림 띠 또는 붙여넣기 메시지) |
 | ② 요청 형식 오류 | 본문이 없거나 칸의 형식·범위가 틀림 | `{"detail": [{"type", "loc", "msg", "input", …}]}` (FastAPI 기본, **`msg`는 영어**) | `detail[0].msg` 그대로 (영어로 보임) |
 | ③ 허용하지 않는 메서드 | 예: `GET /api/cards/x/run` | `{"detail": "Method Not Allowed"}` | `요청 실패 (405)` |
 | ④ 예기치 못한 오류 | 코드가 처리하지 못한 오류 (예: 상권 지표 파일이 깨짐) | 일반 글자 `Internal Server Error` (JSON 아님) | `요청 실패 (500)` |
 
-화면은 `error.message`, `detail[0].msg`, `요청 실패 (코드)` 순서로 문장을 고릅니다 (`app.js`의 `api()`).
+화면은 `error.message`, `detail[0].msg`, `요청 실패 (코드)` 순서로 문장을 고릅니다 (`src/lib/api.js`의 `api()`. 프록시를 부르는 `careApi`·`mktApi`·`drawerApi` 등은 `error.message`가 없으면 `detail[0].msg`(영어) 대신 각자 정한 한국어 문장을 씀, 2.6).
 
 **상태 코드**
 
@@ -179,7 +181,7 @@ curl -s http://localhost:8000/api/health
 
 | # | 메서드와 경로 | 하는 일 | 쓰는 화면 | 성공 |
 |---|---|---|---|---|
-| 1 | `GET /api/health` | 서버 상태, 시험용 여부, 막힌 곳 | 맨 위 띠, 바닥 '동작·모의 표시' | 200 |
+| 1 | `GET /api/health` | 서버 상태, 시험용 여부, 막힌 곳 | 맨 위 시험용 안내 띠·알림 띠, 바닥 '자료 출처' 줄 | 200 |
 | 2 | `GET /api/briefing` | 오늘의 브리핑 (숫자, 묶음, 리뷰 원문, 상권 지표) | 홈 `#/today`, 상단 가게 이름 | 200 |
 | 3 | `GET /api/insight` | 리뷰 분석 (감정·주제 건수, 묶음), 읽기 전용 | 리뷰 분석 `#/analysis` | 200 |
 | 4 | `GET /api/cards` | 오늘의 추천 카드 최대 2장 | 추천 카드 `#/cards`, 홈 '오늘 할 일' | 200 |
@@ -187,17 +189,17 @@ curl -s http://localhost:8000/api/health
 | 6 | `POST /api/drafts/{draft_id}/approve` | 글 승인 기록 | 초안 `#/draft` '승인' | 200 |
 | 7 | `GET /api/approvals` | 서버의 승인 기록 목록 | 처리 완료 `#/done` '서버 처리 기록' | 200 |
 | 7-1 | `DELETE /api/approvals` | 이 방문자의 승인 기록 지우기 (11/16) | 처리 완료 `#/done` '처음부터 다시' | 200 |
-| 8 | `POST /api/reviews` | 리뷰 한 건 붙여넣기, 바로 분류 | 리뷰 분석 '리뷰 붙여넣기' 탭 | 201 |
+| 8 | `POST /api/reviews` | 리뷰 한 건 붙여넣기, 바로 분류 | 리뷰 분석 '리뷰 넣기' 탭 (붙여넣기·캡처 저장) | 201 |
 | 9 | `DELETE /api/reviews/pasted` | 붙여넣은 리뷰 모두 지우기 | 같은 탭 '붙여넣은 리뷰 지우기' | 200 |
 
-표의 "화면" 칸은 `app.js`가 그 값을 읽어 쓰는 곳입니다. "안 씀"은 응답에는 있지만 지금 화면이 읽지 않는다는 뜻입니다. 읽지 않아도 칸 이름은 바꾸지 않습니다 (다른 도구가 읽을 수 있음).
+표의 "화면" 칸은 화면 소스(`services/web/frontend/src`)가 그 값을 읽어 쓰는 곳입니다 (11/20 React 기준으로 다시 맞춤. 함수·파일 위치는 2.6). "안 씀"은 응답에는 있지만 지금 화면이 읽지 않는다는 뜻입니다. 읽지 않아도 칸 이름은 바꾸지 않습니다 (다른 도구가 읽을 수 있음).
 
 ---
 
 ### 1.1 `GET /api/health`
 
 **하는 일**: 서버가 어떤 모드인지, 어디까지가 진짜이고 어디부터 시험용인지, 막힌 것이 있는지를 알려 줍니다.
-**쓰는 화면**: 페이지를 열 때 한 번. 맨 위 시험용 띠(`#mode-notice`), 경고 띠(`#alert`), 바닥 '동작·모의 표시'(`#honesty`).
+**쓰는 화면**: 페이지를 열 때 한 번(`src/state/boot.js`). 맨 위 시험용 안내 띠(`App.jsx`의 `.mode-band`), 알림 띠(`healthProblems`), 바닥 '자료 출처' 줄(`footer.honesty`, `honestyItems`).
 
 **요청**: `GET /api/health`. 본문 없음.
 
@@ -237,7 +239,7 @@ curl -s http://localhost:8000/api/health
 |---|---|---|
 | `mode` | `"mock"` 또는 `"live"` | 안 씀 |
 | `mode_label` | 사람이 읽는 모드 이름 (`"시험용 실행"` / `"실시간 HCX-005"`) | 안 씀 |
-| `mode_notice` | mock일 때 띠에 보일 문장. live이면 `null` | `#mode-notice`. 값이 있으면 보이고, `null`이면 숨김 |
+| `mode_notice` | mock일 때 띠에 보일 문장. live이면 `null` | 값이 있으면 상단 안내 띠가 보임 (글은 서버 문장 대신 짧은 `MODE_BAND_MOCK`, 0.2). `null`이면 띠 없음. 종합 리포트 인쇄 머리글에는 이 문장 그대로, 맞춤 마케팅은 이 값이 있으면 자기 예시 고지를 겹쳐 띄우지 않음 |
 | `store_id` | 이 서버가 다루는 가게 id | 안 씀 |
 | `key_present` | HCX 키가 설정돼 있는지 (키 값은 주지 않음) | 안 씀 |
 | `c6_available` | 글 만드는 코드(`experiments/marketing/c6`)를 불러올 수 있는지 | 안 씀 |
@@ -247,7 +249,7 @@ curl -s http://localhost:8000/api/health
 | `snapshot` | 상권 지표 파일 정보. `file`(이름), `count`(지표 수), `error`(읽기 오류 문장 또는 `null`) | 안 씀 |
 | `dev_fake_snapshots` | 개발용 가짜 지표의 id 목록 (`note`가 "개발용 가짜 값"으로 시작하는 지표) | 하나라도 있으면 경고 띠 맨 앞에 "개발용 가짜 지표가 화면에 있어요…" |
 | `blocking` | 막힌 이유 문장 목록. 비어 있으면 정상 | 경고 띠에 이어 붙여 보여 줌 |
-| `parts` | 바닥 '동작·모의 표시'에 쓰는 네 줄 (`reviews`, `briefing`, `cards`, `generate`) | `#honesty`에 `리뷰: …`, `…`, `카드: …`, `글 생성: …` 순서로 |
+| `parts` | 바닥 줄에 쓸 수 있는 네 줄 (`reviews`, `briefing`, `cards`, `generate`) | 바닥 '자료 출처' 줄에 `리뷰: …`(늘)와 `글 생성: …`(`mode_notice`가 없을 때만) 두 개만. `briefing`·`cards`는 안 씀 (분류 방식·규칙 같은 안쪽 사정은 화면에 적지 않음, 11/20) |
 
 `blocking`에 들어갈 수 있는 문장 (코드 기준. 아래 'C6'는 글 만드는 코드, 'C4'는 상권 지표 파일):
 
@@ -388,7 +390,7 @@ curl -s http://localhost:8000/api/health
 
 | 칸 | 뜻 | 화면 |
 |---|---|---|
-| `store.name` · `store.business_type_name` · `store.area_name` | 가게 이름, 업종 이름, 상권 이름 | 상단 바 `#store-name`: "이름 · 업종 · 상권이름 상권" |
+| `store.name` · `store.business_type_name` · `store.area_name` | 가게 이름, 업종 이름, 상권 이름 | 상단 바 가게 칸: 이름(`#store-name`)과 그 아래 "업종 · 상권이름 상권" (`storeLine`) |
 | `store.data_origin` | `"synthetic"` = 합성 데이터 | 안 씀 |
 | `period.start` · `period.end` | 분석 기간 (`YYYY-MM-DD`) | 홈 눈썹 줄과 "n일 동안" 계산 |
 | `counts.review_count` | 기간 안 전체 리뷰 수 | 홈 '리뷰' 타일 |
@@ -537,7 +539,7 @@ curl -s http://localhost:8000/api/health
 | `single_complaints[]` | 묶이지 않은 불만 `{review_id, topics, topic_names, quote, created_at, channel}` | '묶이지 않은 불만' 목록 (`topic_names`, `quote`, `review_id`) |
 | `data_origin` | `"synthetic"` = 합성 데이터 | 눈썹 줄에 "리뷰는 합성 데이터" |
 
-주제 id와 화면에 보이는 이름 (`app.js`의 `TOPIC_NAMES`. 모르는 id는 id가 그대로 보임):
+주제 id와 화면에 보이는 이름 (`src/features/analysis/calc.js`의 `TOPIC_NAMES`. 모르는 id는 id가 그대로 보임):
 
 | id | 이름 | id | 이름 | id | 이름 |
 |---|---|---|---|---|---|
@@ -547,7 +549,7 @@ curl -s http://localhost:8000/api/health
 | `hygiene` | 위생 | `menu` | 메뉴 구성 | `atmosphere` | 매장 환경 |
 | `wait_time` | 매장 대기 | | | | |
 
-감정 이름 (`SENTIMENT_NAMES`): `positive` 긍정, `negative` 부정, `neutral` 중립, `mixed` 긍정·부정 섞임.
+감정 이름 (같은 파일의 `SENTIMENT_NAMES`): `positive` 긍정, `negative` 부정, `neutral` 중립, `mixed` 긍정·부정 섞임.
 
 **오류**: `503` 리뷰 분석 서버 문제 (모양은 1.2의 `503` 예시와 같음). `405` `POST`·`DELETE`로 부름.
 
@@ -683,20 +685,20 @@ curl -s http://localhost:8000/api/health
 | 칸 | 뜻 | 화면 |
 |---|---|---|
 | `cards` | 카드 목록. 카드가 없으면 `[]` (화면은 "오늘은 추천할 카드가 없어요.") | 카드 화면 |
-| `cards[].card.card_id` | 카드 id (`card_ongi_a`, `card_ongi_b`). `POST …/run`의 경로에 씀 | 버튼의 `data-run`, 글 보관 키 |
+| `cards[].card.card_id` | 카드 id (`card_ongi_a`, `card_ongi_b`). `POST …/run`의 경로에 씀 | 카드 버튼(`choose(card_id)`), 글 보관 키(`results`) |
 | `cards[].card.store_id` | 가게 id | 안 씀 |
 | `cards[].card.kind` | `"complaint"`(불만 대응) 또는 `"promo"`(쿠폰 홍보) | 카드 이름, 담당 AI 직원 이름, 버튼 글자 |
-| `cards[].card.reason_text` | 카드를 띄운 이유 문장. 줄바꿈(`\n`)이 들어갈 수 있음 | 카드 본문 (`white-space: pre-line`이 줄바꿈을 살림) |
+| `cards[].card.reason_text` | 카드를 띄운 이유 문장. 줄바꿈(`\n`)이 들어갈 수 있음 | 카드 본문. **11/20 React 카드(`Cards.jsx`)에는 줄바꿈을 살리는 `white-space: pre-line`이 없어 `\n`이 띄어쓰기처럼 보임** (예전 화면은 살렸음. 종합 리포트 마케팅 요약 `.rp-mkt-reason`은 살림. 부록 12) |
 | `cards[].card.review_ids` | 근거 리뷰 id. 카드 ⓐ는 묶음의 불만 리뷰, 카드 ⓑ는 쿠폰 메뉴를 언급한 칭찬 리뷰 **전부** (칭찬 근거가 없으면 `[]`) | 카드가 바뀌었는지 비교 (칭찬 근거가 바뀌면 만들어 둔 홍보글도 버림), 카드 ⓑ의 칭찬 리뷰 건수 |
 | `cards[].card.snapshot_ids` | 근거 상권 지표 id (카드 ⓑ) | 위와 같음 |
 | `cards[].title` | 카드 제목. 카드 ⓑ는 칭찬 근거가 있으면 쿠폰 메뉴가 들어감 (`… 하락 → '제육볶음 정식' 쿠폰 홍보`), 없으면 `… 하락 → 쿠폰 홍보` | 카드 제목, 초안 화면 제목 |
-| `cards[].reason_source` | 이유 문장 출처. `"고정 문장"`, `"HCX-005 (검사기 통과)"`, `"HCX-005 검사 불통과 → 고정 문장"`, `"HCX-005 실패(오류이름) → 고정 문장"`, `"고정 문장 (검사기 경고)"` | '근거 보기' 안 "이유 문장: …" |
+| `cards[].reason_source` | 이유 문장 출처. `"고정 문장"`, `"HCX-005 (검사기 통과)"`, `"HCX-005 검사 불통과 → 고정 문장"`, `"HCX-005 실패(오류이름) → 고정 문장"`, `"고정 문장 (검사기 경고)"` | `HCX`가 들어 있고 `고정 문장`이 없을 때만 '근거 보기' 안에 "카드 설명 글은 AI가 썼어요." (`flow/calc.js`의 `reasonByAI`. 검사기 이야기는 화면에 적지 않음) |
 | `cards[].checked_text` | 검사기를 통과한 문장 (`[F1]` 같은 근거 표시 포함) | 안 씀 |
 | `cards[].facts[]` | 이유 문장의 근거 카드 `{id, topic, status, text, values[{label, value, unit}], keep[]}`. 카드 ⓑ의 `F3`(손님 칭찬)에는 글자 값(`{label: "쿠폰 메뉴", value: "메뉴 이름"}`, `unit` 없음)이 하나 더 있고, 혼자 1등이 아니면 `avoid[]`(이유 문장에 쓰면 안 되는 말: 가장·제일·최다·1위)가 붙음 | 안 씀 |
 | `cards[].evidence[]` | 근거. 불만 리뷰면 `{type:"review", id, text}`, 상권 지표면 `{type:"snapshot", id, text, basis, note}`, 쿠폰 메뉴를 칭찬한 리뷰면 `{type:"praise", id, text, menu, rating}` (카드 ⓑ, 최대 3건, `text`는 120자까지) | 카드의 '근거:' 줄과 '근거 보기' (`basis`의 주소는 '원본' 링크로), 홍보글 초안의 '근거 지표'·'손님 칭찬 리뷰' 두 덩어리, 홈 '오늘 할 일'의 홍보글 부제(`menu`) |
-| `cards[].problems[]` | 모델 문장이 검사에 걸린 이유 (`{type, detail?}`). 없으면 `[]` | '근거 보기' 안 "검사기 지적 n건" |
+| `cards[].problems[]` | 모델 문장이 검사에 걸린 이유 (`{type, detail?}`). 없으면 `[]` | 안 씀 (11/20부터. 예전 화면은 '근거 보기' 안 "검사기 지적 n건") |
 | `cards[].measures` | 카드 ⓐ만: 재발 방지 조치 상자. `options[]`(`{id, text}`, 글 만드는 코드의 목록 `M1`~`M5`)와 `default`(처음 체크할 id 목록). 카드 ⓑ와 글 만드는 코드를 못 불러올 때는 `{}` | 카드 ⓐ의 체크박스 묶음 |
-| `no_card_b` | 카드 ⓑ가 없을 때 그 이유 문장. 카드 ⓑ가 있으면 `null` | `#no-card-b` |
+| `no_card_b` | 카드 ⓑ가 없을 때 그 이유 문장. 카드 ⓑ가 있으면 `null` | 추천 카드 화면 아래 한 줄 (`Cards.jsx`, 상태의 `noCardB`) |
 
 `no_card_b` 문장 종류 (코드 기준. 'C4'는 상권 지표 파일):
 
@@ -723,7 +725,7 @@ curl -s http://localhost:8000/api/health
 - live: HCX-005가 실시간으로 씁니다. 시간이 걸립니다 (저장 예시에 기록된 시간은 글 하나에 2.5~4.6초, 카드 하나에 6.8초. 배포 계획서는 글 생성이 14초를 넘을 때가 있다고 적음). 결과를 파일에 저장하지 않습니다.
 - 응답은 **승인 전의 초안**입니다.
 
-**쓰는 화면**: 추천 카드의 버튼(`[data-run]`), 홈 '오늘 할 일' 항목(아직 안 만든 글), 초안 화면 진행줄 옆의 '카드 전체 다시 만들기'(`[data-rerun]`). 초안 상자 안의 '다시 만들기'(`[data-regen]`)는 같은 경로에 `generator`를 보내 **그 글 한 건만** 다시 만듭니다 (아래 '개별 다시 만들기').
+**쓰는 화면**: 추천 카드의 버튼(`flow/actions.js`의 `choose` → `runCard`), 홈 '오늘 할 일' 항목(아직 안 만든 글, `runTodo`), 초안 화면 진행줄 옆의 '카드 전체 다시 만들기'(`rerunCard`). 초안 상자 안의 '다시 만들기'(`regenDraft`)는 같은 경로에 `generator`를 보내 **그 글 한 건만** 다시 만듭니다 (아래 '개별 다시 만들기').
 
 **요청**: `POST /api/cards/{card_id}/run`
 
@@ -919,7 +921,7 @@ curl -s http://localhost:8000/api/health
 | `model` · `elapsed_ms` | 글을 쓴 모델 이름, 이 글에 걸린 시간 | 글 아래 작은 글씨 "HCX-005 · 2.5초" |
 | `data_origin` | `"synthetic"` | 안 씀 |
 
-**화면의 글 상태 규칙** (`app.js`의 `statusOf`, 시험이 지킴):
+**화면의 글 상태 규칙** (`src/features/flow/calc.js`의 `statusOf`, 시험이 지킴. 2.4 (1)의 7. 초안 목록은 이 결과로 `listBadges`가 '승인 대기'·'승인 완료'와 점검 배지를 붙임):
 
 | 순서 | 조건 | 배지 글자 | 색 계열 |
 |---|---|---|---|
@@ -1099,7 +1101,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `422` | `generator`가 40자를 넘음, `reply_texts`·`replaces`가 목록이 아니거나 문자열이 아닌 값이 듦 | ② 모양 |
 
 **참고**
-- 화면은 서버가 준 글 순서(답글들, 공지)와 상관없이 **공지 → 홍보글 → 답글** 순서로 보여 줍니다 (`app.js`의 `GEN_ORDER`).
+- 화면은 서버가 준 글 순서(답글들, 공지)와 상관없이 **공지 → 홍보글 → 답글** 순서로 보여 줍니다 (`src/lib/domain.js`의 `GEN_ORDER`·`byGen`, `draftsOf`).
 - '카드 전체 다시 만들기'를 하면 그 카드의 예전 글과 승인 표시는 화면에서 버려집니다. 초안 상자의 '다시 만들기'는 그 글 한 건의 것만 버립니다. **11/16부터** 서버의 승인 기록에서도 같이 지웁니다 (아래).
 - 이 API는 글을 서버에 저장하지 않습니다. 화면(브라우저 메모리)에만 있습니다.
 
@@ -1246,7 +1248,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 ### 1.7.1 `DELETE /api/approvals` (11/16)
 
 **하는 일**: **이 방문자**(쿠키 `visitor_id`)의 승인 기록을 모두 지웁니다. 다른 방문자의 기록은 건드리지 않습니다.
-**쓰는 화면**: 처리 완료 `#/done`의 보조 버튼 '처음부터 다시'(`#restart`). 화면의 진행을 비우면서 같이 부릅니다. 그래서 다시 카드 → 승인 → 완료로 왔을 때 '서버 처리 기록'에 예전 승인이 남아 있지 않습니다. (주 버튼 '홈으로'는 아무것도 지우지 않고 API도 부르지 않습니다.)
+**쓰는 화면**: 처리 완료 `#/done`의 보조 버튼 '처음부터 다시'(`flow/actions.js`의 `restart`). 화면의 진행을 비우면서 같이 부릅니다. 그래서 다시 카드 → 승인 → 완료로 왔을 때 '서버 처리 기록'에 예전 승인이 남아 있지 않습니다. (주 버튼 '홈으로'는 아무것도 지우지 않고 API도 부르지 않습니다.)
 
 **요청**: `DELETE /api/approvals`. 본문 없음.
 
@@ -1277,7 +1279,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 ### 1.8 `POST /api/reviews`
 
 **하는 일**: 사장님이 붙여넣은 리뷰 한 건을 리뷰 분석 서버에 넘겨 저장하고 바로 분류합니다. 전화번호·이메일·링크는 저장 전에 `[가림]`으로 바꿉니다. 응답은 **리뷰 분석 서버의 응답을 그대로** 전달합니다 (비서 화면 서버가 가공하지 않음).
-**쓰는 화면**: 리뷰 분석 `#/analysis`의 '리뷰 붙여넣기' 탭 '분류하기' 버튼. 성공하면 화면이 홈 숫자·추천 카드·요약·불만 묶음을 다시 불러옵니다 (`briefing`, `cards`, `insight`).
+**쓰는 화면**: 리뷰 분석 `#/analysis`의 '리뷰 넣기' 탭(`paste`) 안 '리뷰 붙여넣기' 칸의 '분류하기' 버튼(`features/analysis/PasteTab.jsx`). 성공하면 화면이 홈 숫자·추천 카드·요약·불만 묶음을 다시 불러옵니다 (`briefing`, `cards`, `insight`).
 
 **요청**: `POST /api/reviews`
 
@@ -1289,7 +1291,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 |---|---|---|
 | `text` | 문자열, **1~1000자**, 필수 | 리뷰 글 |
 | `rating` | 정수 1~5, 생략·`null` 가능 | 별점. 모르면 비움 |
-| `channel` | `"baemin"`, `"coupangeats"`, `"yogiyo"`, `"naver_place"` 중 하나, 생략·`null` 가능 | 배달앱. **지금 화면은 보내지 않음** |
+| `channel` | `"baemin"`, `"coupangeats"`, `"yogiyo"`, `"naver_place"` 중 하나, 생략·`null` 가능 | 배달앱. **11/20부터 화면이 보냄**: 붙여넣기 칸의 '채널' 고르기(`#paste-channel`, 보기는 `features/analysis/calc.js`의 `CHANNELS`: 채널 모름 · 배달의민족 `baemin` · 쿠팡이츠 `coupangeats` · 요기요 `yogiyo` · 네이버 플레이스 `naver_place`). 고른 경우에만 `channel`을 싣고, '채널 모름'이면 예전처럼 칸 없이 보냄. 캡처 저장(`source: "capture"`)은 보내지 않음 |
 | `source` | `"paste"` 또는 `"capture"`, 생략·`null` 가능 (11/15) | `capture` = '캡처로 넣기' 후보를 사장님이 확인·수정해 저장한 것. 리뷰 분석 서비스는 계약대로 `input_method: "paste"`로 저장하고 `source` 칸만 다름. 그 밖의 값은 `422`. 생략하면 예전과 똑같이 보냄 |
 
 > **글자 수는 1~1000자입니다.** 비서 화면 서버, 리뷰 분석 서버, 화면 입력칸(`textarea`의 `maxlength="1000"`)이 모두 1000자입니다. 1001자 이상이나 빈 글은 `422`가 옵니다. 11/14 이전에는 비서 화면 서버만 4000자를 통과시켜 1001~4000자가 `503`으로 왔는데, main `d7c1305`에서 고쳤습니다.
@@ -1472,7 +1474,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 ### 1.9 `DELETE /api/reviews/pasted`
 
 **하는 일**: 이 가게에 붙여넣은 리뷰를 **모두** 지웁니다 (합성 리뷰는 그대로). 데모를 다시 할 때 씁니다.
-**쓰는 화면**: 리뷰 분석 '리뷰 붙여넣기' 탭의 '붙여넣은 리뷰 지우기' 버튼. 성공하면 홈 숫자·추천 카드·요약·불만 묶음을 다시 불러옵니다.
+**쓰는 화면**: 리뷰 분석 '리뷰 넣기' 탭의 '붙여넣은 리뷰 지우기' 버튼(`PasteTab.jsx`의 `resetPaste`). 성공하면 홈 숫자·추천 카드·요약·불만 묶음을 다시 불러옵니다.
 
 **요청**: `DELETE /api/reviews/pasted`. 본문·검색어 없음.
 
@@ -1585,7 +1587,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `cards[].text` · `cards[].warnings[]` · `cards[].values[].label` · 글자인 `cards[].values[].value` | `cards[].values[].code` · 숫자인 `value` · `cards[].source_ref` |
 | `turns[]` 안의 `reply`·`cards` (위와 같음) | `turns[].user_text`(사용자가 쓴 글) · `turns[].action` |
 
-금액·개수는 바꾸지 않습니다. 앞뒤에 숫자·영문·쉼표·점·`-`·`_`가 붙었거나(`120262`, `20,262`, `20262.5`, `v-20262`) 바로 뒤에 단위가 오면(`20262원`·`20262건`·`20262명`·`20262개`·`20262%` 등) 그대로 둡니다. 문장 속에서는 `20`으로 시작하는 연도만 보고, `period_label`처럼 칸 전체가 코드(`^\d{4}[1-4]$`)이면 연도를 가리지 않습니다. 화면(`app.js`의 `CHAT_QUARTER`·`chatQuarter`)도 같은 정규식으로 한 번 더 봅니다(서버가 놓친 글자 대비. 2.4 시험이 두 정규식이 글자 그대로 같은지 확인).
+금액·개수는 바꾸지 않습니다. 앞뒤에 숫자·영문·쉼표·점·`-`·`_`가 붙었거나(`120262`, `20,262`, `20262.5`, `v-20262`) 바로 뒤에 단위가 오면(`20262원`·`20262건`·`20262명`·`20262개`·`20262%` 등) 그대로 둡니다. 문장 속에서는 `20`으로 시작하는 연도만 보고, `period_label`처럼 칸 전체가 코드(`^\d{4}[1-4]$`)이면 연도를 가리지 않습니다. 화면(`src/features/assistant/chat.js`의 `CHAT_QUARTER`·`chatQuarter`)도 같은 정규식으로 한 번 더 봅니다(서버가 놓친 글자 대비. 2.4 (1)의 8: 시험이 두 정규식이 글자 그대로 같은지 확인).
 
 **가게 기본 질문** (11/16): 서랍은 동네 상권·업종 매출 상담이지만 "우리 가게 이름 뭐야?", "우리 가게 메뉴 뭐야?", "리뷰 답글은 어디서 봐?" 같은 질문도 들어옵니다. 이런 질문은 상권 서비스로 보내지 않고 이 서버가 가게 프로필(리뷰 분석 서비스의 가게 정보 + 상권 지표 파일의 상권 이름, ③ 생성이 쓰는 것과 같은 값)로 답합니다. 응답 모양은 상권 서비스의 답과 같고 `answered_by`만 더 있습니다.
 
@@ -1629,7 +1631,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `503` | `down` · `disabled` · `no_data` · `error` | 상권 서비스 문제. 비서 화면의 다른 API는 아무 영향이 없음 |
 | `422` | `invalid` | 입력 문제 (빈 질문, 1000자 초과, 모르는 선택지 종류) |
 
-이 절의 API는 **어떤 경우에도 `500`을 주지 않습니다.** 서랍 안에서만 안내를 보이고 비서 화면의 알림 띠(`#alert`)는 쓰지 않습니다.
+이 절의 API는 **어떤 경우에도 `500`을 주지 않습니다.** 서랍 안에서만 안내를 보이고 비서 화면 맨 위 알림 띠는 쓰지 않습니다.
 
 **세션 쿠키**: 상권 서비스는 대화와 분석 조건을 세션(`market_onboarding_session`, 30일)에 붙입니다. 서버가 그 값을 쿠키(`HttpOnly`, 경로 `/api/assistant`)로 심고 다음 요청에 상권 서비스로 넘깁니다. 화면(JS)이 다룰 것은 없습니다(`credentials: "same-origin"`만). 상권 서비스는 Host가 `127.0.0.1`·`localhost`가 아니거나 `Origin`이 있으면 막기 때문에, 서버가 `Host: 127.0.0.1:8766`을 직접 싣고 `Origin`은 넘기지 않습니다. 서버가 두 대이면 상권 서비스의 세션 저장소(SQLite)도 서버마다 따로라서, 로드 밸런서가 방문자를 다른 서버로 보내면 대화가 이어지지 않습니다(분석 조건은 서랍이 다시 열릴 때 `setup`으로 다시 맞춤).
 
@@ -1639,7 +1641,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 ### 1.11 `/api/care/*` — 캡처 입력·응대 점수·보고서 (리뷰 분석 서비스의 고객응대 프록시)
 
-**쓰는 화면**: 리뷰 분석 '리뷰 붙여넣기' 탭의 '캡처로 넣기'와 왼쪽 메뉴 '종합 리포트'(`#/report`). 비서 화면 서버가 리뷰 분석 서비스(`127.0.0.1:8020`, `/api/review-insight/*`)의 고객응대 API를 **대신 불러 주는** 길입니다 (`services/web/web/care_proxy.py`). 브라우저는 8020에 가지 않고, 화면 파일에는 `/api/care`만 씁니다 (2.4 시험 2).
+**쓰는 화면**: 리뷰 분석 '리뷰 넣기' 탭의 '캡처로 넣기'(`features/analysis/Capture.jsx`)와 왼쪽 메뉴 '종합 리포트'(`#/report`). 비서 화면 서버가 리뷰 분석 서비스(`127.0.0.1:8020`, `/api/review-insight/*`)의 고객응대 API를 **대신 불러 주는** 길입니다 (`services/web/web/care_proxy.py`). 브라우저는 8020에 가지 않고, 화면 파일에는 `/api/care`만 씁니다 (2.4 시험 2).
 
 | 메서드 · 경로 | 서비스 경로 | 하는 일 | 실패하면 |
 |---|---|---|---|
@@ -1726,7 +1728,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `422` | `invalid` | 캡처 본문이 multipart가 아님, JSON이 아님 / 서비스의 `CAPTURE_UNREADABLE`(리뷰를 못 찾음) |
 | `400` · `502` | `invalid` · `upstream` | 서비스가 준 오류: 형식·크기·너무 긴 캡처(`CAPTURE_TOO_LONG`) · AI 호출 실패(`LLM_*`, 다시 하면 됨) |
 
-서비스가 준 오류는 본문(`code`, `message`, `retryable`, …)을 그대로 두고 `state`만 더합니다. 화면은 `error.message`를 그 칸 안에만 보이고 맨 위 알림 띠(`#alert`)는 쓰지 않습니다. **이 절의 API는 `500`을 주지 않으며, 리뷰 분석 서비스가 꺼져 있어도 비서 화면의 다른 API(1.1~1.9)는 그대로입니다** (단, 1.2~1.5·1.8·1.9는 원래 같은 리뷰 분석 서비스를 쓰므로 그 서비스 자체가 꺼지면 그쪽은 0.1절대로 `503`).
+서비스가 준 오류는 본문(`code`, `message`, `retryable`, …)을 그대로 두고 `state`만 더합니다. 화면은 `error.message`를 그 칸 안에만 보이고 맨 위 알림 띠는 쓰지 않습니다. **이 절의 API는 `500`을 주지 않으며, 리뷰 분석 서비스가 꺼져 있어도 비서 화면의 다른 API(1.1~1.9)는 그대로입니다** (단, 1.2~1.5·1.8·1.9는 원래 같은 리뷰 분석 서비스를 쓰므로 그 서비스 자체가 꺼지면 그쪽은 0.1절대로 `503`).
 
 **인쇄용 페이지**는 이 서버 주소에서 열리므로 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; …`와 `X-Content-Type-Options: nosniff`를 붙여 줍니다 (스크립트·외부 주소 막음).
 
@@ -1919,584 +1921,513 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 리뷰·불만·답글·캡처·별점·진상·억울… | 이 서버 | `care_guide`: 리뷰·불만 수, 반복 불만 1위·몰린 시간대 | 추천 카드 `{route: "cards"}`, 리뷰 캡처·붙여넣기 `{route: "analysis", sub: "paste"}`, 불만 묶음 `{route: "analysis", sub: "issues"}` |
 
 - 이 서버가 답한 응답은 `answered_by: "web_domain"`, `classification.domain`이 `customer`·`marketing`·`report`. 상권 서비스는 부르지 않고, 상권 서비스가 꺼져 있어도 답합니다.
-- 맞춤 마케팅의 `sub`: `promo` 맞춤 홍보 제안 · `leftover` 남은 재료 팔기 · `ad` 광고비 점검 · `story` 가게 이야기 글 · `repeat` 쿠폰 결과 확인 (`assistant_proxy.MKT_SUBS` = `app.js`의 `MKT_SUB`, 시험이 같은지 확인).
+- 맞춤 마케팅의 `sub`: `promo` 맞춤 홍보 제안 · `leftover` 남은 재료 팔기 · `ad` 광고비 점검 · `story` 가게 이야기 글 · `repeat` 쿠폰 결과 확인 (`assistant_proxy.MKT_SUBS` = `src/features/marketing/logic.js`의 `MKT_SUB`, 시험이 같은지 확인).
 - 가게 기본 질문 중 화면 위치(`store_guide`)는 예전처럼 버튼 없이 답하고(가게 질문 시험이 `actions: []`를 고정), 안내 목록 끝에 '상권 분석'(`assistant_proxy.MARKET_SCREEN`, 메뉴 글자와 같은지 시험)을 더했습니다. 맺음말은 '동네 상권·업종 매출 상담은 이 채팅에서 바로 답하고, 불만 리뷰·쿠폰·리포트를 물으면 지금 가게 현황과 그 화면으로 가는 버튼을 드려요'입니다 (예전 '리뷰 내용은 여기서 답하지 않아요'는 지움). 그래서 '리포트 보여줘'·'리뷰 보여줘'처럼 '보여줘'로 끝나는 말은 화면 위치 안내로 답합니다.
-- 화면(`app.js` `chatChoose`)은 `navigate`(그리고 `handoff`의 `domain` marketing·customer) 버튼을 `/api/assistant/actions`로 보내지 않고 `navTo`로 그 화면·탭·시작 모드로 바로 갑니다. 폭이 1279px 이하(서랍이 본문을 덮는 폭)면 서랍을 닫습니다.
+- 화면(`src/features/assistant/state.js`의 `chatChoose`, 버튼 고르기는 `chat.js`의 `chatNavTarget`)은 `navigate`(그리고 `handoff`의 `domain` marketing → `#/marketing`, customer → `#/cards`) 버튼을 `/api/assistant/actions`로 보내지 않고 `navTo`로 그 화면·탭·시작 모드로 바로 갑니다. 창 폭 숫자로 정하지 않고, `drawerCovers()`가 서랍(`#assistant`)과 본문(`#main`)의 실제 위치가 겹치는지 봐서 **덮고 있을 때만** 서랍을 닫고 포커스를 이동한 화면 제목(`#main h1`)으로 보냅니다. 서랍이 본문을 밀어 둔 넓은 화면이면 서랍은 그대로 둡니다 (2.9 (5)).
 
 ---
 
 ## 2부. 화면을 다듬을 때 유지해야 하는 것
 
-### 2.1 파일 세 개와 정적 파일 경로
+(11/20 `feat/react-cutover-ux` 기준으로 새로 씀) 화면은 React 18 + Vite 5 앱 `services/web/frontend/` 하나입니다. 예전 화면(`services/web/web/static/`의 `index.html`·`app.js`·`style.css`)과 그 id 목록·정적 시험 10개는 지웠고, git 이력(`d3113b0` 이전)에만 있습니다. 이 2부의 파일 경로는 따로 적지 않으면 `services/web/frontend/` 아래입니다.
 
-| 파일 | 서버가 주는 주소 | 하는 일 |
+### 2.1 폴더와 서빙
+
+**(1) 폴더**
+
+| 경로 | 하는 일 |
+|---|---|
+| `index.html` | 빌드의 뼈대. `<div id="root">`와 `/src/main.jsx`만 부릅니다. 첫 그리기 전에 화면 모양(`data-theme`)을 정하는 작은 스크립트(`src/lib/theme.js`와 같은 규칙)와 탭 아이콘(글자로 넣은 SVG)이 있습니다 |
+| `src/main.jsx` | 공통 CSS를 `tokens.css` → `base.css` → `layout.css` 순서로 먼저 읽고, `applyTheme()`, `<App />` 그리기, `boot()` (처음 불러오기) |
+| `src/App.jsx` | 화면 틀. 왼쪽 메뉴 · 상단 바 · 시험용 안내 띠 · 알림 띠 · 지금 화면 · 바닥 줄 · 서랍 · 대화상자 둘. 주소 → 화면 표(`SCREENS`), 메뉴 접기와 덮는 메뉴 (2.9) |
+| `src/lib/` | `api.js`(`api`·`serviceApi`), `router.js`(`ROUTES`·`useRoute`·`go`·`navTo`), `media.js`(폭 구간 `useBand`), `theme.js`(화면 모양), `focus.js`(`later`·`focusFirst`), `domain.js`(여러 화면이 쓰는 이름·계산: `GEN_NAMES`·`GEN_ORDER`·`SOURCE_NAMES`·`homeSnap`·`marketScope`·`heroProblem`·`healthProblems`·`modeBandText`·`honestyItems` 등) |
+| `src/state/` | `store.js`(화면 전체 상태), `boot.js`(`boot`·`refresh`·`storeChanged`·`loadInsight`), `account.js`(`acctLogout`·`acctSwitch`·`authDo`), `staff.js`(오늘 할 일 `todosOf`, AI 비서 네 명 `staffOf`, 승인 대기 수 `waitingCount`) |
+| `src/components/` | `ui.jsx`(공통 부품, 2.3), `Sidebar.jsx`(왼쪽 메뉴), `Topbar.jsx`(상단 바) |
+| `src/styles/` | `tokens.css`(색·글자·간격 변수와 다크 값), `base.css`(바탕 규칙·공통 부품 모양·공통 `@container` 단계), `layout.css`(화면 틀·폭 구간·서랍·인쇄 때 틀 숨기기) |
+| `src/features/<화면>/` | 화면마다 컴포넌트(`*.jsx`), 화면 밖에 남는 모듈 상태(`state.js`), 순수 계산(`calc.js`·`logic.js`·`format.js`·`chat.js`), 모양(`*.css`), 시험(`*.test.js(x)`) |
+
+| `src/features/` 폴더 | 화면 | 들어가는 컴포넌트 | 서버를 부르는 함수 |
+|---|---|---|---|
+| `flow` | 홈 · 추천 카드 · 승인할 글 · 처리 완료 | `Home.jsx` · `Cards.jsx` · `Draft.jsx` · `Done.jsx` (+ 단계 표시 `Steps.jsx`) | 공통 `api()` (`actions.js`, `Done.jsx`) |
+| `analysis` | 리뷰 분석 | `Analysis.jsx` (`Summary` · `Issues` · `PasteTab` · `Capture`) | 붙여넣기는 `api()`, 캡처는 `careApi` (`analysis/careApi.js`) |
+| `report` | 종합 리포트 | `Report.jsx` | `careApi` (`report/careApi.js`) |
+| `marketing` | 맞춤 마케팅 | `Marketing.jsx` (`Ask` · `ResultCard` · `MarketingReport`) | `mktApi` · `mktPost` (`marketing/api.js`) |
+| `market` | 상권 분석 | `Market.jsx` | `marketApi` (`market/state.js` 안) |
+| `assistant` | AI에게 묻기 서랍 | `Drawer.jsx` | `drawerApi` (`assistant/chat.js`) |
+| `account` | 로그인 창 · 내 계정 창 | `AuthDialog.jsx` · `AccountDialog.jsx` | `api()` (`state/account.js`), `acctPost` · `clearChat` (`account/acctApi.js`) |
+
+- `analysis/careApi.js`와 `report/careApi.js`는 같은 함수가 두 벌 있습니다 (분석 쪽에만 캡처용 `CAP_WAIT_MS`).
+
+**(2) 빌드**
+
+- `npm run build`(`vite build`)가 `dist/index.html`과 `dist/assets/index-<해시>.js`·`.css`를 만듭니다 (`vite.config.js`: `base: "/"`, `outDir: "dist"`, `assetsDir: "assets"`). `dist/`와 `node_modules/`는 git에 올리지 않습니다 (`.gitignore`).
+- 패키지 버전은 `package.json`에 정확히 고정했습니다 (React 18.3.1, Vite 5.4.11, Vitest 2.1.8). Node.js 20 이상이 필요합니다.
+- 개발 서버 `npm run dev`(5173번)는 `/api`를 비서 화면 서버(`VITE_API_TARGET`, 기본 `http://127.0.0.1:8000`)로 넘깁니다. 같은 주소처럼 보여서 쿠키(`visitor_id`·`ic26_session`)가 그대로 오갑니다.
+
+**(3) 서버가 주는 주소** (`services/web/web/main.py`)
+
+| 주소 | 무엇을 주나 | 비고 |
 |---|---|---|
-| `services/web/web/static/index.html` | `/` | 화면의 뼈대. 화면 8개(홈·추천 카드·초안·완료·리뷰 분석·맞춤 마케팅·종합 리포트·상권 분석)와 서랍, 로그인 대화상자, 바닥 |
-| `services/web/web/static/style.css` | `/static/style.css` | 모든 모양 |
-| `services/web/web/static/app.js` | `/static/app.js` | 모든 동작. API 호출, 화면 그리기, 화면 전환 |
+| `/` | 빌드 폴더의 `index.html` | 빌드 폴더는 `frontend_dist()`: 환경변수 `WEB_FRONTEND_DIST`(앞뒤 공백 무시)가 있으면 그 폴더, 없으면 `services/web/frontend/dist`. 요청마다 파일이 있는지 봐서, 서버를 띄운 뒤 빌드해도 새로고침하면 보입니다 |
+| `/` (빌드 없음) | `200` 안내 HTML(`NO_BUILD_HTML`, UTF-8, "`npm ci && npm run build`" 안내) | `500`이 아님. 서버를 띄울 때 경고 로그를 한 번 남김 |
+| `/assets/*` | 빌드 폴더의 `assets/` (`BuildFiles`) | 폴더가 없으면 `404`(500 아님). 이 응답에는 `visitor_id` 쿠키를 싣지 않고 로그인 세션도 보지 않음 |
+| `/api/*` | 1부의 API | |
+| `/static/*` | 없음 (`404`) | 예전 화면 주소 |
 
-- `index.html`은 `<link rel="stylesheet" href="/static/style.css">`와 (`<body>` 맨 끝) `<script src="/static/app.js"></script>`로 두 파일을 부릅니다. 주소가 **`/`로 시작하는 절대 경로**입니다.
-- `/static/` 아래에는 `static` 폴더 안의 어떤 파일이든 줍니다 (`/static/nope.js`는 `404`). 이미지·글꼴을 더하면 이 폴더 안에 두고 `/static/파일이름`으로 부릅니다.
-- `app.js`의 API 주소도 `/api/…` 절대 경로입니다. 화면과 API는 같은 주소에서 받는 것이 전제입니다.
-- 지금 `index.html`에는 `/static/` 밖의 주소(외부 CDN 등)가 없습니다. 글꼴은 시스템 글꼴입니다 (`style.css`의 `font-family`).
-- **배포 때 필요한 점**: 서버 배포 계획서(`docs/infra/architecture.md`)는 웹 서버(Nginx)가 프론트엔드 파일을 `/var/www/ic26`에서 `/`로 직접 주고, `/api/`만 앱 서버로 넘기는 구성입니다. 이때 `index.html`이 부르는 `/static/style.css`와 `/static/app.js`도 웹 서버가 줘야 합니다. 파일을 `static/` 폴더째 올리거나, HTML의 주소와 서버 설정을 함께 바꾸세요. 배포를 맡은 박건영과 맞추세요.
+- 화면 주소는 `#/today`처럼 `#` 뒤라서 서버는 `/` 하나만 주면 됩니다.
+- 화면과 API는 **같은 주소(origin)** 에서 받는 것이 전제입니다 (CORS 없음, 쿠키는 브라우저가 보냄).
+- `frontend/public/` 폴더는 없습니다. 만들면 Vite가 그 파일을 `dist/` 맨 위로 복사하지만, 이 서버는 `/`와 `/assets/*`만 주므로 `404`가 됩니다. 그림·글꼴은 `src/` 안에 두고 import 하세요 (빌드가 `/assets/…`로 옮김). 외부 CDN은 쓰지 않습니다.
 
-### 2.2 `id` 목록
+**(4) 실행·배포 스크립트**
 
-(11/16 `feat/imkt-b-screen`(맞춤 마케팅) 기준으로 다시 셈. 서랍·캡처·종합 리포트·맞춤 마케팅 id, 왼쪽 메뉴 접기의 `menu-toggle`·`menu-toggle-count` 포함) `app.js`가 찾는 id는 **144개**입니다. `$("…")`로 글자 그대로 적힌 127개(맞춤 마케팅 19개 포함), `"an-" + t`처럼 이어 붙여 찾는 11개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`, 맞춤 마케팅의 `"mkt-tab-" + t`로만 찾는 `mkt-tab-report`), 종합 리포트의 `RP_STATE` 표로 찾는 6개(`rp-daily-state`·`rp-score-state`·`rp-praise-state`·`rp-month-state`·`rp-market-state`·`rp-mkt-state`)를 합한 수입니다. 그중 `approvals`, `restart`, `rp-approvals`와 맞춤 마케팅 입력칸 `mkt-num`·`mkt-text`·`mkt-free`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 138개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 139개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
-
-**11/18 더한 id** (지우거나 이름을 바꾸면 안 됨): 계정 `acct`·`acct-guest`·`acct-login`·`acct-user`·`acct-store-wrap`·`acct-store`·`acct-logout`, 로그인 대화상자 `auth-dialog`·`auth-title`·`auth-close`·`auth-demo`·`auth-tab-login`·`auth-tab-signup`·`auth-login`·`auth-signup`·`auth-login-id`·`auth-login-pw`·`auth-su-id`·`auth-su-pw`·`auth-su-name`·`auth-error`, AI 직원 `dot-data`·`dot-market`·`staff-market`(`staff-go` 버튼 안), 상권 분석 `mk-`로 시작하는 id(`mk-state`·`mk-store`·`mk-cond-text`·`mk-area`·`mk-industry`·`mk-period`·`mk-apply`·`mk-home`·`mk-ask`·`mk-sync`·`mk-data`·`mk-sync-result`·`mk-events`·`mk-events-note`·`mk-tiles`·`mk-t-*`·`mk-tab-*`·`mk-sales`·`mk-stores`·`mk-pop`·`mk-compare`·`mk-cmp-*`). 서랍 첫 안내의 문장 두 개(역할·기본 정보)는 시험이 지킵니다.
-
-**11/19 더한 id (내 계정)**: `acct-user`는 이제 `<button>`(이름을 누르면 '내 계정' 대화상자: 기록 지우기·회원 탈퇴, 상단 바에 버튼을 더하지 않음). 결과 띠 `acct-notice`·`acct-notice-text`·`acct-notice-close`, 대화상자 `acct-dialog`·`acct-main`·`acct-title`·`acct-close`·`acct-info-name`·`acct-info-id`·`acct-info-stores`·`acct-reset-store`·`acct-reset-all`, 탈퇴 `acct-withdraw`, 확인 단계 `acct-confirm`·`acct-confirm-title`·`acct-confirm-lead`·`acct-confirm-gone`·`acct-confirm-kept`·`acct-pw-wrap`·`acct-pw`(탈퇴·일반 계정만, 보낸 뒤 비움)·`acct-irrev`·`acct-cancel`·`acct-go`, 오류 `acct-error`(`role="alert"`). 위의 151개 셈에는 들어 있지 않습니다.
-
-`index.html`에는 id가 151개 있습니다. 139개를 뺀 나머지 12개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`·`aria-controls`)이나 자리 표시로만 씁니다 (표의 마지막 묶음). 세는 법: `app.js`에서 정규식 ``\$\(\s*["']([\w-]+)["']\s*\)``로 찾은 id + 위의 이어 붙인 id + `RP_STATE` 표의 값, `index.html`에서 `id="([\w-]+)"`.
-
-**상단 바와 알림**
-
-| id | 한 줄 설명 |
+| 스크립트 | 화면 빌드를 어떻게 다루나 |
 |---|---|
-| `menu-toggle` | 상단 바 왼쪽의 메뉴 접기·펼치기 버튼 (761px 이상에서만 보임). JS가 `aria-expanded`·`aria-label`("왼쪽 메뉴 접기"/"왼쪽 메뉴 펼치기")·`title`을 바꿈. `aria-controls`가 `side-menu`를 가리킴 (2.9) |
-| `menu-toggle-count` | 토글 버튼 위의 승인 대기 수. 메뉴가 접혀 있을 때만 보이고, 값은 `nav-draft-count`와 같음. 0이면 `hidden` |
-| `store-name` | 상단 바의 가게 이름 줄. "가게 이름 · 업종 · 상권 이름 상권"으로 채움. 좁으면 자르지 않고 줄을 바꿈 |
-| `ask-ai` | 상단 'AI에게 묻기' 버튼. 서랍(`#assistant`)을 열고 닫음. JS가 `aria-expanded`를 바꿈 |
-| `mode-notice` | 시험용 실행 안내 띠. `/api/health`의 `mode_notice`가 있으면 보임. **시험이 이 id를 확인함** |
-| `alert` | 오류·경고 띠. API 오류 문장과 막힘 안내를 여기에 보여 줌 |
+| `services/web/run.sh` | `WEB_FRONTEND_DIST`가 비어 있으면, `dist/index.html`이 없거나 `src`·`index.html`·`package.json`·`package-lock.json`·`vite.config.js` 중 하나라도 빌드보다 새로우면 띄우기 전에 다시 빌드합니다. `node_modules`가 없거나 `package-lock.json`보다 오래되었으면 `npm ci`부터 합니다. `npm`이 없거나 빌드가 실패하면 서버를 띄우지 않고 멈춥니다 |
+| `deploy/make_bundle.sh` | 작업 폴더의 `dist`를 쓰지 않고, 묶을 커밋의 소스로 묶음 안에서 `npm ci && npm run build`를 합니다. 묶음에 `dist/index.html`·`dist/assets/`가 없거나 `node_modules/`가 들어가면 실패합니다. `deploy/BUNDLE_INFO`에 `frontend` 줄을 적습니다. `services/web/frontend`가 없는 예전 커밋은 경고만 하고 빌드하지 않습니다 |
+| `deploy/install_web.sh --mode static` | 기본 `STATIC_SRC`는 묶음의 `services/web/frontend/dist`입니다 (`--static-src`로 바꿈). `index.html`과 `assets/`가 없으면 멈추고, 폴더의 **내용**을 `/var/www/ic26/`에 그대로 복사합니다 |
+| `deploy/nginx/ic26-static.conf` | `/assets/`는 1년 캐시(`immutable`), 없는 파일은 `404`. `/`는 `index.html`(`no-cache`, 없는 주소도 `index.html`). `/api/`만 앱 서버로. `/docs`·`/redoc`·`/openapi.json`은 막음 |
+| `deploy/nginx/ic26-proxy-all.conf` | 모두 앱 서버로 넘김 (위 `main.py` 표대로 줌) |
 
-**왼쪽 메뉴**
+### 2.2 상태와 화면 전환
 
-| id | 한 줄 설명 |
+**(1) 화면 전체 상태: `src/state/store.js`**
+
+- 외부 상태 라이브러리 없이 `useSyncExternalStore` 하나로 둡니다. `setState(patch)`는 얕게 합칩니다. `Set`·객체는 바꿀 때 새로 만들어 넣습니다 (예: `approved: new Set([...s.approved, id])`).
+- `useStore(selector)`의 `selector`는 상태 안의 값을 그대로 돌려줘야 합니다. 매번 새 객체를 만들면 끝없이 다시 그립니다.
+
+| 묶음 | 칸 |
 |---|---|
-| `nav-draft-count` | 메뉴 '승인할 글' 옆의 숫자 (승인 대기 글 수). 0이면 숨김 |
-| `staff` | 'AI 직원' 목록(`ul`). JS가 이 안의 `li`·`.dot`·`b`를 읽어 `#staff-strip`을 그림 |
-| `staff-data` | 데이터 분석 비서의 상태 문구 ("리뷰 n건 정리 끝") |
-| `dot-care` | 고객 응대 비서의 상태 점. JS가 `className`을 `"dot ok"` 또는 `"dot warn"`으로 통째로 바꿈 |
-| `staff-care` | 고객 응대 비서의 상태 문구 ("만들 차례", "승인 대기 n개", "오늘 몫 끝") |
-| `dot-mkt` | 마케팅 에이전트의 상태 점 (`dot-care`와 같음) |
-| `staff-mkt` | 마케팅 에이전트의 상태 문구 |
+| 서버에서 받은 것 | `health`, `briefing`, `reviewsById`(브리핑의 리뷰 원문), `cards`, `noCardB`, `insight`, `insightError`, `me`(`GET /api/auth/me`, `null`이면 게스트) |
+| 오늘 할 일 진행 (브라우저 메모리에만) | `results`(카드 id → `POST …/run` 응답), `approved`(승인한 글 id `Set`), `approvedLog`(처리 완료 목록, 맞춤 마케팅 것은 `mkt: true`), `pending`(고치는 중인 글), `current`·`draftId`(초안 화면에 보이는 카드·글), `joined`(방금 붙여넣은 리뷰가 들어간 묶음) |
+| 화면 공통 | `booted`·`bootError`, `alert`(맨 위 알림 띠), `acctBusy`·`acctNotice`, `authOpen`·`acctOpen`(대화상자), `drawerOpen`(서랍), `staffMarket`(`/api/market/status`), `mktServer`(서버에 남은 맞춤 마케팅 승인 수), `nav`(`navTo` 요청), `mktResetSeq`·`mktCleared`('처음부터 다시'), `epoch` |
 
-**홈 `#/today`**
+- 진행 상태는 새로고침하면 사라집니다 (`localStorage`·쿠키에 두지 않음, 3.1).
 
-| id | 한 줄 설명 |
-|---|---|
-| `today-source` | 눈썹 줄의 "기간 · 리뷰는 합성 데이터" |
-| `dash-title` | 홈 제목(`h1`). "사장님, 오늘 처리할 일 n가지" 등 |
-| `hero-problem` | '오늘의 핵심 문제' 한 줄. **JS가 이 글자를 다시 읽어** '오늘 할 일'의 부제로 씀 |
-| `staff-strip` | 왼쪽 메뉴의 'AI 직원'이 안 보일 때(760px 이하, 761~1024px, 넓은 화면에서 메뉴를 접었을 때) 홈에 보이는 AI 직원 한 줄 상태(`ul`). `#staff`를 복사해서 그림 |
-| `stat-reviews` | '리뷰' 타일의 숫자 |
-| `stat-reviews-sub` | '리뷰' 타일의 보조 글 ("28일 동안") |
-| `stat-complaints` | '불만' 타일의 숫자 |
-| `stat-complaints-sub` | '불만' 타일의 보조 글 ("리뷰의 30%") |
-| `stat-repeated` | '반복 불만' 타일의 숫자 |
-| `stat-repeated-sub` | '반복 불만' 타일의 보조 글 (반복 묶음 이름) |
-| `stat-market` | '상권 저녁 매출' 타일의 숫자. **JS가 이 글자를 다시 읽어** '오늘 할 일'의 부제로 씀 |
-| `stat-market-sub` | '상권 저녁 매출' 타일의 보조 글 ("상권이름 · 범위 · 전년 같은 분기 대비", 예: "장승배기역 4번 · 공통 업종 17~24시 · 전년 같은 분기 대비"). 범위는 JS가 지표 이름(`metric_name`)에서 업종('공통 업종')·시간대('17~24시')를 읽어 붙임(11/18). 타일의 `title`에는 지표 이름 전체와 "한 업종(예: 한식음식점)의 하루 전체 매출이 아니에요" |
-| `chart-note` | 시간대 차트 옆 설명 ("빨간 막대 = … 몰린 17~21시") |
-| `hour-chart` | 시간대별 불만 막대 차트. JS가 막대를 그리고 `aria-label`을 채움 |
-| `keywords` | 주제별 불만 막대 (이름은 keywords지만 주제별 막대가 들어감) |
-| `todo` | '오늘 할 일' 목록(`ol`) |
-| `todo-count` | "n / m 끝" |
-| `start` | '무엇을 할까요?' 버튼. 처음엔 `disabled`, "불러오는 중…". 누르면 카드 화면으로 |
-| `ask-open` | 홈 아래쪽 'AI에게 묻기' 입력줄 모양 버튼 (서랍 열기) |
+**(2) 불러오기: `src/state/boot.js`**
 
-**추천 카드 `#/cards`**
+- `boot()`: `GET /api/auth/me` → (기다리지 않고) `GET /api/market/status` → `GET /api/health` → `refresh()`. 실패하면 알림 띠에 문장을 띄우고 `bootError`를 채웁니다.
+- `refresh()`: `GET /api/briefing` → `GET /api/cards` → `GET /api/insight` → (기다리지 않고) `GET /api/approvals`. 카드의 id·근거(`card_id`·`review_ids`·`snapshot_ids`)가 이전과 다르면 만든 글·승인 표시·고친 내용을 버립니다 (`emptyFlow`).
+- `storeChanged()`: 가게가 바뀌었을 때(로그인·로그아웃·가게 바꾸기·기록 지우기·탈퇴) 진행을 비우고 `epoch`를 1 올린 뒤 모두 다시 읽습니다.
 
-| id | 한 줄 설명 |
-|---|---|
-| `cards` | 카드 2장이 들어가는 칸. JS가 카드 HTML을 채움 |
-| `no-card-b` | 카드 ⓑ가 없을 때의 이유 문장. **JS가 이 글자를 다시 읽어** 카드를 다시 그릴 때 씀 |
+**(3) 화면마다의 모듈 상태와 `epoch`**
 
-**초안 `#/draft`와 완료 `#/done`**
+화면 컴포넌트는 메뉴로 들어올 때마다 새로 그려집니다. 그래서 다른 화면에 다녀와도 남아야 하는 것은 컴포넌트 밖 모듈에 둡니다. 각 모듈은 `epoch`가 바뀌면 자기 상태를 처음으로 되돌립니다.
 
-| id | 한 줄 설명 |
-|---|---|
-| `draft` | 초안 화면 전체. JS가 통째로 채움 (제목, 글 고르기, 편집 칸, 승인 버튼) |
-| `done` | 완료 화면 전체. JS가 통째로 채움 |
-| `restart` | (JS가 만듦) 완료 화면의 보조 버튼 '처음부터 다시' (화면 진행을 비우고 `DELETE /api/approvals`). 주 버튼 '홈으로'는 id 없이 `data-home` |
-| `approvals` | (JS가 만듦) 완료 화면 '서버 처리 기록' 목록 |
-
-**리뷰 분석 `#/analysis`**
-
-| id | 한 줄 설명 |
-|---|---|
-| `an-period` | 제목 위 눈썹 줄 ("기간 · 리뷰는 합성 데이터") |
-| `an-status` | 불러오는 중·오류 안내 (`role="status"`). 오류면 `st`·`bad` 클래스를 켬 |
-| `an-tab-summary` | '요약' 탭 버튼. **시험이 확인함** |
-| `an-tab-issues` | '불만 묶음' 탭 버튼. **시험이 확인함** |
-| `an-tab-paste` | '리뷰 붙여넣기' 탭 버튼. **시험이 확인함** |
-| `an-summary` | '요약' 탭 내용(`role="tabpanel"`). JS가 `hidden`으로 보이고 숨김. **시험이 확인함** |
-| `an-issues` | '불만 묶음' 탭 내용. **시험이 확인함** |
-| `an-paste` | '리뷰 붙여넣기' 탭 내용. **시험이 확인함** |
-| `an-reviews` | 요약 탭 '리뷰' 타일의 숫자 |
-| `an-reviews-sub` | '리뷰' 타일의 보조 글 ("28일 · 긍정 n · 중립 n") |
-| `an-complaints` | 요약 탭 '불만' 타일의 숫자 |
-| `an-complaints-sub` | '불만' 타일의 보조 글 |
-| `an-repeated` | 요약 탭 '반복 불만' 타일의 숫자 |
-| `an-repeated-sub` | '반복 불만' 타일의 보조 글 |
-| `an-kw` | 칭찬·불만 키워드 칩이 들어가는 칸 |
-| `an-funnel` | 불만 묶음 탭의 "리뷰 → 불만 → 묶음 + 묶이지 않은 불만" 흐름 한 줄 |
-| `an-groups` | 묶음 카드들이 들어가는 칸 |
-| `an-singles-title` | '묶이지 않은 불만 n건' 제목 |
-| `an-singles` | 묶이지 않은 불만 목록(`ul`) |
-| `paste-text` | 리뷰 붙여넣기 글 칸(`textarea`, `maxlength="1000"`). JS가 `.value`를 읽음 |
-| `paste-samples` | 예시 문장 버튼 네 개가 들어가는 칸. JS가 버튼을 만듦. 네 번째는 무리한 요청을 거절당한 별점 1점 리뷰(억울한 리뷰 시연용) |
-| `paste-rating` | 별점 고르기(`select`). 값은 `""`(모름), `"5"`~`"1"`. JS가 `.value`를 읽음 |
-| `paste-send` | '분류하기' 버튼 |
-| `paste-reset` | '붙여넣은 리뷰 지우기' 버튼 |
-| `paste-msg` | 붙여넣기 진행·오류 안내 (`role="status"`) |
-| `paste-result` | 분류 결과 패널이 들어가는 칸 |
-
-**리뷰 분석 > 리뷰 붙여넣기 탭 > 캡처로 넣기 (11/15)** (id는 모두 `cap`으로 시작. 시험 `test_care_ui_static.py`가 확인)
-
-| id | 한 줄 설명 |
-|---|---|
-| `cap` | 캡처 칸(`section`). 파일을 끌어 놓으면 받음(`drop` 클래스를 켬) |
-| `cap-file` | 파일 고르기(`input type="file"`, `accept="image/png,image/jpeg,image/webp"`, `hidden`). `#cap-choose`가 `click()`으로 엶 |
-| `cap-choose` | '이미지 고르기' 버튼 |
-| `cap-file-name` | 고른 파일 이름·크기 |
-| `cap-send` | '캡처 읽기' 주 버튼. 파일이 없거나 읽는 중이면 `disabled` |
-| `cap-status` | 진행·결과 안내 (`role="status"`). 읽는 중이면 `busy` 클래스 + 걸린 초 |
-| `cap-error` | 이 칸의 오류 (`role="alert"`). 서버 문장 그대로. 비어 있으면 자리를 차지하지 않음 |
-| `cap-result` | 후보 묶음 전체 (읽기 전에는 `hidden`) |
-| `cap-demo` | "예시 결과 — 이미지를 실제로 읽지 않았어요" (응답 `demo: true`일 때만 보임) |
-| `cap-warnings` | 응답 `warnings[]` 목록 (없으면 `hidden`) |
-| `cap-preview` | '올린 캡처 보기' 안의 이미지 (별점 비교용, 브라우저 안에서만) |
-| `cap-list` | 후보 목록(`ol`). JS가 후보마다 `li.cap-item`을 그림 |
-| `cap-save` | '선택한 리뷰 저장' 주 버튼. 고른 후보가 없으면 `disabled` |
-| `cap-picked` | "n건 고름" |
-| `cap-save-msg` | 저장 진행·결과 (`role="status"`) |
-
-**종합 리포트 `#/report` (11/15)** (id는 모두 `rp-`로 시작)
-
-| id | 한 줄 설명 |
-|---|---|
-| `rp-reload` | '다시 불러오기' (세 응대 칸을 다시 부름) |
-| `rp-pdf` · `rp-pdf-msg` | '전체 리포트 PDF 저장' 버튼 (누르면 `window.print()`, 불러오는 중이면 끝날 때까지 `disabled`) · 그 옆 안내(`role="status"`) |
-| `rp-print-store` · `rp-print-meta` · `rp-print-note` | 인쇄 전용 머리글(`#rp-print-head`) 안의 가게 이름 · "출력한 날 · 기간" 한 줄 · 시험용 실행 안내. 인쇄 직전에 JS가 채움. 화면에서는 숨김 |
-| `rp-daily-state` · `rp-daily` · `rp-daily-date` | 오늘 요약 칸의 상태 안내(`role="status"`, 오류면 `bad` 클래스) · 내용 · 날짜 |
-| `rp-score-state` · `rp-score` | 응대 점수 칸의 상태 안내 · 내용 (큰 숫자, 이유, 답글 기다리는 불만과 남은 시간, 지난 불만) |
-| `rp-praise-state` · `rp-praise` · `rp-praise-period` | 손님 칭찬 요약 칸(11/16)의 상태 안내 · 내용 (별점 4~5점·긍정 리뷰 수, 칭찬 주제 칩, 인기 메뉴 TOP 3, 대표 칭찬 한 줄) · 집계 기간. 월간 응답의 `praise`로 그림 |
-| `rp-month-state` · `rp-month` | 월간 보고서 칸의 상태 안내 · 내용 (숫자, SVG 그래프, 반복 불만 표, 제안) |
-| `rp-month-prev` · `rp-month-label` · `rp-month-next` | 이전 달 · 보고 있는 달 · 다음 달 (이번 달이면 다음 달 `disabled`, 1년 전까지) |
-| `rp-print` | '인쇄용 보기' 링크 (`/api/care/report/monthly/print?month=YYYY-MM`, 새 탭) |
-| `rp-market-state` · `rp-market` | 상권 요약 칸 (브리핑의 상권 지표로만) |
-| `rp-mkt-state` · `rp-mkt` | 마케팅 요약 칸 (추천 카드 ⓑ, 홍보글 승인 상태, 승인 기록 수) |
-| `rp-approvals` | (JS가 만듦) 마케팅 요약 칸의 "서버에 남은 승인 기록 n건" |
-
-**맞춤 마케팅 `#/marketing` (11/16)** (id는 모두 `mkt-`로 시작. 시험 `test_marketing_ui_static.py`가 확인)
-
-| id | 한 줄 설명 |
-|---|---|
-| `mkt-store` | 눈썹 줄의 "온기한식 (가상) 기준" (마케팅 서비스의 `meta`) |
-| `mkt-notice` | 이 화면 위 안내 띠(`.alert.warn` 모양, `role="note"`). 마케팅 서비스가 HCX를 부르지 않는 상태(`health`의 `demo`·`mode: "mock"`·`key_present: false`, 또는 `demo: true` 결과를 받음)면 "시험용 실행 · … (실제 AI 결과 아님)". '처음부터 다시' 때 마케팅 기록을 못 지웠으면 그 안내도 |
-| `mkt-state` · `mkt-state-title` · `mkt-state-msg` · `mkt-retry` | 마케팅 서비스를 쓸 수 없을 때만 보이는 상태 안내(`data-state`=`off`·`down`·`error`)와 '다시 확인'. 이때 탭·대화는 숨김 |
-| `mkt-tab-chat` · `mkt-tab-report` | 탭 두 개('맞춤 제안'·'마케팅 보고서', `role="tab"`, `data-mkt-tab`). ←/→/Home/End |
-| `mkt-chat` · `mkt-report-panel` | 두 탭의 내용(`role="tabpanel"`) |
-| `mkt-log` | 대화(`role="log"`, `aria-live="polite"`): 비서 말·사장님 답·예시 문구·결과 카드(`article.mkt-card`) |
-| `mkt-status` | 진행 안내(`role="status"`). 기다리는 동안 `busy` 클래스 + 걸린 초 |
-| `mkt-error` | 이 화면 안의 오류(`role="alert"`). 서버 문장 그대로. 그때 답 고르기 칸에 '다시 시도' |
-| `mkt-options` | 답 고르기 칸(`role="group"`): 시작 모드 카드 · 보기 칩 · 여러 개 고르기 + '다음' · 입력칸 |
-| `mkt-num` · `mkt-text` · `mkt-free` | (JS가 만듦) 숫자 입력칸 · 한 줄 입력칸 · 여러 줄 입력칸(가게 이야기) |
-| `mkt-restart` | '처음부터' (대화만 처음으로. 승인 기록·보고서 기록은 그대로) |
-| `mkt-report-state` · `mkt-report` | 보고서 탭의 상태 안내(`role="status"`, 오류면 `bad`) · 보고서 카드 |
-
-`app.js`가 만들어 넣는 id (찾지는 않음): 결과 카드 `mkt-card-(번호)`·`mkt-card-(번호)-title`, 글 칸 `mkt-text-(번호)-(글 열쇠)`, 슬라이더 `mkt-budget-(번호)`·`mkt-discount-(번호)`, 아이디어 답 칸 `mkt-idea-(번호)`, 보고서 제목 `mkt-report-title` (모두 `<label for>`·`aria-labelledby`가 가리킴).
-
-**서랍 (AI에게 묻기 자리)과 바닥**
-
-| id | 한 줄 설명 |
-|---|---|
-| `assistant` | 오른쪽 서랍(`aside`). `hidden` 속성으로 열고 닫음. `Esc` 키로도 닫힘 |
-| `assistant-close` | 서랍의 '닫기' 버튼 |
-| `assistant-clear` | 서랍 머리의 "대화 지우기" (4초 안에 두 번 눌러 확인). 대화가 있을 때만 보임 |
-| `assistant-cond` | 분석 조건 줄 (조건이 없으면 `hidden`) |
-| `assistant-cond-text` | 조건 줄의 글 ("장승배기역 4번 상권 · 한식음식점 · 2026년 2분기") |
-| `assistant-cond-note` | 조건 줄 아래 한 줄 (11/18). 홈의 '상권 저녁 매출'(예: -19.31%, 공통 업종 17~24시)과 서랍 답(고른 업종 하나의 하루 전체, 예: 한식음식점 전년 대비 +2.35%)의 범위가 다르다는 안내. 홈 지표가 없으면 `hidden` |
-| `assistant-home` | 조건 줄의 "우리 가게 조건으로" 버튼 (`POST /api/assistant/setup?force=1`). 서버가 준 `conditions.is_store_default`가 `true`이면 JS가 글자를 "우리 가게 기준 적용 중"으로 바꾸고 `disabled`·`.on`을 붙임 (1.10) |
-| `assistant-scroll` | 서랍 본문. 이 안에서만 스크롤됨 |
-| `assistant-state` | 상태 안내 카드 (`off`·`down`·`disabled`·`no_data`·`error`일 때만 보임. 이때 입력칸은 막힘) |
-| `assistant-state-title` · `assistant-state-msg` | 상태 카드의 제목 · 서버가 준 안내 문장(그대로 보임) |
-| `assistant-retry` | 상태 카드의 "다시 확인" 버튼 |
-| `assistant-welcome` | 대화가 비었을 때의 첫 안내 |
-| `assistant-log` | 대화 기록 (`role="log"`). 사용자 말풍선, 비서 답, 선택지, 근거 카드 |
-| `assistant-status` | 진행 안내 (`role="status"`: "자료를 확인하고 있어요" 등) |
-| `assistant-chips` | 추천 질문 칩. 처음에는 고정 4개, 그 뒤에는 서버가 준 `suggestions` |
-| `assistant-error` | 서랍 안 오류 (`role="alert"`). 서버 문장을 그대로 보임. 비서 화면의 `#alert`는 쓰지 않음 |
-| `assistant-form` · `assistant-q` · `assistant-send` | 질문 입력 `form` · 입력칸(`textarea`, `maxlength="1000"`, `<label for>`가 가리킴) · 보내기 버튼 |
-| `assistant-count` | 900자를 넘으면 "n / 1000자" |
-| `honesty` | 바닥 '동작·모의 표시'가 들어가는 칸 (`/api/health`의 `parts`) |
-
-**JS가 찾지 않는 id 10개** (접근성 연결. 이름을 바꾸면 연결된 `aria-labelledby`·`aria-controls`·`for`도 같이 바꿉니다)
-
-| id | 한 줄 설명 |
-|---|---|
-| `side-menu` | 왼쪽 메뉴(`nav.side`). 토글 버튼(`#menu-toggle`)의 `aria-controls`가 가리킴 |
-| `chart-title` | 차트 패널 제목. 패널의 `aria-labelledby`가 가리킴 |
-| `todo-title` | '오늘 할 일' 패널 제목. 패널의 `aria-labelledby`가 가리킴 |
-| `assistant-title` | 서랍 제목. 서랍의 `aria-labelledby`가 가리킴 |
-| `cap-title` | 캡처 칸 제목 (`#cap`의 `aria-labelledby`) |
-| `rp-daily-title` · `rp-score-title` · `rp-praise-title` · `rp-month-title` · `rp-market-title` · `rp-mkt-title` | 종합 리포트 여섯 칸의 제목 (칸마다 `aria-labelledby`) |
-| `rp-print-head` | 인쇄 전용 머리글 상자 (화면에서는 `display: none`, 인쇄 CSS가 보이게 함. `hidden` 속성을 달면 인쇄에서도 안 보임) |
-
-**`app.js`가 만들어 넣는 id (찾지는 않음)**: `card-(카드 id)`, `draft-(글 id)`, `text-(글 id)`, 캡처 후보의 `cap-text-(번호)`·`cap-rate-(번호)`(라벨 `for`가 가리킴). 편집 칸(`textarea`)의 `id`가 `text-(글 id)`이고 `<label for>`가 이를 가리킵니다. 이 규칙을 바꾸면 라벨과 편집 칸의 연결이 끊어집니다.
-
-### 2.3 id 말고도 app.js가 기대하는 것
-
-**(1) 선택자로 찾는 구조 (클래스·속성·태그)**. 이 구조가 없으면 해당 기능이 조용히 멈춥니다.
-
-| 선택자 | 쓰는 곳 | 기대하는 것 |
+| 모듈 | 담는 것 | 처음으로 돌리는 함수 |
 |---|---|---|
-| `.top` | 상단 바 높이를 재서 `--top-h` 변수에 넣음 | 상단 바 요소에 `top` 클래스 |
-| `.side .menu` | 준비 중 메뉴 링크를 끝에 더함 | 왼쪽 메뉴 `nav`에 `side`, 그 안 목록에 `menu` 클래스 |
-| `.shell > main` | 준비 중 화면을 끝에 더함 | `shell` 클래스 요소의 바로 아래 자식 `main` |
-| `.menu a` | 현재 화면의 메뉴 링크에 `aria-current="page"`를 켬 | 메뉴 링크마다 `data-route` |
-| `.side`, `.side a[href]`, `.side .menu a[aria-current="page"]` | 덮는 메뉴(761~1024px): 바깥·메뉴 항목 누름으로 닫기, Tab 이 도는 범위, 열 때 포커스 줄 곳 (2.9) | 왼쪽 메뉴 `nav`에 `side`, 메뉴 항목은 `href`가 있는 `a` |
-| `#staff li`, 그 안의 `.dot`, `b`, `b + span` | `#staff-strip`을 그림 | `li` 안에 `.dot`, 굵은 글 `<b>`, 그 바로 다음 `<span>`(상태 문구) 순서 |
-| `[data-view]` | 화면 전환 (`hidden`) | 화면마다 `<section data-view="이름">` |
-| `[data-view="이름"] h1` | 화면을 바꾸면 그 화면의 첫 `h1`에 포커스 | 화면 안에 `h1`(`tabindex="-1"`). 없으면 포커스만 건너뜀 |
-| `[role="tab"][data-tab]` | 탭 클릭·키보드 | 탭 버튼마다 `role="tab"`과 `data-tab` |
-| `[data-view="analysis"]` 안의 `[data-goto-tab]` | '불만 묶음 보기' 버튼으로 탭 이동 | 버튼의 `data-goto-tab` 값 |
-| `#cards [data-run]` | 카드 버튼 클릭 | JS가 만든 버튼의 `data-run` |
-| `.todo-st` | '오늘 할 일' 항목이 "만드는 중…"으로 바뀜 | 항목 버튼 안의 `todo-st` 클래스 |
-| `#cap-list [data-cap-pick]`, `.cap-item` 안의 `[data-cap-text]`·`[data-cap-rate]`·`[data-cap-msg]`·`.cap-saved` | 캡처 후보 고르기·저장 | JS가 그린 후보 `li.cap-item` |
-| `[data-view="report"]` 안의 `[data-rp-ask]` | 상권 요약의 'AI에게 묻기로 상권 더 보기' → 서랍 | JS가 그린 버튼 |
-| `#rp-score [data-clock]` | 남은 시간을 1초마다 다시 씀 | JS가 그린 `span.rp-clock` |
-| `[data-view="report"] details` | 인쇄 직전에 접힌 칸을 펼치고(`data-rp-opened`) 인쇄가 끝나면 다시 접음 | 리포트 화면 안의 `<details>` |
-| `.mkt-tabs`, `[data-mkt-tab]`, `[data-mkt-period]` | 맞춤 마케팅 탭·보고서 기간 (11/16) | 탭 줄에 `mkt-tabs` 클래스, 탭마다 `data-mkt-tab`, 기간 버튼마다 `data-mkt-period`. **`data-tab`을 쓰지 않음** (리뷰 분석 탭의 처리기와 섞이지 않게) |
-| `#mkt-options` 안의 `[data-mkt-opt]`·`[data-mkt-multi]`·`[data-mkt-next]`·`[data-mkt-send]`·`[data-mkt-skip]`·`[data-mkt-retry]`·`[data-mkt-goto-report]`·`[data-mkt-input]` | 답 고르기 (한 곳에서 이벤트를 받음) | JS가 그린 버튼·입력칸 |
-| `#mkt-log .mkt-card` 안의 `[data-mkt-*]` | 결과 카드의 승인·다시 쓰기·복사·쿠폰 글·슬라이더·아이디어·개선 소식 | JS가 그린 카드 (카드마다 따로 이벤트를 받음) |
+| `features/flow/state.js` | `busy`(만드는 중인 카드와 누른 곳), `regen`(다시 만드는 중인 글), `note`, `armed`('카드 전체 다시 만들기'를 한 번 누름), `picks`(사장님이 바꾼 점검 수칙) | `useFlow` 안의 `syncEpoch`, `resetFlow` |
+| `features/analysis/state.js` | 고른 탭, 붙여넣기 칸·결과, 캡처 진행 | `syncEpoch(epoch)` (탭은 남김) |
+| `features/report/state.js` | 고른 달, 칸마다 받은 값·상태 | `resetIfStoreChanged()` |
+| `features/marketing/state.js` | 대화·결과 카드·보고서 | `sync()` (`epoch`와 `mktResetSeq` 둘 다 봄) |
+| `features/market/state.js` | 분석 조건·받은 자료·탭·비교 결과 | `resetIfStoreChanged()` |
+| `features/assistant/state.js` | 서랍 대화·조건·setup 시도 여부 | `chatReset(epoch, open)` |
 
-**(2) `data-*` 속성**
+- `App.jsx`는 지금 화면을 `<Screen key={`${name}-${key}-${epoch}`} />`로 그립니다. 가게가 바뀌거나 같은 화면을 다시 열면 화면이 새로 마운트됩니다.
+- 기다리는 사이 가게가 바뀌면 늦게 온 응답을 버립니다 (`runCard`·`approve`·붙여넣기·캡처 등이 시작할 때의 `epoch`와 견줌). 새 비동기 동작을 더할 때도 이 방식을 따르세요.
 
-| 속성 | 어디에 있나 | 뜻 |
+**(4) 화면 전환: `src/lib/router.js`**
+
+- 주소 해시 `#/이름` 하나로 화면이 바뀝니다. `ROUTES`는 8개입니다 (2.5). `currentRoute()`는 모르는 이름·해시 없음을 `today`로 봅니다.
+- `useRoute()`는 `{name, key}`를 줍니다. `go(name)`은 같은 화면이면 해시를 그대로 두고 `key`만 올려 다시 그립니다.
+- `navTo(name, sub)`: 상태의 `nav`에 `{name, sub, seq}`를 넣고 `go(name)`. 각 화면은 `nav.seq`가 바뀔 때 한 번 자기 화면 요청인지 보고 그 탭·모드로 갑니다. 리뷰 분석 탭(`AN_TABS`: `summary`·`issues`·`paste`), 상권 분석 탭(`MKV_TABS`: `sales`·`stores`·`pop`·`compare`), 맞춤 마케팅 시작 모드(`MKT_SUB`: `promo`·`leftover`·`ad`·`story`·`repeat`). `ROUTES`에 없는 이름은 조용히 무시합니다.
+- 화면이 바뀌면 `App.jsx`가 맨 위로 스크롤하고 덮는 메뉴를 닫습니다. 그 화면의 `PageHead`가 마운트될 때 제목 `h1`(`tabIndex={-1}`)에 포커스를 줍니다. **화면마다 `PageHead`(= `h1` 하나)를 둡니다.** 서랍의 화면 이동도 `#main h1`으로 포커스를 보냅니다 (2.9).
+- **화면을 새로 더하려면** 네 곳을 같이 고칩니다: `lib/router.js`의 `ROUTES`, `App.jsx`의 `SCREENS`, `components/Sidebar.jsx`의 `GROUPS`, `services/web/tests/frontend_src.py`의 `ROUTES` (시험이 넷이 같은지 봄, 2.4). 그리고 이 문서 2.5.
+
+### 2.3 공통 부품과 디자인 토큰
+
+**(1) `src/components/ui.jsx`**
+
+| 부품 | 쓰는 법 |
+|---|---|
+| `Button` | `variant`: `ghost`(기본)·`primary`·`text`·`danger`, `size`: `small`·`big`. `ref`를 넘길 수 있음. 늘 `type="button"`(바꾸려면 `type`) |
+| `Badge` | `tone`: `ok`·`warn`·`bad`·`brand` |
+| `Panel` | 제목 `h2` + 오른쪽 `sub`·`actions` + 내용. `titleId`를 주면 `aria-labelledby`가 이어짐 |
+| `PageHead` | 맡은 비서(`owner`) · 제목 `h1` · 설명(`sub`) · 오른쪽 버튼. 마운트될 때 `h1`에 포커스 |
+| `Icon` · `Logo` | 24×24 선 그림 (아래 (2)) · 초록 네모 안의 말풍선 |
+| `StatTile` | 숫자 타일. `tint`: `green`·`mint`·`lime`·`sage`, `icon`은 `ICONS` 이름 |
+| `TopicBar` | 주제 막대. `kind`: `praise`(초록)·`complaint`(빨강), `hot` |
+| `FeatureCard` | 기능 카드 (맞춤 마케팅 시작 모드). `title`이 곧 아이콘 이름 |
+| `Notice` | 안내 띠. `tone`, `role`(기본 `status`). 내용이 비면 그리지 않음 |
+| `Empty` | 빈 안내: 아이콘 하나(기본 `빈 목록`) + 제목 + 한 줄 + 버튼 |
+| `Tabs` | 탭 줄. 탭 id는 `${idPrefix}-tab-${id}`, `aria-controls`는 `${idPrefix}-panel-${id}`. ←/→/Home/End로 옮김. 탭 내용은 부르는 쪽이 `role="tabpanel"`로 그림 |
+| `Dialog` | `<dialog>` + `showModal()` (포커스가 안에 머물고 Esc로 닫힘). `onClose`(닫아 달라는 요청) · `onCancel` · `onClosed`(실제로 닫힌 뒤 한 번). `showModal`이 없는 환경(jsdom)에서도 동작 |
+
+**(2) 아이콘 `ICONS`**: 키가 곧 부르는 쪽이 넘기는 이름입니다. 모르는 이름은 중립 아이콘(원 안의 작은 원, `data-icon="generic"`)으로 그립니다.
+
+| 묶음 | 키 | 누가 그 이름을 넘기나 |
 |---|---|---|
-| `data-route` | `index.html` 메뉴 링크 (준비 중 링크는 JS가 만듦) | 화면 이름 (2.5) |
-| `data-view` | `index.html`의 화면 `section` (준비 중 화면은 JS가 만듦) | 화면 이름 (2.5) |
-| `data-tab` | `index.html` 탭 버튼 | 탭 이름 (`summary`·`issues`·`paste`) |
-| `data-goto-tab` | `index.html`과 JS가 만든 버튼 | 눌렀을 때 이동할 탭 이름 |
-| `data-run` | JS가 만든 카드 버튼 | 카드 id |
-| `data-todo` | JS가 만든 '오늘 할 일' 버튼 | 할 일 종류 (`notice`·`reply`·`promo`) |
-| `data-measure` | JS가 만든 재발 방지 조치 체크박스 | 카드 id (`value`가 조치 id) |
-| `data-text` | JS가 만든 글 편집 칸 | 글 id |
-| `data-card` · `data-pick` | JS가 만든 카드 고르기·글 고르기 버튼 | 카드 id · 글 id |
-| `data-approve` · `data-copy` · `data-regen` | JS가 만든 초안 상자의 '승인'·'복사'·'다시 만들기'(그 글 한 건만, 11/16) 버튼. `data-regen`의 글 id는 요청의 `replaces`로도 감 (서버가 그 글의 옛 승인 기록을 지움) | 글 id |
-| `data-rerun` | JS가 만든 진행줄 옆 '카드 전체 다시 만들기' 버튼 (11/16에 초안 상자 밖으로 옮김). 그 카드의 지금 글 id들을 `replaces`로 보냄 | 카드 id |
-| `data-rerun-note` | '카드 전체 다시 만들기'의 안내 한 줄 (`role="status"`. 한 번 눌렀을 때 "한 번 더 누르면 …") | (값 없음) |
-| `data-home` | JS가 만든 완료 화면의 주 버튼 '홈으로' | (값 없음) |
-| `data-sample` | JS가 만든 예시 문장 버튼 | 예시 번호 |
-| `data-cap-pick` · `data-cap-text` · `data-cap-rate` · `data-cap-msg` | JS가 만든 캡처 후보의 체크 칸 · 글 칸 · 별점 · 오류 줄 | 후보 번호 |
-| `data-clock` | JS가 만든 남은 시간 표시 | `pending` 순번 |
-| `data-rp-ask` | JS가 만든 상권 요약의 서랍 열기 버튼 | (값 없음) |
-| `data-mkt-tab` · `data-mkt-period` | `index.html` 맞춤 마케팅 탭 · 보고서 기간 버튼 (11/16) | `chat`·`report` · `weekly`·`monthly` |
-| `data-mkt-opt` · `data-mkt-multi` | JS가 만든 보기 · 여러 개 고르기 칩 | 보기 번호 |
-| `data-mkt-draft` · `data-mkt-text` · `data-mkt-copy` | JS가 만든 결과 카드의 글 상자 · 글 칸 · 복사 | 글 열쇠 (서버의 `step_id`, `basic_todo_0`, `idea_…`, `coupon_regen`, `next_coupon`, `notice_followup`) |
-| `data-mkt-range` · `data-mkt-out` · `data-mkt-figs` · `data-mkt-fill` | JS가 만든 쿠폰 슬라이더 · 값 표시 · 계산 결과 숫자 칸 · 예산 막대 | `budget_won`·`discount_won` |
-| 그 밖의 `data-mkt-…` (`approve`·`rewrite`·`done`·`card-msg`·`badge`·`approved`·`edited`·`fail`·`calc`·`coupon-gen`·`coupon-out`·`next-coupon`·`next-out`·`idea`·`idea-q`·`idea-try`·`idea-next`·`idea-answer`·`idea-input`·`idea-send`·`idea-story`·`idea-msg`·`follow`·`notice`·`notice-out`·`count`·`input-err`·`budget-label`·`calc-warn`) | JS가 만든 결과 카드 안의 버튼·칸 | (값 없음, 또는 답 글자) |
+| 왼쪽 메뉴 8 | `홈` `추천 카드` `승인할 글` `처리 완료` `리뷰 분석` `상권 분석` `종합 리포트` `맞춤 마케팅` | `Sidebar.jsx`가 **메뉴 글자 그대로** 넘김 |
+| 숫자 타일 6 | `리뷰` `불만` `반복 불만` `상권 매출` `승인` `고침` | `Home.jsx`·`Done.jsx`의 `StatTile` |
+| 맞춤 마케팅 6 | `맞춤 홍보 제안` `남은 재료 팔기` `광고비 점검` `가게 이야기 글` `쿠폰 결과 확인` `마케팅 보고서` | `marketing/Ask.jsx`가 **서버가 준 보기 글자 그대로** 넘김 |
+| 공용 | `AI` `시간` `계정` `닫기` `빈 목록` | 상단 바·메뉴·`Empty` 등 |
 
-**(3) JS가 켜고 끄는 상태.** CSS가 이 상태를 보고 모양을 정하는 곳이 있습니다. 모양은 바꿔도 되지만 JS가 상태를 바꾸는 방식은 그대로 둡니다.
+- 메뉴 글자나 시작 모드 글자를 바꾸면 `ICONS`의 키도 같이 바꿉니다 (안 바꾸면 중립 아이콘이 나옴).
+- 그림 규칙: `viewBox="0 0 24 24"`, `fill="none"`, `stroke="currentColor"`, 굵기 1.8, 둥근 끝, `aria-hidden="true"`, `focusable="false"`. 경로는 `P("M…")` 도우미로 넣습니다. **`P("…")` 안의 글자는 `c9` 검사에서 빠지지 않습니다** (2.4).
 
-| 상태 | 누가 | CSS에서 쓰이는 선택자 |
-|---|---|---|
-| `hidden` 속성 | 화면 전환, 탭, 서랍, 띠, 배지 등 | `[hidden] { display: none !important; }` (**꼭 유지**) |
-| `aria-current="page"` | 현재 화면의 메뉴 링크 | `.side .menu a[aria-current="page"]` |
-| `aria-current="true"` | 고른 카드·글 버튼 | `.seg`, `.draft-list` 안의 버튼 |
-| `aria-selected="true"`와 `tabindex` | 고른 탭 | `.an-tabs [aria-selected="true"]` |
-| `aria-expanded="true"` | 서랍을 열고 있을 때 `#ask-ai`, `#ask-open` | `.ask[aria-expanded="true"]` |
-| `<html data-menu="open">` / `"closed"` | 왼쪽 메뉴를 펴고 접을 때 (`setMenu`). `#menu-toggle`의 `aria-expanded`도 같이 바꿈 | `:root[data-menu="closed"] …`, `:root[data-menu="open"] …` (모두 `@media screen and …` 안. 2.9) |
-| `class="dot ok"` / `"dot warn"` | `#dot-care`, `#dot-mkt` (`className`을 통째로 바꿈) | `.dot.ok`, `.dot.warn` |
-| `st`·`bad` 클래스 켜고 끄기 | `#an-status` | `.st`, `.bad` |
-| `<html data-theme="light">` | 주소에 `?theme=light`가 있을 때 | `:root:not([data-theme="light"])` 안의 다크 색 |
-| `<html class="rp-view">` | 종합 리포트 화면이 보이는 동안 (`rpMark`: `loadReport`·`rpStop`·인쇄 직전에 맞춤) | 인쇄 CSS의 모든 리포트 규칙 `html.rp-view …` (11/16) |
-| `aria-selected`와 `tabindex` · `aria-pressed` | 맞춤 마케팅 탭 · 보고서 기간과 여러 개 고르기 칩 (11/16) | `.seg button[aria-selected="true"]`, `.mkt-period button[aria-pressed="true"]`, `.mkt-chips .chip[aria-pressed="true"]` |
-| `busy` 클래스 · `approved` 클래스 · `data-state` | `#mkt-status` · 승인한 결과 카드(`.mkt-card`) · `#mkt-state` | `.mkt-status.busy`, `.mkt-card.approved`, `.mkt-state[data-state="off"]` |
-| `--top-h` (CSS 변수) | JS가 `<html>`에 상단 바 높이를 넣음 (창 크기·상단 바 높이·메뉴 접힘이 바뀔 때마다) | `scroll-padding-top`, 761~1024px 에서 덮는 메뉴(`.side`)와 그 뒤 배경의 `top` |
+**(3) 디자인 토큰 `src/styles/tokens.css`** (Figma '부여 AI'의 변수 '토큰', 11/19 가독성 개선판)
 
-**(4) JS가 DOM에서 다시 읽는 글자**: `#hero-problem`, `#stat-market`, `#no-card-b`의 글자와 `#staff li`의 구조입니다. 이 요소의 글자 모양을 바꿔도 되지만, 안에 다른 태그나 장식 글자를 섞으면 '오늘 할 일' 부제에 그대로 섞여 나옵니다.
+| 묶음 | 변수 |
+|---|---|
+| 바탕 | `--page`(회색 바탕), `--panel`(카드), `--surface`, `--chip`, `--hover`, `--active`, `--side` |
+| 글자·선 | `--ink`, `--ink-2`, `--muted`, `--line`, `--line-strong`, `--field-line` |
+| 초록 | `--accent`(주 버튼·현재 메뉴), `--accent-hover`, `--accent-ink`, `--accent-text`(초록 글자), `--brand`(점·막대에만), `--brand-soft`, `--focus`, 단계 `--green-50`~`--green-900`, 타일 색 4쌍 `--tint-{green,mint,lime,sage}`·`-bg` |
+| 상태 | `--ok`·`--ok-bg`, `--warn`·`--warn-bg`·`--warn-dot`, `--bad`·`--bad-bg`·`--bad-line`, `--hot`, `--bar`·`--bar-strong`, `--scrim` |
+| 모양 | `--shadow-card`·`--shadow-over`·`--shadow-tab`, `--r-sm`~`--r-full`, 간격 `--s-4`~`--s-40` |
+| 글자 | `--font`, `--fs-title` 28 · `--fs-panel` 20 · `--fs-body` 16 · `--fs-small` 14 · `--fs-num` 32 · `--fs-button` 15 (+ `--lh-*`) |
+| 틀 | `--side-w` 260px, `--top-h` 72px, `--drawer-w` 400px, `--col` 880 · `--col-wide` 1040 · `--col-narrow` 720px |
 
-**(5) 입력 요소의 종류**: `#paste-text`는 `textarea`(`.value`), `#paste-rating`은 `select`(`.value`), `#start`·`#paste-send`·`#paste-reset`은 `button`(`.disabled`)이어야 합니다.
+- 다크 값은 **두 곳에 같은 내용**으로 있습니다: `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { … } }`와 `:root[data-theme="dark"] { … }`. 토큰을 바꾸거나 더하면 두 곳을 같이 고칩니다. 대비 계산값(WCAG AA 4.5:1 이상)이 파일 주석에 있습니다.
+- 새 색을 화면 CSS에 직접 쓰지 말고 토큰을 씁니다 (규칙 6). 토큰만 쓰면 밝게·어둡게가 저절로 맞습니다.
 
-**(6) CSS에 꼭 있어야 하는 규칙**
+**(4) 화면 모양 (`src/lib/theme.js`)**
+
+- 고르는 값은 `system`(기본) · `light` · `dark`. `<html data-theme="light|dark">` 하나로만 알리고(시스템이면 속성을 지움) 색은 `tokens.css`가 정합니다.
+- 상단 바의 화면 모양 버튼이 누를 때마다 시스템 → 밝게 → 어둡게로 바꿉니다. 버튼 `aria-label`·`title`이 "화면 모양: 지금 (누르면 다음)"을 알립니다.
+- 고른 값은 `localStorage`의 `ic26.theme`에 둡니다 (시스템이면 지움). 주소 뒤 `?theme=light|dark`는 그 화면에서만 고정하고 저장하지 않습니다.
+- `index.html`의 작은 스크립트가 같은 규칙으로 첫 그리기 전에 `data-theme`을 정합니다 (깜박임 방지). **규칙을 바꾸면 `theme.js`와 `index.html` 두 곳을 같이 고칩니다.**
+
+**(5) `base.css`에 꼭 있어야 하는 규칙**
 
 | 규칙 | 이유 |
 |---|---|
-| `[hidden] { display: none !important; }` | `display`를 주는 다른 규칙이 `hidden`을 이기면 숨겨야 할 것이 보임 |
-| `.card .reason { white-space: pre-line; }` | 카드 ⓑ 이유 문장의 줄바꿈(`\n`)을 살림 |
-| `@media print` 덩어리 ('종합 리포트 인쇄', 리포트 스타일 바로 뒤)와 `.rp-print-head { display: none; }` | '전체 리포트 PDF 저장'의 종이 모양. 아래 "종합 리포트 인쇄" 참고 |
+| `[hidden] { display: none !important; }` | 탭 내용·서랍·버튼을 `hidden`으로 숨김. `display`를 주는 다른 규칙이 이기면 숨길 것이 보임 |
+| `.sr` | 화면에는 안 보이고 읽기 프로그램에만 읽히는 글 |
+| `:focus-visible { outline: 3px solid var(--focus) }`, `h1:focus { outline: none }` | 키보드 포커스는 보이게, 화면을 열 때 제목에 준 포커스는 테두리 없이 |
 
-**(7) JS가 HTML 문자열로 만드는 클래스.** 스타일은 자유롭게 바꿔도 되지만, **이름을 바꾸려면 `app.js` 안의 문자열도 같이 바꿔야** 합니다. 괄호 안은 JS가 상황에 따라 붙이는 상태 클래스입니다.
+- CSS 순서: `main.jsx`가 공통 CSS를 먼저 읽고, 화면 CSS(`features/*/*.css`)는 `App`을 읽을 때 그 뒤에 붙습니다. 같은 무게의 규칙이면 화면 CSS가 공통 규칙을 덮습니다 (`Market.css` 맨 위 주석의 "base.css 보다 먼저 읽혀서"는 지금 순서와 반대로 적혀 있음).
 
-| 어디 | 클래스 |
-|---|---|
-| 홈 차트 | `hc-col`(+`hot`), `hc-n`, `hc-h`, `tb-row`, `tb-name`, `tb-track`(안의 `<i>`에 `hot`), `tb-n`, `tb-rest` |
-| 홈 '오늘 할 일' | `todo-item`(+`urgent`, +`done`·`wait`·`none`), `todo-check`, `todo-text`, `todo-urgent`, `todo-st` |
-| AI 직원 한 줄 | `dot`(+`ok`·`warn`), `muted` |
-| 추천 카드 | `card`, `kind`, `agent`, `reason`, `measures`, `more`, `ev`, `primary` |
-| 초안 | `page-head`, `eyebrow`, `badge`(+`ok`·`warn`·`bad`), `seg`, `progress`, `track`, `draft-list`, `st`(+`ok`·`warn`·`bad`), `draft`(+`approved`), `draft-head`, `rv`, `rv-title`, `rv-list`, `rv-meta`, `rv-text`, `stars`, `reply`, `reply-label`, `ico`, `issues`(+`bad`), `row`, `ghost`, `model`, `draft-note` |
-| 완료 | `log`, `plain`, `big`, `panel`, `more`, `done-rules`, `row`, `done-actions`, `ghost`, `done-hint` |
-| 리뷰 분석 | `kw-row`, `kw-title`, `kw-chip`(+`pos`·`neg`), `box`, `n`, `arrow`, `group`(+`repeated`·`new`), `group-head`, `badge`(+`rep`·`ok`), `an-note`, `an-bands`, `topic-bars`, `quote`, `an-joined`, `panel`, `panel-head` |
-| 캡처로 넣기 | `cap-item`(+`dup`·`saved`), `cap-item-head`, `cap-check`, `cap-saved`, `cap-item-foot`, `cap-item-msg`, `cap-sec`, `badge`(+`warn`·`ok`), `sr` · 상태 클래스 `busy`(`#cap-status`), `drop`(`#cap`) |
-| 종합 리포트 | `rp-summary`, `rp-nums`, `rp-line`, `rp-delta`(+`neg`·`pos`), `rp-reasons`, `rp-todo`, `rp-todo-label`, `rp-score-top`, `rp-big`, `rp-big-n`, `rp-big-unit`, `rp-peak`, `rp-h3`, `rp-pending`, `rp-p`(+`over`), `rp-p-main`, `rp-p-text`, `rp-clock`(+`over`·`soon`·`paused`), `rp-untimed`, `rp-chart`, `rp-trend`, `rp-gl`, `rp-ax`, `rp-now`, `rp-line`, `rp-pt`, `rp-table-wrap`, `rp-table`, `num`, `rp-sugg`, `rp-store`, `rp-snaps`, `rp-snap-v`(+`neg`), `rp-snap-t`, `rp-ask`, `rp-mkt-title`, `rp-mkt-reason`, `rp-mkt-st`, `rp-mkt-none`, 손님 칭찬 요약의 `rp-praise-body`, `rp-praise-topics`, `kw-chip pos`, `rp-menus`, `rp-rank`, `rp-menu-n`, `rp-quote`, `rp-quote-none`, `rp-screen`(인쇄에서 빼는 화면용 문구) · 상태 클래스 `bad`(`#rp-*-state`) |
-| 맞춤 마케팅 (11/16) | `mkt-msg`(+`bot`·`user`), `mkt-bubble`, `mkt-sub`, `mkt-example`, `mkt-sec`, `mkt-modes`, `mkt-mode`(+`mkt-mode-report`), `mkt-chips`, `chip`, `mkt-multi-row`, `mkt-input`, `mkt-unit`, `mkt-free`, `mkt-free-bar`, `mkt-input-err`, `mkt-card`(+`approved`), `mkt-card-head`, `mkt-tiles`, `mkt-why`, `mkt-why-title`, `mkt-warn`, `mkt-demo`, `mkt-line`, `mkt-todo-head`, `mkt-steps`, `mkt-step`, `mkt-step-top`, `mkt-step-n`, `mkt-step-meta`, `mkt-tip`, `mkt-list`, `mkt-box`(+`dashed`), `mkt-box-title`, `mkt-measure`, `mkt-card-actions`, `mkt-card-msg`(+`bad`), `mkt-follow`, `mkt-draft`, `mkt-draft-head`, `issues bad`, `mkt-coupon`, `mkt-coupon-cap`, `mkt-coupon-title`, `mkt-kv`, `mkt-calc`, `mkt-slider`, `mkt-minmax`, `mkt-budget`, `mkt-table-wrap`, `mkt-table`, `num`, `mkt-bars`, `mkt-bar-row`, `mkt-bar-name`, `mkt-bar`, `mkt-bar-track`(안의 `<i>`에 `bad`·`warn`·`ok`·`profit`), `mkt-idea`, `mkt-idea-tag`, `mkt-idea-why`, `mkt-q`, `mkt-report-card`, 종합 리포트 마케팅 요약의 `rp-mkt-count`·`rp-mkt-more`(+`rp-screen`) |
-| 준비 중 자리 | `later`, `later-title`, `later-badge`, `view`, `narrow`, `page-head`, `eyebrow`, `badge` |
-| 어디서나 | `small`, `muted`, `sr`(화면에는 안 보이고 읽기 프로그램에만 읽힘), `long`(375px 메뉴에서 숨김) |
+**(6) 코드가 이름으로 찾는 것** (이름을 바꾸면 그 동작이 조용히 멈춤)
 
-**(8) 종합 리포트 인쇄 (11/16, '전체 리포트 PDF 저장')**
-
-`#rp-pdf`를 누르면 `window.print()`로 브라우저 인쇄 창이 열리고, 거기서 'PDF로 저장'을 고르면 PDF가 됩니다. 서버에 새로 묻지 않고 지금 화면에 그려진 여섯 칸(오늘 요약 · 응대 점수 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약)이 그대로 나옵니다. 예전 월간 인쇄 링크(`#rp-print`, 서버가 만드는 A4 한 장)는 그대로 있습니다.
-
-- **언제 먹나**: 인쇄 규칙은 `style.css`의 '종합 리포트 인쇄' 덩어리(`@media print`, 리포트 스타일 바로 뒤) 하나에 있고, `@page`만 빼면 **모든 선택자가 `html.rp-view`로 시작**합니다. `rp-view`는 리포트 화면이 보이는 동안만 JS(`rpMark`)가 달아 둡니다. 그래서 다른 화면(`#/today` 등)에서 인쇄하면 `@page`(A4 세로, 여백 사방 12mm. 11/16 전에는 13·12·14mm)만 먹고 나머지는 예전 그대로입니다.
-- **무엇을 숨기나**: "리포트 화면도 아니고, 리포트 화면을 품지도 않고, 그 안에 들어 있지도 않은 요소"를 모두 숨깁니다 (`:not([data-view="report"]):not([data-view="report"] *):not(:has([data-view="report"]))`). 왼쪽 메뉴·상단 바·알림 띠·서랍·바닥처럼 **이름을 몰라도** 숨겨지므로, 뼈대에 새 요소(메뉴 접기 버튼, 오버레이 배경 등)를 더해도 인쇄 CSS를 고칠 필요가 없습니다. `:has()`를 못 쓰는 브라우저는 `@supports not selector(:has(*))` 덩어리가 지금 뼈대(`body > .shell > main > 화면`)를 따라 숨깁니다. **이 뼈대를 바꾸면 그 대체 덩어리도 같이 고쳐야 합니다.** 리포트 안에서는 버튼, 화면용 제목 줄(`.page-head`), 월간 인쇄 링크, 다른 화면으로 가는 링크, `rp-screen` 문구를 숨깁니다. **11/16부터** 화면 안 이동 링크(`a[href^="#"]`)·`href` 없는 링크·`role="button"` 요소는 **이름(클래스)을 몰라도** 숨깁니다. 리포트에 '…에서 자세히 보기' 같은 링크를 더할 때 인쇄 CSS를 고칠 필요가 없고, 링크를 감싼 줄까지 종이에서 빼려면 그 줄에 `class="rp-screen"`을 답니다. 밖으로 가는 링크(상권 '원본')는 주소를 글자로 남깁니다.
-- **종이 모양**: 색 토큰을 라이트 값으로 다시 정해 다크여도 흰 바탕에 검은 글자입니다 (`html:root.rp-view`. 다크에서 바뀌는 토큰을 모두 다시 적음 → 토큰을 늘리면 여기도). 여섯 칸은 한 줄기로 쌓이고 칸은 쪽 사이에서 잘리지 않습니다 (`break-inside: avoid`). 칩·표 머리·그래프 색은 '배경 그래픽'을 꺼도 찍힙니다 (`print-color-adjust: exact`). 상권 요약의 '원본' 링크는 주소를 글자로 덧붙입니다.
-- **머리글** (`#rp-print-head`): 가게 이름 · "종합 리포트" · 출력한 날 · 기간(오늘 요약 날짜, 손님 칭찬 요약·월간 보고서의 달, 응대 점수 최근 28일). 시험용 실행이면 화면 맨 위 띠의 안내(`health.mode_notice`, "실제 AI 결과 아님")도 적습니다 (인쇄에서는 그 띠가 빠지므로). 인쇄 직전에 JS(`rpPrintPrep`)가 채우고, 접힌 `<details>`를 펼쳤다가 인쇄 뒤에 다시 접습니다 (`rpPrintDone`). 점수 추이 그래프도 인쇄 직전에 종이 폭(`RP_PRINT_W` 680)·낮은 높이(`RP_PRINT_H` 112, 화면은 170)로 다시 그렸다가 되돌립니다 (11/16 전에는 폭 860·높이 170). 그래서 휴대전화처럼 좁은 창에서 인쇄해도 같은 모양·같은 쪽 수로 나옵니다. 브라우저 메뉴(Ctrl+P)로 인쇄해도 `beforeprint`·`afterprint`에서 같은 일을 합니다.
-- **불러오는 중**: 아직 불러오는 칸이 있으면 버튼을 잠그고 최대 20초 기다렸다가 인쇄 창을 엽니다. 기다리는 동안 다른 화면으로 가면 인쇄하지 않습니다.
-- **두 쪽 안에 (11/16)**: 실시간(`APP_MODE=live`)에서는 카드 ⓑ 이유 문장과 월간 표가 길어 A4 3쪽이 되고 3쪽에 마케팅 요약만 남았습니다. 글자 크기는 그대로 두고(뿌리 14px → 본문 13.125px ≈ 9.8pt, 작은 글자 12.25px ≈ 9.2pt, 칩·표 머리 11.4px) 줄 간격(1.6 → 1.45), 칸 안 여백(14·16 → 10·14px), 칸 사이(10 → 8px), 숫자 칸 여백, 점수 큰 숫자(3.25 → 2.5rem), 그래프 높이(약 132 → 111px), 표 줄(8 → 4px), 소제목·안내 줄 간격, 머리글을 줄였습니다. 종이 폭에서 잰 칸 높이(px, 전 → 후): 오늘 요약 375 → 298, 응대 점수 233 → 186, 손님 칭찬 요약 266 → 221, 월간 보고서 573 → 453, 상권 요약 193 → 170, 마케팅 요약 258 → 229.
-- 확인한 것: Chrome(headless)의 PDF, 창 폭 1440px·390px, 라이트·다크. **실시간 서버**에서 A4 2쪽(1쪽: 오늘 요약·응대 점수·손님 칭찬 요약, 2쪽: 월간 보고서·상권 요약·마케팅 요약), 붙여넣은 불만 → 답글 → 같은 불만으로 월간 보고서에 '이 달에 점수가 바뀐 이유'가 생기고 응대 점수에 답글 기다리는 불만이 1건 생긴 경우도 2쪽 (2쪽 아래에 약 15% 남음). 여섯 칸 모두 한 쪽 안에 온전히 들어감. 내용이 더 늘면 칸 단위로 다음 쪽에 넘어갑니다. Safari·Firefox의 인쇄는 확인하지 못했습니다.
-
-### 2.4 시험이 직접 확인하는 것
-
-**11/18 5차 회의 뒤 더한 것** (먼저 읽어 두세요)
-
-- `test_post_m5_ui_static.py`: 상권 분석 화면(메뉴 자리·조건 바·서울시 최신화·지표 4칸·탭 4개, `marketApi`로 `/api/market/*`만, 전역 `api()`·`showAlert`·다른 화면의 호출 함수와 `is_store_default` 없음, 서버 글 `esc()`·새 탭 링크 `rel="noopener"`, 탭 키보드, 409 다시 불러오기, 표는 칸 안에서 가로 스크롤, 새 색 토큰 없음), 계정(상단 바의 `acct-*`, `<dialog>`의 '시연 다점포 사장님으로 1초 시작', `/api/auth/*` 경로, `storeChanged`가 모든 화면을 다시 불러옴, `document.cookie`·`localStorage`를 쓰지 않음), AI 직원 네 명(버튼, `dot-*`·`staff-*`, 상태가 읽는 것), 화면 이동(`MKT_SUB` = 서버의 `MKT_SUBS`, `navTo`), 서랍 입력칸 안내 "상권·리뷰·마케팅 무엇이든 물어보세요". `node`가 있으면 `chatNavTarget`·`marketScope`·`wonShort`를 실제로 돌림.
-- `test_account_ui_static.py` (11/19 내 계정: 기록 지우기·회원 탈퇴): 이름 버튼이 들어가는 곳(상단 바 버튼 수는 그대로), 대화상자와 동작, 확인 단계(기본 포커스 [취소]·Esc 는 취소·요청 중 잠금), 요청 순서(`DELETE /api/assistant/conversation` → `POST /api/auth/reset`·`/api/auth/withdraw`), 탈퇴 비밀번호 칸(시연 계정은 없음, 보낸 뒤 비움), 끝난 뒤 `storeChanged()`로 다시 읽기, 위험 버튼은 `var(--bad)`만, 금지 문자열. 이 묶음은 `// ── 내 계정:` 덩어리에 있고 `AUTH` 덩어리(`/api/auth/*` 경로를 세는 시험) 바로 앞입니다.
-- `test_assistant_drawer_static.py`: 첫 추천 질문이 6개(상권 3 · 불만 리뷰 · 쿠폰 손익 · 남은 재료), `navigate` 버튼은 서버로 보내지 않음. `test_assistant_ux.py`: 추천 질문 6개 중 상권 3개는 상권 서비스로, 3개는 전 파트 답으로.
-- `test_web.py` `test_later_menu_slots`: `LATER`가 빈 목록이고, 상권이 `ROUTES`의 진짜 화면.
-- 서버 쪽: `test_auth_stores.py`(로그인·쿠키·잠금·가게별 기록·아래 서비스로 가는 가게/방문자, PostgreSQL 두 서버), `test_market_proxy.py`(1.14), `test_assistant_domains.py`(1.15).
-
-**`app.js`에 이 낱말을 새로 쓰지 마세요** (다른 화면의 시험이 파일 전체에서 셉니다): `is_store_default`(서랍 한 곳), `?store=`, 주석 밖의 `/api/marketing-survey`(한 곳), `원본`(지표 칩 한 곳). 상권 분석 화면은 기본 조건 여부를 `conditions.home`으로 받습니다.
-
-기존 시험 69건은 `services/web/tests/`의 `test_web.py` 45건과 `test_measure_live.py` 24건입니다 (main `d7c1305`에서 모두 통과함을 확인함). 그중 **화면 파일(`index.html`, `app.js`)을 글자로 읽어 확인하는 시험은 아래 6개**입니다. 나머지는 화면 파일을 읽지 않습니다. 이 6개를 바꾸면 시험이 깨집니다.
-
-| # | 시험 | 확인하는 것 |
+| 이름 | 어디서 찾나 | 무엇에 |
 |---|---|---|
-| 1 | `test_web.py` · `LiveAndMockOnly.test_screen_shows_the_notice_only_through_health` | `index.html`에 `id="mode-notice"`가 있음. `app.js`에 `mode_notice`와 `실제 AI 결과 아님`이 있음. **`index.html`과 `app.js` 어디에도 `replay`(대소문자 무시), `c9`, `id="record"`가 없음** |
-| 2 | `test_web.py` · `AnalysisScreen.test_no_link_or_call_to_the_old_review_page` | `index.html`과 `app.js`에 **없어야 하는 글자**: `analysis-link`, `리뷰 분석 화면에서`, `/api/review-insight`, `review_service.url}/`. `app.js`에 없어야 하는 글자: `rs.url`. `app.js`의 `api(` 호출 중 첫 글자가 따옴표나 백틱인 것은 모두 주소가 `/api/`로 시작해야 하고, 그중 `/api/insight`가 있어야 함 (정규식 ``api\(\s*[`"']([^`"']+)``) |
-| 3 | `test_web.py` · `AnalysisScreen.test_analysis_has_three_keyboard_tabs` | `index.html`에 `role="tablist"`와 `id="an-tab-summary"`, `id="an-tab-issues"`, `id="an-tab-paste"`, `id="an-summary"`, `id="an-issues"`, `id="an-paste"`가 (따옴표는 큰따옴표) 있음. `app.js`에 `ArrowRight`, `ArrowLeft`, `Home`, `End`가 있음 |
-| 4 | `test_web.py` · `AnalysisScreen.test_later_menu_slots` | `app.js`에 `회의에서 정한 뒤 넣을 자리입니다`, `준비 중`이 있고, `LATER` 목록에 `"상권"`이 있으며 `route: "report"`는 없음 (11/15 종합 리포트가 진짜 화면이 됨) |
-| 5 | `test_web.py` · `AnalysisScreen.test_every_id_the_script_uses_exists` | `app.js`의 `$("…")`로 적힌 id 전부, 그리고 `an-`·`an-tab-`(summary·issues·paste), `dot-`·`staff-`(care·mkt)로 이어 붙인 id가 `index.html` 또는 `app.js`에 `id="…"`(큰따옴표)로 있음. 정규식은 ``\$\(\s*["']([\w-]+)["']\s*\)``와 `id="([\w-]+)"` |
-| 6 | `test_measure_live.py` · `StatusRule.test_rules_are_still_the_ones_in_app_js` | `app.js`(공백·줄바꿈은 한 칸으로 합쳐서 비교)에 아래 일곱 줄이 **글자 그대로** 있음 |
+| `#root` | `main.jsx` | 앱을 그리는 자리 (`index.html`) |
+| `#side-menu`(`nav.side`) · `.menu-item` · `.menu-toggle` | `App.jsx` | 덮는 메뉴의 첫 포커스·Tab 가두기 범위, 바깥 누름 판단 (2.9) |
+| `#menu-toggle` | `App.jsx`(ref) | 덮는 메뉴가 닫히면 포커스를 돌려받음 |
+| `#main`(`<main class="content">`)과 그 안의 `h1` · `.app.menu-closed` | `assistant/state.js`의 `drawerCovers`·`focusTitle` | 서랍이 본문을 덮는지, 화면 이동 뒤 제목 포커스 |
+| `#assistant` · `#assistant-q` · `#assistant-retry` · `#assistant-home` · `#assistant-scroll` · `#assistant-log` 안의 `[data-msg]`·`.chat-msg.user` · `#assistant-close` | `assistant/state.js`·`Drawer.jsx` | 서랍 포커스·스크롤 |
+| `[aria-controls="assistant"]` (`.top` 안 먼저) · `dialog[open]` | `Drawer.jsx` | 서랍을 닫을 때 돌려줄 버튼(연 버튼이 사라졌으면), 대화상자가 떠 있으면 Esc는 그 창이 먼저 |
+| `#acct-login` · `#acct-user` · `#acct-store` · `#auth-demo` | `state/account.js`·`account/focus.js`·`AuthDialog.jsx` | 로그인·로그아웃·가게 바꾸기·기록 지우기 뒤 포커스 |
+| `#paste-text` | `analysis/PasteTab.jsx` | 예시 문장·빈 글일 때 포커스 |
+| `#an-tab-<탭>` · `#mk-tab-<탭>` · `#mkt-tab-chat` · `#mkt-tab-report` | `Tabs`·`analysis/state.js`·`Market.jsx`·`marketing/*` | 탭 키보드 이동, `navTo`로 연 탭에 포커스 |
+| `#mkt-options` · `#mkt-retry` · `#mkt-card-<n>`(`-title`) · `#mkt-idea-<n>`(`-title`·`-q`) · `#mkt-text-<n>-<열쇠>` | `marketing/state.js`·`ResultCard.jsx` | 맞춤 마케팅의 포커스·스크롤 |
+| `#rp-*-sec`(구역) · 리포트 안의 `details` · `details[data-rp-opened]` | `Report.jsx` | 구역 바로가기, 인쇄 직전에 펼쳤다가 인쇄 뒤 다시 접기 |
+| `aria-controls`의 대상 `side-menu` · `assistant` · `acct-dialog` · `auth-dialog` | `Topbar.jsx` | 연결이 실제 id를 가리켜야 함 (`account.test.jsx`가 `acct-user`의 것을 확인) |
 
-시험 6의 일곱 줄:
+**(7) 코드가 켜고 끄는 상태** (CSS가 이 상태를 보고 모양을 정함. 모양은 바꿔도 되지만 상태를 바꾸는 방식은 그대로)
 
-```text
-const failedOf = (d) => d.failed_reasons || [];
-const checksOf = (d) => [...(d.needs_input || []), ...(d.c7_flags || [])];
-? ["bad", "점검 실패"] : checksOf(d).length ? ["warn", "확인 필요"] : ["ok", "점검 통과"]
-failedOf(d).length ?
-reply_draft: "답글", prevention_notice: "포장·주문 안내문"
-JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) })
-const on = new Set(m.default || []);
-```
+| 상태 | 누가 | 어디에 쓰나 |
+|---|---|---|
+| `.app`의 `menu-closed` · `menu-over` · `drawer-open` | `App.jsx` | 메뉴 접힘·덮는 메뉴·서랍 밀기 (2.9) |
+| `aria-current="page"` · `aria-current="step"` · `aria-current="true"` | 메뉴 항목 · 단계 표시 · 고른 카드·글 | 현재 표시 |
+| `aria-selected` · `aria-pressed` · `aria-expanded` | 탭 · 기능 카드 · 메뉴 토글·서랍 버튼 | 고른 것·열린 것 |
+| `<html data-theme>` | `lib/theme.js`·`index.html` | 다크 토큰 |
+| `<html class="rp-view">` | `Report.jsx` (리포트 화면에 있는 동안) | `report.css`의 인쇄 규칙 (아래 (8)) |
+| `hidden` 속성 | 탭 내용·서랍·버튼 | `[hidden]` 규칙 |
 
-**11/15에 더한 정적 시험** (화면 파일을 글자로 읽음)
+- 서버가 준 글은 JSX로만 넣습니다 (`dangerouslySetInnerHTML` 없음, 규칙 5). 새 탭으로 여는 링크에는 `rel="noopener"`를 붙입니다.
 
-- `test_assistant_drawer_static.py`: 서랍 id(`assistant-`), `/api/assistant/*`만, `drawerApi`만, 90초 끊기, 한글 입력 중 Enter 막기, 첫 추천 질문 4개.
-- `test_assistant_ux_static.py` (11/16): 서랍 부제·첫 안내의 역할 문구("동네 상권·업종 매출 상담"), `#assistant-home`의 두 글자와 `is_store_default`만 믿는지(화면에서 조건을 비교하지 않음), 분기 표시 정규식이 서버와 글자 그대로 같은지와 서버 글자를 넣는 자리마다 `chatQuarter`를 쓰는지. `node`가 있으면 화면 함수를 실제로 돌려 서버 함수와 결과를 맞춰 봄(없으면 그 한 건만 건너뜀).
-- `test_assistant_ux.py` (11/16, 화면 파일은 메뉴 이름·추천 질문만 읽음): 1.10절의 분기 표기(바뀌는 글자·바뀌지 않는 금액과 코드 표), `is_store_default`, 가게 기본 질문(가게 질문·상권 질문 표, 응답 칸이 상권 서비스의 답과 같은지, 상권 서비스를 부르지 않는지, 가게 정보를 못 읽을 때).
-- `test_care_ui_static.py` (17건): 캡처 칸 id는 `cap`, 리포트 id는 `rp-`로 시작하고 JS가 찾는 것은 모두 HTML에 있음. 두 화면은 `careApi`로만 `/api/care/*`·`/api/reviews`·`/api/approvals`를 부르고 전역 `api()`·`showAlert`·`#alert`를 쓰지 않음. `accept`의 세 형식, 10MB, 이미 있는 리뷰는 처음에 고르지 않음, `source: "capture"`, 예시 결과·`warnings`·별점 확인 문구, 메뉴 자리(리뷰 분석 다음)와 `ROUTES`의 `"report"`, 인쇄 링크(`target="_blank"`, `rel="noopener"`), 남은 시간(`due_at`)·멈춤·지난 불만, 월간 표의 칸 7개와 SVG 그래프, **종합 리포트 덩어리가 `/api/cards`·`/api/briefing`·`/run`·`/api/assistant`·`refresh(`를 부르지 않음**(열어도 AI를 새로 부르지 않음), 외부 스크립트 없음.
-- `test_care_proxy.py` (29건, 화면 파일은 읽지 않음): 1.11절의 허용 목록·덮어쓰기·손님용 경로·상태·413·500 없음·막히지 않음, 1.6의 답글 승인 기록, 1.8의 `source`.
-- `test_report_praise_print_static.py` (18건, 11/16): 손님 칭찬 요약 칸의 자리(응대 점수 다음·월간 보고서 앞)와 id(`rp-`), 월간 응답의 `praise`로만 그리고 `careApi` 호출이 네 개 그대로인지, 서버 글에 `esc()`, `#rp-pdf`와 `window.print()` 한 곳, `#rp-print` 유지, 인쇄 CSS(`@page` A4 · 모든 규칙이 `html.rp-view` 아래 · 리포트만 보이게 하는 규칙과 `:has` 대체 · 다크에서 바뀌는 색 토큰을 모두 다시 정함 · `break-inside: avoid` · `print-color-adjust: exact` · 두 쪽 규칙(뿌리 글자 14px 그대로, 줄 간격 1.45, 칸 여백, 인쇄 그래프 높이 `RP_PRINT_H`) · 리포트 안 이동 링크·버튼을 이름 없이 숨김), 프록시가 `praise`를 그대로 넘김.
+**(8) 종합 리포트 인쇄 ('전체 리포트 PDF 저장')**
 
-**11/16에 더한 시험**
+- `#rp-pdf`를 누르면 `window.print()`로 브라우저 인쇄 창이 열립니다. 서버에 새로 묻지 않고 지금 그려진 칸이 그대로 나옵니다. 아직 불러오는 칸이 있으면 버튼을 잠그고 최대 20초(`RP_PDF_WAIT_MS`) 기다립니다. 그사이 다른 화면으로 가면 인쇄하지 않습니다.
+- 인쇄 규칙은 `report/report.css`의 `@media print` 한 덩어리이고, `@page`(A4 세로, 여백 12mm)만 빼면 모든 선택자가 `html.rp-view`로 시작합니다. 그래서 다른 화면에서 인쇄하면 리포트 규칙이 먹지 않습니다. 틀(왼쪽 메뉴·상단 바·서랍·바닥 줄·안내 띠)은 `layout.css`의 `@media print`가 늘 숨깁니다.
+- 리포트 안에서 숨기는 것: 제목 줄(`.page-head`), 바로가기 줄(`.rp-bar`), 모든 버튼, `.rp-print`(인쇄용 보기 링크), `.rp-screen`, 화면 안 이동 링크(`a[href^="#"]`), `href` 없는 링크, `role="button"`. 그래서 링크·버튼을 더해도 인쇄 CSS를 고칠 필요가 없고, 감싼 줄까지 종이에서 빼려면 `class="rp-screen"`을 답니다. 상권 '원본' 링크는 주소를 글자로 덧붙입니다.
+- 인쇄 직전(`beforeprint`, 또는 버튼): 머리글 `#rp-print-head`(가게 이름 · 출력한 날 · 기간 · 'AI 문장 아님' 한 줄 · 시험용이면 `health.mode_notice`)를 채우고, 접힌 `details`를 펼치고, 점수 추이 그래프를 종이 폭(`RP_PRINT_W` 680)·낮은 높이(`RP_PRINT_H` 112)로 다시 그립니다. 인쇄 뒤(`afterprint`) 되돌립니다.
+- 칸은 쪽 사이에서 잘리지 않고(`break-inside: avoid`), 두 칸 묶음(`.rp-pair`)은 한 줄기로 쌓이며, 색은 `print-color-adjust: exact`로 찍힙니다.
+- 인쇄 바탕은 `html.rp-view`·`body`를 흰색·검은 글자로 정하고, 다크 색 토큰은 `tokens.css`에서 `@media screen` 안에만 있어 인쇄에는 늘 밝은 토큰이 쓰입니다 (11/20 고침).
 
-- `test_draft_done_static.py` (화면 파일을 글자로 읽음): 초안 상자의 '다시 만들기'(`data-regen`)가 `generator`·`review_id`를 보내고 그 글의 승인·고친 내용만 지움, 진행줄 옆 '카드 전체 다시 만들기'(`data-rerun`, `RERUN_LABEL`)는 승인했거나 고친 글이 있으면 두 번 눌러야 실행(`confirm(` 없음), 두 다시 만들기가 옛 글 id를 `replaces`로 보냄(`REPLACES_MAX`가 서버와 같은 20), 완료 화면의 주 버튼 `<button type="button" class="primary big" data-home>홈으로</button>`과 보조 버튼 `id="restart"`('처음부터 다시', `DELETE /api/approvals`), 문구 `오늘부터 실천할 주방 점검 수칙`(`RULES_TITLE`)과 완료 화면의 수칙 목록.
-- `test_regen_one.py` (화면 파일은 읽지 않음): 1.5의 개별 다시 만들기 (mock, 가짜 HCX로 돌린 진짜 글 만드는 코드, 입력 오류 400/404, 다시 만든 글의 승인 기록), `replaces`로 옛 글의 승인 기록 지우기 (성공한 뒤에만, 다른 방문자·다른 글은 그대로, 잘못된 id 400).
-- `test_storage_web.py`·저장소 루트 `tests/test_storage.py`: 1.7.1의 승인 기록 지우기 (다른 방문자 것은 그대로, 서버가 들고 있던 것 포함).
+### 2.4 시험이 지키는 것
 
-**11/16에 더한 정적 시험**
+**(1) 서버 시험이 React 소스를 글자로 읽는 곳**
 
-- `test_praise_ui_static.py` (9건): 카드 근거(`evidence`)의 종류를 이름으로 가림 (`e.type === "snapshot"`·`"praise"`. `e.type !== "review"`로 '리뷰가 아니면 모두 지표'라고 다루지 않음), `sourceLine`의 "손님 칭찬 리뷰 n건", '근거 보기' 칩의 "칭찬 리뷰 rv_…: “…”"(`evidenceChip`), 홍보글 초안의 `sourceBlock`이 '근거 지표'와 '손님 칭찬 리뷰' 두 덩어리를 모두 그림, 리뷰 글·id·메뉴 이름은 `esc()`를 거침, 홈 할 일의 홍보글 부제에 쿠폰 메뉴(`praiseOf`). 카드 응답 쪽은 `test_praise_card.py`(화면 파일은 읽지 않음)가 지킵니다.
+서버 시험(`services/web/tests/`)은 빌드나 node 없이 `frontend/src`를 글자로 읽습니다. 읽는 도구는 `tests/frontend_src.py`입니다: `read`(파일), `const_value`(`[export] const 이름 = …`의 값, 괄호 짝까지), `function_text`(`function 이름(…) {…}` 또는 `const 이름 = …`), `regex_const`(`const 이름 = /…/깃발;`), `squash`(띄어쓰기·줄바꿈을 빼고 작은따옴표를 큰따옴표로), `node_eval`(node가 있으면 모듈을 실제로 불러 봄). **띄어쓰기·따옴표 모양(prettier)은 상관없지만, 파일 위치·이름·`const` 선언 모양을 바꾸면 깨집니다.** 그때는 `frontend_src.py`와 시험도 같이 고칩니다.
 
-**11/16에 더한 시험 (맞춤 마케팅)**
+| # | 화면 쪽 (`frontend/` 아래) | 서버 쪽과 같아야 하는 것 | 시험 |
+|---|---|---|---|
+| 1 | `index.html` + `src/` 모든 글 파일 (**시험 파일·주석 포함**) | 금지 글자 없음: `replay`(대소문자 무시), `c9`(도형 속성 `d=`·`points=`·`viewBox=`·`transform=`의 값과 `#rrggbb` 색 코드는 뺌), `id="record"`, `/api/review-insight`, `analysis-link`, `리뷰 분석 화면에서`, `review_service.url}/`, `rs.url`. 파일을 20개 넘게 읽어야 함 | `test_web.py` `FrontendSource.test_forbidden_strings_are_nowhere_in_the_screen` |
+| 2 | `src/` (시험 파일 뺌) 어딘가 | `mode_notice` 글자가 있음 (지금 `lib/domain.js` `modeBandText`, `Marketing.jsx`, `Report.jsx`) | `…test_the_mock_notice_comes_from_health` |
+| 3 | `src/`(시험 파일 뺌)의 따옴표로 시작하는 `'/api/…'` 글자 전부 (주석 안도 셈) | 이 서버(프록시 포함)에 있는 경로. 뒤를 이어 붙이는 앞부분(`'/api/cards/'`, `'/api/market/'`)은 그것으로 시작하는 경로가 있으면 됨. `/api/health`·`/api/briefing`·`/api/cards`·`/api/insight`·`/api/approvals`·`/api/reviews`가 꼭 있어야 함 | `…test_screen_calls_only_paths_this_server_has` |
+| 4 | `mktApi("…")`·`mktPost("…")`의 첫 글자, `'/api/care/…'` 글자 | `marketing_proxy.ROUTES`(+ `health`), `care_proxy.ALLOWED` 안. `/api/care/report/monthly`가 있어야 함 | `…test_proxy_paths_the_screen_uses_are_forwarded` |
+| 5 | `lib/router.js` `ROUTES` · `App.jsx` `SCREENS`의 키 · `components/Sidebar.jsx` 메뉴 칸(`["주소", "글자"]`) | 셋 다 8개 주소로 같고 겹치지 않음 (= `tests/frontend_src.py` `ROUTES`) | `…test_eight_routes_match_between_router_app_and_menu` |
+| 6 | `src/`(시험 파일 뺌)의 `#/이름`(주석 포함) · `go("…")` · `navTo("…")` | 8개 주소 안. 서버 `assistant_proxy.py`의 `nav(…)` 버튼 주소도 8개 안이고, 리뷰 분석 탭은 `features/analysis/calc.js` `AN_TABS` 안 | `…test_every_route_the_screen_or_the_server_points_to_exists` |
+| 7 | `features/flow/calc.js`의 `failedOf`·`checksOf`·`statusOf`·`measureIds`, `features/flow/actions.js`의 `runCard`, `lib/domain.js`의 `GEN_NAMES` | 점검 상태 규칙(점검 실패 → 확인 필요 → 점검 통과)과 카드 만들기 본문(`measures`)이 `scripts/measure_live.py`의 `draft_status`·`card_run_body`와 같음. `GEN_NAMES`의 키가 `GENERATOR_NAMES`와 같고 `reply_draft`·`prevention_notice` 이름도 같음. node가 있으면 `statusOf`·`measureIds`를 실제로 돌려 견줌 | `test_measure_live.py` `StatusRule.test_rules_are_still_the_ones_on_the_screen`, `StatusRuleRunsLikeTheScreen` |
+| 8 | `features/assistant/chat.js`의 `CHAT_QUARTER`·`chatQuarter`·`chatPeriod` | `CHAT_QUARTER` 패턴 글자 = `assistant_proxy.QUARTER_IN_TEXT`, 깃발 `g`, 뒤돌아보기 `(?<`와 `/` 없음. 바꾸는 식·`typeof t === "string"`·`/^[0-9]{4}[1-4]$/.test(p)`가 그대로. node가 있으면 서버 함수와 결과를 견줌 | `test_assistant_ux.py` `QuarterOnScreen` |
+| 9 | `chat.js`의 `CHAT_STARTERS` (+ `assistant/state.js`가 `./chat.js`에서 가져와 씀) | 6개: 상권 서비스로 가는 질문 3 · 고객응대 1 · 마케팅 2. 가게 기본 질문이 아님. `assistant_proxy.BACK_TO_MARKET` 문장이 모두 들어 있음 | `test_assistant_ux.py` `TestStoreQuestionRules.test_the_drawer_starters_are_market_questions` |
+| 10 | `Sidebar.jsx` 메뉴 글자 | `assistant_proxy.SCREENS`의 이름(리뷰 분석·추천 카드·승인할 글·처리 완료·맞춤 마케팅·종합 리포트)이 모두 있음. `#/market` 글자 = `assistant_proxy.MARKET_SCREEN`('상권 분석') | `test_assistant_ux.py` `test_screen_names_match_the_menu_on_the_page`, `test_assistant_domains.py` `Answers.test_store_questions_are_unchanged` |
+| 11 | `features/marketing/logic.js`의 `MKT_SUB`·`MKT_MODES` | `MKT_SUB` = `assistant_proxy.MKT_SUBS`, `MKT_MODES`의 키에 그 다섯 글자가 있음 | `test_assistant_domains.py` `Classify.test_marketing_modes_match_the_screen` |
+| 12 | `features/flow/calc.js`의 `REPLACES_MAX`·`replacesOf` | `REPLACES_MAX` = `demo.REPLACES_MAX`(20), `replacesOf`에 `.slice(0, REPLACES_MAX)` | `test_regen_one.py` `ScreenSendsAtMostTheServerLimit` |
+| 13 | `features/analysis/calc.js`의 `PASTE_SAMPLES` (`{ text, rating }` 칸) | 4개. 앞 3개는 정해 둔 문장, 4번째는 억울한 리뷰 시연 문장이고 저장 예시 답글이 있음 | `test_pasted_reply.py` `PasteSampleAndStoredExample` (C6 저장본이 있을 때만) |
 
-- `test_marketing_ui_static.py` (22건, 화면 파일을 글자로 읽음): 메뉴 자리(리뷰 분석과 종합 리포트 사이)·짧은 글자(`<span class="long">맞춤 </span>마케팅`)·`ROUTES`·`data-view="marketing"`, 새 id는 모두 `mkt-`이고 JS가 찾는 것은 모두 있음, 요청은 모두 `mktApi`(주소 `MKT_BASE` 한 곳, `fetch(`는 그 안 한 곳, `?store=`·`visitor_id` 없음, 허용 경로만, 전역 `api()`·`showAlert`·`careApi`·`drawerApi` 없음), `/web/`·`iframe`·새 `<script src>` 없음, 시작 모드 다섯 개·처음부터·보고서 탭과 데모 표시·시험용 저장 예시 표시·슬라이더 묶어 보내기(150ms·늦은 답 버림)·아이디어·승인 연동(`approval`·`state.approvedLog`)·초기화 연동(`mktReset`), 서버 글 `esc()`, 종합 리포트의 `#/marketing` 링크(`rp-screen`, 리포트 덩어리는 마케팅 서비스를 부르지 않음), 새 덩어리가 고객응대·서랍 경계 밖, CSS에 새 색 토큰 없음.
-- `test_marketing_proxy.py` (27건, 가짜 마케팅 서비스): 1.12의 허용 목록·고정 쿼리·방문자별 `visitor_id`·경로별 기다리는 시간·꺼짐/느림/연결 실패/`4xx`/`5xx`/버그의 상태와 문장·`500` 없음·off면 부르지 않음·`health` 늘 `200`·승인 연동(성공일 때만 기록, `edit_failed`·실패면 안 함, `approval` 칸은 서비스로 안 감, '답글 달았음' 안 부름)·초기화 연동(1.7.1의 `marketing_cleared`, 꺼져도 승인 기록은 지워짐)·다른 화면이 마케팅 장애와 상관없음·느린 `plan`이 다른 경로를 붙잡지 않음.
-- `test_assistant_ux.py`: 서랍의 화면 안내 이름(`SCREENS`)에 '맞춤 마케팅'을 더함 ("홍보는 어디서 해?"·"광고비 점검 어디서 해?"·"마케팅 보고서 어디서 봐?" → '맞춤 마케팅'). `test_storage_web.py`: 1.7.1 응답의 `marketing_cleared`.
+- **조심할 점**: 시험 1·3·6은 파일 전체 글자를 읽어서 **주석에도 걸립니다.** 주석에 `#/settings` 같은 없는 주소나 따옴표로 감싼 `'/api/…'`를 쓰면 깨집니다. `c9`는 `P("…")` 안의 경로 글자, 문자열, 주석, 시험 파일에서도 걸립니다.
+- node로 실제로 돌리는 시험(7·8)은 `flow/calc.js`·`assistant/chat.js`를 그대로 import 합니다. 이 두 파일과 그것이 부르는 `lib/domain.js`에는 React·CSS import를 넣지 않습니다. node가 없으면 그 몇 건만 건너뜁니다.
+- 화면 문구는 서버 시험이 지키지 않습니다 (위 표의 메뉴 글자·시작 모드 글자·예시 문장·글 종류 이름만). 대신 아래 vitest가 몇몇 문구를 확인합니다.
 
-**11/16에 더한 정적 시험**
+**(2) 서빙 시험** (화면 소스를 읽지 않음)
 
-- `test_layout_static.py` (30건): 2.9의 규칙을 글자로 확인함. 토글 버튼의 `id`·`aria-controls`·`aria-expanded`·`aria-label`, `localStorage`는 `try { … } catch` 안에서만, `data-menu` 하나로 상태를 알림, 폭 기준 `@media`(761px 이상 · 761~1024px · 1279px 이하 · 1025~1279px)와 그 안의 규칙, 토글 버튼·메뉴 상태 규칙은 `screen`으로만, 서랍이 미는 곳에서는 본문이 680px 이상 남는지(CSS의 숫자로 계산), `.stats`·`.tiles`·`.hour-chart`의 `@container` 단계, 숫자 칸·가게 이름에 말줄임표가 없는지. **`style.css`의 폭 숫자나 `app.js`의 `setMenu`·`applyMenu`·`toggleMenu`를 고치면 이 시험도 같이 봅니다.**
+- `test_frontend_dist.py`: 기본 빌드 폴더가 `services/web/frontend/dist`, `WEB_FRONTEND_DIST`가 먼저(빈 값·공백이면 기본), 빌드가 없으면 `/`가 `200` 안내 HTML(+ 경고 로그)이고 `/assets/*`는 `404`, 띄운 뒤 빌드해도 보임, `/assets/*`에 `visitor_id` 쿠키 없음, `/static/*`는 `404`.
+- `test_storage_web.py` `test_cookie_also_comes_with_the_page_and_errors_but_not_static_files`: 페이지(`/`)와 오류 응답에는 쿠키를 싣고, `/assets/*`에는 싣지 않음.
+- API 모양을 지키는 시험(예: `/api/insight`의 키 집합 `Demo.INSIGHT_KEYS`, 승인 기록)은 화면 파일을 읽지 않지만, 서버의 칸 이름을 바꾸면 깨집니다.
 
-**조심할 점**
+**(3) 화면 시험 (vitest)**
 
-- `replay`와 `c9`는 **주석, 문자열, SVG 경로 데이터, 색 코드(`#c9…`), 인코딩된 그림 데이터까지** 어디에 있든 걸립니다. 지금 두 파일에는 없습니다 (확인함). 아이콘 SVG를 붙일 때 경로 데이터에 `c9`가 우연히 들어가지 않았는지 확인하세요.
-- 시험 2의 금지 글자는 **주석에도** 걸립니다. 파일 전체를 글자로 읽기 때문입니다.
-- 시험 5는 큰따옴표로 쓴 `id="…"`만 인식합니다. `id='…'`나 따옴표 없는 id는 못 찾아 시험이 실패합니다.
-- 시험 6은 `app.js`의 글자 그대로를 비교합니다. prettier 같은 정리 도구가 `(d) =>`를 `d =>`로, 큰따옴표를 작은따옴표로 바꾸면 깨집니다. 시험 6이 깨지면 `services/web/scripts/measure_live.py`의 `draft_status`와 `card_run_body`도 같이 고쳐야 합니다 (시험 설명에 적혀 있음).
-- 시험 3의 `Home`·`End`는 `app.js` 어디에든 글자가 있으면 통과합니다. 탭의 키보드 조작(←/→/Home/End)은 실제 접근성 기능이니 지우지 마세요.
-- 시험 1·4의 문구(`mode_notice`, `실제 AI 결과 아님`, `회의에서 정한 뒤 넣을 자리입니다`, `준비 중`)는 화면 문구 중 시험이 지키는 것입니다. 다른 화면 문구는 시험이 지키지 않습니다.
+`npm test`(= `vitest run`, jsdom, `src/**/*.test.{js,jsx}`). 서버·node 없이 가짜 `fetch`로 돕니다.
 
-**API 모양을 지키는 시험**: 화면 파일은 읽지 않지만 API 응답 칸을 시험합니다 (예: `/api/briefing`의 `counts`, `/api/insight`의 키 집합(`Demo.INSIGHT_KEYS`), 승인 기록 파일). 화면 담당이 바꿀 일은 아니지만, 서버의 칸을 바꾸면 이 시험이 깨집니다.
+| 영역 | 파일 | 보는 것 |
+|---|---|---|
+| 화면 틀 | `src/App.test.jsx` | 덮는 메뉴의 첫 포커스·Tab 가두기·Esc·바깥·[메뉴 닫기] 뒤 토글 버튼 포커스, 메뉴 항목으로 이동하면 그 화면 제목 포커스, 승인 대기 칩(`#top-waiting`), 시험용 안내 띠 한 곳·바닥 줄, 게스트 문구 |
+| 틀 도우미 | `src/lib/shell.test.js` · `src/lib/theme.test.js` · `src/state/staff.test.js` | 안내 띠·바닥 줄 문구와 폭 구간(760·761~1024·그 위, 소수 폭), 화면 모양 순서·저장, 오늘 할 일·AI 비서 상태 |
+| 공통 부품 | `src/components/ui.test.jsx` | 아이콘(자리 글자 없음, 그림이 서로 다름, 로고), 빈 안내, `Dialog` |
+| 흐름 | `features/flow/calc.test.js` · `screens.test.jsx` | 순수 계산, 네 화면 그리기와 카드 → 초안 → 승인 → 완료 → 처음부터 다시의 API 순서 |
+| 리뷰 분석 | `features/analysis/calc.test.js` · `Analysis.test.jsx` | 탭·`navTo`, 붙여넣기 뒤 다시 읽기, 캡처 후보를 `source: "capture"`로 저장 |
+| 서랍 | `features/assistant/chat.test.js` · `Drawer.test.jsx` | 분기 표기 등 순수 계산, 선택지 위치, 기준 범위 칩과 안내 한 줄, 화면 이동 뒤 포커스, `drawerCovers` |
+| 계정 | `features/account/account.test.jsx` | 로그인 실패 때 비밀번호 유지, 로그아웃 뒤 `#acct-login` 포커스, 내 계정 창의 [로그아웃]·확인 단계·Esc |
+| 상권 | `features/market/format.test.js` · `Market.test.jsx` | 처음 불러오기 순서, 머리 고지 한 줄, 비교 탭, `epoch`, `navTo` 탭 |
+| 맞춤 마케팅 | `features/marketing/logic.test.js` · `Marketing.test.jsx` | health → meta → step → 시작 모드 → plan → 승인, 결과 칸 라이브 영역, 안내 띠가 겹치지 않음 |
+| 종합 리포트 | `features/report/format.test.js` · `Report.test.jsx` | 'AI 문장 아님' 고지는 머리 한 곳, 출처·우리 가게 매출 아님·점수 변동 근거는 남음 |
+
+- 문구를 바꾸면 그 문구를 찾는 vitest가 깨질 수 있습니다. 문구가 맞으면 시험을 같이 고칩니다.
 
 ### 2.5 화면 주소
 
-화면은 **주소 해시**로 바뀝니다 (`#/이름`). `hashchange` 때 `app.js`의 `route()`가 해당 `data-view`만 보이게 하고, 해당 `data-route` 메뉴 링크에 `aria-current="page"`를 켭니다. 화면을 바꿀 때마다 맨 위로 스크롤하고 그 화면의 `h1`에 포커스를 줍니다.
+화면은 **주소 해시**로 바뀝니다 (`#/이름`, 2.2). 이름은 바꾸지 않습니다 (규칙 2, 서버 서랍의 화면 이동 버튼도 이 이름을 씀).
 
-| 주소 | `data-route` · `data-view` 값 | 메뉴 이름 | 화면 | 어디서 만드나 |
-|---|---|---|---|---|
-| `#/today` | `today` | 홈 | 대시보드. 숫자 타일, 차트, 오늘 할 일 | `index.html` |
-| `#/cards` | `cards` | 추천 카드 | "무엇을 할까요?" 카드 2장 | `index.html` |
-| `#/draft` | `draft` | 승인할 글 | 초안 보기·고치기·승인 | `index.html`의 껍데기 + JS가 채움 |
-| `#/done` | `done` | 처리 완료 | 승인 결과, 고른 주방 점검 수칙, '홈으로'(진행 그대로) · '처음부터 다시' | `index.html`의 껍데기 + JS가 채움 |
-| `#/analysis` | `analysis` | 리뷰 분석 | 탭 3개 (요약·불만 묶음·리뷰 붙여넣기) | `index.html` |
-| `#/marketing` | `marketing` | 맞춤 마케팅 (760px 이하 가로 메뉴는 "마케팅") | 탭 두 개: 맞춤 제안(시작 모드 다섯 개 → 질문 → 결과 카드 → 고쳐서 승인) · 마케팅 보고서(주간·월간) (11/16) | `index.html`의 껍데기 + JS가 대화를 채움 |
-| `#/report` | `report` | 종합 리포트 | 오늘 요약 · 응대 점수 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약 (11/15, 칭찬 요약·PDF 저장은 11/16) | `index.html` |
-| `#/market` | `market` | 상권 분석 (760px 이하 가로 메뉴는 "분석"이 아니라 `<span class="long">상권 </span>분석`) | 11/18: 조건 바 · 서울 열린데이터광장 실시간 최신화와 우리 동네 문화행사 · 핵심 지표 4칸 · 세부 탭 4개(매출 · 점포·개폐업 · 유동·배후인구·집객시설 · 타 상권 1:1 비교). `/api/market/*`만 부름 (1.14) | `index.html` + JS가 채움. `LATER`는 11/18부터 비어 있음 |
+| 주소 | 메뉴 묶음 · 메뉴 글자 | 컴포넌트 | 화면 |
+|---|---|---|---|
+| `#/today` | (맨 위) 홈 | `features/flow/Home.jsx` | 대시보드: 핵심 문제 한 줄, 숫자 타일 4개, 오늘 할 일, AI 비서 네 명, 불만 시간대·주제 차트, AI에게 묻기 줄 |
+| `#/cards` | 오늘 처리 · 추천 카드 | `features/flow/Cards.jsx` | "무엇을 할까요?" 카드 최대 2장, 카드 ⓐ의 점검 수칙 고르기 |
+| `#/draft` | 오늘 처리 · 승인할 글 | `features/flow/Draft.jsx` | 진행줄, 손님 리뷰, 초안 고치기·승인·복사·다시 만들기, 초안 목록 |
+| `#/done` | 오늘 처리 · 처리 완료 | `features/flow/Done.jsx` | 승인 결과 타일·목록, 고른 점검 수칙, '홈으로'·'처음부터 다시', 서버 처리 기록 |
+| `#/analysis` | 살펴보기 · 리뷰 분석 | `features/analysis/Analysis.jsx` | 탭 3개: 요약(`summary`) · 불만 묶음(`issues`) · 리뷰 넣기(`paste`: 붙여넣기 + 캡처로 넣기) |
+| `#/market` | 살펴보기 · 상권 분석 | `features/market/Market.jsx` | 분석 조건, 핵심 지표 4칸, 세부 탭 4개(`sales` 매출 · `stores` 점포·개폐업 · `pop` 유동·배후인구·집객시설 · `compare` 타 상권 1:1 비교), 서울시 자료 최신화, 우리 동네 문화행사 |
+| `#/report` | 살펴보기 · 종합 리포트 | `features/report/Report.jsx` | 오늘 요약 · 응대 점수 · 답글을 기다리는 불만 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약, 구역 바로가기, PDF 저장 |
+| `#/marketing` | 키우기 · 맞춤 마케팅 | `features/marketing/Marketing.jsx` | 탭 두 개: 맞춤 제안(시작 모드 다섯 개 → 질문 → 결과 카드 → 고쳐서 승인) · 마케팅 보고서(주간·월간) |
 
-- 알 수 없는 해시, 해시가 없는 주소는 `#/today`로 봅니다 (`currentRoute()`가 `ROUTES`에 없는 이름을 홈으로 돌림).
-- `ROUTES` 배열(`["today", "cards", "draft", "done", "analysis", "marketing", "report", ...LATER의 이름]`)에 없는 화면 이름은 쓸 수 없습니다.
-- **화면을 새로 더하려면** (1) 메뉴 링크 `<a href="#/이름" data-route="이름">`, (2) `<section class="view" data-view="이름" hidden>`, (3) `ROUTES`에 이름 추가, 이 세 가지가 필요합니다 (`LATER`로 만든 자리는 `LATER`에서 빼고 `ROUTES`에 이름을 넣는다고 `app.js` 주석에 적혀 있음).
-- `#/draft`와 `#/done`은 화면을 열 때마다 다시 그립니다. 만든 글이 없으면 "제안 보기" / "초안으로" 링크가 있는 빈 안내가 나옵니다.
-- 주소가 같은 화면으로 `go()`하면 해시는 그대로 두고 `route()`만 다시 부릅니다.
-- 링크로 쓰는 주소: 로고 `href="#/today"`, 홈의 '리뷰 분석 보기' `href="#/analysis"`, 초안의 빈 안내 `href="#/cards"`, 완료의 빈 안내 `href="#/draft"`.
+- 메뉴 묶음과 순서는 `Sidebar.jsx`의 `GROUPS`입니다 (홈 / 오늘 처리 / 살펴보기 / 키우기). 760px 이하 가로 메뉴도 같은 글자를 씁니다 (아이콘만 숨김).
+- 추천 카드·승인할 글·처리 완료 위에는 단계 표시(`Steps.jsx`, 지금 단계에 `aria-current="step"`)가 있습니다.
+- `#/draft`와 `#/done`은 만든 글·승인한 글이 없으면 빈 안내와 버튼 하나(추천 카드 보기 `#/cards` / 승인할 글로 `#/draft`)를 보입니다.
+- 화면 안 링크: 로고 `#/today`, 홈 '리뷰 분석 보기' `#/analysis`, 상단 바 승인 대기 칩 `#/draft`, 종합 리포트의 `#/cards`·`#/marketing`.
 
 ### 2.6 화면 흐름과 부르는 API
 
+API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 보입니다: 공통 `api()`(`lib/api.js`)를 쓰는 흐름 화면·붙여넣기·계정은 맨 위 알림 띠(`setAlert`)나 그 칸의 안내에, 프록시를 부르는 `careApi`·`mktApi`·`marketApi`·`drawerApi`는 **그 화면·칸 안에만** 보이고 맨 위 알림 띠를 쓰지 않습니다.
+
+**홈 · 추천 카드 · 승인할 글 · 처리 완료** (`features/flow/actions.js`)
+
+| 언제 | 함수 | 부르는 API | 결과가 가는 곳 |
+|---|---|---|---|
+| 페이지를 열 때 | `state/boot.js` `boot` | `GET /api/auth/me` → `GET /api/market/status`(기다리지 않음) → `GET /api/health` → `GET /api/briefing` → `GET /api/cards` → `GET /api/insight` → `GET /api/approvals`(기다리지 않음) | `health`: 시험용 안내 띠·알림 띠·바닥 줄. `briefing`: 홈·상단 바 가게 이름·초안의 리뷰 원문. `cards`: 추천 카드·홈 할 일. `insight`: 리뷰 분석. `approvals`: AI 비서의 맞춤 마케팅 승인 수 |
+| 위 호출이 실패하면 | | | 알림 띠에 문장, 홈의 주 버튼이 "불러오지 못했어요". `insight`만 실패하면 리뷰 분석 화면에만 안내 |
+| 홈 '무엇을 할까요?' | `go("cards")` | 없음 | `#/cards` |
+| 카드 버튼 | `choose` → `runCard` | `POST /api/cards/{id}/run`. 점검 수칙 상자가 있는 카드만 `{"measures": […]}` (그 밖에는 본문 없음) | `#/draft`. 이미 만든 카드면 API 없이 `#/draft` |
+| 홈 '오늘 할 일' 항목 | `runTodo` | 아직 안 만든 카드면 위와 같음 | 그 종류의 첫 미승인 글로 `#/draft` |
+| 초안 '승인' | `approve` | `POST /api/drafts/{id}/approve` `{text, original}` (+ 답글이면 `kind`·`review_id`) | 이 카드의 다음 미승인 글, 다 끝나면 `#/done` |
+| 초안 '복사' | `copyText` | 없음 | 클립보드 (막히면 글 칸을 골라 `execCommand`) |
+| 초안 상자 '다시 만들기' | `regenDraft` | `POST /api/cards/{id}/run` `{generator, review_id?, replaces: [그 글 id], measures?(불만 카드), reply_texts?(안내문)}` | 그 글 한 건만 새 글로. 그 글의 승인·고친 내용만 버림 |
+| 진행줄 옆 '카드 전체 다시 만들기' | `rerunCard` → `runCard` | `POST /api/cards/{id}/run` `{measures?, replaces: [그 카드의 글 id, 승인한 것부터 20개까지]}` | 그 카드의 글·승인·고친 내용을 모두 버림. 승인했거나 고친 글이 있으면 첫 누름은 안내만 하고 5초(`RERUN_ARM_MS`) 안에 한 번 더 눌러야 실행 |
+| 응답에 `replace_warning` | | | 새 글은 쓰고 알림 띠에 그 문장 |
+| `#/done` 열기 | `Done.jsx` `ServerLog` | `GET /api/approvals` | 접힌 '서버 처리 기록' |
+| 완료 '홈으로' | `go("today")` | 없음 | 진행은 그대로 |
+| 완료 '처음부터 다시' | `restart` | `DELETE /api/approvals` | 브라우저 진행을 비우고(`resetFlow`·`emptyFlow`), `mktResetSeq`를 올려 맞춤 마케팅도 처음으로, `#/today`. 서버가 실패해도 화면은 비우고 알림 띠로 알림. `marketing_cleared: false`면 맞춤 마케팅 화면 위에 "기록은 지우지 못했어요" 안내 |
+| 홈 'AI 비서' 항목 | `staffGo` | 없음 | 데이터 분석 → 리뷰 분석 요약, 고객 응대 → 승인 대기가 있으면 `#/draft` 없으면 `#/cards`, 마케팅 → `#/marketing`, 상권 분석 → `#/market` |
+
+**리뷰 분석** (`features/analysis/`)
+
+| 언제 | 함수 | 부르는 API | 결과가 가는 곳 |
+|---|---|---|---|
+| '분류하기' | `PasteTab.jsx` `paste` | `POST /api/reviews` `{text, rating}` (+ 채널을 고르면 `channel`) → 성공하면 `refresh()` | 분류 결과 칸, 홈·카드·분석 다시. 빈 글은 보내지 않음 |
+| '붙여넣은 리뷰 지우기' | `resetPaste` | `DELETE /api/reviews/pasted` → `refresh()` | 위와 같음 |
+| 캡처 '캡처 읽기' | `Capture.jsx` `capRead` | `POST /api/care/reviews/capture` (multipart `file`, 최대 110초) | 후보 목록 (저장하지 않음). 파일은 png·jpg·webp, 10MB 이하만 보냄. 오류는 캡처 칸 안에만 |
+| '선택한 리뷰 저장' | `capSave` | 고른 후보마다 `POST /api/reviews` `{text, rating, source: "capture"}` (`careApi`) → 하나라도 저장되면 `refresh()` | 후보마다 저장 표시 또는 그 후보 아래 오류 |
+
+**종합 리포트** (`features/report/state.js`. 이 화면은 AI를 새로 부르지 않음: `/api/cards`·`/api/briefing`·글 만들기·서랍을 부르지 않음)
+
 | 언제 | 부르는 API | 결과가 가는 곳 |
 |---|---|---|
-| 페이지를 열 때 (순서대로 하나씩) | `health` → `briefing` → `cards` → `insight` | `health`: 맨 위 띠·경고 띠·바닥. `briefing`: 홈·가게 이름·초안의 리뷰 원문. `cards`: 카드 화면·홈 할 일. `insight`: 리뷰 분석 두 탭 |
-| 위 호출이 실패하면 | (`health`·`briefing`·`cards` 중 하나) | `#alert`에 문장, `#start` 버튼이 "불러오지 못했어요"로 바뀜. `insight`만 실패하면 `#an-status`에만 알림 |
-| '무엇을 할까요?' 누름 | 없음 | `#/cards`로 이동 |
-| 카드 버튼 / '오늘 할 일' 항목 (아직 안 만든 글) | `POST /api/cards/{id}/run` | `#/draft`로 이동. 카드 ⓐ의 체크박스가 있으면 `{"measures": […]}`를 보냄 |
-| 이미 만든 글을 다시 보기 | 없음 | 브라우저에 있는 결과로 `#/draft` |
-| 초안의 '승인' | `POST /api/drafts/{id}/approve` (`{text, original}`) | 다음 미승인 글, 다 끝나면 `#/done` |
-| 초안의 '복사' | 없음 | 클립보드 |
-| 초안 상자의 '다시 만들기' (11/16) | `POST /api/cards/{id}/run` `{generator, review_id?, measures?, reply_texts?, replaces: [그 글 id]}` (1.5 개별 다시 만들기) | 지금 보는 글 한 건만 새 글로 바꿈. 그 글의 승인·고친 내용만 버리고 다른 글은 그대로. 서버 승인 기록에서도 그 글의 것만 지움 |
-| 진행줄 옆 '카드 전체 다시 만들기' (11/16) | `POST /api/cards/{id}/run` `{measures?, replaces: [그 카드의 지금 글 id]}` | 그 카드의 예전 글·승인·고친 내용 버림 (서버 승인 기록에서도 그 글들의 것을 지움). 승인했거나 고치는 중인 글이 있으면 첫 누름은 안내만 하고 5초 안에 한 번 더 눌러야 실행 |
-| `#/done` 열기 | `GET /api/approvals` | '서버 처리 기록' (접은 목록) |
-| 완료의 '홈으로' (주 버튼, 11/16) | 없음 | 만든 글·승인 표시를 그대로 두고 `#/today`로 |
-| 완료의 '처음부터 다시' (보조 버튼, 11/16) | `DELETE /api/approvals` | 브라우저의 만든 글·승인 표시·고친 내용을 비우고 서버의 이 방문자 승인 기록도 지움. 서버가 실패해도 화면은 비우고 `#alert`로 알림 |
-| 붙여넣기 '분류하기' | `POST /api/reviews` → 성공하면 `briefing`, `cards`, `insight` 다시 | 분류 결과 패널, 홈·카드·분석 갱신 |
-| '붙여넣은 리뷰 지우기' | `DELETE /api/reviews/pasted` → `briefing`, `cards`, `insight` 다시 | 위와 같음 |
-| 캡처로 넣기 '캡처 읽기' | `POST /api/care/reviews/capture` (multipart, 최대 110초 기다림) | 후보 목록 (저장하지 않음). 오류는 `#cap-error`에만 |
-| '선택한 리뷰 저장' | 고른 후보마다 `POST /api/reviews` `{text, rating, source: "capture"}` → 하나라도 저장되면 `briefing`, `cards`, `insight` 다시 | 후보마다 "저장함" 또는 그 후보 아래 오류, 홈·카드·분석 갱신 |
-| 초안의 '승인' (리뷰 답글) | 위 승인 + 본문에 `kind`·`review_id` | 서버가 리뷰 분석 서비스에 '답글 달았음' 기록 (1.6, 화면은 기다리지 않음) |
-| `#/report` 열기·'다시 불러오기' | `GET /api/care/report/daily`, `/api/care/response`, `/api/care/report/monthly` (따로따로), `GET /api/approvals` | 칸마다 그림. 한 칸이 실패해도 다른 칸은 그대로. 손님 칭찬 요약은 월간 응답의 `praise`로 (요청을 더하지 않음). 상권·마케팅 요약은 이미 받은 `briefing`·`cards`로만 (새로 부르지 않음, AI 호출 없음). 화면에 있는 동안 1분마다 `response`만 다시 |
-| 월간 '이전 달'·'다음 달' | `GET /api/care/report/monthly?month=YYYY-MM` | 월간 칸과 손님 칭찬 요약 칸(같은 응답의 `praise`), '인쇄용 보기' 주소도 그 달로 |
-| '전체 리포트 PDF 저장' | (없음. 불러오는 중이면 끝나기를 기다림) | 인쇄 머리글을 채우고 접힌 칸을 펼친 뒤 `window.print()`. 인쇄 모양은 2.3 (8) |
-| `#/marketing` 처음 열기 (11/16) | `GET /api/marketing-survey/health` → `meta` → `POST step` `{state: null, answer: null}` (1.12) | `ready`가 아니면 `#mkt-state`만. 아니면 첫 질문과 시작 모드 카드 다섯 개 + '마케팅 보고서'. 페이지를 열 때(`boot`)는 부르지 않음 |
-| 보기·입력 '보내기' | `POST step` `{state, answer}` | 다음 질문. 끝(`done`)이면 아래 결과 카드 |
-| 질문이 끝남·'다시 쓰기' | `POST plan` `{state}` (+ 맞춤 홍보 제안·재주문 쿠폰이면 `POST result`) | 결과 카드 (`demo: true`면 '시험용 저장 예시 (실제 AI 결과 아님)') |
-| 쿠폰 슬라이더 움직임 | `POST coupon-calc` (150ms 묶음, 늦은 답 버림) | 쿠폰 장수·최대 비용·본전 주문 수·예산 막대 |
-| '이 조건으로 쿠폰 글 만들기' | `POST generate` `{state, coupon_override}` (쿠폰 결과 확인은 `{state}`) | 카드 안 새 글 상자 |
-| '다음 아이디어' · '해 볼게요' | `POST next-idea` · `POST idea-try` | 카드 안 아이디어 칸 |
-| 결과 카드 '승인' | `POST approve` `{state, session_id, edited_texts, approval}` | `edit_failed`면 그 글 아래 '점검 실패'. 성공이면 '승인함', `recorded`를 '처리 완료' 목록(`state.approvedLog`, `mkt: true`)에, `follow_up`이면 재주문 쿠폰 질문, 공지 카드면 '2주 뒤 확인해 보기' |
-| '2주 뒤 확인해 보기' | `POST notice-followup` `{state}` | 공지 전후 불만 리뷰 수, 줄었으면 개선 소식 글 |
-| '마케팅 보고서' 탭·기간 | `GET report?period=weekly\|monthly` (열 때마다 새로) | 보고서 카드. `demo: true`면 '데모 기록'과 "실제 우리 가게 기록이 아니에요" |
-| '처음부터' (맞춤 마케팅) | `POST step` `{state: null}` | 대화만 처음으로 (기록은 그대로) |
-| 완료의 '처음부터 다시' | `DELETE /api/approvals` (서버가 마케팅 기록도 지움) | 맞춤 마케팅의 대화·카드·보고서도 비우고 다음에 열 때 처음부터 (`mktReset`) |
-| 상단 바의 이름(로그인 뒤, 11/19) | 없음 | '내 계정' 대화상자: 이름·아이디(시연 계정이면 '시연 계정')·가진 가게와 동작 |
-| 내 계정 '(지금 가게) 기록 지우기'·'모든 가게 기록 지우기' → 확인 단계 [지우기] | `DELETE /api/assistant/conversation`(실패·꺼짐은 무시) → `POST /api/auth/reset` `{scope: "store"\|"account"}` | 200 이고 `complete: false` 가 아니면: 대화상자를 닫고 `storeChanged()`로 모든 화면을 서버 기준으로 다시, `#acct-notice`에 가게별 지운 건수(`stores[].name·approvals·reviews·marketing`, `null`은 '못 지움'). `complete: false`면 대화상자를 열어 둔 채 `message`를 `#acct-error`에, 버튼은 '다시 지우기'(화면은 다시 읽음). 오류는 `error.message`를 `#acct-error`에 (401 `login_needed`면 닫을 때 게스트로 다시 읽음) |
-| 내 계정 '회원 탈퇴' → 확인 단계 [탈퇴하기] | `DELETE /api/assistant/conversation`(무시) → `POST /api/auth/withdraw` `{password}` (시연 계정 `user.demo`이면 `{}`) | 200: 응답(게스트 모양 + `withdrawn`)을 `acct.me`로, 대화상자를 닫고 `storeChanged()` — 로그아웃 때와 같은 게스트 화면, `#acct-notice`에 '회원 탈퇴를 마쳤어요', 포커스는 [로그인]. 401 `bad_password`: 비밀번호 칸으로 포커스. 401 `login_needed`·429 `too_many`·503 `records_left`: `error.message`를 `#acct-error`에, 대화상자는 그대로. 일반 계정에서 칸이 비면 보내지 않음. 비밀번호 칸은 성공·실패 모두 보낸 뒤 비움 |
+| 화면 열기 (3초 안에 다시 열면 한 번만) · '다시 불러오기' | `GET /api/care/report/daily`, `GET /api/care/response`, `GET /api/care/report/monthly` (따로따로) + 처음 불러오기가 끝났거나 카드가 있으면 `GET /api/approvals` | 칸마다 그림. 한 칸이 실패해도 다른 칸은 그대로. 손님 칭찬 요약은 월간 응답의 `praise`로. 상권 요약·마케팅 요약은 이미 받은 `briefing`·`cards`·`approvedLog`로만 |
+| 화면에 있는 동안 1분마다 (창이 보일 때만) | `GET /api/care/response` | 응대 점수·남은 시간. 실패하면 보이던 값 그대로 |
+| 월간 '이전 달'·'다음 달' | `GET /api/care/report/monthly?month=YYYY-MM` | 월간 칸과 손님 칭찬 칸, '인쇄용 보기' 주소도 그 달로 (1년 전까지, 이번 달이면 다음 달 잠금) |
+| '인쇄용 보기' | `GET /api/care/report/monthly/print?month=` (새 탭 링크) | 서버가 만드는 A4 HTML |
+| '전체 리포트 PDF 저장' | 없음 | 2.3 (8) |
+| 상권 요약 'AI에게 묻기로 상권 더 보기' | 없음 | 서랍 열기 |
 
-- 다시 불러온 카드의 id·근거가 이전과 다르면(`refresh()`), 화면에 있던 만든 글·승인 표시·고친 내용을 모두 버립니다.
-- 모든 진행 상태(만든 글, 승인 표시, 고친 글)는 **브라우저 메모리**(`state` 객체)에만 있습니다. 새로고침하면 사라집니다 (3.1).
+**맞춤 마케팅** (`features/marketing/state.js`. 모두 `/api/marketing-survey/` 뒤 경로. 페이지를 열 때는 부르지 않고 이 화면을 처음 열 때 시작)
+
+| 언제 | 부르는 API | 결과가 가는 곳 |
+|---|---|---|
+| 처음 열기 · '다시 확인' | `GET health` → (`ready`면) `GET meta`(기다리지 않음) → `POST step` `{state: null, answer: null}` | `ready`가 아니면 안내 칸과 '다시 확인'만 (탭·대화 숨김). 아니면 시작 모드 카드 다섯 개 + '마케팅 보고서' |
+| 보기·입력 보내기 | `POST step` `{state, answer}` | 다음 질문. 끝(`done`)이면 아래 결과 카드 |
+| 질문이 끝남 · '다시 쓰기' | `POST plan` `{state}` (+ 맞춤 홍보 제안·재주문 쿠폰이면 `POST result` `{state}`) | '제안 결과' 칸에 결과 카드 (`role="log"`·`aria-live="polite"`라서 새 카드를 읽어 줌) |
+| 쿠폰 슬라이더 | `POST coupon-calc` (150ms 묶음, 늦은 답 버림) | 쿠폰 장수·최대 비용·본전 주문 수·예산 막대 |
+| 슬라이더 아래 '이 조건으로 쿠폰 글 만들기' · '다음 쿠폰 조건' 칸의 같은 버튼 | `POST generate` `{state, coupon_override}` · `{state}` | 카드 안 새 글 (카드를 승인할 때 같이 승인) |
+| '다음 아이디어' · '해 볼게요' | `POST next-idea` · `POST idea-try` | 카드 안 아이디어 칸 |
+| 결과 카드 '승인' | `POST approve` `{state, draft_id: null, session_id, edited_texts, approval}` | `edit_failed`면 그 글 아래 점검 실패 안내. 성공이면 `recorded`를 처리 완료 목록(`approvedLog`, `mkt: true`)에, `follow_up`이면 재주문 쿠폰 질문, 공지 카드면 '2주 뒤 확인해 보기' |
+| '2주 뒤 확인해 보기' | `POST notice-followup` `{state}` | 공지 전후 불만 수, 줄었으면 개선 소식 글 |
+| '마케팅 보고서' 탭·기간 | `GET report?period=weekly\|monthly` (열 때마다 새로) | 보고서 카드 (`demo: true`면 데모 기록 표시) |
+| '처음부터' (이 화면) | `POST step` `{state: null, answer: null}` | 대화만 처음으로 (승인·보고서 기록은 그대로) |
+| 서랍·AI 비서에서 `navTo("marketing", sub)` | 위와 같음 | 그 시작 모드를 바로 고름 (`MKT_SUB`) |
+
+- 화면 위 안내 띠(`Notice.mkt-notice`)는 마케팅 서비스가 HCX를 부르지 않는 상태(`health`의 `demo`·`mode: "mock"`·`key_present: false`, 또는 `demo: true` 결과를 받음)면 예시 고지 한 줄(`MKT_DEMO_NOTICE`)을 띄웁니다. **화면 맨 위 공통 시험용 띠(`health.mode_notice`)가 이미 있으면 이 고지는 띄우지 않습니다** (`noticeLines(s, appBand)`). '처음부터 다시' 때 마케팅 기록을 못 지웠다는 안내는 그와 상관없이 띄웁니다. 결과 카드 배지 `MKT_DEMO`('시험용 저장 예시 (실제 AI 결과 아님)')는 그대로 붙습니다.
+
+**상권 분석** (`features/market/state.js`. 모두 `/api/market/` 뒤 경로, 1.14)
+
+| 언제 | 부르는 API | 결과가 가는 곳 |
+|---|---|---|
+| 화면을 처음 열 때 | `GET status` → (`ready`면) `POST setup` → `GET analysis-options` + `GET options`(업종, 한 번만) → `GET sales`·`stores`·`population`·`area-context`·`changes?comparison=yoy` (`expected_revision` 붙임) | 조건 줄·지표 4칸·탭. 한 요청이라도 `409`면 `POST setup`으로 서버 조건을 다시 받아 한 번 더. `ready`가 아니면 화면 안 안내만 |
+| 화면을 열 때마다 (못 받았으면) | `GET cultural-events` | 우리 동네 문화행사 |
+| 조건 '적용' | `GET analysis-selection` → (업종이 바뀌면 `POST profile`) → `GET analysis-options` → `GET analysis-selection` → `POST analysis-selection` → `POST setup` → 위 자료 다시 | 새 조건으로 다시 그림 |
+| '우리 가게 기준으로' | `POST setup?force=1` → 자료 다시 | 가게 기본 조건 (기본 여부는 서버의 `conditions.home`) |
+| 비교 탭을 처음 열 때 · 비교 상권 고름 | `GET comparison-options` · `GET comparison?comparison_area_code=` | 비교 표 |
+| 서울시 자료 최신화 | `POST data-sync` (70초) → `GET status` | 결과 한 줄, 자료 상태, AI 비서의 상권 상태 |
+
+**AI에게 묻기 서랍** (`features/assistant/state.js`. 모두 `/api/assistant/` 뒤 경로, 1.10·1.15. 90초 넘으면 끊음)
+
+| 언제 | 부르는 API | 결과가 가는 곳 |
+|---|---|---|
+| 서랍을 처음 열 때 · '다시 확인' | `GET status` → (`ready`면) `GET conversation` → 조건이 없으면 `POST setup` (한 번만, '다시 확인' 때 다시) | 상태 안내 카드 또는 이전 대화·조건·첫 추천 질문(`CHAT_STARTERS`) |
+| 질문 보내기 (Enter, 한글 입력 중 Enter는 보내지 않음) | `POST messages` `{text, client_message_id}` | 답·선택지·근거 카드·이어서 물어볼 칩 |
+| 선택지 (화면 이동이 아님) | `POST actions` (선택지의 `payload`) | 위와 같음 |
+| 화면 이동 선택지 (`navigate`, `handoff`의 `marketing`·`customer`) | 없음 (`chatNavTarget` → `navTo`) | 그 화면·탭·시작 모드로. 서랍이 본문을 **덮고 있을 때만** 서랍을 닫고 포커스를 이동한 화면 제목으로 (`drawerCovers`, 2.9). 본문을 밀어 둔 넓은 화면이면 서랍은 그대로 |
+| '대화 지우기' (4초 안에 두 번) | `DELETE conversation` → `GET conversation`(조건 표시만 다시) | 대화 비움 |
+| '우리 가게 조건으로' | `POST setup?force=1` | 조건 칩. 서버의 `conditions.is_store_default`가 `true`면 '우리 가게 기준 적용 중'으로 잠금 |
+
+- 서랍 머리 아래 기준 범위: 조건 칩(상권 · 업종 · 분기) + '하루 전체' 칩, 그 아래 안내 한 줄 `#assistant-cond-note`(`chat.js`의 `chatScopeNote`: "상권·업종 전체 추정치예요 (우리 가게 매출 아님 · 홈 타일은 … 기준)"). **이 안내 줄은 준비가 끝나면(`ready`) 조건을 못 받았어도 늘 보이는 한 줄**이고, 홈 지표가 없으면 괄호 안 '홈 타일은 … 기준'만 빠집니다. '우리 가게 매출 아님'은 서랍 안에서 이 한 곳에만 둡니다.
+- 서랍은 `Esc`(한글 입력 중이 아니고 대화상자가 떠 있지 않을 때)나 '닫기'로 닫히고, 닫히면 연 버튼으로 포커스가 돌아갑니다 (화면 이동으로 닫은 경우는 제외).
+
+**계정** (`state/account.js`, `features/account/`)
+
+| 언제 | 부르는 API | 결과 |
+|---|---|---|
+| 로그인 · 회원가입 · 시연 계정 | `POST /api/auth/login`·`signup`·`demo-login` → `storeChanged()` | 창을 닫고 모든 화면을 새 가게로. 실패하면 창에 오류, 친 비밀번호는 그대로 (성공·닫기 때만 비움) |
+| 가게 바꾸기 (`#acct-store`, 가게가 둘 이상일 때) | `POST /api/auth/store` `{store_id}` → `storeChanged()` | 끝나면 포커스를 가게 고르기 칸으로 |
+| 로그아웃 (왼쪽 메뉴 계정 줄 또는 내 계정 창 `#acct-logout`) | `POST /api/auth/logout` → `storeChanged()` | 게스트 화면, 포커스는 상단 바 `#acct-login` |
+| 내 계정 '기록 지우기'(지금 가게·모든 가게) → [지우기] | `DELETE /api/assistant/conversation`(실패·꺼짐 무시, 8초) → `POST /api/auth/reset` `{scope}` → `storeChanged()` | `complete: false`면 창을 열어 둔 채 오류와 '다시 지우기'. 성공이면 창을 닫고 오른쪽 아래 결과 띠 |
+| 내 계정 '회원 탈퇴' → [탈퇴하기] | 위 대화 지우기 → `POST /api/auth/withdraw` `{password}` (시연 계정은 `{}`) → `storeChanged()` | 게스트 화면, 결과 띠, 포커스는 `#acct-login`. 비밀번호 칸은 보낸 뒤 늘 비움. `bad_password`면 칸으로 포커스 |
+
+- 확인 단계의 기본 포커스는 [취소]이고 Esc도 취소입니다. '되돌릴 수 없어요' 경고는 지우지 않습니다.
 
 ### 2.7 자유롭게 바꿔도 되는 것
 
 | 바꿔도 되는 것 | 조건·주의 |
 |---|---|
-| 색, 글꼴, 글자 크기, 간격, 모서리, 그림자 | 색은 `style.css` 맨 위 `:root` 변수(`--bg`, `--panel`, `--ink`, `--accent`, `--brand` 등)에 모여 있고, 다크 값은 `@media (prefers-color-scheme: dark)` 안에 따로 있음. 라이트·다크 둘 다 챙기세요. CSS 주석에 따르면 글자 대비를 WCAG AA(4.5:1)에 맞춰 둔 값이 있으니, 색을 바꿀 때 대비를 다시 확인하세요 |
-| 배치 (flex·grid), 화면 폭별 모양 | 폭 기준과 왼쪽 메뉴·서랍의 동작은 2.9에 있음 (760px 이하 = 모바일 배치, 761~1024px = 메뉴가 접힌 채 시작, 1280px 이상 = 서랍이 본문을 밂). `main`의 컨테이너 쿼리(카드 640px, 숫자 칸 259·479·679px, 시간대 막대 340·420·440·520·640px, 종합 리포트 720px)도 씀. 320px 폭까지 가로 스크롤이 생기지 않게. 숫자를 바꾸면 `test_layout_static.py`와 2.9를 같이 고침 |
-| 아이콘 (인라인 SVG) | `index.html`·`app.js` 안에 있음. **`c9`, `replay`가 들어가면 시험이 깨짐** (2.4). `aria-hidden="true"`로 장식 표시 |
-| 문구 (버튼 글자, 제목, 안내문) | 2.4에 적은 문구(`mode_notice`, `실제 AI 결과 아님`, `회의에서 정한 뒤 넣을 자리입니다`, `LATER`의 `"상권"`, `준비 중`, 캡처의 "예시 결과 — 이미지를 실제로 읽지 않았어요"·별점 확인 문구·`선택한 리뷰 저장`, 종합 리포트 제목, 11/16의 `홈으로`·`처음부터 다시`·`카드 전체 다시 만들기`·`오늘부터 실천할 주방 점검 수칙`)와 시험 6의 일곱 줄만 빼고 자유 |
-| CSS 클래스의 **스타일** | 2.3(7)에 적은 클래스의 모양은 자유. 이름은 `app.js`와 같이 바꿔야 함. `index.html`에만 있는 클래스(`bar`, `brand`, `logo`, `dash-grid` 등)는 `style.css`와 `index.html`만 맞추면 됨 |
-| HTML 요소 더하기·순서 바꾸기·감싸기 | 2.2의 id와 2.3(1)의 구조(`.top`, `.side .menu`, `.shell > main`, `#staff li`, `data-*`)를 지키는 한 자유. 태그 종류는 2.3(5)를 지킴 |
-| 애니메이션, 호버, 포커스 모양 | 자유. 키보드 포커스가 보이게 유지 |
-| 새 정적 파일 (이미지, 글꼴) | `static/` 안에 두고 `/static/…`으로 부름 (2.1) |
+| 색, 글꼴, 글자 크기, 간격, 모서리, 그림자 | `tokens.css` 변수로. 다크 값 두 덩어리를 같이 고치고 대비를 다시 확인 (2.3 (3)) |
+| 배치(flex·grid), 본문 폭별 모양 | 화면 CSS는 창 폭 `@media` 대신 `@container content (…)`로 (2.9). 320px 폭까지 가로 스크롤이 생기지 않게. 메뉴·서랍의 폭 숫자를 바꾸면 `lib/media.js`·`layout.css`·`assistant/state.js`의 `drawerCovers` 대체 숫자와 2.9를 같이 고침 |
+| 아이콘 | `ICONS`에 선 그림으로. 키는 메뉴 글자·시작 모드 글자와 같게 (2.3 (2)). `c9`·`replay`가 들어가면 시험이 깨짐 |
+| 문구 (버튼 글자, 제목, 안내문) | 자유. 다만 정직 표시는 남기고 한 화면에 한 곳으로 (규칙 7), 서버 시험이 보는 글자(메뉴 글자, `MKT_MODES`의 시작 모드 키, `PASTE_SAMPLES`, `GEN_NAMES`의 답글·안내문 이름, `CHAT_STARTERS`의 갈래)는 2.4대로, 문구를 찾는 vitest는 같이 고침 |
+| 컴포넌트 나누기·합치기, 파일 옮기기 | 자유. 다만 2.4 (1) 표의 파일과 이름은 옮기면 `tests/frontend_src.py`·서버 시험을 같이 고침. 모듈 상태(`state.js`)를 컴포넌트 안으로 옮기면 화면을 떠났다 오면 사라지니 주의 |
+| CSS 클래스 이름 | 자유. 다만 2.3 (6)의 이름, `.app`의 상태 클래스, `report.css` 인쇄 규칙이 보는 이름(`.rp`·`.rp-sec`·`.rp-pair`·`.rp-bar`·`.rp-print`·`.rp-screen`·`.rp-snap-t`·`.rp-mkt-st`·`.page-head`)은 같이 고침 |
+| 애니메이션, 호버, 포커스 모양 | 자유. 키보드 포커스가 보이게 두고, 움직임은 `prefers-reduced-motion: reduce`에서 끔 (지금 진행 점들이 그렇게 함) |
+| 새 그림·글꼴 | `src/` 안에 두고 import (2.1 (3)). 외부 CDN·`public/`은 쓰지 않음 |
+| 새 npm 패키지 | `package.json`(버전 정확히 고정)과 `package-lock.json`을 같이 올림 (`run.sh`·`make_bundle.sh`가 `npm ci`를 씀). 상태 관리는 지금처럼 `store.js`와 모듈 상태로 |
 
-**`app.js`가 클래스 이름으로 찾거나 붙이는 것** (이름을 바꾸면 안 되거나, 바꾸면 `app.js`도 고쳐야 하는 것)
-
-| 클래스 | `app.js`가 하는 일 |
-|---|---|
-| `top` | `document.querySelector(".top")`로 찾아 높이를 잼 |
-| `side`, `menu` | `.side .menu`로 찾아 준비 중 링크를 더함. `.menu a`로 현재 메뉴를 표시 |
-| `shell` | `.shell > main`으로 찾아 준비 중 화면을 더함 |
-| `dot` | `#staff`의 `.dot`을 읽어 복사. `#dot-care`·`#dot-mkt`의 `className`을 `"dot ok"`·`"dot warn"`으로 바꿈 |
-| `todo-st` | '오늘 할 일' 버튼 안에서 찾아 글자를 "만드는 중…"으로 바꿈 |
-| `st`, `bad` | `#an-status`에 켜고 끔 |
-| 2.3(7)의 클래스 전부 | HTML 문자열 안에서 붙임 |
+**바꾸면 안 되는 것** (요약): 화면 주소 8개, API 경로·요청·응답 칸 이름, 2.3 (6)의 이름, `[hidden]` 규칙, 2.4 (1) 표의 이름과 값, 정직 표시.
 
 ### 2.8 바꾼 뒤 확인하는 법
 
-**시험 69건** (저장소 루트에서 가상환경을 만든 뒤):
+**(1) 화면 시험과 빌드** (`services/web/frontend`에서)
 
 ```bash
-cd services/web
-PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest discover -s tests -t . -v
+npm ci          # 처음 한 번, 또는 package-lock.json 이 바뀌었을 때 (Node.js 20 이상)
+npm test        # vitest (2.4 (3))
+npm run build   # dist/ 가 생기는지 (실패하면 run.sh 도 서버를 띄우지 않음)
 ```
 
-- `tests.test_web`만 돌리면 45건, `discover`로 돌리면 69건입니다 (`README.md`의 명령은 `test_web`만 돌림).
-- 시험은 외부 호출을 하지 않습니다 (리뷰 분석 서버는 가짜, 모델은 가짜 함수). 글 만드는 저장 예시 파일이 없으면 그것이 필요한 시험만 건너뜁니다.
+**(2) 서버 시험** (저장소 루트에서. 시험 이미지 `ic26-test:py312`, 일반 계정)
 
-**눈으로 확인할 것** (시험용 실행으로 띄우고):
+```bash
+R="$(git rev-parse --show-toplevel)"
+docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic26-test:py312 \
+  bash -c 'PYTHONPATH=/repo:/repo/services/web python -m pytest -q -p no:cacheprovider'
+```
 
-1. 홈이 뜨고, 숫자 타일 4개와 차트가 채워지고, 맨 위에 시험용 띠가 보인다.
-2. '무엇을 할까요?' → 카드 2장 → 카드 ⓐ의 '포장·주문 안내문·답글 만들기' → 초안 화면으로 간다.
-3. 초안에서 글을 고치고 '승인' → 다음 글로 간다 → 다 승인하면 '처리 완료'가 뜬다.
-4. 리뷰 분석 3탭이 마우스와 ←/→/Home/End 키로 바뀐다. 붙여넣기 탭에서 예시 문장으로 '분류하기', '붙여넣은 리뷰 지우기'가 동작한다.
-5. 375px 폭(휴대전화)에서 가로 스크롤이 없고, 메뉴가 위쪽 가로 메뉴가 된다 (토글 버튼은 보이지 않음).
-6. 운영체제가 다크일 때와 `?theme=light`를 붙였을 때 둘 다 글자가 읽힌다.
-7. 'AI에게 묻기' 버튼으로 서랍이 열리고 `Esc`나 '닫기'로 닫힌다.
-8. 상단 바 왼쪽 버튼으로 왼쪽 메뉴가 접히고 펴진다. 넓은 창에서는 새로고침해도 접힌 채이고, 900px쯤으로 줄이면 접힌 채 시작해 펼치면 본문 위에 덮이며 `Esc`·바깥·메뉴 항목으로 닫힌다. 900px에서 서랍을 열어도 본문 폭이 줄지 않는다 (2.9).
+- 저장소의 가상환경에 pytest를 넣었으면(`services/web/requirements.txt`에는 없음) `cd services/web && PYTHONPATH="$(cd ../.. && pwd)":. ../../.venv/bin/python -m pytest -q`도 됩니다.
+- 시험은 외부 호출을 하지 않습니다. node가 없으면 화면 함수를 실제로 돌리는 몇 건(2.4 (1)의 7·8)만 건너뛰고, C6 저장본이 없으면 그것이 필요한 시험만 건너뜁니다.
 
-### 2.9 왼쪽 메뉴 접기와 폭 기준
+**(3) 눈으로 확인** (`APP_MODE=mock services/web/run.sh` → `http://localhost:8000`. 고치면서 보려면 서버를 띄운 채 `npm run dev` → `http://localhost:5173`)
 
-(11/16에 더함) 창 폭이 애매할 때 본문이 잘리던 것을 고치면서 정한 규칙입니다. 모양은 `style.css`의 '왼쪽 메뉴 접기 · 서랍 배치' 덩어리와 `main` 컨테이너 규칙, 동작은 `app.js`의 '왼쪽 메뉴 접기' 덩어리에 있습니다. 숫자를 바꾸면 `test_layout_static.py`도 같이 고칩니다.
+1. 홈이 뜨고 숫자 타일 4개·차트가 채워지고, 맨 위에 시험용 안내 띠가 한 줄 보인다.
+2. '무엇을 할까요?' → 카드 → 만들기 → 초안 → 고쳐서 승인 → 다 승인하면 처리 완료 → '처음부터 다시'.
+3. 리뷰 분석 탭이 마우스와 ←/→/Home/End로 바뀌고, 예시 문장으로 '분류하기'·'붙여넣은 리뷰 지우기'가 된다.
+4. 폭 1440 · 1280(+ 서랍 열기) · 900 · 375px에서 가로 스크롤이 없고, 2.9 표대로 메뉴·서랍이 움직인다. 375px에서도 상단 바 [로그인]·이름 버튼으로 계정 창과 로그아웃에 닿는다.
+5. 900px에서 메뉴를 펼치면 첫 메뉴 항목에 포커스, Tab이 메뉴 안에서만 돌고, Esc·바깥·[메뉴 닫기]로 닫으면 토글 버튼으로 돌아온다.
+6. 상단 바 화면 모양 버튼으로 시스템 → 밝게 → 어둡게, `?theme=light`·`?theme=dark`에서 글자가 읽힌다.
+7. 'AI에게 묻기'로 서랍이 열리고 `Esc`·'닫기'로 닫힌다. 화면 이동 선택지를 누르면 그 화면으로 간다.
+8. 종합 리포트 'PDF 저장'의 인쇄 미리보기가 A4로 나온다 (밝게·어둡게 둘 다 볼 것, 2.3 (8)).
 
-**(1) 폭마다 메뉴와 서랍이 어떻게 되나**
+### 2.9 왼쪽 메뉴 · 서랍 · 폭 기준
 
-| 창 폭 | 왼쪽 메뉴 | 서랍 (AI에게 묻기) |
+창 폭 구간은 `src/lib/media.js`(`BAND_QUERIES`, `useBand`)와 `src/styles/layout.css`의 `@media`가 같은 숫자를 씁니다. 동작은 `App.jsx`, 모양은 `layout.css` 맨 위 주석의 표와 같습니다.
+
+**(1) 폭마다 메뉴 · 상단 바 · 서랍**
+
+| 창 폭 (구간 이름) | 왼쪽 메뉴 | 상단 바 | 서랍 (AI에게 묻기, 폭 400px) |
+|---|---|---|---|
+| 1025px 이상 (`wide`) | 왼쪽에 고정(260px). 토글 버튼(`#menu-toggle`)으로 접으면 사라지고 본문이 넓어짐. 접었는지를 기억 | 위에 붙어 있음(`sticky`) | 본문이 680px 이상 남을 때만 본문을 밂: 메뉴를 폈으면 **1340px 이상**(1340 − 260 − 400 = 680), 접었으면 **1080px 이상**(1080 − 400 = 680). 그 밖에는 본문 위에 덮음(그림자, 뒤를 어둡게 하지 않음) |
+| 761~1024px (`mid`) | **접힌 채 시작** (기억한 값과 상관없음). 펼치면 화면 왼쪽에 덮이고 뒤를 어둡게(`--scrim`). 덮는 동안 상단 바까지 가리므로 메뉴 안에 [메뉴 닫기] 버튼이 생김 | 위와 같음 | 본문 위에 덮음 (본문 폭을 깎지 않음) |
+| 760px 이하 (`narrow`) | 상단 바 아래 가로 한 줄 메뉴(위에 붙음, 옆으로 밀어 봄, 아이콘 숨김). 지금 화면 항목이 보이게 옆으로 밂. 계정 줄은 숨김 | 위에 붙지 않고 함께 스크롤. 토글 버튼·승인 대기 칩 숨김 | 아래에서 올라오는 시트(높이 85%) |
+
+- 폭이 소수(화면 배율 때문에 760.5px 같은 폭)여서 두 구간 사이 1px 틈에 걸리면 CSS와 JS(`bandNow`) 모두 넓은 화면(`wide`) 규칙을 따릅니다.
+- 그 밖의 창 폭 `@media`: 400px 이하 가게 칸·'AI에게 묻기' 버튼 여백, 480px 이하 계정 창 여백·목록, 760px 이하 제목 24px·대화상자 여백·서랍 안 여백.
+
+**(2) 메뉴 상태와 기억**
+
+- 상태는 `App.jsx`의 `menuOpen`(넓은 화면)과 `over`(덮는 메뉴가 열림) 둘이고, 화면에는 `.app`의 클래스 `menu-closed`·`menu-over`로 알립니다. 서랍이 열리면 `drawer-open`.
+- 토글 버튼은 `aria-controls="side-menu"`, `aria-expanded`(넓은 화면은 `menuOpen`, 761~1024px는 `over`), `aria-label`·`title`("왼쪽 메뉴 접기" / "왼쪽 메뉴 펼치기")을 바꿉니다.
+- 넓은 화면의 접힘 여부는 `localStorage`의 `ic26.menu`(`"open"`·`"closed"`)에 둡니다. 넓은 화면에서 토글할 때만 씁니다. `localStorage`는 늘 `try { … } catch` 안에서 부르고, 못 쓰면 그 화면을 보는 동안만 기억합니다.
+- 창 폭이 구간을 넘거나 화면이 바뀌면 덮는 메뉴는 닫힙니다.
+
+**(3) 덮는 메뉴(761~1024px)의 포커스** (`App.jsx`, 시험 `App.test.jsx`)
+
+- 열면 포커스가 메뉴의 **첫 항목**(`.menu-item`)으로 갑니다. 뒤의 본문(`.main`)은 `inert`가 되어 읽기 프로그램·마우스가 닿지 않습니다.
+- `Tab`·`Shift+Tab`은 메뉴(`#side-menu`) 안의 누를 수 있는 요소 사이에서만 돕니다.
+- `Esc`(한글 입력 중 제외, 서랍이 열려 있어도 메뉴부터), 바깥(어두운 배경) 누름, [메뉴 닫기], 메뉴 항목으로 닫힙니다.
+- 닫히면 포커스가 토글 버튼(`#menu-toggle`)으로 돌아옵니다. 메뉴 항목으로 다른 화면에 갔으면 그 화면 제목(`h1`)이 가진 포커스를 그대로 둡니다.
+
+**(4) 승인 대기 수와 계정**
+
+- 승인 대기 수는 왼쪽 메뉴 '승인할 글' 옆 숫자(`.count`, `aria-label="승인 대기 n개"`)입니다. 메뉴가 안 보일 때(넓은 화면에서 접음, 761~1024px에서 덮는 메뉴가 닫혀 있음)는 상단 바에 승인 대기 칩 `#top-waiting`(→ `#/draft`)이 대신 보입니다. 0이면 둘 다 없습니다. 760px 이하에서는 가로 메뉴의 '승인할 글' 숫자가 보이고 칩은 숨깁니다.
+- 계정은 **모든 폭에서** 상단 바의 [로그인](`#acct-login`, 로그인 창) 또는 이름 버튼(`#acct-user`, 내 계정 창)으로 닿습니다. 내 계정 창에 [로그아웃](`#acct-logout`)이 있어서, 왼쪽 메뉴의 계정 줄이 숨는 760px 이하에서도 로그아웃할 수 있습니다. 왼쪽 메뉴가 보일 때(넓은 화면, 또는 761~1024px에서 펼친 덮는 메뉴)는 메뉴 맨 아래 계정 줄(게스트 + [로그인] / 이름 + [내 계정]·[로그아웃])도 있습니다.
+
+**(5) 서랍이 본문을 미는지 덮는지**
+
+- CSS(`layout.css`): 서랍은 기본으로 본문 위에 덮고(`position: fixed`, 그림자), `@media (min-width: 1340px)`에서 `.app.drawer-open .main`에, `@media (min-width: 1080px)`에서 `.app.menu-closed.drawer-open .main`에 `margin-right: var(--drawer-w)`를 주어 밉니다. 761~1024px 구간은 이 두 기준보다 좁아서 늘 덮습니다.
+- JS(`assistant/state.js`의 `drawerCovers`): 화면 이동 선택지를 누를 때 서랍 `#assistant`와 본문 `#main`의 실제 위치가 겹치는지 봅니다(1px 여유). 겹칠 때만 서랍을 닫고 이동한 화면 제목으로 포커스를 보냅니다. 위치를 잴 수 없으면(시험 환경 등) CSS와 같은 숫자로 봅니다(메뉴를 폈으면 1339px 이하, 접었으면 1079px 이하가 덮음). 폭 숫자 대신 위치를 보므로 CSS 기준이 바뀌어도 그대로 맞습니다.
+
+**(6) 본문 폭에 따라 바뀌는 것 (`@container content`)**
+
+서랍이 밀거나 메뉴를 접으면 창 폭은 그대로인데 본문 폭만 달라집니다. 그래서 본문 `<main class="content">`를 크기 컨테이너 `content`로 두고(`container-type: inline-size; container-name: content`), 화면 CSS는 창 폭 대신 `@container content (max-width: …)`로 씁니다. 공통 단계는 `base.css`에 있습니다.
+
+| 어디 | 본문 폭 | 바뀌는 것 |
 |---|---|---|
-| 1280px 이상 | 화면 왼쪽에 고정 (260px). 토글 버튼으로 접으면 사라지고 본문이 넓어짐. 접었는지를 기억함 | 본문을 밀어냄 (서랍 폭 1339px 이하 340px, 1340px부터 400px) |
-| 1025~1279px | 위와 같음 (1100px 이하에서는 메뉴 폭 228px) | 메뉴가 펼쳐져 있으면 본문 위에 덮임. 메뉴를 접으면 본문을 밀어냄 |
-| 761~1024px | **접힌 채 시작** (기억한 값과 상관없음). 펼치면 상단 바 아래에서 본문 위에 덮임. 뒤에 어두운 배경이 깔림 | 본문 위에 덮임 (본문 폭을 깎지 않음) |
-| 760px 이하 | 상단 바 아래 가로 메뉴. 토글 버튼 없음 | 아래에서 올라오는 시트 |
+| 공통 `.tiles` (`base.css`) | 기본 | 칸당 150px 이상이면 모두 한 줄 (`auto-fit`) |
+| | 799px 이하 | 타일 숫자 26px |
+| | 679px 이하 | 두 칸, 홀수 개면 마지막 칸이 한 줄 전체 (본문이 약 256px보다 좁으면 한 칸) |
+| | 479px 이하 | 타일 여백 16px · 간격 12px · 숫자 24px |
+| 공통 `.grid-3` | 879px 이하 | 두 칸 |
+| 공통 `.grid-2`·`.grid-3` | 639px 이하 | 한 칸 |
+| 공통 `.panel` | 479px 이하 | 안쪽 여백 20·16px |
+| 홈 `.flow-dash` (오늘 할 일 · AI 비서) | 759px 이하 | 한 칸 (공통 639px보다 먼저) |
+| 홈 시간대 막대 `.flow-hours` | 479px 이하 | 막대 사이 3px, 시각 글자 한 칸 걸러 숨김(자리는 그대로, 모든 숫자는 `aria-label`에) |
+| 흐름 화면 | 479px 이하 | 진행줄 버튼 왼쪽 여백 없앰, 완료 목록 줄바꿈 허용, 할 일 아래 버튼 꽉 채움 |
+| 리뷰 분석 `.an-paste-grid` | 759px 이하 | 붙여넣기 · 분류 결과 한 칸 |
+| 리뷰 분석 | 639px 이하 | 흐름 숫자·시간대 줄·키워드 간격 좁게 |
+| 리뷰 분석 `.an-paste-opts` (채널 · 별점) | 419px 이하 | 한 칸 (그 위에서는 공통 639px 규칙보다 우선해 두 칸) |
+| 종합 리포트 `.rp-praise-body` | 759px 이하 | 세 칸 → 한 칸씩 |
+| 종합 리포트 `.rp-tiles`·`.rp-nums` | 639px 이하 | 두 칸 |
+| 종합 리포트 | 479px 이하 | 큰 점수 44px 등 |
+| 상권 분석 `.mk-cond-btns` | 1000px 이상 | 조건 버튼이 고르기와 한 줄 |
+| 상권 분석 `.mk-body` | 979px 이하 | 오른쪽 옆 칸(280px)을 아래로 |
+| 상권 분석 지표 칸 (자체 컨테이너 `mk-main`) | 1100px 이상 | 핵심 지표 4칸 한 줄 (그 아래는 2×2) |
+| | 779px 이하 | 세부 탭 2×2 |
+| 맞춤 마케팅 `.mkt-split` | 860px 이하 | 질문 · 제안 결과 두 칸 → 위아래 |
+| | 520px 이하 | 패널·카드 여백 줄임 |
 
-- **서랍이 본문을 미는 것은 본문이 680px 이상 남을 때뿐입니다.** 1280 − 260 − 340 = 680, 메뉴를 접은 1025 − 340 = 685. 그 밖의 폭에서는 서랍이 본문 위에 덮이고, 760px 이하의 시트처럼 뒤를 어둡게 하지 않으며 '닫기'·`Esc`로 닫습니다.
-- 서랍을 여닫는 JS(`toggleAssistant`)는 그대로 `hidden` 속성만 바꿉니다. 미는지 덮는지는 CSS가 `body:has(> .shell > .drawer:not([hidden]))`와 `@media`, `data-menu`로 정합니다.
-- 메뉴가 늘 보이지 않는 경우(760px 이하, 761~1024px, 메뉴를 접은 넓은 화면)에는 상단 바에 로고(`.top-brand`)가, 홈에 AI 직원 한 줄(`#staff-strip`)이 보이고, 승인 대기 글이 있으면 토글 버튼 위에 그 수(`#menu-toggle-count`)가 보입니다.
-
-**(2) 상태와 기억**
-
-- 상태는 **`<html data-menu="open">` 또는 `"closed"` 하나**입니다 (`setMenu`). 이때 `#menu-toggle`의 `aria-expanded`와 `aria-label`("왼쪽 메뉴 접기" / "왼쪽 메뉴 펼치기")도 같이 바뀝니다. `data-menu`가 아직 없어도(스크립트가 돌기 전) 761~1024px에서는 CSS만으로 접혀 있습니다.
-- 접힘 여부는 **`localStorage`의 `ic26.menu`**(값 `"open"`·`"closed"`)에 둡니다. 1025px 이상에서 토글할 때만 쓰고 읽습니다. `localStorage`는 늘 `try { … } catch` 안에서만 부르고, 못 쓰는 환경에서는 그 화면을 보는 동안만 기억합니다.
-- 창 폭이 구간(760px 이하 · 761~1024px · 1025px 이상)을 넘을 때마다 그 구간의 처음 상태로 돌아갑니다 (`applyMenu`).
-- 덮는 메뉴(761~1024px)가 열려 있는 동안: 포커스가 메뉴(지금 화면의 항목)로 가고, `Tab`은 토글 버튼과 메뉴 항목 안에서만 돕니다. `Esc`·바깥(어두운 배경)·메뉴 항목·토글 버튼으로 닫히고, 닫히면 포커스가 토글 버튼으로 돌아옵니다 (화면이 바뀐 경우에는 그 화면 제목으로). 서랍도 열려 있으면 `Esc`는 메뉴부터 닫습니다.
-
-**(3) 새로 생긴 이름**
-
-| 이름 | 무엇 |
-|---|---|
-| `#menu-toggle` (`.menu-toggle`) | 상단 바의 메뉴 토글 버튼 |
-| `#menu-toggle-count` (`.menu-toggle-count`) | 토글 버튼 위의 승인 대기 수 |
-| `#side-menu` | 왼쪽 메뉴 `nav.side`에 붙인 id (`aria-controls`용) |
-| `.shell::before` | 덮는 메뉴 뒤의 어두운 배경. 따로 요소가 없고 761~1024px에서 `data-menu="open"`일 때만 생김 |
-| `--scrim`, `--over-shadow` | 어두운 배경 색, 덮이는 메뉴·서랍의 그림자 색 (라이트·다크 값이 따로) |
-| `.dash` 규칙 | 홈 화면 전체에 `word-break: keep-all` (한글을 낱말 단위로 줄바꿈) |
-
-- **인쇄**: `data-menu`를 보는 규칙은 모두 `@media screen and …` 안에 있고, 토글 버튼도 `screen` 761px 이상에서만 보입니다 (기본은 `display: none`). 인쇄 폭(A4 약 794px)이 761~1024px 구간에 들어가기 때문입니다. 그래서 인쇄 모양을 만들 때 이 절의 요소를 따로 숨길 필요는 없습니다.
-- **폭이 소수일 때**(화면 배율 때문에 760.5px 같은 폭): 구간 사이 1px 틈에서는 CSS와 JS(`menuBandNow`) 모두 넓은 화면 규칙을 따릅니다.
-
-**(4) 본문 폭에 따라 바뀌는 것 (`main`의 컨테이너 규칙)**
-
-서랍이 밀거나 메뉴를 접으면 창 폭은 그대로인데 본문 폭만 달라집니다. 그래서 아래는 창 폭(`@media`)이 아니라 **`main`의 안쪽 폭**(`@container`)을 봅니다.
-
-| 무엇 | 넓을 때 | 좁아지면 |
-|---|---|---|
-| 추천 카드 `.cards` | 2장 나란히 | 640px 이하: 1열 |
-| 홈 숫자 칸 `.tiles` | 4칸 | 679px 이하: 2×2, 259px 이하: 1열 (799px 이하에서는 숫자 글자를 조금 작게) |
-| 리뷰 분석 숫자 칸 `.stats` | 3칸 | 479px 이하: 2칸 + 마지막 칸은 한 줄 전체, 259px 이하: 1열 |
-| 시간대 막대 `.hour-chart` | 막대 사이 6px, 시간 라벨 모두 | 520px 이하: 3px, 340px 이하: 2px. 420px 이하(막대가 15개 이상이면 640px 이하): 시간 라벨을 한 칸 건너 하나만. 막대가 17개 이상이고 440px 이하: 막대 위 숫자도 한 칸 건너 |
-
-- 숫자 칸의 라벨·숫자, 상단 바의 가게 이름은 **말줄임표로 자르지 않고 줄을 바꿉니다** (`word-break: keep-all` + `overflow-wrap`). `.stats`의 `overflow: hidden`은 둥근 모서리용이라 그대로입니다.
-- 시간대 막대에서 숨긴 라벨도 자리(높이)는 그대로 차지합니다. 모든 숫자는 차트의 `aria-label`에 그대로 있습니다.
-- 확인한 것 (11/16, 시험용 실행 + Chrome): 폭 1440·1280·1180·1100·1024·900·800·768·761·760·600·390·320px × 화면 5개(홈·추천 카드·리뷰 분석·종합 리포트·초안) × 서랍 닫힘/열림 × 메뉴 처음 상태/토글한 상태 220가지에서 페이지 가로 스크롤 0, 잘린 글자 0.
-- 맞춤 마케팅 (11/16, 시험용 실행 + Chrome): 폭 1440·1024·900·900(서랍 열림)·390px × 맞춤 제안(광고비 표·공지 카드·재주문 쿠폰 슬라이더 카드가 쌓인 상태)·마케팅 보고서 탭 10가지에서 가로 스크롤 0, 잘린 글자 0, 삐져나온 것 0. 넓은 광고비 표는 그 칸 안에서만 옆으로 밀리고(`.mkt-table-wrap`), 결과 카드의 숫자 칸·모드 카드는 `auto-fit`으로 줄을 바꿉니다 (`@container (max-width: 499px)`에서 카드 여백만 줄임).
+- 숫자·가게 이름은 말줄임표로 자르지 않고 줄을 바꿉니다 (`body`의 `word-break: keep-all` + `overflow-wrap: anywhere`).
+- 인쇄에서는 `layout.css`가 컨테이너를 꺼서(`container-type: normal`) 이 규칙이 먹지 않고, 종이 모양은 `report.css` 인쇄 덩어리가 정합니다.
 
 ---
 
 ## 3부. 데이터가 어디에 저장되나, 무엇이 바뀔 예정인가
 
-> **11/14 덧붙임: 이 3부의 일부는 `main`에서 이미 바뀌었습니다.** 이 문서의 기준 커밋(`d7c1305`) 뒤에 DB 저장 코드(`shared/storage`)와 상권 코드(`services/market-analysis`)가 `main`에 들어왔습니다. 화면 파일 3개와 2부의 규칙은 그대로입니다. 달라진 것은 아래와 같습니다.
+> **11/14 덧붙임: 이 3부의 일부는 `main`에서 이미 바뀌었습니다.** 이 문서의 기준 커밋(`d7c1305`) 뒤에 DB 저장 코드(`shared/storage`)와 상권 코드(`services/market-analysis`)가 `main`에 들어왔습니다. 그때 화면 파일 3개와 2부의 규칙은 그대로였습니다 (11/20부터 화면은 React, 2부). 달라진 것은 아래와 같습니다.
 >
 > - **방문자 구분이 생겼습니다.** 서버가 쿠키 `visitor_id`(HttpOnly, 30일)를 주고, 승인 기록과 붙여넣은 리뷰를 그 값으로 나눕니다. 브라우저가 쿠키를 알아서 보내므로 화면 코드는 고칠 것이 없습니다. 로그인은 아닙니다.
 > - **환경 변수 `DB_HOST`가 있으면** 승인 기록, 붙여넣은 리뷰, 카드 이유 문장을 PostgreSQL에 둡니다. 없으면 아래 3.1 표대로이고, 붙여넣은 리뷰 파일만 방문자마다 `data/runtime/visitors/<방문자>/`로 나뉩니다.
@@ -2517,8 +2448,9 @@ PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest discover -s t
 | **만든 글(live)** | 저장하지 않음. 브라우저 화면에만 있음 | 새로고침하면 사라짐 | — |
 | **카드 이유 문장** | 비서 화면 서버의 메모리(`_reason_memo`). 같은 입력이면 live에서 HCX를 다시 부르지 않으려는 것 | 서버를 끄면 사라짐 | `GET /api/cards`가 씀 |
 | **리뷰 분류 결과** | mock(규칙 분류)은 **요청마다 새로 계산**하고 저장하지 않음. 리뷰 분석 서버가 live일 때만 결과를 파일(`services/review-insight/data/replay/classify.json`, `services/review-insight/data/runtime/classify_paste.json`)에 남김 | — | 리뷰 분석 서버 |
-| **화면 진행 상태** (만든 글, 승인 표시, 고친 글) | **브라우저 메모리**(`app.js`의 `state`) | 새로고침하면 사라짐. 진행 상태는 `localStorage`·쿠키에 두지 않음 (확인함) | `app.js` |
-| **왼쪽 메뉴를 접었는지** (11/16) | **브라우저 `localStorage`**의 `ic26.menu` (`"open"`·`"closed"`). 서버로 보내지 않음 | 브라우저에 남음 (1025px 이상에서만 씀. 2.9) | `app.js` |
+| **화면 진행 상태** (만든 글, 승인 표시, 고친 글) | **브라우저 메모리**(`src/state/store.js`의 상태와 화면마다의 모듈 상태 `features/*/state.js`, 2.2) | 새로고침하면 사라짐. 진행 상태는 `localStorage`·쿠키에 두지 않음 (11/20 React 코드로 다시 확인함) | 화면(`frontend/src`) |
+| **왼쪽 메뉴를 접었는지** (11/16) | **브라우저 `localStorage`**의 `ic26.menu` (`"open"`·`"closed"`). 서버로 보내지 않음 | 브라우저에 남음 (1025px 이상에서만 씀. 2.9) | `src/App.jsx` |
+| **화면 모양** (11/19) | **브라우저 `localStorage`**의 `ic26.theme` (`"light"`·`"dark"`, 시스템이면 지움). 서버로 보내지 않음 | 브라우저에 남음. 주소의 `?theme=`는 저장하지 않음 (2.3 (4)) | `src/lib/theme.js`, `frontend/index.html` |
 | **방문자 구분** | **없음** | — | 로그인·쿠키·사용자 id가 코드에 없음. 모든 방문자가 같은 가게·같은 승인 목록·같은 붙여넣은 리뷰를 봄 |
 
 승인 기록 파일 한 줄은 이런 모양입니다 (`1.6` 응답과 같은 칸): `draft_id`, `status`, `edited`, `text`, `approved_at`, `mode`.
@@ -2533,33 +2465,15 @@ PYTHONPATH="$(cd ../.. && pwd)" ../../.venv/bin/python -m unittest discover -s t
 | **방문자를 구분하는 값** | 없음 | 방식(로그인·쿠키·토큰)은 정해지지 않았습니다. 정해지면 요청에 값을 싣는 방법이 바뀔 수 있습니다 |
 | **보고서 API** (가게 주간·월간 보고서) | **연결됨 (11/15)**: 리뷰 분석 서비스의 일일·월간 응대 보고서를 `/api/care/report/*`로 (1.11절). 종합 리포트(`#/report`)에 보임. 주간 보고서·DB `reports` 표 저장은 아직 없음 | `#rp-*` |
 | **상권 채팅** (`AI에게 묻기` 서랍) | **연결됨 (`feat/assistant-proxy`)**: 비서 화면 서버가 상권 서비스를 대신 불러 줌(1.10절). 서랍이 질문·선택지·근거 카드·대화 지우기를 함. 공식 상권 자료가 아직 없어 실제 숫자는 자료가 들어온 뒤에 나옴 | 서랍 안(`#assistant-*`)만 바뀜 |
-| **캡처(OCR) 입력** | **연결됨 (11/15)**: 리뷰 붙여넣기 탭의 '캡처로 넣기' (1.11절, HCX-005가 옮겨 적고 사장님이 확인해 저장) | `#cap-*` |
+| **캡처(OCR) 입력** | **연결됨 (11/15)**: 리뷰 분석 '리뷰 넣기' 탭의 '캡처로 넣기' (1.11절, HCX-005가 옮겨 적고 사장님이 확인해 저장) | `features/analysis/Capture.jsx` |
 
-### 3.3 지금 화면에 있는 빈 자리
+### 3.3 화면의 빈 자리 (11/20 없음)
 
-**(1) 준비 중 메뉴 하나: `app.js`의 `LATER`** (11/15 '종합 리포트'는 진짜 화면이 되어 빠짐)
+(11/20 고침) 예전 화면의 빈 자리 두 곳은 모두 채워져서, React 화면에는 '준비 중' 메뉴나 빈 서랍이 없습니다. 예전 내용은 git 이력(`d3113b0` 이전)에 있습니다.
 
-```js
-const LATER = [
-  { route: "market", long: "", short: "상권", desc: "가게 주변 상권 지표를 볼 화면이에요. …" },
-];
-```
-
-(`desc`의 뒷부분은 줄여서 적음)
-
-- `LATER` 목록에서 왼쪽 메뉴 링크(`#/market`)와 "회의에서 정한 뒤 넣을 자리입니다" 빈 화면을 만듭니다 (`mountLater()`).
-- 메뉴에서는 "준비 중" 제목 아래에 나오고, 375px 폭에서는 제목이 숨고 "준비 중" 배지가 보입니다.
-- 채우는 방법: `index.html`에 진짜 화면(`<section data-view="report">`)을 만들고, `LATER`에서 그 항목을 빼고, `ROUTES`에 이름을 넣습니다 (`app.js` 주석). 모양은 `style.css`의 '준비 중 자리' 한 덩어리입니다.
-- 시험 4가 `LATER`의 `"상권"`, `준비 중`, `회의에서 정한 뒤 넣을 자리입니다`를 확인합니다. **자리를 채워서 `LATER`에서 항목을 빼면 이 시험도 같이 고쳐야 합니다** (11/15 종합 리포트 때 고침).
-- 홈의 '상권 저녁 매출' 타일(`#stat-market`)과 카드 ⓑ의 근거가 지금 상권 지표를 보여 주는 곳입니다.
-
-**(2) 'AI에게 묻기' 서랍 자리**
-
-- 열고 닫는 버튼이 둘 있습니다. 상단 바의 `#ask-ai`와 홈 아래쪽 입력줄 모양의 `#ask-open`(배지 "준비 중"). 둘 다 `#assistant` 서랍을 엽니다. 닫을 때 연 버튼으로 포커스가 돌아갑니다. `Esc`로도 닫힙니다.
-- 서랍 안: 제목, 닫기, 조건 줄, 대화 기록, 추천 질문 칩, 질문 입력칸 (상권 채팅이 연결됨. 2.2의 서랍 id 표와 1.10절)과 '보내기' 버튼(`disabled`).
-- 질문을 보내거나 답을 받는 코드는 없습니다. 채팅 API가 정해지면 이 자리에 붙입니다 (3.2).
-- 데스크톱에서는 오른쪽 380px 서랍, 375px 폭에서는 아래에서 올라오는 시트입니다.
-- 참고: `index.html`과 `app.js`의 주석에는 이 버튼이 "숨겨져 있다"고 적혀 있지만, 지금 `index.html`에서 버튼은 숨겨져 있지 않습니다 (부록의 '알려진 특이점').
+- **'준비 중' 메뉴(`LATER`)**: 11/15 종합 리포트, 11/18 상권 분석이 진짜 화면이 되어 비었고, React 화면에는 `LATER`·`mountLater`·'준비 중' 화면이 없습니다. 화면 8개는 모두 진짜 화면입니다 (2.5). 그것을 확인하던 시험(`test_later_menu_slots`)도 지웠습니다.
+- **'AI에게 묻기' 서랍**: 상권 채팅(1.10)과 전 파트 질문·화면 이동(1.15)이 연결되어 있습니다. 여는 버튼은 상단 바 'AI에게 묻기'(`Topbar.jsx`), 홈 아래 입력줄 모양 버튼(`Home.jsx`), 종합 리포트 상권 요약의 'AI에게 묻기로 상권 더 보기'입니다. 동작은 2.6, 폭별 모양은 2.9.
+- 새 화면을 더하는 방법은 2.2 (4)에 있습니다.
 
 ### 3.4 임시 DB 표 이름
 
@@ -2743,23 +2657,25 @@ const LATER = [
 
 | # | 특이점 | 어디서 | 영향 |
 |---|---|---|---|
-| 1 | 카드의 `ⓐ`·`ⓑ` 표시가 카드 **위치** 기준입니다. 카드 ⓐ가 없고 홍보 카드만 있으면 홍보 카드가 `ⓐ`로 보임. 카드 id의 `_a`·`_b`는 종류 기준이라 서로 다름 | `app.js`의 `renderCards`, `renderDraft` | 카드가 하나뿐인 날 이름표가 어긋남. 카드 ⓐ가 없는 날은 시험(`test_no_repeated_issue_means_no_card_a`)이 다루는 정상적인 경우임 |
+| 1 | 카드의 `ⓐ`·`ⓑ` 표시가 카드 **위치** 기준입니다. 카드 ⓐ가 없고 홍보 카드만 있으면 홍보 카드가 `ⓐ`로 보임. 카드 id의 `_a`·`_b`는 종류 기준이라 서로 다름 | `features/flow/Cards.jsx`(`index === 0`), `Draft.jsx`(`s.cards.indexOf(q) === 0`) | 카드가 하나뿐인 날 이름표가 어긋남. 카드 ⓐ가 없는 날은 시험(`test_no_repeated_issue_means_no_card_a`)이 다루는 정상적인 경우임 |
 | 2 | 사용자가 잘못 입력한 경우(공백만 있는 글, 틀린 `channel`)가 `422`가 아니라 `503`("리뷰 분석 서비스 오류 400: …")으로 옴. 리뷰 분석 서버의 `400`을 비서 화면 서버가 `503`으로 바꿔 전달함 | `sources.py`의 `_json`, `demo.py`의 `paste` | 화면은 문장을 그대로 보여 주므로 사용자에게는 보임. 상태 코드만 어색함 |
 | 3 | (고침) 붙여넣기 글자 수 검사가 비서 화면 서버만 4000자였음 | `main.py`의 `PasteIn` | main `d7c1305`에서 1000자로 맞춤. 지금은 1001자 이상이 `422` |
 | 4 | 상권 지표 파일이 깨지면 `/api/health`는 `200`(+`snapshot.error`), `/api/briefing`·`/api/cards`는 `500`(일반 글자) | `demo.py`의 `health`와 `_state` | 화면이 "요청 실패 (500)"만 보임 |
 | 5 | `POST …/approve`가 `draft_id`가 실제 글인지 확인하지 않고, 본문 `{}`도 받아 `text: null`로 기록함 | `demo.py`의 `approve` | 화면에서는 생기지 않는 경우 |
 | 6 | 승인 기록 파일은 서버를 다시 켜도 읽지 않아 `GET /api/approvals`가 비게 됨. 같은 글을 다시 승인하면 파일에는 줄이 더 붙어 중복됨 | `demo.py`의 `approve`, `Demo.__init__` | DB로 옮길 때 같이 정리할 부분 |
-| 7 | 승인 응답의 `warning`(기록 파일에 못 씀)을 화면이 보여 주지 않음 | `app.js`의 `approve` | 파일 쓰기가 실패해도 사장님은 모름 |
+| 7 | 승인 응답의 `warning`(기록 파일에 못 씀)을 화면이 보여 주지 않음 | `features/flow/actions.js`의 `approve` | 파일 쓰기가 실패해도 사장님은 모름 |
 | 8 | mock은 `measures`의 틀린 id를 무시하고 `200`, live는 `400` | `demo.py`의 `run` | 시험용 실행에서는 안 걸리는 오류가 live에서 나옴 |
-| 9 | 형식 오류(`422`)의 `detail[0].msg`가 영어이고 화면이 그대로 보여 줌 | `app.js`의 `api()` | 사용자에게 영어가 보일 수 있음 |
+| 9 | 형식 오류(`422`)의 `detail[0].msg`가 영어이고 화면이 그대로 보여 줌 | `src/lib/api.js`의 `api()` (프록시용 `careApi`·`mktApi` 등은 해당 없음) | 사용자에게 영어가 보일 수 있음 |
 | 10 | 배달앱 이름이 `/api/briefing`의 `groups[].reviews[].channel`에서는 한국어(`"배민"`), `single_complaints[].channel`·`/api/insight`에서는 코드(`"baemin"`)임 | `demo.py`의 `briefing` | 화면에 보이는 곳은 한국어뿐이라 지금은 문제 없음 |
-| 11 | `index.html`·`app.js` 주석은 'AI에게 묻기' 버튼이 숨겨져 있다고 적었지만, 지금 `index.html`의 버튼(`#ask-ai`)은 숨겨져 있지 않고 눌러서 빈 서랍을 열 수 있음 | `index.html` 상단, `app.js`의 `toggleAssistant` 위 주석 | 주석이 낡음 |
+| 11 | (11/20 지움) 예전 `index.html`·`app.js` 주석이 'AI에게 묻기' 버튼을 숨겨져 있다고 적은 문제. 예전 화면을 지워서 해당 없음 | — | — |
+| 12 | (11/20 고침) 추천 카드의 이유 문장(`reason_text`) 줄바꿈(`\n`)이 React 카드에서 살지 않던 것 | `features/flow/Cards.jsx`의 `.card-reason`, `flow.css`(`white-space: pre-line`) | 고친 뒤에는 카드 ⓑ의 두 줄 이유가 두 줄로 보임 |
+| 13 | (11/20 고침) 어둡게 모양에서 종합 리포트를 PDF로 저장하면 색 토큰이 어두운 값으로 찍힐 수 있던 것 | `styles/tokens.css`: 다크 토큰을 `@media screen` 안에만 둠 | 인쇄는 늘 밝은 토큰. 실제 인쇄물은 확인하지 못함 |
 
 ### 코드에서 확인하지 못한 것
 
 - **live 모드의 응답**: 키가 없어 실행하지 않았습니다. `live`의 `POST …/run` 응답(글 id 모양, `needs_input`의 실제 내용, 걸리는 시간)은 코드로만 확인했고 값은 확인하지 못했습니다. 키 없이 `live`로 띄웠을 때의 `health`·`cards`·`run` 오류만 실제로 뽑았습니다.
 - **다른 주소(origin)에서 API를 부를 때 브라우저가 막는지**: 코드에 CORS 설정이 없는 것만 확인했고, 실제 브라우저 동작은 실행하지 않았습니다.
-- **화면이 브라우저에서 실제로 어떻게 보이는지**: 코드(`index.html`, `app.js`, `style.css`)를 읽었고 화면을 열어 보지는 않았습니다. 2.8의 '눈으로 확인할 것'은 코드에 있는 기능을 기준으로 적은 점검 목록입니다.
+- **화면이 브라우저에서 실제로 어떻게 보이는지**: (11/20) 2부는 React 소스(`services/web/frontend/src`)와 서버·배포 스크립트를 읽고 썼습니다. 화면을 열어 보거나 `npm test`·`npm run build`·서버 시험을 이 문서 작업에서 돌리지는 않았습니다. 2.8의 '눈으로 확인'은 코드에 있는 기능을 기준으로 적은 점검 목록입니다.
 - **`classification.model`의 정확한 뜻**: 예시 값이 `"kiwi"`인 것만 확인했습니다.
 - **캡처(OCR) 입력, 방문자 구분, 보고서 API, 상권 채팅의 방식과 위치**: 기준 커밋에 코드가 없어 계획 외에는 확인하지 못했습니다.
-- **배포 계획서의 Nginx 설정이 `/static/…`을 어떻게 다룰지**: `docs/infra/architecture.md`에는 `/`와 `/api/`만 있습니다. `/static/…` 처리는 확인하지 못했습니다.
+- (11/20 해결) 예전에 확인하지 못했던 'Nginx가 `/static/…`을 어떻게 다룰지'는 해당 없음: 화면 빌드는 `/`와 `/assets/…`만 쓰고, `deploy/nginx/ic26-static.conf`가 `/assets/`를 따로 다룹니다 (2.1 (4)).
