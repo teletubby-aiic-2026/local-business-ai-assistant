@@ -10,6 +10,7 @@
   · 느린 서비스가 다른 경로를 붙잡지 않음 (이벤트 루프를 막지 않음)
   · 답글 승인 → 서비스에 replied 기록 (따로 보내고 승인 응답은 기다리지 않음, 실패해도 승인은 그대로)
   · 캡처 후보 저장은 POST /api/reviews 에 source=capture (붙여넣기와 같은 길)
+  · 보고서(일일·월간)의 손님 칭찬 요약(praise)은 그대로 넘김 (빈 목록·null 포함)
 
 실행 (services/web 에서): PYTHONPATH=<저장소 루트>:. python -m pytest -q tests/test_care_proxy.py
 """
@@ -479,6 +480,39 @@ class SettingsAndAddress(unittest.TestCase):
         own = CareProxy.from_settings(settings(tmp, care_url="http://10.0.0.5:8020/", care_timeout=60.0, care_public=True,
                                                review_token="t"))
         self.assertEqual((str(own.client.base_url), own.timeout, own.public, own.token), ("http://10.0.0.5:8020", 60.0, True, "t"))
+
+
+# ── 손님 칭찬 요약(praise)을 그대로 넘김 (11/16, 11/20 test_report_praise_print_static.py 에서 옮김) ─────────
+# 종합 리포트의 '손님 칭찬 요약' 칸은 월간 보고서 응답의 praise 로만 그린다. 프록시가 그 칸을 빼거나 바꾸면 안 된다.
+PRAISE = {"review_count": 18, "high_rating_count": 10, "positive_count": 10, "praise_count": 10, "praise_basis": "sentiment",
+          "top_topics": [{"topic": "taste", "topic_name": "맛", "count": 5}],
+          "top_menus": [{"menu": "순두부찌개", "count": 1}, {"menu": "불고기 덮밥", "count": 1}],
+          "quote": {"text": "순두부찌개 얼큰하고 맛있어요", "review_id": "rv_ongi_039", "rating": 4}, "method": "code"}
+EMPTY_PRAISE = {"review_count": 0, "high_rating_count": 0, "positive_count": 0, "praise_count": 0, "praise_basis": None,
+                "top_topics": [], "top_menus": [], "quote": None, "method": "code"}
+
+
+class FakeCareWithPraise(FakeCare):
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == P + "/report/monthly":
+            return httpx.Response(200, json={"month": "2026-11", "until": "2026-11-16T15:00:00+09:00", "review_count": 18,
+                                             "score_trend": [], "repeated_issues": [], "praise": PRAISE})
+        if request.method == "GET" and request.url.path == P + "/report/daily":
+            return httpx.Response(200, json={"date": "2026-11-16", "summary": "11월 16일: 리뷰 0건", "review_count": 0,
+                                             "praise": EMPTY_PRAISE})
+        return super().__call__(request)
+
+
+class ProxyPassesPraise(unittest.TestCase):
+    def test_monthly_and_daily_praise_reach_the_browser_unchanged(self):
+        client, _, _ = build(FakeCareWithPraise())
+        monthly = client.get("/api/care/report/monthly?month=2026-11")
+        self.assertEqual(monthly.status_code, 200)
+        self.assertEqual(monthly.json()["praise"], PRAISE)
+        self.assertEqual(monthly.json()["praise"]["quote"]["text"], "순두부찌개 얼큰하고 맛있어요")
+        daily = client.get("/api/care/report/daily").json()
+        self.assertEqual(daily["praise"], EMPTY_PRAISE)                         # 빈 목록·null 도 그대로
+        self.assertIsNone(daily["praise"]["quote"])
 
 
 if __name__ == "__main__":

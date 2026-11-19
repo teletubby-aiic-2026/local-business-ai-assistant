@@ -8,7 +8,6 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
-import re
 import sys
 import tempfile
 import unittest
@@ -22,6 +21,7 @@ from web.demo import Demo
 from web.main import create_app
 from web.settings import WEB_DIR
 
+from . import frontend_src as fs
 from .test_web import HAS_C6, FakeSource, settings
 
 # scripts/ 는 패키지가 아니라 단독 실행 스크립트라서 경로로 불러온다
@@ -31,7 +31,10 @@ sys.modules["measure_live"] = ml
 _spec.loader.exec_module(ml)
 
 PASS, CHECK, FAIL = ml.PASS, ml.CHECK, ml.FAIL
-APP_JS = WEB_DIR / "web" / "static" / "app.js"
+# 화면(React)에서 점검 상태·요청 본문·글 종류 이름을 정하는 곳. 측정 스크립트가 이 규칙을 그대로 옮겼다
+FLOW_CALC = "features/flow/calc.js"          # failedOf · checksOf · statusOf · measureIds
+FLOW_ACTIONS = "features/flow/actions.js"    # runCard (카드 만들기 요청 본문)
+DOMAIN = "lib/domain.js"                     # GEN_NAMES
 
 
 def mock_client() -> TestClient:
@@ -92,7 +95,7 @@ def draft(**kw) -> dict:
     return base
 
 
-# ── 점검 상태 3가지: app.js statusOf 와 같은 규칙 ─────────────────────
+# ── 점검 상태 3가지: 화면(frontend/src/features/flow/calc.js) statusOf 와 같은 규칙 ─────────────────────
 class StatusRule(unittest.TestCase):
     def test_three_statuses_from_hand_made_drafts(self):
         self.assertEqual(ml.draft_status(draft()), PASS)
@@ -154,17 +157,51 @@ class StatusRule(unittest.TestCase):
         self.assertEqual(s["passed_by"]["답글"], {ml.ORIGIN_AI: 1, ml.ORIGIN_REPAIRED: 1, ml.ORIGIN_TEMPLATE: 1})
         self.assertEqual(s["passed_by_total"], {ml.ORIGIN_AI: 2, ml.ORIGIN_REPAIRED: 1, ml.ORIGIN_TEMPLATE: 1})
 
-    def test_rules_are_still_the_ones_in_app_js(self):
-        """app.js 규칙이 바뀌면 여기서 걸린다 → scripts/measure_live.py 의 draft_status·card_run_body 를 같이 고칠 것."""
-        js = re.sub(r"\s+", " ", APP_JS.read_text(encoding="utf-8"))
-        for rule in ('const failedOf = (d) => d.failed_reasons || [];',
-                     'const checksOf = (d) => [...(d.needs_input || []), ...(d.c7_flags || [])];',
-                     '? ["bad", "점검 실패"] : checksOf(d).length ? ["warn", "확인 필요"] : ["ok", "점검 통과"]',
-                     'failedOf(d).length ?',
-                     'reply_draft: "답글", prevention_notice: "포장·주문 안내문"',
-                     'JSON.stringify({ measures: boxes.filter((b) => b.checked).map((b) => b.value) })',
-                     'const on = new Set(m.default || []);'):
-            self.assertIn(rule, js)
+    def test_rules_are_still_the_ones_on_the_screen(self):
+        """화면(frontend/src) 규칙이 바뀌면 여기서 걸린다 → scripts/measure_live.py 의 draft_status·card_run_body·GENERATOR_NAMES 를
+        같이 고칠 것. 띄어쓰기·줄바꿈·따옴표 모양은 따지지 않는다 (fs.squash)."""
+        fix = "scripts/measure_live.py 의 draft_status·card_run_body 와 화면 규칙이 달라졌어요 (둘을 같이 고칠 것)"
+        calc = fs.read(FLOW_CALC)
+        for name, rule in (("failedOf", "(d) => d.failed_reasons || []"),
+                           ("checksOf", "(d) => [...(d.needs_input || []), ...(d.c7_flags || [])]"),
+                           # 실패가 확인 필요보다 먼저 (승인 완료 분기는 측정 스크립트가 승인하지 않으므로 보지 않음)
+                           ("statusOf", f'failedOf(d).length ? ["bad", "{FAIL}"] : checksOf(d).length ? ["warn", "{CHECK}"] : ["ok", "{PASS}"]')):
+            with self.subTest(name=name):
+                self.assertIn(fs.squash(rule), fs.squash(fs.function_text(calc, name, f"frontend/src/{FLOW_CALC}")), fix)
+        # 요청 본문: 점검 수칙 상자(measures.options)가 있는 카드만 measures 를 보내고, 처음 만들 때 상자가 없으면 본문이 없다
+        run = fs.squash(fs.function_text(fs.read(FLOW_ACTIONS), "runCard", f"frontend/src/{FLOW_ACTIONS}"))
+        self.assertIn(fs.squash("(p?.measures?.options || []).length ? { measures: measureIds("), run, fix)
+        self.assertIn(fs.squash("picked ? JSON.stringify(picked) : undefined"), run, fix)
+        # 고르지 않았으면 카드 기본값(measures.default) 중 상자에 있는 것만, 상자 순서대로
+        ids = fs.squash(fs.function_text(calc, "measureIds", f"frontend/src/{FLOW_CALC}"))
+        self.assertIn(fs.squash("p?.measures?.default || []"), ids, fix)
+        self.assertIn(fs.squash("opts.map((o) => o.id).filter((id) => on.includes(id))"), ids, fix)
+        # 글 종류 이름: 같은 generator 를 세고, 홍보글만 화면에서는 '쿠폰 홍보글'
+        names = fs.object_pairs(fs.const_value(fs.read(DOMAIN), "GEN_NAMES", f"frontend/src/{DOMAIN}"))
+        self.assertEqual(set(names), set(ml.GENERATOR_NAMES), "화면 GEN_NAMES 와 measure_live.GENERATOR_NAMES 의 generator 가 달라요")
+        for gen in ("reply_draft", "prevention_notice"):
+            self.assertEqual(names[gen], ml.GENERATOR_NAMES[gen], f"글 종류 이름({gen})이 화면과 measure_live 에서 달라요")
+
+
+@unittest.skipUnless(fs.NODE, "node 가 없어 화면 함수를 실제로 돌려 보지 못함")
+class StatusRuleRunsLikeTheScreen(unittest.TestCase):
+    """node 가 있으면 화면 모듈(calc.js)을 실제로 불러 같은 초안·카드에 같은 답을 내는지 본다 (없으면 건너뜀, 글자 대조는 위에서)."""
+
+    def test_same_status_and_body_as_the_screen(self):
+        drafts = [draft(), draft(checks={"length_ok": False}), draft(needs_input=["a"]), draft(c7_flags=["b"]),
+                  draft(needs_input=["a"], c7_flags=["b"]), draft(failed_reasons=["x"]),
+                  draft(failed_reasons=["x"], needs_input=["a"], c7_flags=["b"]),
+                  {}, {"failed_reasons": None, "needs_input": None, "c7_flags": None}, {"needs_input": None, "c7_flags": ["b"]}]
+        cards = [{"card": {"card_id": "a"}, "measures": {"options": [{"id": "M1"}, {"id": "M2"}, {"id": "M3"}], "default": ["M2", "M9"]}},
+                 {"card": {"card_id": "b"}, "measures": {"options": [{"id": "M1"}], "default": []}},
+                 {"card": {"card_id": "c"}, "measures": {}}, {"card": {"card_id": "d"}}]
+        got = fs.node_eval({FLOW_CALC: ["statusOf", "measureIds"]},
+                           f"{{ status: {json.dumps(drafts)}.map((d) => statusOf(d, new Set())[1]),"
+                           f" ids: {json.dumps(cards)}.map((p) => measureIds(p, {{}}, {{}})) }}")
+        self.assertEqual(got["status"], [ml.draft_status(d) for d in drafts])
+        # 화면 runCard 는 상자(options)가 있을 때만 { measures: measureIds(…) } 를 보낸다
+        screen = [{"measures": ids} if (p.get("measures") or {}).get("options") else None for p, ids in zip(cards, got["ids"])]
+        self.assertEqual(screen, [ml.card_run_body(p) for p in cards])
 
 
 class RequestBody(unittest.TestCase):

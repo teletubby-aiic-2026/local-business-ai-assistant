@@ -1,4 +1,5 @@
 """C7 시험. CLOVA·네트워크를 부르지 않는다 (리뷰 서비스는 가짜, 모델은 가짜 함수).
+맨 아래 FrontendSource 는 React 화면 소스(services/web/frontend)를 글자로 읽어 서버와 맞물리는 이름만 본다 (빌드·node 없이).
 
 실행 (services/web 에서):
   PYTHONPATH=<저장소 루트> MARKETING_DIR=<experiments/marketing> python -m unittest tests.test_web -v
@@ -12,6 +13,7 @@ import os
 import re
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 from unittest import mock
 
@@ -19,6 +21,8 @@ from fastapi.testclient import TestClient
 
 from shared.answer_check import check_answer
 from shared.contracts import AnalysisSnapshot, load_json
+from tests import frontend_src as fs
+from web import care_proxy, marketing_proxy
 from web.cards import EVENING_ID, build_cards, pick_card_b_snapshot, plan_cards, why_no_card_b
 from web.demo import Demo
 from web.main import create_app
@@ -26,7 +30,6 @@ from web.settings import WEB_DIR, Settings
 from web.sources import SourceError, to_review_records, to_store_profile
 
 FIX = Path(__file__).resolve().parent / "fixtures"
-STATIC = WEB_DIR / "web" / "static"
 # main 에 #16 이 병합된 뒤로는 저장소 안의 experiments/marketing 을 기본으로 쓴다
 MARKETING = Path(os.environ.get("MARKETING_DIR") or Path(__file__).resolve().parents[3] / "experiments" / "marketing")
 HAS_C6 = bool(MARKETING and (MARKETING / "c6" / "replay" / "c6_cache_best.json").exists())
@@ -434,17 +437,6 @@ class LiveAndMockOnly(unittest.TestCase):
         self.assertEqual(live_health["mode"], "live")
         self.assertIsNone(live_health["mode_notice"])     # live 에서는 띄우지 않는다
 
-    def test_screen_shows_the_notice_only_through_health(self):
-        html = (STATIC / "index.html").read_text(encoding="utf-8")
-        js = (STATIC / "app.js").read_text(encoding="utf-8")
-        self.assertIn('id="mode-notice"', html)
-        self.assertIn("mode_notice", js)
-        self.assertIn("실제 AI 결과 아님", js)           # mock 글 출처 표시 (SOURCE_NAMES.seed)
-        for text in (html, js):                          # 발표 모드·저장 단추 자리가 남지 않았다
-            self.assertNotIn("replay", text.lower())
-            self.assertNotIn("c9", text)
-            self.assertNotIn('id="record"', text)
-
     def test_paste_is_allowed_in_mock_and_live(self):
         for mode in ("mock", "live"):
             with self.subTest(mode=mode):
@@ -531,51 +523,114 @@ class AnalysisScreen(unittest.TestCase):
         self.assertEqual(self.client.get("/api/insight").json()["review_count"], 40)
         self.assertNotIn(pasted_id, self.client.get("/api/cards").json()["cards"][0]["card"]["review_ids"])
 
-    def test_no_link_or_call_to_the_old_review_page(self):
-        html = (STATIC / "index.html").read_text(encoding="utf-8")
-        js = (STATIC / "app.js").read_text(encoding="utf-8")
-        for text in (html, js):
-            self.assertNotIn("analysis-link", text)            # 예전 '리뷰 분석 화면에서 … ↗' 자리
-            self.assertNotIn("리뷰 분석 화면에서", text)
-            self.assertNotIn("/api/review-insight", text)      # 브라우저가 리뷰 분석 서버에 직접 묻지 않음
-            self.assertNotIn("review_service.url}/", text)
-        self.assertNotIn("rs.url", js)
-        calls = re.findall(r"""api\(\s*[`"']([^`"']+)""", js)
-        self.assertTrue(calls)
-        self.assertTrue(all(c.startswith("/api/") for c in calls), calls)
-        self.assertIn("/api/insight", calls)
 
-    def test_analysis_has_three_keyboard_tabs(self):
-        html = (STATIC / "index.html").read_text(encoding="utf-8")
-        self.assertIn('role="tablist"', html)
-        for tab in ("summary", "issues", "paste"):
-            self.assertIn(f'id="an-tab-{tab}"', html)
-            self.assertIn(f'id="an-{tab}"', html)
-        js = (STATIC / "app.js").read_text(encoding="utf-8")
-        for key in ("ArrowRight", "ArrowLeft", "Home", "End"):
-            self.assertIn(key, js)
+# ── React 화면 소스(services/web/frontend)가 서버와 맞물리는지 (11/20 단일 화면 전환) ─────────────
+# 예전에는 옛 한 화면(index.html·app.js, 11/20 삭제)을 글자로 읽었다(DOM id 대조 등). 이제 화면은 frontend/src(React 18 + Vite 5) 하나다.
+# 화면 모양·문구는 프론트 시험(Vitest)이 보고, 여기서는 서버와 맞물리는 이름(주소·API 경로·금지 글자)만 본다. 빌드·node 없이 돈다.
+def _blank(m: re.Match) -> str:
+    return re.sub(r"[^\n]", " ", m.group(0))          # 줄 번호가 그대로 남게 같은 길이의 빈칸으로
 
-    def test_later_menu_slots(self):
-        """준비 중 자리는 비었다: 종합 리포트(11/15)와 상권 분석(11/18 5차 회의)이 진짜 화면이 됐다.
-        자리를 다시 만들 때 쓰는 mountLater 는 남기되, 목록이 비면 '준비 중' 제목도 만들지 않는다."""
-        js = (STATIC / "app.js").read_text(encoding="utf-8")
-        html = (STATIC / "index.html").read_text(encoding="utf-8")
-        self.assertIn("const LATER = [];", js)
-        self.assertIn("회의에서 정한 뒤 넣을 자리입니다", js)
-        self.assertIn("if (!LATER.length) return;", js)
-        self.assertIn('"report", "market"', js)                       # ROUTES 에 진짜 화면으로
-        self.assertEqual(html.count('data-route="market"'), 1)
-        self.assertEqual(html.count('data-view="market"'), 1)
 
-    def test_every_id_the_script_uses_exists(self):
-        """app.js 의 $("…") 가 찾는 id 는 index.html 에 있거나 app.js 가 직접 그린다."""
-        html = (STATIC / "index.html").read_text(encoding="utf-8")
-        js = (STATIC / "app.js").read_text(encoding="utf-8")
-        used = set(re.findall(r"""\$\(\s*["']([\w-]+)["']\s*\)""", js))
-        used |= {f"an-{t}" for t in ("summary", "issues", "paste")} | {f"an-tab-{t}" for t in ("summary", "issues", "paste")}
-        used |= {f"{p}-{x}" for p in ("dot", "staff") for x in ("care", "mkt")}   # $("dot-" + prefix) 처럼 이어 붙인 id
-        made = set(re.findall(r'id="([\w-]+)"', html)) | set(re.findall(r'id="([\w-]+)"', js))
-        self.assertEqual(sorted(used - made), [])
+# SVG 도형 숫자(d="M3 3c9 …")와 색 코드(#c9a…)는 'c9' 검사에서 뺀다 (React 화면은 아이콘·색을 소스 안에 둔다)
+_GEOMETRY = re.compile(r"""\b(?:d|points|viewBox|transform)\s*[=:]\s*\{?\s*(["'`])[\s\S]*?\1|#[0-9a-fA-F]{3,8}\b""")
+# (이름, 정규식, 깃발). 예전 test_web(옛 화면 두 파일)·test_account_ui_static 의 금지 글자와 같은 규칙
+FORBIDDEN = [
+    ("replay", r"replay", re.I),                         # 발표 모드(저장·재생) 흔적. 예전처럼 대소문자 무시
+    ("c9", r"c9", 0),                                    # C9 기록 단추·/api/c9 흔적. 예전처럼 소문자만 (도형 숫자·색 코드는 뺌)
+    ('id="record"', r"""id=["']record["']""", 0),        # 저장 단추 자리
+    ("/api/review-insight", r"/api/review-insight", 0),  # 브라우저는 리뷰 분석 서버 경로를 직접 부르지 않는다 (이 서버의 /api/care 등)
+    ("analysis-link", r"analysis-link", 0),              # 예전 '리뷰 분석 화면에서 … ↗' 링크 자리
+    ("리뷰 분석 화면에서", r"리뷰 분석 화면에서", 0),
+    ("review_service.url}/", r"review_service\.url\}/", 0),   # 리뷰 분석 서버 주소로 링크를 만들지 않는다
+    ("rs.url", r"(?<![\w$.])rs\.url\b", 0),
+]
+
+
+def _line(text: str, pos: int) -> int:
+    return text.count("\n", 0, pos) + 1
+
+
+class FrontendSource(unittest.TestCase):
+    """frontend/index.html + frontend/src 의 모든 파일 (시험 파일 포함, 금지 글자 검사)."""
+
+    def test_forbidden_strings_are_nowhere_in_the_screen(self):
+        files = fs.source_files()
+        self.assertGreater(len(files), 20, "frontend/src 를 거의 읽지 못했어요")
+        hits = []
+        for path in files:
+            text = path.read_text(encoding="utf-8")
+            for name, pattern, flags in FORBIDDEN:
+                body = _GEOMETRY.sub(_blank, text) if name == "c9" else text
+                hits += [f"{fs.rel(path)}:{_line(body, m.start())} '{name}'" for m in re.finditer(pattern, body, flags)]
+        self.assertEqual(hits, [], "화면 소스에 쓰면 안 되는 글자가 있어요 (발표 모드·C9 흔적, 리뷰 분석 서버 직접 호출·링크): "
+                         + ", ".join(hits))
+
+    def test_the_mock_notice_comes_from_health(self):
+        """시험용 실행 안내 띠는 서버 /api/health 의 mode_notice 가 있을 때만 뜬다 (서버 시험 test_mock_health_says_it_is_a_test_run)."""
+        readers = [fs.rel(p) for p in fs.source_files(tests=False) if "mode_notice" in p.read_text(encoding="utf-8")]
+        self.assertTrue(readers, "화면 소스 어디에서도 health.mode_notice 를 읽지 않아요 (서버의 시험용 실행 안내가 화면에 닿지 않음)")
+
+    def test_screen_calls_only_paths_this_server_has(self):
+        """화면 소스의 '/api/…' 글자는 모두 이 서버에 있는 경로다 (리뷰 분석·상권·마케팅 서비스는 이 서버의 프록시로만).
+        `/api/cards/${id}/run` 처럼 뒤를 이어 붙이는 앞부분('/api/cards/')은 그 앞부분으로 시작하는 경로가 있으면 된다."""
+        app = create_app(Demo(settings(Path(tempfile.mkdtemp())), source=FakeSource()))
+        with warnings.catch_warnings():          # 프록시의 여러 메서드 경로가 같은 함수라 생기는 operation id 경고는 여기서 상관없다
+            warnings.simplefilter("ignore")
+            paths = [p for p in app.openapi()["paths"] if p.startswith("/api/")]   # 포함한 라우터(프록시)까지 모든 경로
+        # {card_id}·{path} 자리는 아무 글자나 (프록시의 {path:path} 는 / 도 받는다)
+        routes = [(p, re.compile("^" + re.sub(r"\\\{\w+\\\}", ".+", re.escape(p)) + "$")) for p in paths]
+        used: dict[str, str] = {}
+        for path in fs.source_files(tests=False):
+            text = path.read_text(encoding="utf-8")
+            for m in re.finditer(r"""[`"'](/api/[^`"'\s$?#]*)""", text):
+                used.setdefault(m.group(1), f"{fs.rel(path)}:{_line(text, m.start())}")
+        missing = [f"{p} ({where})" for p, where in sorted(used.items())
+                   if not any(route.startswith(p) if p.endswith("/") else rx.match(p) for route, rx in routes)]
+        self.assertEqual(missing, [], "화면이 부르는데 이 서버에 없는 API 경로: " + ", ".join(missing))
+        for core in ("/api/health", "/api/briefing", "/api/cards", "/api/insight", "/api/approvals", "/api/reviews"):
+            self.assertIn(core, used, f"화면 소스에서 {core} 를 찾지 못했어요")
+
+    def test_proxy_paths_the_screen_uses_are_forwarded(self):
+        """맞춤 마케팅(mktApi·mktPost)·고객응대(/api/care/…) 화면이 부르는 경로는 프록시의 허용 목록 안에 있다 (밖이면 404)."""
+        texts = [p.read_text(encoding="utf-8") for p in fs.source_files(tests=False)]
+        mkt = {name for t in texts for name in re.findall(r"""\bmkt(?:Api|Post)\(\s*[`"']([\w-]+)""", t)}
+        self.assertTrue(mkt, "화면 소스에서 mktApi(…)·mktPost(…) 호출을 찾지 못했어요")
+        # health 는 허용 목록(ROUTES) 밖의 따로 만든 경로 (marketing_proxy.py 의 @api.get("/health"))
+        self.assertEqual(sorted(mkt - set(marketing_proxy.ROUTES) - {"health"}), [],
+                         "맞춤 마케팅 화면이 부르는데 marketing_proxy.ROUTES 에 없는 경로")
+        care = {m for t in texts for m in re.findall(r"""[`"']/api/care(/[^`"'\s$?#]*)""", t)}
+        self.assertIn("/report/monthly", care)
+        blocked = sorted(p for p in care if not p.endswith("/") and not any(rx.fullmatch(p) for _, rx in care_proxy.ALLOWED))
+        self.assertEqual(blocked, [], "고객응대 화면이 부르는데 care_proxy.ALLOWED 에 없는 경로")
+
+    def test_eight_routes_match_between_router_app_and_menu(self):
+        """화면 주소 8개가 lib/router.js ROUTES · App.jsx SCREENS · Sidebar.jsx 메뉴에서 똑같다 (서버 서랍 답의 버튼도 이 주소로 간다)."""
+        want = sorted(fs.ROUTES)
+        for where, got in (("frontend/src/lib/router.js 의 ROUTES", fs.router_routes()),
+                           ("frontend/src/App.jsx 의 SCREENS", fs.app_screens()),
+                           ("frontend/src/components/Sidebar.jsx 의 메뉴", list(fs.sidebar_menu()))):
+            with self.subTest(where=where):
+                self.assertEqual(len(got), len(set(got)), f"{where} 에 같은 주소가 두 번 있어요: {got}")
+                self.assertEqual(sorted(got), want, f"화면 주소가 맞지 않아요. {where} = {sorted(got)}, 기대 = {want} "
+                                                    "(주소를 더하거나 바꿨다면 세 곳과 tests/frontend_src.py ROUTES 를 같이 고칠 것)")
+
+    def test_every_route_the_screen_or_the_server_points_to_exists(self):
+        """화면의 #/주소·go("…")·navTo("…")와 서버 서랍 답의 화면 이동 버튼(assistant_proxy.nav)이 가리키는 주소는 8개 안에 있다.
+        navTo 는 모르는 주소를 조용히 무시한다 (lib/router.js). 리뷰 분석 탭(sub)도 화면의 AN_TABS 안에 있어야 그 탭이 열린다."""
+        bad = []
+        for path in fs.source_files(tests=False):
+            text = path.read_text(encoding="utf-8")
+            for m in re.finditer(r"""#/(\w+)|\b(?:go|navTo)\(\s*["'](\w+)["']""", text):
+                if (m.group(1) or m.group(2)) not in fs.ROUTES:
+                    bad.append(f"{fs.rel(path)}:{_line(text, m.start())} {m.group(0)}")
+        server = re.findall(r"""\bnav\(\s*f?["'][^"'\n]*["']\s*,\s*["'](\w+)["']\s*(?:,\s*["'](\w+)["'])?""",
+                            (WEB_DIR / "web" / "assistant_proxy.py").read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(server), 5, "assistant_proxy.py 에서 nav(…) 버튼을 찾지 못했어요")
+        bad += [f'web/assistant_proxy.py nav(…, "{route}")' for route, _ in server if route not in fs.ROUTES]
+        tabs = fs.strings(fs.const_value(fs.read("features/analysis/calc.js"), "AN_TABS", "frontend/src/features/analysis/calc.js"))
+        bad += [f'web/assistant_proxy.py nav(…, "analysis", "{sub}") — 화면 AN_TABS={tabs}'
+                for route, sub in server if route == "analysis" and sub and sub not in tabs]
+        self.assertEqual(bad, [], "모르는 화면 주소·탭을 가리켜요: " + ", ".join(bad))
 
 
 if __name__ == "__main__":

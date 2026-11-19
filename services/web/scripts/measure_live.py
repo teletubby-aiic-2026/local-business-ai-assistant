@@ -15,11 +15,12 @@
 
 측정 로직(measure)은 httpx.Client 와 같은 인터페이스(.get / .post)만 받는다. 시험에서는 FastAPI TestClient 를 그대로 넘긴다.
 
-화면(services/web/web/static/app.js)과 똑같이 하는 것
-  - 점검 상태 3가지: app.js 의 statusOf(d) 규칙 (failedOf · checksOf 를 씀). draft_status() 에 그대로 옮겼다.
-  - 요청 본문: app.js 의 runCard(cardId) 가 보내는 것. 재발 방지 조치 상자(measureBox)가 있는 카드는
-    기본으로 체크된 조치만 {"measures": [...]} 로 보내고, 상자가 없는 카드(홍보)는 본문 없이 보낸다. card_run_body() 에 옮겼다.
-  - 초안 종류 이름: app.js 의 GEN_NAMES (generator 필드). 홍보글만 화면에서는 '쿠폰 홍보글'이고 여기서는 '홍보글'로 쓴다.
+화면(React, services/web/frontend/src)과 똑같이 하는 것 (tests/test_measure_live.py 가 화면 소스와 대조한다)
+  - 점검 상태 3가지: features/flow/calc.js 의 statusOf(d, approved) 규칙 (failedOf · checksOf 를 씀). draft_status() 에 그대로 옮겼다.
+  - 요청 본문: features/flow/actions.js 의 runCard(cardId) 가 보내는 것. 점검 수칙 상자(measures.options)가 있는 카드는
+    기본으로 체크된 조치(calc.js measureIds)만 {"measures": [...]} 로 보내고, 상자가 없는 카드(홍보)는 본문 없이 보낸다.
+    card_run_body() 에 옮겼다.
+  - 초안 종류 이름: lib/domain.js 의 GEN_NAMES (generator 필드). 홍보글만 화면에서는 '쿠폰 홍보글'이고 여기서는 '홍보글'로 쓴다.
 """
 from __future__ import annotations
 
@@ -40,11 +41,11 @@ DEFAULT_ROUNDS = 5
 DEFAULT_TIMEOUT = 120.0   # 호출 하나(카드 하나 만들기)에 허용하는 초
 SCHEMA = 1
 
-# ── 점검 상태: app.js 의 statusOf(d) ─────────────────────────────────
+# ── 점검 상태: 화면 features/flow/calc.js 의 statusOf(d) ────────────────
 PASS, CHECK, FAIL = "점검 통과", "확인 필요", "점검 실패"
 STATUSES = (PASS, CHECK, FAIL)
 
-# app.js 의 GEN_NAMES (generator → 종류). 표에 나오는 순서이기도 하다.
+# 화면 lib/domain.js 의 GEN_NAMES (generator → 종류). 표에 나오는 순서이기도 하다.
 GENERATOR_NAMES = {"reply_draft": "답글", "prevention_notice": "포장·주문 안내문", "coupon_promo": "홍보글"}
 CARD_KIND_NAMES = {"complaint": "불만 카드", "promo": "홍보 카드"}
 
@@ -74,13 +75,13 @@ def draft_origin(draft: dict) -> str:
 
 
 def _items(draft: dict, key: str) -> list:
-    """app.js 의 `d.key || []`."""
+    """화면(calc.js)의 `d.key || []`."""
     value = draft.get(key)
     return value if value else []
 
 
 def draft_status(draft: dict) -> str:
-    """app.js statusOf(d) 의 규칙 (승인 완료 분기는 이 스크립트가 승인하지 않으므로 없다).
+    """화면 calc.js statusOf(d, approved) 의 규칙 (승인 완료 분기는 이 스크립트가 승인하지 않으므로 없다).
 
         failedOf(d) = d.failed_reasons || []
         checksOf(d) = [...(d.needs_input || []), ...(d.c7_flags || [])]
@@ -133,10 +134,10 @@ def describe_draft(draft: dict) -> dict:
     }
 
 
-# ── 요청: app.js 의 runCard ──────────────────────────────────────────
+# ── 요청: 화면 features/flow/actions.js 의 runCard ───────────────────
 def card_run_body(plan: dict) -> dict | None:
-    """화면이 카드 만들기에 보내는 본문. measureBox(p) 가 상자를 그리는 카드(measures.options 가 있음)는
-    기본으로 체크된 조치(measures.default 에 든 것)만 보내고, 상자가 없는 카드는 본문이 없다."""
+    """화면이 카드 만들기에 보내는 본문. 점검 수칙 상자를 그리는 카드(measures.options 가 있음)는
+    기본으로 체크된 조치(measures.default 에 든 것, calc.js measureIds)만 보내고, 상자가 없는 카드는 본문이 없다."""
     measures = plan.get("measures") or {}
     options = measures.get("options") or []
     if not options:
