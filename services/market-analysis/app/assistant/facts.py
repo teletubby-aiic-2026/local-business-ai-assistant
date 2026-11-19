@@ -121,9 +121,40 @@ def weekday_aggregates(values: list[dict], period: str | None = None) -> tuple[l
                   "rounding": "won_half_up"}
                  for label, value, count in zip(("평일 하루 평균", "주말 하루 평균"), averages, counts))
     sentence = (f" 평일(월~금)은 합계 {weekday:,}원, 달력일 기준 하루 평균 {averages[0]:,}원이고, "
-                f"주말(토·일)은 합계 {weekend:,}원, 달력일 기준 하루 평균 {averages[1]:,}원입니다(원 단위 반올림). "
-                "가게의 실제 영업일 평균은 아닙니다.")
+                f"주말(토·일)은 합계 {weekend:,}원, 달력일 기준 하루 평균 {averages[1]:,}원입니다(원 단위 반올림)."
+                + weekpart_verdict(weekday, weekend, averages, counts)
+                + " 가게의 실제 영업일 평균은 아닙니다.")
     return extra, sentence
+
+
+def weekpart_verdict(weekday: int, weekend: int, averages, counts) -> str:
+    """Which of 평일/주말 is larger per calendar day, stated by the server so the writer does not have to judge.
+
+    The two totals cover different numbers of days (about 65 against 26), so a model that compares them
+    says '평일이 더 많다' in markets where the weekend day is the larger one (HCX-005 live answers, 2026-11-19).
+    """
+    if averages[0] == averages[1]:
+        return ""
+    bigger, smaller = ("평일", "주말") if averages[0] > averages[1] else ("주말", "평일")
+    text = f" 하루 평균으로 견주면 {bigger}이 {smaller}보다 많습니다."
+    if (weekday > weekend) != (averages[0] > averages[1]):
+        text += (f" 합계는 평일 {counts[0]}일치와 주말 {counts[1]}일치를 더한 값이라 "
+                 "합계끼리는 견주지 않습니다.")
+    return text
+
+
+def size_order(values: list[dict]) -> str:
+    """' 큰 순서는 토, 일, 금, …입니다.' for a complete distribution without ties, otherwise ''.
+
+    The values line lists items in calendar/clock order; a model asked for an order tends to copy that
+    order ('토, 금, 일 순' while 일 > 금, 2026-11-19). The size order is therefore written out.
+    """
+    items = [(v.get("label"), v.get("value")) for v in values]
+    if (len(items) < 3 or any(type(number) is not int or not label for label, number in items)
+            or len({number for _label, number in items}) != len(items)):
+        return ""
+    ordered = sorted(items, key=lambda item: -item[1])
+    return " 큰 순서는 " + ", ".join(label for label, _number in ordered) + "입니다."
 
 
 def sales_cards(result: dict) -> list[dict]:
@@ -155,7 +186,8 @@ def sales_cards(result: dict) -> list[dict]:
             # The amount outside brackets, so the reply can add '(약 9억 7,647만 원)' after it.
             text = (f"{dist['label']}에서 가장 높은 항목은 {josa(high, '으로')} {_number(ranking['highest_value'], '원')}"
                     + (f"(비중 {_percent(high_share)})" if high_share is not None else "")
-                    + f"이고, 가장 낮은 항목은 {josa(low, '으로')} {_number(ranking['lowest_value'], '원')}입니다.")
+                    + f"이고, 가장 낮은 항목은 {josa(low, '으로')} {_number(ranking['lowest_value'], '원')}입니다."
+                    + size_order(values))
             warnings = list(dist.get("warnings", []))
             if kind == "weekday":
                 extra, sentence = weekday_aggregates(values, (result.get("selection") or {}).get("period"))
