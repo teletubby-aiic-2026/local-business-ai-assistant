@@ -31,7 +31,7 @@ export default function Summary({ d }) {
           <TopicColumn title="불만이 많은 주제" list={topTopics(d, "negative")} kind="complaint" />
           <TopicColumn title="칭찬이 많은 주제" list={topTopics(d, "positive")} kind="praise" />
         </div>
-        <p className="small muted">리뷰 하나에 주제가 여럿이면 모두 셉니다.</p>
+        <p className="small muted">리뷰 하나에 주제가 여럿이면 주제마다 1건씩 들어가요.</p>
       </Panel>
     </div>
   );

@@ -1,8 +1,11 @@
 // 왼쪽 메뉴: 서비스 이름 · 묶음 3개(오늘 처리·살펴보기·키우기) · 맨 아래 계정 줄 (Figma 02 공통 요소 '왼쪽 메뉴')
+// overlay: 761~1024px 에서 본문 위에 덮여 열린 상태. 이때만 [메뉴 닫기] 버튼을 그린다 (상단 바의 토글 버튼이 덮개 아래로 가려져서)
+// 760px 이하에서는 가로 한 줄 메뉴가 되고 계정 줄은 숨긴다 (계정은 상단 바의 [로그인]·이름 버튼 → 내 계정 창에서)
+import { useEffect, useRef } from "react";
 import { useStore, setState } from "../state/store.js";
 import { waitingCount } from "../state/staff.js";
 import { acctLogout, displayName } from "../state/account.js";
-import { Icon } from "./ui.jsx";
+import { Icon, Logo } from "./ui.jsx";
 
 const GROUPS = [
   { title: null, items: [["today", "홈"]] },
@@ -11,14 +14,33 @@ const GROUPS = [
   { title: "키우기", items: [["marketing", "맞춤 마케팅"]] },
 ];
 
-export default function Sidebar({ route, onNavigate }) {
+export default function Sidebar({ route, onNavigate, overlay = false, onClose }) {
   const waiting = useStore(waitingCount);
   const me = useStore((s) => s.me);
   const busy = useStore((s) => s.acctBusy);
   const on = !!(me && me.authenticated);
+  const navRef = useRef(null);
+
+  // 가로 한 줄 메뉴(760px 이하)에서 지금 화면 항목이 보이게 옆으로 민다
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav || nav.scrollWidth <= nav.clientWidth + 1) return;
+    const cur = nav.querySelector('.menu-item[aria-current="page"]');
+    if (!cur) return;
+    const left = cur.offsetLeft - nav.clientWidth / 2 + cur.offsetWidth / 2;
+    nav.scrollLeft = Math.max(0, left);
+  }, [route]);
+
   return (
-    <nav className="side" id="side-menu" aria-label="메뉴">
-      <a className="brand" href="#/today" onClick={onNavigate}><span className="logo-slot" aria-hidden="true">로</span>텔레토비 AI 비서</a>
+    <nav ref={navRef} className="side" id="side-menu" aria-label="메뉴">
+      <div className="side-head">
+        <a className="brand" href="#/today" onClick={onNavigate}><Logo />텔레토비 AI 비서</a>
+        {overlay && (
+          <button type="button" className="btn small side-close" aria-label="메뉴 닫기" title="메뉴 닫기" onClick={onClose}>
+            <Icon name="닫기" size={20} />
+          </button>
+        )}
+      </div>
       {GROUPS.map((g, gi) => (
         <div key={gi} role="group" aria-label={g.title || "홈"}>
           {g.title && <div className="group">{g.title}</div>}
@@ -33,13 +55,13 @@ export default function Sidebar({ route, onNavigate }) {
       ))}
       <div className="spacer" />
       <div className="account">
-        <span className="face" aria-hidden="true">{on ? String(me.user.display_name || "사").slice(0, 1) : "게"}</span>
+        <span className="face" aria-hidden="true">{on ? String(me.user.display_name || "사").slice(0, 1) : <Icon name="계정" size={20} />}</span>
         <div className="who">
-          <b>{on ? displayName(me) : "게스트 체험 중"}</b>
+          <b>{on ? displayName(me) : "게스트"}</b>
           {on
             ? <span className="btn-row"><button type="button" className="btn text" disabled={busy} onClick={() => setState({ acctOpen: true })}>내 계정</button>
                 <button type="button" className="btn text" disabled={busy} onClick={acctLogout}>로그아웃</button></span>
-            : <button type="button" className="btn text" disabled={busy} onClick={() => setState({ authOpen: true })}>로그인하고 가게 고르기</button>}
+            : <button type="button" className="btn text" disabled={busy} onClick={() => setState({ authOpen: true })}>로그인</button>}
         </div>
       </div>
     </nav>

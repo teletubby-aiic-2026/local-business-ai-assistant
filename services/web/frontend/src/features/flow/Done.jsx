@@ -24,8 +24,7 @@ export default function Done() {
       <div className="col narrow">
         <Steps at="done" />
         <PageHead title="처리 완료" />
-        <Panel><Empty title="아직 승인한 글이 없어요.">승인할 글에서 글을 확인하고 승인해 주세요.</Empty>
-          <div className="flow-center"><a className="btn primary" href="#/draft">승인할 글로</a></div></Panel>
+        <Panel><Empty title="아직 승인한 글이 없어요." action={<a className="btn primary" href="#/draft">승인할 글로</a>} /></Panel>
       </div>
     );
   }
@@ -33,6 +32,7 @@ export default function Done() {
   // 맞춤 마케팅에서 승인한 글(mkt)은 비서 화면이 만든 글이 아니므로 승인한 만큼 '만든 글'에도 더한다
   const total = allDrafts(results).length + log.filter((a) => a.mkt).length;
   const edited = log.filter((a) => a.edited).length;
+  const editedPct = Math.round((edited / log.length) * 100);
   const kinds = new Map();
   log.forEach((a) => kinds.set(nameOf(a), (kinds.get(nameOf(a)) || 0) + 1));
   // 불만 카드를 만들 때 사장님이 고른 수칙. 글 승인과 함께 오늘부터 현장에서 할 일로 다시 보여 준다
@@ -40,21 +40,22 @@ export default function Done() {
   const made = care ? results[care.card.card_id] : null;
   const rules = made?.chosen_measures || [];
   const noticeDone = (made?.drafts || []).some((d) => d.generator === "prevention_notice" && approved.has(d.draft_id));
-  const rulesNote = made?.source === "seed" ? "시험용 저장 예시 글은 고른 수칙과 상관없이 그대로예요."
-    : noticeDone ? "승인한 포장·주문 안내문에 넣어 만든 수칙이에요." : "포장·주문 안내문에 넣어 만든 수칙이에요. 안내문은 아직 승인 전이에요.";
+  const rulesNote = made?.source === "seed" ? "예시 글이라 안내문에 반영되지 않았어요."
+    : noticeDone ? "승인한 포장·주문 안내문에 들어간 수칙이에요." : "포장·주문 안내문에 들어간 수칙이에요. 안내문은 아직 승인 전이에요.";
   const owners = [...new Set([...cards.filter((p) => results[p.card.card_id]).map((p) => KIND_AGENT[p.card.kind]), log.some((a) => a.mkt) && "마케팅 비서"].filter(Boolean))].join(" · ");
 
   return (
     <div className="col narrow flow-done">
       <Steps at="done" />
-      <PageHead owner={owners || undefined} title="처리 완료" sub={`승인한 글 ${log.length}개 / 만든 글 ${total}개 · 게시는 복사해서 직접 올려요`} />
+      {/* 승인 수는 타일에, 만든 글 대비 진행은 목록 머리 한 곳에만 둔다. 게시는 이 화면이 하지 않는다는 것만 머리에 */}
+      <PageHead owner={owners || undefined} title="처리 완료" sub="게시는 복사해서 직접 올려요." />
 
-      <div className="tiles">
+      <div className="tiles flow-done-tiles">
         <StatTile tint="green" icon="승인" label="승인한 글" value={log.length} sub={[...kinds].map(([k, n]) => `${k} ${n}`).join(" · ")} />
-        <StatTile tint="mint" icon="고침" label="고쳐서 승인" value={edited} sub="사장님이 고친 글" />
+        <StatTile tint="mint" icon="고침" label="고쳐서 승인" value={edited} sub={`승인한 글 중 ${editedPct}%`} />
       </div>
 
-      <Panel title="승인한 글" titleId="flow-log-title" sub={`승인 ${log.length} / ${total}`}>
+      <Panel title="승인한 글 목록" titleId="flow-log-title" sub={`만든 글 ${total}개 중 ${log.length}개 승인`}>
         <span className="flow-track" aria-hidden="true"><i style={{ width: `${total ? Math.round((log.length / total) * 100) : 0}%` }} /></span>
         <ul className="plain flow-log">{log.map((a) => <LogItem key={a.id} a={a} />)}</ul>
       </Panel>
@@ -62,7 +63,7 @@ export default function Done() {
       {rules.length > 0 && (
         <Panel title={RULES_TITLE} titleId="flow-rules-title">
           <ul className="flow-rules">{rules.map((m) => <li key={m.id}>{m.text}</li>)}</ul>
-          <p className="small muted">사장님이 카드에서 고른 수칙 {rules.length}가지예요. {rulesNote}</p>
+          <p className="small muted">{rulesNote}</p>
         </Panel>
       )}
 
@@ -71,7 +72,8 @@ export default function Done() {
           <Button variant="primary" size="big" onClick={() => go("today")}>홈으로</Button>
           <RestartButton />
         </div>
-        <p className="small muted">‘홈으로’는 만든 글과 승인 표시를 그대로 둬요. ‘처음부터 다시’는 만든 글과 승인 기록(맞춤 마케팅 포함)을 모두 지워요.</p>
+        {/* 지우는 버튼의 경고만 남긴다 ('홈으로'는 이름 그대로라 설명하지 않음) */}
+        <p id="flow-restart-note" className="small muted">‘처음부터 다시’는 만든 글과 승인 기록(맞춤 마케팅 포함)을 모두 지워요. 되돌릴 수 없어요.</p>
       </div>
 
       <ServerLog />
@@ -102,7 +104,7 @@ function LogItem({ a }) {
 
 function RestartButton() {
   const [busy, setBusy] = useState(false);
-  return <Button disabled={busy} onClick={async () => { setBusy(true); await restart(); }}>{busy ? "지우는 중…" : "처음부터 다시"}</Button>;
+  return <Button disabled={busy} aria-describedby="flow-restart-note" onClick={async () => { setBusy(true); await restart(); }}>{busy ? "지우는 중…" : "처음부터 다시"}</Button>;
 }
 
 // 서버 처리 기록 (GET /api/approvals, 화면을 열 때). 못 읽으면 비워 둔다

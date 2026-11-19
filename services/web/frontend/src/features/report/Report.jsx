@@ -7,10 +7,10 @@ import { flushSync } from "react-dom";
 import { Badge, Button, PageHead, Panel, StatTile, TopicBar } from "../../components/ui.jsx";
 import { getState, openDrawer, useStore } from "../../state/store.js";
 import { currentRoute } from "../../lib/router.js";
-import { draftsOf, marketScope, scopeNote, shortBasis, snapValue, sourceUrl } from "../../lib/domain.js";
+import { draftsOf, marketScope, shortBasis, snapValue, sourceUrl } from "../../lib/domain.js";
 import { getReport, loadApprovals, loadMonth, loadReport, loadScore, reportReady, resetIfStoreChanged, useReport } from "./state.js";
 import {
-  RP_ISSUE_STATE, SOURCE_KO, clip, clockView, dateKo, deltaTone, monthKo, peakText, printMeta, shiftMonth, signed, sourceLine, trendGeometry,
+  RP_ISSUE_STATE, RP_NOTE, SOURCE_KO, clip, clockView, dateKo, deltaTone, monthKo, peakText, printMeta, shiftMonth, signed, sourceLine, trendGeometry,
 } from "./format.js";
 import "./report.css";
 
@@ -77,7 +77,7 @@ function DailyPanel({ daily }) {
           <div className="rp-todo"><span className="rp-todo-label">내일 먼저 할 일</span><strong>{d.todo?.text || "밀린 응대가 없어요"}</strong></div>
           <div className="stack-8">
             <p className="small muted">{src ? `들어온 곳: ${src} · ` : ""}답글 기다림 {d.pending_count ?? 0}건{d.overdue_count ? ` (기한 넘김 ${d.overdue_count}건)` : ""}</p>
-            <p className="small muted">합성 리뷰는 지난 날짜(시나리오 기간)라서, 오늘 숫자에는 오늘 붙여넣기·캡처로 넣은 리뷰만 들어가요. 문장은 정해 둔 틀에 숫자만 넣었어요.</p>
+            <p className="small muted">합성 리뷰는 지난 날짜라서 오늘 숫자에는 오늘 붙여넣기·캡처로 넣은 리뷰만 들어가요.</p>
           </div>
         </div>
       )}
@@ -99,9 +99,9 @@ function ScorePanel({ score }) {
             <h3 className="rp-h3">점수가 바뀐 이유</h3>
             <Reasons list={r.reasons} empty="점수를 깎거나 올린 일이 없어요." />
           </div>
-          {score.peak && <p className="rp-peak">지금은 피크 시간이라 답글 기한이 멈춰 있어요{peaks ? ` (${peaks})` : ""}.</p>}
+          {score.peak && <p className="rp-peak">지금은 피크 시간이라 답글 기한이 멈춰 있어요.</p>}
           <p className="rp-untimed">지난 불만 <b>{r.untimed_unanswered ?? 0}건</b> <span className="small muted">· 기한 없이 답글을 안 단 지난(합성) 불만 리뷰</span></p>
-          <p className="small muted">기한은 불만 리뷰를 받은 뒤 {r.policy?.sla_minutes ?? 30}분{peaks ? `, 피크(${peaks}) 중에는 멈춤` : ""}. 답글을 승인하면 기록돼요. 점수 이유는 서버 문장 그대로예요.</p>
+          <p className="small muted">답글 기한은 불만 리뷰를 받은 뒤 {r.policy?.sla_minutes ?? 30}분이에요{peaks ? ` (피크 ${peaks}에는 멈춤)` : ""}. 답글을 승인하면 기록돼요.</p>
         </div>
       )}
     </Panel>
@@ -182,8 +182,8 @@ function PraisePanel({ monthly, praise }) {
             </div>
           </div>
           <p className="small muted">
-            이 달 리뷰 {p.review_count ?? 0}건을 코드로 셌어요 (모델 호출 없음). 인기 메뉴와 대표 한 줄은 칭찬 리뷰 {p.praise_count ?? 0}건에서 골랐어요.
-            {p.praise_basis === "rating" ? " 긍정으로 분류된 리뷰가 없어서, 별점 4점 이상이고 불만이 없는 리뷰를 칭찬 리뷰로 봤어요." : ""}
+            인기 메뉴와 대표 한 줄은 이 달 리뷰 {p.review_count ?? 0}건 중 칭찬 리뷰 {p.praise_count ?? 0}건에서 골랐어요.
+            {p.praise_basis === "rating" ? " 긍정으로 분류된 리뷰가 없어서 별점 4점 이상이고 불만이 없는 리뷰를 칭찬 리뷰로 봤어요." : ""}
             <span className="rp-screen"> 달은 월간 보고서에서 바꿔요.</span>
           </p>
         </div>
@@ -231,13 +231,14 @@ function MonthPanel({ rp, printing }) {
   const m = rp.monthly.data;
   const prevOff = !rp.month || !!(rp.maxMonth && rp.month <= shiftMonth(rp.maxMonth, -11));   // 1년 전까지
   const nextOff = !rp.month || !rp.maxMonth || rp.month >= rp.maxMonth;
+  const prevRef = useRef(null), nextRef = useRef(null);
   const move = async (step) => {
     const cur = getReport().month;
     if (!cur) return;
     await loadMonth(shiftMonth(cur, step));
-    // 끝에 닿아 막힌 버튼의 포커스를 옆으로 (그려진 뒤에 본다. ui.jsx 의 Button 은 ref 를 넘기지 않아 id 로 찾음)
+    // 끝에 닿아 막힌 버튼의 포커스를 옆으로 (그려진 뒤에 본다)
     setTimeout(() => {
-      const prev = document.getElementById("rp-month-prev"), next = document.getElementById("rp-month-next");
+      const prev = prevRef.current, next = nextRef.current;
       const btn = step < 0 ? prev : next, other = step < 0 ? next : prev;
       if (btn?.disabled && (document.activeElement === btn || document.activeElement === document.body)) other?.focus();
     }, 0);
@@ -247,9 +248,9 @@ function MonthPanel({ rp, printing }) {
   const changes = Array.isArray(m?.changes) ? m.changes : [];
   const nav = (
     <div className="rp-month-nav" role="group" aria-label="달 고르기">
-      <Button size="small" id="rp-month-prev" disabled={prevOff} onClick={() => move(-1)}><span aria-hidden="true">‹</span> 이전 달</Button>
+      <Button ref={prevRef} size="small" id="rp-month-prev" disabled={prevOff} onClick={() => move(-1)}><span aria-hidden="true">‹</span> 이전 달</Button>
       <strong id="rp-month-label" aria-live="polite">{monthKo(rp.month)}</strong>
-      <Button size="small" id="rp-month-next" disabled={nextOff} onClick={() => move(1)}>다음 달 <span aria-hidden="true">›</span></Button>
+      <Button ref={nextRef} size="small" id="rp-month-next" disabled={nextOff} onClick={() => move(1)}>다음 달 <span aria-hidden="true">›</span></Button>
       <a id="rp-print" className="btn small rp-print" href={"/api/care/report/monthly/print" + (rp.month ? `?month=${encodeURIComponent(rp.month)}` : "")} target="_blank" rel="noopener">
         인쇄용 보기<span className="sr"> (새 탭)</span>
       </a>
@@ -297,6 +298,7 @@ function MonthPanel({ rp, printing }) {
                 ? sugg.map((s, i) => <li key={i}><span className="rp-check" aria-hidden="true" /><span>{s.text}</span></li>)
                 : <li className="muted">제안이 없어요.</li>}
             </ol>
+            {sugg.length > 0 && <p className="small muted rp-sugg-note">원인을 단정하지 않은 제안이에요. 매장에서 확인해 주세요.</p>}
           </div>
           {changes.length > 0 && (
             <details className="rp-more">
@@ -304,7 +306,6 @@ function MonthPanel({ rp, printing }) {
               <Reasons list={changes} empty="" />
             </details>
           )}
-          <p className="small muted">숫자는 코드가 계산하고, 제안은 정해 둔 틀에 숫자만 넣었어요 (AI 문장 아님). 원인을 단정하지 않으니 매장에서 확인해 주세요.</p>
         </div>
       )}
     </Panel>
@@ -345,12 +346,10 @@ function MarketPanel() {
               );
             }) : <li className="small muted">상권 지표가 없어요.</li>}
           </ul>
-          {scoped && (
-            <p className="small muted">
-              위 숫자는 {snaps.map((s) => [s.area_name, marketScope(s)].filter(Boolean).join(" · ")).join(", ")} 기준이에요. {scopeNote(snaps[0])} 'AI에게 묻기'는 고른 업종 하나의 하루 전체로 답해서 숫자가 다를 수 있어요.
-            </p>
-          )}
-          <p className="small muted">상권 통계는 상권·업종 전체의 추정치예요. 우리 가게 매출이 아니에요.</p>
+          {/* 범위(시간대·업종)는 지표 이름에 이미 있다. 고지는 한 문단: 우리 가게 매출 아님 + 서랍의 숫자와 범위가 다름 */}
+          <p className="small muted">
+            상권·업종 전체의 추정치예요 (우리 가게 매출 아님).{scoped ? " 'AI에게 묻기'는 업종 하나의 하루 전체로 답해서 숫자가 다를 수 있어요." : ""}
+          </p>
           <div><Button aria-controls="assistant" aria-expanded={drawerOpen} onClick={() => openDrawer(true)}>AI에게 묻기로 상권 더 보기</Button></div>
         </div>
       )}
@@ -390,7 +389,7 @@ function MktPanel({ appr }) {
   } else st = { msg: "추천 카드를 불러오지 못해 마케팅 요약을 만들 수 없어요. 홈에서 다시 불러와 주세요.", bad: true };
   const mktDone = approvedLog.filter((x) => x.mkt).length;
   return (
-    <Panel title="마케팅 요약" titleId="rp-mkt-title" sub="추천 카드 ⓑ · 맞춤 마케팅 · 승인 기록" id="rp-mkt-sec" tabIndex={-1} className="rp-sec rp-mkt">
+    <Panel title="마케팅 요약" titleId="rp-mkt-title" id="rp-mkt-sec" tabIndex={-1} className="rp-sec rp-mkt">
       <StateLine id="rp-mkt-state" st={st} />
       {!waiting && (
         <div id="rp-mkt" className="stack-8">
@@ -482,12 +481,14 @@ export default function Report() {
       <div id="rp-print-head" className="rp-print-head">
         <p className="rp-print-title"><strong id="rp-print-store">{head.store}</strong><span>종합 리포트</span></p>
         <p id="rp-print-meta" className="rp-print-meta">{head.meta}</p>
+        <p className="rp-print-meta">{RP_NOTE}</p>
         <p id="rp-print-note" className="rp-print-note">{head.note}</p>
       </div>
+      {/* 'AI 문장 아님' 고지(RP_NOTE)는 이 머리 한 곳에만 (칸마다 되풀이하지 않음). 인쇄에서는 머리가 빠지므로 위 인쇄 머리글에도 같은 줄 */}
       <PageHead
         owner="고객 응대 비서 · 마케팅 비서"
         title="종합 리포트"
-        sub="숫자는 리뷰 기록으로 코드가 계산해요. 이 화면을 열어도 AI를 새로 부르지 않아요."
+        sub={RP_NOTE}
         actions={<>
           <Button id="rp-reload" onClick={reload}>다시 불러오기</Button>
           <Button id="rp-pdf" variant="primary" disabled={pdfWait} onClick={onPdf}>전체 리포트 PDF 저장</Button>

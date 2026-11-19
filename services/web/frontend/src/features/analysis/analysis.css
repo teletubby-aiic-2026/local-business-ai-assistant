@@ -78,8 +78,25 @@
 .an-cap-item-msg { margin-top: 6px; color: var(--bad); font-size: var(--fs-small); font-weight: 500; }
 .an-cap-save-msg { color: var(--ink-2); }
 
-@media (max-width: 760px) {
+@container content (max-width: 639px) {
   .an-funnel { gap: 6px 14px; }
   .an-fn { font-size: 24px; }
   .an-band { grid-template-columns: 56px minmax(0, 1fr) 36px; }
+}
+
+/* 분류 결과 머리 한 줄: 리뷰 id · 분류 방식 + 개인정보 가림 배지 */
+.an-result-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s-8); }
+
+/* ── 본문 실제 폭(@container content)에 맞춘 줄바꿈. 타일·두 칸 패널·여백은 base.css 공통 규칙(679·639·479px)을 따른다 ── */
+/* 채널·별점 고르기는 짧아서 본문이 좁아도 두 칸으로 둔다 (공통 .grid-2 의 639px 한 줄 규칙보다 우선) */
+.grid-2.an-paste-opts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container content (max-width: 759px) {
+  .an-paste-grid { grid-template-columns: minmax(0, 1fr); }   /* 붙여넣기 칸 안에 두 칸 고르기가 있어 공통보다 먼저 한 줄로 */
+}
+@container content (max-width: 639px) {
+  .an-kw { gap: var(--s-24); }
+}
+@container content (max-width: 419px) {
+  .grid-2.an-paste-opts { grid-template-columns: minmax(0, 1fr); }
+  .an-cap-pick .btn { flex: 1 1 auto; }
 }

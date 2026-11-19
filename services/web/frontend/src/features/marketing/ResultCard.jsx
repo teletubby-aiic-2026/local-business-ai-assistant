@@ -1,6 +1,7 @@
 // 결과 카드 (예전 mktResult·mktAdspendHtml·mktCouponHtml·mktIdea·mktNoticeOffer 가 그리던 것).
 // 머리(제목·판정·데모) → 숫자 → 왜 이렇게 판단했나요 → 표·막대 → 할 일과 글 → 아이디어 → 쿠폰·슬라이더 → 측정 → 승인.
-// 서버 글은 JSX 로만 넣는다. 키 없이 저장된 예시(demo: true)면 '시험용 저장 예시 (실제 AI 결과 아님)'를 꼭 보인다.
+// 서버 글은 JSX 로만 넣는다. 저장된 예시(demo: true)면 머리에 '시험용 저장 예시 (실제 AI 결과 아님)' 배지를 꼭 단다
+// (예시 고지는 화면 위 띠 + 이 배지 두 곳만. 카드 안에 같은 문장을 또 쓰지 않는다).
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button } from "../../components/ui.jsx";
 import { CALC_MAX_BUDGET, MKT_DEMO, MKT_VERDICT, barPct, couponRows, draftLabel, mktKey, tilesOf, todoHeadOf, whyLinesOf, wonKo } from "./logic.js";
@@ -127,7 +128,6 @@ function Calc({ card }) {
       <Tiles live tiles={[[figs ? `${figs.count}장` : "–", "쿠폰 장수"], [figs ? wonKo(figs.max_cost_won) : "–", "최대 비용"],
         [figs && figs.breakeven_orders != null ? `${figs.breakeven_orders}건` : "–", "본전 주문 수"]]} />
       {figs && figs.discount_pct > 20 && <p className="mkt-warn">할인이 클수록 본전까지 더 많은 주문이 필요해요</p>}
-      <p className="small muted">계산은 서버 코드가 해요 (AI 아님). 슬라이더를 움직이면 잠깐 뒤 숫자가 바뀌어요.</p>
       <div className="btn-row">
         <Button size="small" disabled={card.approved || card.replaced || card.work === "coupon-gen"} onClick={() => couponGen(n)}>
           {card.work === "coupon-gen" ? "만드는 중…" : "이 조건으로 쿠폰 글 만들기"}
@@ -206,7 +206,7 @@ function Follow({ card }) {
   return (
     <div className="mkt-follow">
       <p className="mkt-box-title">2주 뒤 개선 소식</p>
-      <p className="small muted">공지를 올리고 2주 뒤에 같은 불만 리뷰가 줄었는지 세어 봐요. 지금은 데모라 저장된 리뷰 날짜로 셈해요.</p>
+      <p className="small muted">공지 전후 2주 동안 같은 불만 리뷰 수를 비교해요 (지금은 저장된 리뷰 날짜 기준)</p>
       {!f && <div className="btn-row"><Button size="small" disabled={notice.busy} onClick={() => noticeFollow(n)}>2주 뒤 확인해 보기</Button></div>}
       {f && (
         <>
@@ -241,7 +241,7 @@ export default function ResultCard({ card }) {
         <div className="mkt-why">
           <p className="mkt-why-title">왜 이렇게 판단했나요</p>
           <ul>{why.map((t, i) => <li key={i}>{t}</li>)}</ul>
-          <p className="small muted">사장님 답변과 가게 데이터 기준 · 정해 둔 규칙으로 고른 결과예요 (AI 판단 아님)</p>
+          <p className="small muted">사장님 답과 가게 데이터 기준이에요 (AI 판단 아님)</p>
         </div>
       )}
       {d.over_budget && <p className="mkt-warn">예상 비용(추정) 합계가 설문에서 답한 예산을 넘어요.</p>}
@@ -308,7 +308,6 @@ export default function ResultCard({ card }) {
           <span>{d.measure}</span>
         </p>
       )}
-      {card.demo && <p className="mkt-demo">HCX를 부르지 않고 미리 저장한 예시·정해 둔 틀로 만든 글이에요. 실제 AI가 이 가게를 보고 쓴 글이 아니에요.</p>}
       <div className="btn-row mkt-card-actions">
         <Button variant="primary" disabled={card.approved || card.replaced || card.approving} onClick={() => approve(n)}>{card.approved ? "승인함" : "승인"}</Button>
         <Button disabled={card.approved || card.replaced || card.rewriting} onClick={() => rewrite(n)}>다시 쓰기</Button>

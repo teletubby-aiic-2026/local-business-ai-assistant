@@ -1,17 +1,22 @@
-/* 화면 틀: 왼쪽 메뉴(260, 흰색) + 상단 바 + 회색 본문 + 오른쪽 서랍(400)
-   1025px 이상: 메뉴 고정(상단 바 버튼으로 접기, 접은 상태는 localStorage 'ic26.menu')
-   761~1024px: 메뉴는 접힌 채 시작하고, 펼치면 본문 위에 덮임
-   760px 이하: 메뉴는 상단 바 아래 가로줄, 서랍은 아래에서 올라오는 시트 */
-.app { min-height: 100vh; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); }
-.app.menu-closed { grid-template-columns: 0 minmax(0, 1fr); }
+/* 화면 틀: 왼쪽 메뉴(260, 흰색) + 상단 바 + 회색 본문 + 오른쪽 서랍(400). 폭 기준은 lib/media.js 와 같다
+   폭            왼쪽 메뉴                                              서랍 (AI에게 묻기)
+   1025px 이상   고정. 상단 바 버튼으로 접기 (접은 상태는 localStorage)  본문이 680px 이상 남을 때만 본문을 민다:
+                                                                        메뉴를 폈으면 1340px 이상 (1340 − 260 − 400 = 680),
+                                                                        메뉴를 접었으면 1080px 이상 (1080 − 400 = 680). 그 밖에는 본문 위에 덮음
+   761~1024px    접힌 채 시작. 펼치면 본문 위에 덮고 뒤를 어둡게          본문 위에 덮음 (본문 폭을 깎지 않음)
+   760px 이하    상단 바 아래 가로 한 줄 메뉴 (계정 줄은 숨김)            아래에서 올라오는 시트
+   본문(.content)은 크기 컨테이너 'content' 다. 화면 CSS 는 창 폭 대신 @container content (max-width: …) 로 본문 폭을 본다 */
+.app { min-height: 100vh; display: flex; align-items: stretch; }
 
+/* ── 왼쪽 메뉴 ── */
 .side {
-  position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--side);
+  position: sticky; top: 0; flex: 0 0 var(--side-w); width: var(--side-w); height: 100vh; overflow-y: auto; background: var(--side);
   border-right: 1px solid var(--line); padding: 20px 16px; display: flex; flex-direction: column; gap: 2px;
 }
 .app.menu-closed .side { display: none; }
-.side .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; color: var(--ink); text-decoration: none; font-size: var(--fs-panel); font-weight: 700; }
-.logo-slot { width: 32px; height: 32px; border-radius: var(--r-sm); background: var(--brand); color: var(--on-brand); display: grid; place-items: center; font-size: 13px; font-weight: 700; flex: none; }
+.side .side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 4px 16px 8px; }
+.side .brand { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--ink); text-decoration: none; font-size: 18px; line-height: 1.35; font-weight: 700; }
+.side .side-close { width: 40px; padding: 0; flex: none; }
 .side .group { padding: 20px 14px 6px; font-size: var(--fs-small); color: var(--muted); font-weight: 500; }
 .side .menu-item {
   display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 10px 14px; border-radius: var(--r-md);
@@ -19,63 +24,111 @@
 }
 .side .menu-item:hover { background: var(--hover); }
 .side .menu-item[aria-current="page"] { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
-.side .menu-item .count { margin-left: auto; min-width: 24px; padding: 0 8px; border-radius: var(--r-full); background: var(--bad); color: var(--panel); font-size: 13px; line-height: 22px; text-align: center; font-weight: 700; }
+.side .menu-item .count { margin-left: auto; }
 .side .menu-item[aria-current="page"] .count { background: var(--accent-ink); color: var(--accent); }
 .side .spacer { flex: 1; min-height: 16px; }
 .side .account { display: flex; gap: 12px; align-items: center; border-top: 1px solid var(--line); padding: 16px 8px 0; }
 .side .account .face { width: 36px; height: 36px; border-radius: var(--r-full); background: var(--brand-soft); color: var(--accent-text); display: grid; place-items: center; font-weight: 700; flex: none; }
 .side .account .who { display: grid; min-width: 0; }
 .side .account .who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side .account .btn.text { justify-self: start; padding: 0; min-height: 24px; font-size: var(--fs-small); }
+.side .account .btn-row { gap: 0 var(--s-12); }
+.side .account .btn.text { justify-self: start; padding: 0; min-height: 28px; font-size: var(--fs-small); }
 
-.main { min-width: 0; display: flex; flex-direction: column; }
+/* 개수 배지 (메뉴의 '승인할 글' 옆, 상단 바의 승인 대기 칩) */
+.count { display: inline-block; min-width: 24px; padding: 0 8px; border-radius: var(--r-full); background: var(--bad); color: var(--panel); font-size: 13px; line-height: 22px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ── 상단 바 ── */
+.main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .top {
   position: sticky; top: 0; z-index: 20; min-height: var(--top-h); background: var(--panel); border-bottom: 1px solid var(--line);
-  display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 32px; flex-wrap: wrap;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 12px 32px;
 }
-.top .top-left, .top .top-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.menu-toggle, .theme-toggle { width: 44px; padding: 0; }
-.store-pick { display: flex; align-items: center; gap: 12px; padding: 6px 12px 6px 14px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--panel); }
-.store-pick .sp-text { display: grid; line-height: 1.4; }
+.top .top-left { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.top .top-right { flex: 0 1 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.icon-btn { width: 44px; padding: 0; flex: none; }
+.store-pick { display: flex; align-items: center; gap: 12px; min-width: 0; max-width: 100%; padding: 6px 12px 6px 14px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--panel); }
+.store-pick .sp-text { display: grid; min-width: 0; line-height: 1.4; }
 .store-pick .sp-name { font-weight: 700; }
 .store-pick .sp-sub { font-size: var(--fs-small); color: var(--muted); }
-.store-pick select { border: 0; background: transparent; font: 500 var(--fs-small)/1.4 var(--font); color: var(--accent-text); cursor: pointer; padding: 4px; }
+.store-pick label { flex: none; }
+.store-pick select { max-width: 150px; min-height: 36px; border: 0; background: transparent; font: 500 var(--fs-small)/1.4 var(--font); color: var(--accent-text); cursor: pointer; padding: 4px; }
+.wait-chip {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 6px 4px 12px; border-radius: var(--r-full);
+  border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink-2); font-size: var(--fs-small); font-weight: 500; text-decoration: none; white-space: nowrap;
+}
+.wait-chip:hover { background: var(--hover); }
+.acct-btn { max-width: 100%; }
+.ask-btn .icon { margin-left: -2px; }
 
-.mode-band { background: var(--warn-bg); color: var(--warn); font-size: var(--fs-small); padding: 8px 32px; }
-.content { flex: 1; padding: 32px; display: grid; justify-items: center; align-content: start; gap: 24px; }
+/* 시험용 실행 안내 띠 (상단 바 바로 아래, 화면 공통의 한 곳) */
+.mode-band { display: flex; align-items: center; gap: 8px; background: var(--warn-bg); color: var(--warn); font-size: var(--fs-small); font-weight: 500; line-height: var(--lh-small); padding: 8px 32px; }
+.mode-band::before { content: ""; flex: none; width: 10px; height: 9px; background: var(--warn-dot); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+
+/* ── 본문 ── */
+.content {
+  flex: 1 0 auto; padding: 32px; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: start; gap: 24px;
+  container-type: inline-size; container-name: content;
+}
 .col { width: min(100%, var(--col)); display: grid; gap: 24px; }
 .col.wide { width: min(100%, var(--col-wide)); }
 .col.narrow { width: min(100%, var(--col-narrow)); }
-.honesty { width: min(100%, var(--col-wide)); display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: var(--fs-small); padding: 8px 0 24px; }
+.app-alert { width: min(100%, var(--col-wide)); }
+.honesty { width: min(100%, var(--col-wide)); display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: var(--fs-small); padding: 8px 0 16px; }
 
-/* 서랍 */
+/* ── 서랍: 기본은 본문 위에 덮음 (그림자). 본문이 680px 이상 남는 폭에서만 본문을 민다 ── */
 .drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; width: var(--drawer-w); z-index: 40; background: var(--panel);
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(var(--drawer-w), 100vw); z-index: 40; background: var(--panel);
   border-left: 1px solid var(--line); box-shadow: var(--shadow-over); display: flex; flex-direction: column;
 }
-@media (min-width: 1280px) { .app.drawer-open .main { margin-right: var(--drawer-w); } .app.drawer-open .drawer { box-shadow: none; } }
+@media (min-width: 1340px) {
+  .app.drawer-open .main { margin-right: var(--drawer-w); }
+  .app.drawer-open .drawer { box-shadow: none; }
+}
+@media (min-width: 1080px) {
+  .app.menu-closed.drawer-open .main { margin-right: var(--drawer-w); }
+  .app.menu-closed.drawer-open .drawer { box-shadow: none; }
+}
 
-@media (max-width: 1024px) and (min-width: 761px) {
-  .app { grid-template-columns: 0 minmax(0, 1fr); }
+/* ── 761~1024px: 메뉴는 접힌 채, 펼치면 본문 위에 덮고 뒤를 어둡게 (App.jsx 가 포커스를 메뉴 안에 가둠) ── */
+@media (min-width: 761px) and (max-width: 1024px) {
   .app .side { display: none; }
-  .app.menu-over .side { display: flex; position: fixed; left: 0; top: 0; z-index: 50; width: var(--side-w); box-shadow: var(--shadow-over); }
+  .app.menu-over .side { display: flex; position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; height: auto; box-shadow: var(--shadow-over); }
+  .app.menu-over .side .brand { font-size: 15px; gap: 8px; }   /* [메뉴 닫기] 버튼 자리를 두고도 이름이 한 줄에 */
   .app.menu-over::after { content: ""; position: fixed; inset: 0; background: var(--scrim); z-index: 45; }
 }
+
+/* ── 760px 이하: 상단 바 → 가로 한 줄 메뉴 → 본문 순서. 서랍은 아래 시트 ── */
 @media (max-width: 760px) {
-  .app, .app.menu-closed { grid-template-columns: 1fr; }
-  .app .side, .app.menu-closed .side { display: flex; position: sticky; top: 0; z-index: 30; height: auto; flex-direction: row; overflow-x: auto; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); gap: 4px; }
-  .side .brand, .side .group, .side .spacer, .side .account { display: none; }
+  .app { flex-direction: column; }
+  .main { display: contents; }
+  .top { order: 1; position: static; padding: 10px 16px; gap: 8px; }
+  .app .side, .app.menu-closed .side {
+    order: 2; display: flex; position: sticky; top: 0; z-index: 30; flex: none; width: auto; height: auto;
+    flex-direction: row; gap: 4px; overflow-x: auto; overflow-y: hidden; padding: 8px 12px;
+    border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none;
+  }
+  .side::-webkit-scrollbar { display: none; }
+  .mode-band { order: 3; padding: 8px 16px; }
+  .content { order: 4; padding: 20px 16px 24px; gap: 20px; }
+  .side .side-head, .side .group, .side .spacer, .side .account { display: none; }
   .side > [role="group"] { display: contents; }   /* 묶음을 풀어 한 줄 가로 메뉴로 */
-  .side .menu-item { white-space: nowrap; min-height: 40px; padding: 8px 12px; }
-  .menu-toggle { display: none; }
-  .top { padding: 12px 16px; position: static; }
-  .content { padding: 20px 16px; }
-  .mode-band { padding: 8px 16px; }
-  .drawer { top: auto; height: 85vh; width: 100%; border-left: 0; border-top: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .side .menu-item { flex: none; white-space: nowrap; min-height: 40px; padding: 8px 12px; gap: 6px; border-radius: var(--r-full); }
+  .side .menu-item .icon { display: none; }
+  .side .menu-item .count { margin-left: 2px; }
+  .menu-toggle, .wait-chip { display: none; }
+  .top .top-right { gap: 6px; }
+  .drawer { top: auto; height: 85vh; height: 85dvh; width: 100%; border-left: 0; border-top: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0; }
 }
+@media (max-width: 400px) {
+  .store-pick { padding: 4px 10px; }
+  .ask-btn { padding-left: 14px; padding-right: 14px; }
+}
+
 @media print {
   .side, .top, .drawer, .honesty, .mode-band { display: none !important; }
   .app { display: block; }
+  .main { margin-right: 0 !important; }
+  .content { container-type: normal; }   /* 인쇄에서는 본문 폭 규칙을 끄고 기본(넓은) 모양으로 */
   body { background: #fff; }
   .panel, .tile { box-shadow: none; }
 }

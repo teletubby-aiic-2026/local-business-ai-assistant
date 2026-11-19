@@ -1,8 +1,9 @@
 // 맞춤 마케팅 화면이 가짜 서비스로 처음부터 승인까지 도는지 (health → meta → step → 시작 모드 → plan → 승인)
-import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { getState } from "../../state/store.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { getState, setState } from "../../state/store.js";
 import Marketing from "./Marketing.jsx";
+import { MKT_DEMO_NOTICE, noticeLines } from "./state.js";
 
 const START = { state: { node: "start", raw: {}, confirms: {}, mode: null }, bot_messages: ["무엇을 도와드릴까요?"], done: false,
   options: [{ label: "맞춤 홍보 제안" }, { label: "광고비 점검" }], multi: false, input: null };
@@ -10,7 +11,8 @@ const PLAN = { title: "광고비 점검 결과", demo: true, session_id: "s1",
   table: [{ label: "배민", spend_won: 100000, orders: 20, cost_per_order_won: 5000, profit_per_order_won: 3000, verdict: "손해 광고" }],
   steps: [{ step_id: "promo", what: "홍보 글 올리기", generator: "review_promo" }], drafts: { promo: "처음 글" } };
 
-function fakeFetch(calls) {
+// hold: 시작 모드를 고른 뒤의 step 응답을 붙잡아 둘 약속 (응답 전 화면을 보려고)
+function fakeFetch(calls, hold = null) {
   return vi.fn(async (url, opts = {}) => {
     const path = String(url).replace("/api/marketing-survey/", "");
     const body = opts.body ? JSON.parse(opts.body) : null;
@@ -18,6 +20,7 @@ function fakeFetch(calls) {
     let out;
     if (path === "health") out = { state: "ready", mode: "mock", demo: true };
     else if (path === "meta") out = { store_name: "온기한식" };
+    else if (path === "step" && body.answer != null && hold) out = await hold;
     else if (path === "step") out = body.answer == null ? START : { state: { node: "DECISION", raw: {}, confirms: {}, mode: "adspend" }, done: true };
     else if (path === "plan") out = PLAN;
     else if (path === "approve") out = { state: body.state, recorded: [{ draft_id: "mkt-x-promo", kind: "홍보 글", edited: true }] };
@@ -27,6 +30,12 @@ function fakeFetch(calls) {
     return { ok: true, status: 200, json: async () => out, headers: { get: () => "application/json" } };
   });
 }
+
+afterEach(() => { cleanup(); });
+const prep = () => {
+  Element.prototype.scrollIntoView = () => {};
+  window.matchMedia = window.matchMedia || (() => ({ matches: false }));
+};
 
 describe("맞춤 마케팅 화면", () => {
   it("시작 모드를 고르면 결과 카드가 나오고, 고친 글을 승인하면 처리 완료에 남는다", async () => {
@@ -42,7 +51,10 @@ describe("맞춤 마케팅 화면", () => {
 
     await act(async () => { fireEvent.click(screen.getByText("광고비 점검")); });
     expect(await screen.findByText("광고비 점검 결과")).toBeTruthy();
-    expect(screen.getAllByText(/시험용 저장 예시 \(실제 AI 결과 아님\)/).length).toBeGreaterThan(0);
+    // 예시 고지: 화면 위 띠 한 곳 + 결과 카드 배지 한 곳 ('실제 AI 결과 아님'이 세 번 넘게 나오지 않음)
+    expect(screen.getAllByText(/시험용 저장 예시 \(실제 AI 결과 아님\)/).map((e) => e.className)).toEqual(["badge warn"]);
+    expect(screen.getAllByText(/실제 AI 결과 아님/).length).toBe(2);
+    expect(screen.queryByText(/코드가 계산하고/)).toBeNull();
     expect(screen.getAllByText("손해 광고").length).toBeGreaterThan(0);
 
     const box = screen.getByLabelText(/홍보 글/);
@@ -54,5 +66,55 @@ describe("맞춤 마케팅 화면", () => {
     expect(sent.approval[0].kind).toBe("홍보 글");
     expect(await screen.findByText(/'처리 완료'에 글 1건을 기록했어요/)).toBeTruthy();
     expect(getState().approvedLog.some((x) => x.id === "mkt-x-promo" && x.mkt)).toBe(true);
+  });
+
+  it("결과 칸은 새 카드를 읽어 주는 라이브 영역이다 (질문 대화 기록과 따로)", async () => {
+    globalThis.fetch = fakeFetch([]);
+    prep();
+    act(() => setState({ epoch: getState().epoch + 1 }));   // 앞 시험의 대화를 비우고 처음부터
+    render(<Marketing />);
+    const mode = await screen.findByText("광고비 점검");
+    await act(async () => { fireEvent.click(mode); });
+    await screen.findByText("광고비 점검 결과");
+    const region = document.getElementById("mkt-cards");
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    expect(region.getAttribute("role")).toBe("log");
+    expect(region.getAttribute("aria-relevant")).toBe("additions");
+    expect(within(region).getByText("광고비 점검 결과")).toBeTruthy();
+    // 질문 대화 기록(role=log)과 겹치지 않는다: 결과 카드는 대화 기록 안에 없고, 대화 기록은 결과 칸 안에 없다
+    const log = document.getElementById("mkt-log");
+    expect(log.contains(region) || region.contains(log)).toBe(false);
+    expect(within(log).queryByText("광고비 점검 결과")).toBeNull();
+  });
+
+  it("시작 모드를 고르면 첫 응답 전에도 고른 모드와 '처음부터'가 바로 보인다", async () => {
+    let release;
+    const hold = new Promise((r) => { release = r; });
+    globalThis.fetch = fakeFetch([], hold);
+    prep();
+    act(() => setState({ epoch: getState().epoch + 1 }));
+    render(<Marketing />);
+    expect(await screen.findByText("무엇을 도와드릴까요?")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "처음부터" })).toBeNull();   // 첫 화면(기능 카드)에는 없음
+    await act(async () => { fireEvent.click(screen.getByText("광고비 점검")); });
+    // 아직 step 응답 전: 질문 칸 제목이 고른 모드, 내 답 말풍선, '처음부터' 버튼
+    const title = document.getElementById("mkt-ask-title");
+    expect(title.textContent).toBe("광고비 점검");
+    expect(document.querySelector("#mkt-log .mkt-bubble").textContent).toBe("광고비 점검");
+    expect(screen.getByRole("button", { name: "처음부터" })).toBeTruthy();
+    expect(screen.getByText("승인한 기록은 그대로 남아요")).toBeTruthy();
+    expect(screen.queryByText("질문")).toBeNull();   // '질문' 제목 + '질문 n' 배지가 따로 있지 않음
+    await act(async () => { release({ state: { node: "DECISION", raw: {}, confirms: {}, mode: "adspend" }, done: true }); });
+    expect(await screen.findByText("광고비 점검 결과")).toBeTruthy();
+  });
+});
+
+describe("맞춤 마케팅 위 안내 띠", () => {
+  it("예시면 한 줄, 화면 맨 위 시험용 띠가 있으면 겹쳐 띄우지 않는다", () => {
+    expect(noticeLines({ health: { mode: "mock" }, clearNote: "" })).toEqual([MKT_DEMO_NOTICE]);
+    expect(noticeLines({ health: { mode: "mock" }, clearNote: "" }, true)).toEqual([]);
+    expect(noticeLines({ health: { mode: "live", demo: false }, demoSeen: false, clearNote: "기록 안내" }, true)).toEqual(["기록 안내"]);
+    expect(MKT_DEMO_NOTICE).toMatch(/실제 AI 결과 아님/);
+    expect(MKT_DEMO_NOTICE).not.toMatch(/HCX/);
   });
 });

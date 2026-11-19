@@ -51,7 +51,8 @@ describe("캡처", () => {
       { text: "a", rating: "5", ai: 5, pii: false, dup: false, picked: true, saved: false, msg: "" },
       { text: "b", rating: "", ai: null, pii: true, dup: true, picked: false, saved: false, msg: "" },
     ]);
-    expect(capStatusLine({ demo: true, pieces: 3 }, 2)).toBe("후보 2건 · 3조각으로 나눠 읽음 · 예시 결과. 글과 별점을 고치고, 저장할 리뷰를 골라 주세요.");
-    expect(capStatusLine({ engine: "HCX-005" }, 1)).toBe("후보 1건 · 읽은 모델 HCX-005. 글과 별점을 고치고, 저장할 리뷰를 골라 주세요.");
+    // 고치고 고르라는 안내는 후보 목록 위 확인 경고 한 곳에만 (상태 줄에서는 뺌)
+    expect(capStatusLine({ demo: true, pieces: 3 }, 2)).toBe("후보 2건 · 3조각으로 나눠 읽음 · 예시 결과");
+    expect(capStatusLine({ engine: "HCX-005" }, 1)).toBe("후보 1건 · 읽은 모델 HCX-005");
   });
 });

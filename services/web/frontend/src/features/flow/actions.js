@@ -113,8 +113,8 @@ export async function regenDraft(id) {
       results: { ...n.results, [cardId]: { ...cur, drafts, flagged_count: drafts.filter((x) => failedOf(x).length || checksOf(x).length).length } },
       draftId: n.draftId === gone ? fresh.draft_id : n.draftId,
     }));
-    setFlow({ note: { id: fresh.draft_id, text: (made.source === "seed" ? "이 글만 다시 불러왔어요. 시험용 실행이라 저장 예시 글 그대로예요." : "이 글만 새로 만들었어요.")
-      + " 다른 글의 승인과 고친 내용은 그대로예요." } });
+    setFlow({ note: { id: fresh.draft_id, text: (made.source === "seed" ? "시험용 실행이라 같은 예시 글을 다시 불러왔어요." : "이 글만 새로 만들었어요.")
+      + " 다른 글은 그대로예요." } });
   } catch (e) { setAlert(e.message); }
   finally { setFlow((f) => { const regen = new Set(f.regen); regen.delete(key); return { regen }; }); }
 }

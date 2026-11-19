@@ -3,12 +3,12 @@
 // 차트는 브리핑(불만 리뷰 시각·주제)에서 바로 센다. 외부 라이브러리 없음.
 import { useStore, openDrawer } from "../../state/store.js";
 import { todosOf, staffOf } from "../../state/staff.js";
-import { heroProblem, homeSnap, snapValue, marketScope, scopeNote } from "../../lib/domain.js";
+import { heroProblem, homeSnap, snapValue, scopeNote } from "../../lib/domain.js";
 import { go } from "../../lib/router.js";
 import { PageHead, Panel, StatTile, TopicBar, Button } from "../../components/ui.jsx";
 import { useFlow } from "./state.js";
 import { runTodo, staffGo } from "./actions.js";
-import { homeStats, keywordRows, hourChart } from "./calc.js";
+import { homeStats, keywordRows, hourChart, scopeChips } from "./calc.js";
 import "./flow.css";
 
 const Unit = ({ n }) => (n === undefined || n === null ? "–" : <>{n}<span className="flow-unit">건</span></>);
@@ -40,9 +40,9 @@ export default function Home() {
         <StatTile tint="green" icon="리뷰" label="리뷰" value={<Unit n={stats?.reviews} />} sub={stats?.reviewsSub} />
         <StatTile tint="mint" icon="불만" label="불만" value={<Unit n={stats?.complaints} />} sub={stats?.complaintsSub} />
         <StatTile tint="lime" icon="반복 불만" label="반복 불만" value={<Unit n={stats?.repeated} />} sub={stats?.repeatedSub} />
-        {/* 범위(업종·시간대)를 숫자 옆에 늘 붙인다: 서랍의 답(한 업종 하루 전체)과 범위가 달라 나란히 보면 모순처럼 보이므로 */}
+        {/* 범위(상권·업종·시간대)를 숫자 아래 칩으로 늘 붙인다: 서랍의 답(한 업종 하루 전체)과 범위가 달라 나란히 보면 모순처럼 보이므로 */}
         <StatTile tint="sage" icon="상권 매출" label="상권 저녁 매출" value={snap ? snapValue(snap) : "–"}
-          sub={snap ? [snap.area_name, marketScope(snap), "전년 같은 분기 대비"].filter(Boolean).join(" · ") : b ? "상권 지표 없음" : ""}
+          sub={snap ? <ScopeMeta chips={scopeChips(snap)} /> : b ? "상권 지표 없음" : ""}
           title={snap ? `${snap.metric_name}. ${scopeNote(snap)}` : undefined} />
       </div>
 
@@ -73,7 +73,6 @@ export default function Home() {
           </ol>
           <div className="btn-row flow-todo-foot">
             <Button variant="primary" disabled={!s.booted || !!s.bootError} onClick={() => go("cards")}>{startLabel}</Button>
-            <span className="small muted">추천 카드 2장을 나란히 보고 고르기</span>
           </div>
         </Panel>
 
@@ -92,7 +91,7 @@ export default function Home() {
         </Panel>
       </div>
 
-      <div className="grid-2">
+      <div className="grid-2 flow-charts">
         <HourPanel b={b} />
         <TopicPanel b={b} />
       </div>
@@ -102,6 +101,16 @@ export default function Home() {
         <span className="flow-ask-go" aria-hidden="true">›</span>
       </button>
     </div>
+  );
+}
+
+// 상권 칸의 범위: 상권명 · 업종 · 시간대 칩 + 비교 기준 한 줄
+function ScopeMeta({ chips }) {
+  return (
+    <>
+      <span className="flow-scope">{chips.map((c, i) => <span key={`${i}-${c}`} className="flow-scope-chip">{c}</span>)}</span>
+      <span className="flow-scope-base">전년 같은 분기 대비</span>
+    </>
   );
 }
 

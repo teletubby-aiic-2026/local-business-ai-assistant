@@ -75,7 +75,7 @@
 .rp-quote { margin: 0; padding: var(--s-12) var(--s-16); border-left: 3px solid var(--green-300); background: var(--surface); border-radius: 0 var(--r-md) var(--r-md) 0; }
 .rp-quote p { font-weight: 500; overflow-wrap: anywhere; }
 .rp-quote footer { margin-top: 4px; }
-@media (max-width: 900px) { .rp-praise-body { grid-template-columns: 1fr; } .rp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 
 /* 월간 보고서 */
 .rp-month-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s-8); }
@@ -84,7 +84,6 @@
 .rp-nums > div { padding: var(--s-12) var(--s-16); border-radius: var(--r-md); background: var(--surface); min-width: 0; }
 .rp-nums dt { color: var(--muted); font-size: var(--fs-small); font-weight: 500; }
 .rp-nums dd { margin: 2px 0 0; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
-@media (max-width: 760px) { .rp-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .rp-chart { margin: 0; display: grid; gap: 4px; }
 .rp-trend { display: block; width: 100%; height: auto; max-height: 220px; }
 .rp-trend .rp-gl { stroke: var(--line-strong); stroke-width: 1; }
@@ -175,4 +174,22 @@
   html.rp-view .rp-sugg { gap: 2px; }
   html.rp-view .rp-snaps { gap: 6px; }
   html.rp-view .rp-snap-v { font-size: 18px; }
+}
+
+/* 개선 제안 바로 아래 한 줄 */
+.rp-sugg-note { margin-top: var(--s-8); }
+
+/* ── 본문 실제 폭(@container content)에 맞춘 줄바꿈 (창 폭 @media 대신). 두 칸 패널(.rp-pair = .grid-2)·타일 여백은 base.css 공통 규칙.
+   인쇄에서는 layout.css 가 컨테이너를 꺼서 이 규칙이 먹지 않고, 종이 모양은 아래 인쇄 덩어리가 정한다 ── */
+@container content (max-width: 759px) {
+  .rp-praise-body { grid-template-columns: minmax(0, 1fr); }   /* 칭찬 주제 · 인기 메뉴 · 대표 한 줄 세 칸 → 한 줄씩 */
+}
+@container content (max-width: 639px) {
+  .rp-tiles, .rp-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rp-bar { align-items: flex-start; }
+}
+@container content (max-width: 479px) {
+  .rp-big-n { font-size: 44px; }
+  .rp-snap-v { min-width: 4.5em; font-size: 20px; }
+  .rp-month-nav strong { min-width: 0; }
 }

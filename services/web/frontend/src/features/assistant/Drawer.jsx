@@ -1,11 +1,13 @@
 // AI에게 묻기 서랍 (오른쪽, 모든 화면에서 열림. Figma 화면 12). 넓은 화면 = 오른쪽 400px, 760px 이하 = 아래에서 올라오는 시트(layout.css).
-// 위에서부터: 머리(제목·대화 지우기·닫기) → 조건 칩 줄·범위 안내 → 대화(스크롤) → 오류 → 입력줄(고정).
+// 위에서부터: 머리(제목·대화 지우기·닫기) → 기준 범위 칩(상권 · 업종 · 분기 · 하루 전체)·안내 한 줄 → 대화(스크롤) → 오류 → 입력줄(고정).
 // 처음 열 때만 상권 채팅을 시작한다 (열기 전에는 아무 호출도 하지 않아 첫 화면 로딩에 영향이 없음)
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore, getState, openDrawer } from "../../state/store.js";
-import { homeSnap, snapValue, marketScope } from "../../lib/domain.js";
+import { homeSnap, marketScope } from "../../lib/domain.js";
 import { Button, Notice } from "../../components/ui.jsx";
-import { CHAT_TOPICS, CHAT_STATUS, chatValue, chatQuarter, chatUrl, chatCondParts, chatBlocks, chatPieces } from "./chat.js";
+import {
+  CHAT_TOPICS, CHAT_STATUS, CHAT_SCOPE_DAY, chatValue, chatQuarter, chatUrl, chatCondParts, chatScopeNote, chatBlocks, chatPieces,
+} from "./chat.js";
 import {
   useChat, getChat, setDraft, chatSend, chatChoose, chatClear, chatHome, chatStart, chatRetry, chatReset, chatSeenEpoch,
   chatDisarm, chatHighlight, takeSkipFocus,
@@ -13,13 +15,6 @@ import {
 import "./assistant.css";
 
 const STATE_TONE = { down: "bad", error: "bad", no_data: "warn", off: undefined, disabled: undefined };
-
-// 홈 '상권 저녁 매출'(공통 업종 17~24시)과 여기 답(고른 업종 하나, 하루 전체)의 범위가 다르다는 한 줄 (11/18, 예전 chatScopeNote)
-function scopeLine(briefing) {
-  const s = homeSnap(briefing);
-  return s ? `홈의 '상권 저녁 매출' ${snapValue(s)}는 ${[s.area_name, marketScope(s)].filter(Boolean).join(" · ")} 기준이에요. `
-    + "여기 답은 위 조건(업종 하나, 하루 전체) 기준이라 숫자가 다를 수 있어요." : "";
-}
 
 // 진행 줄: busy 이면 점이 깜박이고 걸린 초를 보인다 (초는 읽기 프로그램에 읽히지 않게). 20초가 넘으면 '길면 1분 넘게' 덧붙임
 function StatusLine({ status }) {
@@ -85,7 +80,8 @@ function EvCard({ c, domId, hl }) {
   );
 }
 
-// 비서 답 하나: 글(목록·참고·해석·다음으로) → 근거 n개 → 자료 기준 안내, 말풍선 아래 선택지. live = 마지막 답 (선택지를 누를 수 있음)
+// 비서 답 하나: 글(목록·참고·해석·다음으로) → 선택지(글 바로 아래, 스크롤 없이 보이게) → 근거 n개 · 자료 기준 안내(접힘).
+// live = 마지막 답 (선택지를 누를 수 있음)
 function BotMsg({ item, live, off, hl }) {
   const reply = item.data?.reply || {};
   const cards = (Array.isArray(item.data?.cards) ? item.data.cards : []).filter((c) => c && c.id);
@@ -111,32 +107,35 @@ function BotMsg({ item, live, off, hl }) {
               </p>
             )))}
         </div>
-        {cards.length > 0 && (
-          <details className="chat-fold chat-ev" open={evOpen} onToggle={(e) => setEvOpen(e.currentTarget.open)}>
-            <summary>근거 {cards.length}개</summary>
-            <ol className="chat-ev-list">
-              {cards.map((c, i) => <EvCard key={i} c={c} domId={domId(c.id)} hl={hl === `${item.id}:${c.id}`} />)}
-            </ol>
-            <p className="chat-ev-note">상권 통계는 상권·업종 전체의 추정치예요. 우리 가게 매출이 아니에요.</p>
-          </details>
+        {actions.length > 0 && (
+          <div className="chat-actions" role="group" aria-label="선택지">
+            {actions.map((a, i) => (
+              <Button key={i} size="small" className="chat-pick" aria-current={item.picked === i ? "true" : undefined}
+                disabled={!live || off} onClick={() => chatChoose(item.id, i, a)}>
+                {chatQuarter(a.label)}
+              </Button>
+            ))}
+          </div>
         )}
-        {notes.length > 0 && (
-          <details className="chat-fold chat-notes">
-            <summary>자료 기준 안내</summary>
-            <ul>{notes.map((n, i) => <li key={i}>{chatQuarter(n)}</li>)}</ul>
-          </details>
+        {(cards.length > 0 || notes.length > 0) && (
+          <div className="chat-meta">
+            {cards.length > 0 && (
+              <details className="chat-fold chat-ev" open={evOpen} onToggle={(e) => setEvOpen(e.currentTarget.open)}>
+                <summary>근거 {cards.length}개</summary>
+                <ol className="chat-ev-list">
+                  {cards.map((c, i) => <EvCard key={i} c={c} domId={domId(c.id)} hl={hl === `${item.id}:${c.id}`} />)}
+                </ol>
+              </details>
+            )}
+            {notes.length > 0 && (
+              <details className="chat-fold chat-notes">
+                <summary>자료 기준 안내</summary>
+                <ul>{notes.map((n, i) => <li key={i}>{chatQuarter(n)}</li>)}</ul>
+              </details>
+            )}
+          </div>
         )}
       </div>
-      {actions.length > 0 && (
-        <div className="chat-actions" role="group" aria-label="선택지">
-          {actions.map((a, i) => (
-            <Button key={i} size="small" className="chat-pick" aria-current={item.picked === i ? "true" : undefined}
-              disabled={!live || off} onClick={() => chatChoose(item.id, i, a)}>
-              {chatQuarter(a.label)}
-            </Button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -205,7 +204,9 @@ export default function Drawer() {
   }, [c.draft, open]);
 
   const parts = chatCondParts(c.conditions);
-  const note = c.conditions ? scopeLine(briefing) : "";
+  const snap = homeSnap(briefing);
+  const note = chatScopeNote(snap ? marketScope(snap) : "");
+  const showCond = parts.length > 0 || c.ready;   // 조건을 못 받았어도 준비됐으면 '우리 가게 매출 아님' 안내는 보인다
   const homeLabel = c.atHome ? "우리 가게 기준 적용 중" : c.homeFlash ? "✓ 맞췄어요" : "우리 가게 조건으로";
   // 좁은 서랍에서도 한 줄에 들어가게 짧게
   const placeholder = c.busy ? "답을 기다리고 있어요…" : c.ready ? "상권·리뷰·마케팅 무엇이든 물어보세요" : c.loading ? "준비하고 있어요…" : "지금은 물어볼 수 없어요";
@@ -225,17 +226,21 @@ export default function Drawer() {
         </div>
       </div>
 
-      <div id="assistant-cond" className="chat-cond" hidden={!parts.length}>
-        <div className="chat-cond-row">
-          <p id="assistant-cond-text" className="chat-cond-chips">
-            <span className="sr">분석 조건: </span>
-            {parts.map((p) => <span key={p} className="chat-cond-chip">{p}</span>)}
-          </p>
-          {/* 채팅에서 다른 곳을 보고 있어도 우리 가게 조건으로 되돌림 (setup?force=1). 이미 기본 조건이면 누를 수 없음 */}
-          <Button id="assistant-home" size="small" className={["chat-home", c.atHome && "on"].filter(Boolean).join(" ")}
-            disabled={off || c.atHome} onClick={chatHome}>{homeLabel}</Button>
-        </div>
-        {note && <p id="assistant-cond-note" className="chat-cond-note">{note}</p>}
+      {/* 기준 범위: 조건 칩(상권 · 업종 · 분기) + '하루 전체' 칩, 그 아래 추정치 안내 한 줄 (서랍 안에서 이 한 곳에만) */}
+      <div id="assistant-cond" className="chat-cond" hidden={!showCond}>
+        {parts.length > 0 && (
+          <div className="chat-cond-row">
+            <p id="assistant-cond-text" className="chat-cond-chips">
+              <span className="sr">답의 기준: </span>
+              {parts.map((p) => <span key={p} className="chat-cond-chip">{p}</span>)}
+              <span className="chat-cond-chip scope">{CHAT_SCOPE_DAY}</span>
+            </p>
+            {/* 채팅에서 다른 곳을 보고 있어도 우리 가게 조건으로 되돌림 (setup?force=1). 이미 기본 조건이면 누를 수 없음 */}
+            <Button id="assistant-home" size="small" className={["chat-home", c.atHome && "on"].filter(Boolean).join(" ")}
+              disabled={off || c.atHome} onClick={chatHome}>{homeLabel}</Button>
+          </div>
+        )}
+        <p id="assistant-cond-note" className="chat-cond-note">{note}</p>
       </div>
 
       {/* 대화를 내리면 머리와 대화 칸 사이에 가는 선 (맨 위에서는 선 없이) */}
@@ -252,10 +257,8 @@ export default function Drawer() {
         {c.welcome && (
           <div id="assistant-welcome" className="chat-welcome">
             <h3>우리 가게 상권, 편하게 물어보세요</h3>
-            <p><b>동네 상권·업종 매출 상담</b>이에요. 서울시 공개 상권 자료로 매출·점포 수·유동인구를 알려 드려요. 숫자마다 근거 번호가 붙고, 누르면 원래 자료를 볼 수 있어요.</p>
-            <p>가게 이름·메뉴 같은 기본 정보와 리뷰·답글을 어디서 보는지도 답해요.</p>
-            <p>불만 리뷰·쿠폰 손익·남은 재료·광고비·리포트를 물으면 지금 가게의 현황을 짚고, 버튼 하나로 그 화면으로 안내해요.</p>
-            <p className="small muted">상권 통계는 상권·업종 전체의 추정치예요. 우리 가게 매출이 아니에요.</p>
+            <p>서울시 공개 상권 자료로 매출·점포 수·유동인구를 알려 드려요. 숫자 옆 근거 번호를 누르면 원래 자료를 볼 수 있어요.</p>
+            <p>가게 기본 정보도 답하고, 불만 리뷰·쿠폰·남은 재료·광고비를 물으면 지금 현황과 그 화면으로 가는 버튼을 드려요.</p>
           </div>
         )}
         <div id="assistant-log" className="chat-log" role="log" aria-live={c.logLive} aria-label="대화 기록">

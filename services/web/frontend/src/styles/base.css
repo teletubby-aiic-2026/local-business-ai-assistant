@@ -59,8 +59,10 @@ h1:focus { outline: none; }
 .notice.ok { background: var(--ok-bg); color: var(--ok); }
 .notice.brand { background: var(--brand-soft); color: var(--green-800); }
 
-/* ── 숫자 타일 ── */
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s-16); }
+/* ── 숫자 타일 ──
+   본문 폭(@container content, layout.css 의 .content)에 맞춰 칸 수를 정한다. 넓으면 한 줄(칸당 150px 이상),
+   본문이 679px 이하면 두 칸(홀수 개면 마지막 칸이 한 줄 전체), 256px 아래면 한 칸. 숫자는 말줄임표 없이 줄을 바꾼다 */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: var(--s-16); }
 .tile { border-radius: var(--r-lg); padding: var(--s-20); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .tile .tile-label { font-size: var(--fs-small); color: var(--ink-2); font-weight: 500; }
 .tile .tile-sub { font-size: var(--fs-small); color: var(--muted); }
@@ -70,10 +72,12 @@ h1:focus { outline: none; }
 .tile.tint-lime { background: var(--tint-lime-bg); border-color: transparent; box-shadow: none; --tint: var(--tint-lime); }
 .tile.tint-sage { background: var(--tint-sage-bg); border-color: transparent; box-shadow: none; --tint: var(--tint-sage); }
 
-/* ── 아이콘 자리 (Figma 04 에셋의 자리 부품. 에셋을 받으면 Icon 안의 그림만 바꾼다) ── */
+/* ── 아이콘 (components/ui.jsx 의 Icon: 24×24 선 그림, 크기는 size 로) · 로고 ── */
 .icon-circle { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-full); background: var(--tint, var(--accent)); color: var(--tint-ink); flex: none; }
 .icon-circle.soft { background: var(--tint-bg, var(--brand-soft)); color: var(--tint, var(--accent-text)); }
-.icon { width: 18px; height: 18px; flex: none; }
+.icon { display: inline-block; flex: none; vertical-align: middle; }
+.logo { display: inline-grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: var(--r-sm); background: var(--brand); color: var(--on-brand); }
+.logo svg { display: block; width: 60%; height: 60%; }
 
 /* ── 주제 막대 ── */
 .topic-bar { display: grid; gap: 6px; }
@@ -85,7 +89,7 @@ h1:focus { outline: none; }
 .topic-bar.hot .tb-fill { background: var(--hot); }
 
 /* ── 기능 카드 ── */
-.feature-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--s-16); }
+.feature-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: var(--s-16); }
 .feature-card { text-align: left; display: flex; flex-direction: column; gap: var(--s-12); padding: var(--s-20); border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow-card); cursor: pointer; font: inherit; color: inherit; }
 .feature-card:hover:not(:disabled) { border-color: var(--green-300); }
 .feature-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
@@ -105,9 +109,11 @@ h1:focus { outline: none; }
 }
 .field textarea, textarea.input { min-height: 120px; resize: vertical; }
 
-/* ── 빈 안내 ── */
-.empty { text-align: center; display: grid; justify-items: center; gap: var(--s-12); padding: var(--s-40) var(--s-24); }
-.empty .empty-art { width: 160px; height: 120px; border-radius: var(--r-md); border: 1px dashed var(--line-strong); display: grid; place-items: center; color: var(--muted); font-size: var(--fs-small); }
+/* ── 빈 안내: 옅은 원 안의 아이콘 + 제목 + 한 줄 ── */
+.empty { text-align: center; display: grid; justify-items: center; gap: var(--s-8); padding: var(--s-32) var(--s-16); }
+.empty .empty-icon { width: 48px; height: 48px; margin-bottom: var(--s-4); border-radius: var(--r-full); background: var(--chip); color: var(--muted); display: grid; place-items: center; }
+.empty p { max-width: 36em; }
+.empty > .btn, .empty > .btn-row { margin-top: var(--s-8); }
 
 /* ── 화면 머리 ── */
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--s-16); flex-wrap: wrap; }
@@ -134,4 +140,25 @@ dialog.dialog .dlg-head { display: flex; justify-content: space-between; align-i
 .row { display: flex; gap: var(--s-16); flex-wrap: wrap; }
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-16); }
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-16); }
-@media (max-width: 900px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+/* ── 본문 폭에 따라 (창 폭이 아니라 .content 의 안쪽 폭. 서랍이 밀거나 메뉴를 접으면 창 폭은 그대로여도 본문 폭이 바뀐다) ──
+   컨테이너 이름은 content (layout.css). 화면 CSS 에서도 @container content (max-width: …) 로 쓴다 */
+@container content (max-width: 879px) { .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container content (max-width: 799px) { .tiles .num { font-size: 26px; } }
+@container content (max-width: 679px) {
+  .tiles { grid-template-columns: repeat(auto-fit, minmax(max(120px, calc((100% - var(--s-16)) / 2)), 1fr)); }
+  .tiles > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@container content (max-width: 639px) { .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); } }
+@container content (max-width: 479px) {
+  .panel { padding: var(--s-20) var(--s-16); }
+  .tile { padding: var(--s-16); }
+  .tiles { gap: var(--s-12); }
+  .tiles .num { font-size: 24px; }
+}
+
+/* ── 휴대전화 (760px 이하) ── */
+@media (max-width: 760px) {
+  h1 { font-size: 24px; }
+  dialog.dialog .dlg-body { padding: var(--s-24) var(--s-16); }
+}

@@ -1,15 +1,17 @@
-// 내 계정 창: 기록 지우기·회원 탈퇴 (예전 app.js acctOpen·acctStep·acctSubmit·acctCancel·acctClosed, Figma 화면 17).
+// 내 계정 창: 로그아웃·기록 지우기·회원 탈퇴 (예전 app.js acctOpen·acctStep·acctSubmit·acctCancel·acctClosed, Figma 화면 17).
 // 로그인한 사장님만 (게스트는 상단 바에 이름 버튼이 없다). 동작을 누르면 같은 창 안에서 확인 단계로 바뀌고
 // (기본 포커스는 [취소], Esc 도 취소), [지우기]를 눌러야 서버에 보낸다.
 // 순서: 상권 대화 지우기(DELETE /api/assistant/conversation, 실패·꺼짐은 무시) → POST /api/auth/reset 또는 /api/auth/withdraw.
 // 탈퇴는 일반 계정이면 비밀번호를 한 번 더 받고(보낸 뒤 칸을 비움), 시연 계정(user.demo)은 칸 없이 본문 {}.
 // 끝나면 storeChanged() 로 모든 화면을 서버 기준으로 다시 읽고, 결과 한 줄(acctNotice)은 창 밖 오른쪽 아래 띠에 남긴다.
-// 공통 Dialog 대신 <dialog> 를 직접 쓴다: 확인 단계의 Esc 를 keydown 에서 먼저 받아야 해서 (아래 onKeyDown)
+// [로그아웃]도 여기 있다 (760px 이하에서는 왼쪽 메뉴의 계정 줄이 숨어서 상단 바 이름 버튼 → 이 창이 유일한 길).
+// 공통 Dialog 를 쓰되 확인 단계의 Esc 는 keydown 에서 먼저 받는다 (아래 onKeyDown)
 import { useEffect, useRef, useState } from "react";
 import { useStore, getState, setState } from "../../state/store.js";
 import { storeChanged } from "../../state/boot.js";
+import { acctLogout } from "../../state/account.js";
 import { api } from "../../lib/api.js";
-import { Button } from "../../components/ui.jsx";
+import { Button, Dialog } from "../../components/ui.jsx";
 import { ACCT_ACTS, acctPost, clearChat, isDemo, storeName, summary } from "./acctApi.js";
 import { focusAccountButton, later } from "./focus.js";
 import "./account.css";
@@ -18,14 +20,14 @@ export default function AccountDialog() {
   const open = useStore((s) => s.acctOpen);
   const me = useStore((s) => s.me);
   const notice = useStore((s) => s.acctNotice);
+  const reloading = useStore((s) => s.acctBusy);   // 로그인·가게 바꾸기 뒤 다시 읽는 중 (상단 바 계정 버튼과 같이 잠금)
   const [act, setAct] = useState(null);       // null 이면 계정 정보와 동작, 있으면 그 동작의 확인 단계
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [pw, setPw] = useState("");
   const [retryShown, setRetryShown] = useState(false);   // 일부만 지웠을 때 버튼을 '다시 지우기'로
   // 이벤트 사이에 바로 읽어야 하는 값 (예전 acctX)
-  const x = useRef({ act: null, busy: false, from: null, stale: false });
-  const dlg = useRef(null);
+  const x = useRef({ act: null, busy: false, from: null, stale: false, out: false });
   const closeRef = useRef(null);
   const cancelRef = useRef(null);
   const pwRef = useRef(null);
@@ -54,10 +56,12 @@ export default function AccountDialog() {
     setState({ acctOpen: false });
   }
 
-  // 닫힌 뒤 (닫기·Esc·바깥 누르기 모두): 확인 단계를 치우고 이름 버튼으로. 로그인이 풀린 것을 봤으면 게스트로 다시 읽는다
+  // 닫힌 뒤 (닫기·Esc·바깥 누르기 모두): 확인 단계를 치우고 이름 버튼으로. 로그인이 풀린 것을 봤으면 게스트로 다시 읽는다.
+  // 로그아웃으로 닫혔으면 포커스는 로그아웃이 끝난 뒤 [로그인]으로 (state/account.js)
   async function onClosed() {
     if (getState().acctOpen) setState({ acctOpen: false });
     step(null);
+    if (x.current.out) { x.current.out = false; return; }
     if (x.current.stale) {
       x.current.stale = false;
       let m = null;
@@ -68,21 +72,22 @@ export default function AccountDialog() {
     focusAccountButton();
   }
 
+  // 열 때 (창은 안쪽 Dialog 의 효과가 먼저 띄운다): 처음 단계로, 포커스는 [닫기]. 닫히는 것은 Dialog 가 하고 onClosed 를 부른다
   useEffect(() => {
-    const d = dlg.current;
-    if (!d) return;
-    const isOpen = d.open || d.hasAttribute("open");
-    if (open) {
-      if (!me || !me.authenticated) { setState({ acctOpen: false }); return; }
-      setState({ acctNotice: "" });
-      step(null);
-      if (typeof d.showModal === "function") { if (!d.open) d.showModal(); } else d.setAttribute("open", "");
-      closeRef.current?.focus();
-    } else if (isOpen) {
-      if (typeof d.close === "function" && d.open) d.close();   // close 이벤트 → onClosed
-      else { d.removeAttribute("open"); onClosed(); }
-    }
+    if (!open) return;
+    if (!me || !me.authenticated) { setState({ acctOpen: false }); return; }
+    setState({ acctNotice: "" });
+    step(null);
+    closeRef.current?.focus();
   }, [open]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // [로그아웃]: 창을 닫고 로그아웃 (끝나면 상단 바 [로그인]으로 포커스)
+  function logout() {
+    if (x.current.busy || getState().acctBusy) return;
+    x.current.out = true;
+    setState({ acctOpen: false });
+    acctLogout();
+  }
 
   // 확인 단계에서 [취소]·Esc: 창은 그대로, 처음 단계로 (누른 동작 버튼으로 포커스)
   function cancel() {
@@ -116,7 +121,7 @@ export default function AccountDialog() {
         lock(false);
         close();
         await storeChanged();                                                     // ③ 로그아웃 때와 같은 게스트 화면
-        setState({ acctNotice: "회원 탈퇴를 마쳤어요. 계정과 기록을 지웠고, 지금은 게스트 체험 화면이에요." });   // storeChanged 가 비우므로 그 뒤에
+        setState({ acctNotice: "회원 탈퇴를 마쳤어요. 계정과 기록을 모두 지웠어요." });   // storeChanged 가 비우므로 그 뒤에
         focusAccountButton();                                                     // [로그인]으로
         return;
       }
@@ -160,71 +165,72 @@ export default function AccountDialog() {
 
   return (
     <>
-      <dialog ref={dlg} className="dialog acct-dlg" aria-labelledby={act ? "acct-confirm-title" : "acct-title"} aria-busy={busy}
-        onKeyDown={onKeyDown} onCancel={onCancel} onClose={onClosed}
-        onClick={(e) => { if (e.target === e.currentTarget && !x.current.act) close(); }}>
-        <div className="dlg-body">
-          <div className="stack-16" hidden={!!act}>
-            <div className="dlg-head">
-              <h2 id="acct-title" className="acct-title">내 계정</h2>
-              {/* 공통 Button 은 ref 를 넘기지 않아 포커스를 옮길 버튼은 같은 모양의 button 을 직접 쓴다 */}
-              <button ref={closeRef} type="button" className="btn small" onClick={close} disabled={busy}>닫기</button>
-            </div>
-            <dl className="inset acct-info">
-              <div><dt>이름</dt><dd>{String(u.display_name || "")}</dd></div>
-              <div><dt>아이디</dt><dd>{u.demo ? "시연 계정" : String(u.login_id || "")}</dd></div>
-              <div><dt>가진 가게</dt><dd>{((me && me.stores) || []).map((s) => s.name).join(" · ") || "없음"}</dd></div>
-            </dl>
-            <section className="stack-8" aria-labelledby="acct-sub-reset">
-              <h3 id="acct-sub-reset" className="acct-sub">기록 지우기</h3>
-              <p className="small muted acct-tight">승인 기록·붙여넣은 리뷰·맞춤 마케팅 기록·AI 대화를 지워요. 누르면 한 번 더 확인해요.</p>
-              <div className="acct-actions">
-                <Button disabled={busy} onClick={(e) => pick("store", e)}>{`${name} 기록 지우기`}</Button>
-                <Button disabled={busy} onClick={(e) => pick("account", e)}>모든 가게 기록 지우기</Button>
-              </div>
-            </section>
-            <section className="stack-8" aria-labelledby="acct-sub-withdraw">
-              <h3 id="acct-sub-withdraw" className="acct-sub">회원 탈퇴</h3>
-              <p className="small acct-tight acct-bad">계정과 모든 가게 기록을 지우고, 이 아이디로 다시 로그인할 수 없어요.</p>
-              <div className="acct-actions">
-                <Button variant="danger" disabled={busy} onClick={(e) => pick("withdraw", e)}>회원 탈퇴</Button>
-              </div>
-            </section>
+      {/* 바깥 누르기·Esc 는 확인 단계가 아닐 때만 창을 닫는다 (확인 단계의 Esc 는 onKeyDown·onCancel 이 '취소'로) */}
+      <Dialog id="acct-dialog" open={open} className="acct-dlg" labelledBy={act ? "acct-confirm-title" : "acct-title"} aria-busy={busy}
+        onKeyDown={onKeyDown} onCancel={onCancel} onClosed={onClosed}
+        onClose={() => { if (!x.current.act) close(); }}>
+        <div className="stack-16" hidden={!!act}>
+          <div className="dlg-head">
+            <h2 id="acct-title" className="acct-title">내 계정</h2>
+            <Button ref={closeRef} size="small" onClick={close} disabled={busy}>닫기</Button>
           </div>
-
-          <form className="stack-16" noValidate hidden={!act} onSubmit={submit}>
-            {conf && (
-              <>
-                <h2 id="acct-confirm-title" className="acct-title" tabIndex={-1}>{conf.title(name)}</h2>
-                <p className="acct-tight">{conf.lead(name, all, demo)}</p>
-                <div className="acct-lists">
-                  <div>
-                    <p className="acct-list-title">지워지는 것</p>
-                    <ul className="acct-list">{conf.gone.map((t) => <li key={t}>{t}</li>)}</ul>
-                  </div>
-                  <div>
-                    <p className="acct-list-title">그대로 남는 것</p>
-                    <ul className="acct-list">{conf.kept.map((t) => <li key={t}>{t}</li>)}</ul>
-                  </div>
-                </div>
-                {/* 탈퇴(일반 계정)만: 비밀번호 한 번 더. 보낸 뒤 비운다. 시연 계정은 칸 없음 */}
-                {act === "withdraw" && !demo && (
-                  <label className="field">비밀번호 확인
-                    <input ref={pwRef} name="password" type="password" autoComplete="current-password" maxLength={128}
-                      disabled={busy} value={pw} onChange={(e) => setPw(e.target.value)} />
-                  </label>
-                )}
-                <p className="acct-irrev">{conf.irrev || "지우면 되돌릴 수 없어요."}</p>
-              </>
-            )}
-            <p className="acct-error" role="alert" hidden={!err}>{err}</p>
-            <div className="btn-row acct-confirm-btns">
-              <button ref={cancelRef} type="button" className="btn" disabled={busy} onClick={cancel}>취소</button>
-              <Button type="submit" variant="danger" disabled={busy}>{goText}</Button>
+          <dl className="inset acct-info">
+            <div><dt>이름</dt><dd>{String(u.display_name || "")}</dd></div>
+            <div><dt>아이디</dt><dd>{u.demo ? "시연 계정" : String(u.login_id || "")}</dd></div>
+            <div><dt>가진 가게</dt><dd>{((me && me.stores) || []).map((s) => s.name).join(" · ") || "없음"}</dd></div>
+          </dl>
+          <div className="acct-actions">
+            <Button id="acct-logout" disabled={busy || reloading} onClick={logout}>로그아웃</Button>
+          </div>
+          <section className="stack-8" aria-labelledby="acct-sub-reset">
+            <h3 id="acct-sub-reset" className="acct-sub">기록 지우기</h3>
+            <p className="small muted acct-tight">승인 기록·붙여넣은 리뷰·맞춤 마케팅 기록·AI 대화를 지워요.</p>
+            <div className="acct-actions">
+              <Button disabled={busy} onClick={(e) => pick("store", e)}>{`${name} 기록 지우기`}</Button>
+              <Button disabled={busy} onClick={(e) => pick("account", e)}>모든 가게 기록 지우기</Button>
             </div>
-          </form>
+          </section>
+          <section className="stack-8" aria-labelledby="acct-sub-withdraw">
+            <h3 id="acct-sub-withdraw" className="acct-sub">회원 탈퇴</h3>
+            <p className="small acct-tight acct-bad">계정과 모든 가게 기록을 지우고, 이 아이디로 다시 로그인할 수 없어요.</p>
+            <div className="acct-actions">
+              <Button variant="danger" disabled={busy} onClick={(e) => pick("withdraw", e)}>회원 탈퇴</Button>
+            </div>
+          </section>
         </div>
-      </dialog>
+
+        <form className="stack-16" noValidate hidden={!act} onSubmit={submit}>
+          {conf && (
+            <>
+              <h2 id="acct-confirm-title" className="acct-title" tabIndex={-1}>{conf.title(name)}</h2>
+              <p className="acct-tight">{conf.lead(name, all, demo)}</p>
+              <div className="acct-lists">
+                <div>
+                  <p className="acct-list-title">지워지는 것</p>
+                  <ul className="acct-list">{conf.gone.map((t) => <li key={t}>{t}</li>)}</ul>
+                </div>
+                <div>
+                  <p className="acct-list-title">그대로 남는 것</p>
+                  <ul className="acct-list">{conf.kept.map((t) => <li key={t}>{t}</li>)}</ul>
+                </div>
+              </div>
+              {/* 탈퇴(일반 계정)만: 비밀번호 한 번 더. 보낸 뒤 비운다. 시연 계정은 칸 없음 */}
+              {act === "withdraw" && !demo && (
+                <label className="field">비밀번호 확인
+                  <input ref={pwRef} name="password" type="password" autoComplete="current-password" maxLength={128}
+                    disabled={busy} value={pw} onChange={(e) => setPw(e.target.value)} />
+                </label>
+              )}
+              <p className="acct-irrev">{conf.irrev || "지우면 되돌릴 수 없어요."}</p>
+            </>
+          )}
+          <p className="acct-error" role="alert" hidden={!err}>{err}</p>
+          <div className="btn-row acct-confirm-btns">
+            <Button ref={cancelRef} disabled={busy} onClick={cancel}>취소</Button>
+            <Button type="submit" variant="danger" disabled={busy}>{goText}</Button>
+          </div>
+        </form>
+      </Dialog>
 
       <div className="acct-toast" role="status" hidden={!notice}>
         <span>{notice}</span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { badgeOf, calcRange, downKey, initialDrafts, reportView, tilesOf, whyLinesOf, wonKo } from "./logic.js";
+import { MKT_MODES, MKT_REPORT_DESC, badgeOf, calcRange, downKey, draftLabel, initialDrafts, progressLabel, reportView, tilesOf, whyLinesOf, wonKo } from "./logic.js";
 
 describe("맞춤 마케팅 계산", () => {
   it("광고비 표는 가장 나쁜 판정을 배지로", () => {
@@ -29,12 +29,14 @@ describe("맞춤 마케팅 계산", () => {
     expect(calcRange({ price_won: 20000, discount_won: 500, budget_won: 500000 })).toEqual({ minD: 1000, maxD: 6000, startD: 1000, budget: 300000 });
     expect(calcRange({ price_won: 0 })).toEqual({ minD: 100, maxD: 100, startD: 100, budget: 0 });
   });
-  it("글 상자 순서는 할 일 → 기본 할 일, 데모면 시험용 표시", () => {
+  it("글 상자 순서는 할 일 → 기본 할 일, 데모면 '예시' 표시 (실제 AI 결과 아님은 카드 배지가 알림)", () => {
     const { drafts, order } = initialDrafts({ steps: [{ step_id: "notice", generator: "prevention_notice" }, { step_id: "x" }],
       drafts: { notice: "공지 글" }, basic_todos: [{ title: "a", draft: "기본 글" }] }, "survey", true);
     expect(order).toEqual(["notice", "basic_todo_0"]);
     expect(drafts.notice.kind).toBe("공지");
-    expect(drafts.notice.label).toBe("공지 · 시험용 저장 예시 (실제 AI 결과 아님)");
+    expect(drafts.notice.label).toBe("공지 예시");
+    expect(draftLabel("홍보 글", false)).toBe("홍보 글 초안");
+    expect(draftLabel("아이디어 글", false, true)).toBe("아이디어 글 · 정해 둔 틀 (AI 아님)");
   });
   it("서비스 상태 열쇠", () => {
     expect(downKey("off")).toBe("off");
@@ -49,5 +51,14 @@ describe("맞춤 마케팅 계산", () => {
     expect(v.tiles[0]).toEqual(["3건", "승인한 글 (공지 2 · 답글 1)"]);
     expect(v.tiles[1]).toEqual(["25%", "쿠폰 사용률 (40장 중 10장)"]);
     expect(v.empty).toBe(false);
+  });
+  it("시작 모드 설명은 받는 결과 중심으로 짧게, 질문 진행 표시는 '질문 n'", () => {
+    expect(Object.keys(MKT_MODES)).toEqual(["맞춤 홍보 제안", "남은 재료 팔기", "광고비 점검", "가게 이야기 글", "쿠폰 결과 확인"]);
+    for (const d of [...Object.values(MKT_MODES), MKT_REPORT_DESC]) {
+      expect(d).not.toMatch(/여쭤|알려 드려요|드려요/);
+      expect(d.length).toBeLessThanOrEqual(24);
+    }
+    expect(progressLabel(0)).toBe("");
+    expect(progressLabel(3)).toBe("질문 3");
   });
 });

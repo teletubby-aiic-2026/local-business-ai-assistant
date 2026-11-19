@@ -1,6 +1,7 @@
 // 리뷰 넣기 탭: 리뷰 붙여넣기(+ 분류 결과) · 캡처로 넣기. 예전 paste·resetPaste·renderPasteResult
-// 붙여넣기는 POST /api/reviews → 결과(감정·주제·들어간 묶음)를 보이고, 홈 숫자·추천 카드·요약·묶음을 모두 다시 불러온다 (refresh)
-import { Button, Panel } from "../../components/ui.jsx";
+// 붙여넣기는 POST /api/reviews → 결과(감정·주제·들어간 묶음)를 보이고, 홈 숫자·추천 카드·요약·묶음을 모두 다시 불러온다 (refresh).
+// 끝난 뒤 안내는 '저장하고 분석 결과를 갱신했어요' 한 줄 (다시 불러온 화면을 하나하나 늘어놓지 않음)
+import { Badge, Button, Panel } from "../../components/ui.jsx";
 import { api } from "../../lib/api.js";
 import { getState, setState, useStore } from "../../state/store.js";
 import { refresh } from "../../state/boot.js";
@@ -22,9 +23,9 @@ async function paste() {
     const r = await api("/api/reviews", { method: "POST", body: JSON.stringify(body) });
     if (!alive()) return;
     setState({ joined: r.joined_issues || [] });
-    setPaste({ result: r, text: "", rating: "", msg: "붙여 넣었어요. 홈 숫자와 추천 카드도 다시 불러와요…" });
+    setPaste({ result: r, text: "", rating: "", msg: "리뷰를 저장했어요. 분석 결과를 갱신하는 중…" });
     await refresh();   // 홈 숫자 · 추천 카드 · 리뷰 분석(요약·묶음)을 모두 새로
-    if (alive()) setPaste({ msg: "붙여 넣었어요. 홈 숫자, 추천 카드, 요약, 불만 묶음에 반영했어요." });
+    if (alive()) setPaste({ msg: "리뷰를 저장하고 분석 결과를 갱신했어요." });
   } catch (e) { if (alive()) setPaste({ msg: e.message }); }
   finally { if (alive()) setPaste({ busy: false }); }
 }
@@ -38,7 +39,7 @@ async function resetPaste() {
     setState({ joined: [] });
     setPaste({ result: null });
     await refresh();
-    if (alive()) setPaste({ msg: `붙여넣은 리뷰${Number.isFinite(r.deleted) ? ` ${r.deleted}건` : ""}을 지웠어요. 홈 숫자와 추천 카드도 다시 불러왔어요.` });
+    if (alive()) setPaste({ msg: `붙여넣은 리뷰${Number.isFinite(r.deleted) ? ` ${r.deleted}건` : ""}을 지우고 분석 결과를 갱신했어요.` });
   } catch (e) { if (alive()) setPaste({ msg: e.message }); }
   finally { if (alive()) setPaste({ resetBusy: false }); }
 }
@@ -49,10 +50,12 @@ function PasteResult({ r }) {
   const c = r.classification || {};
   const topics = c.topics || [];
   const { joined, negative } = pasteJoin(r, insightGroups);
-  const sub = `${r.review?.review_id || ""}${c.method ? ` · 분류 방식 ${c.method}` : ""}${r.review?.pii_masked ? " · 개인정보 가림" : ""}`;
+  const sub = `${r.review?.review_id || ""}${c.method ? ` · 분류 방식 ${c.method}` : ""}`;
   return (
     <>
-      {sub && <p className="small muted">{sub}</p>}
+      {(sub || r.review?.pii_masked) && (
+        <p className="small muted an-result-meta">{sub}{r.review?.pii_masked && <Badge title="전화번호·이메일·링크를 [가림]으로 바꿨어요">개인정보 가림</Badge>}</p>
+      )}
       <p className="an-rv-text">{r.review?.text || ""}</p>
       <p className="small">감정 <b>{SENTIMENT_NAMES[c.sentiment] || c.sentiment || "?"}</b></p>
       <div className="an-chips">

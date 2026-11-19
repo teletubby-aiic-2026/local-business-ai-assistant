@@ -15,7 +15,7 @@ export const CHAT_STATUS = {
 export const CHAT_STATES = {
   off: ["상권 비서를 쓸 수 없어요", "이 서버에서는 상권 비서를 켜 두지 않았어요."],
   down: ["지금은 연결할 수 없어요", "상권 서비스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요."],
-  disabled: ["상권 챗봇이 쉬고 있어요", "상권 서비스는 켜져 있지만 상권 비서(챗봇)가 꺼져 있어요."],
+  disabled: ["상권 비서가 쉬고 있어요", "지금은 상권 비서가 꺼져 있어요. 잠시 뒤 다시 확인해 주세요."],
   no_data: ["상권 자료를 준비하고 있어요", "공식 상권 자료가 아직 준비되지 않았어요. 자료가 들어오면 바로 쓸 수 있어요."],
   error: ["상권 비서를 불러오지 못했어요", "상권 비서에 문제가 생겼어요. 잠시 뒤 다시 시도해 주세요."],
 };
@@ -43,6 +43,10 @@ export const chatPeriod = (c) => { const p = String(c.period_label || c.period |
 // 조건 칩: 상권 · 업종 · 분기 (비어 있는 것은 뺌)
 export const chatCondParts = (c) => (c ? [c.area_name ? `${c.area_name} 상권` : null, c.industry_name, chatPeriod(c)].filter(Boolean) : []);
 export const chatCondText = (c) => chatCondParts(c).join(" · ");
+// 서랍 답의 기준 범위: 조건 칩 끝에 붙는 칩 하나 + 그 아래 안내 한 줄.
+// 홈 '상권 저녁 매출' 타일(공통 업종 17~24시)과 서랍 답(고른 업종 하나, 하루 전체)의 범위가 다르다는 것을 칩과 이 한 줄로만 보인다 (11/18)
+export const CHAT_SCOPE_DAY = "하루 전체";
+export const chatScopeNote = (homeScope) => `상권·업종 전체 추정치예요 (우리 가게 매출 아님${homeScope ? ` · 홈 타일은 ${homeScope} 기준` : ""})`;
 export const chatId = () => "web-" + (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
 export const chatSuggest = (reply) => (Array.isArray(reply?.suggestions) ? reply.suggestions : []).filter((s) => typeof s === "string" && s.trim()).map(chatQuarter).slice(0, 3);
 export const chatSameKey = (a, b) => JSON.stringify(a || {}, Object.keys(a || {}).sort()) === JSON.stringify(b || {}, Object.keys(b || {}).sort());

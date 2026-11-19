@@ -1,15 +1,17 @@
 // 맞춤 마케팅의 이름표와 순수 계산 (예전 app.js 의 MKT_* 상수, mktBadge·mktTiles·mktCouponHtml 의 범위 계산·mktReportDraw 의 숫자).
 // 판정·숫자는 서버가 준 값만 보고 가른다. 화면은 계산을 새로 하지 않는다 (슬라이더 범위·막대 길이만).
 
+// 결과 카드 배지 (예시 모드 고지는 화면 위 띠 한 곳 + 이 배지만)
 export const MKT_DEMO = "시험용 저장 예시 (실제 AI 결과 아님)";
-// 시작 모드 다섯 개: 서버(flow.py START_MODES)가 주는 보기 글자 → 한 줄 설명. 보기 자체는 서버가 준 것만 그린다
+// 시작 모드 다섯 개: 서버(flow.py START_MODES)가 주는 보기 글자 → 한 줄 설명(받는 결과 중심). 보기 자체는 서버가 준 것만 그린다
 export const MKT_MODES = {
-  "맞춤 홍보 제안": "반복 불만·목표·예산을 여쭤보고 홍보 방법과 글을 제안해요",
-  "남은 재료 팔기": "오늘 남은 메뉴를 세트·할인·추천 글로 팔아요",
-  "광고비 점검": "배달앱 광고비가 주문 한 건에서 남는 돈보다 큰지 계산해요",
-  "가게 이야기 글": "사장님 답만으로 플레이스·인스타·배민 소개 글을 써요",
-  "쿠폰 결과 확인": "지난 쿠폰의 사용률과 다음 쿠폰 조건을 알려 드려요",
+  "맞춤 홍보 제안": "반복 불만·목표·예산에 맞는 홍보 방법과 글",
+  "남은 재료 팔기": "남은 메뉴를 팔 세트·할인·추천 글",
+  "광고비 점검": "배달앱별 주문 한 건의 광고비와 이익 비교",
+  "가게 이야기 글": "플레이스·인스타·배민에 올릴 소개 글",
+  "쿠폰 결과 확인": "지난 쿠폰 사용률과 다음 쿠폰 조건",
 };
+export const MKT_REPORT_DESC = "이번 주·이번 달 마케팅 기록";
 // 다른 화면의 navTo("marketing", sub) → 시작 모드 보기 글자 (assistant_proxy.MKT_SUBS 와 같아야 함)
 export const MKT_SUB = { promo: "맞춤 홍보 제안", leftover: "남은 재료 팔기", ad: "광고비 점검", story: "가게 이야기 글", repeat: "쿠폰 결과 확인" };
 // 숫자 입력칸의 단위 (서버 free_input.key → 화면 표시만)
@@ -81,7 +83,8 @@ export function whyLinesOf(d, why) {
 }
 
 export const stepKind = (s, mode) => MKT_KIND[s.generator] || MKT_MODE_KIND[mode] || "마케팅 글";
-export const draftLabel = (kind, demo, fixed = false) => (demo ? `${kind} · ${MKT_DEMO}` : fixed ? `${kind} · 정해 둔 틀 (AI 아님)` : `${kind} 초안`);
+// 글 상자 이름: 예시면 '예시'만 (실제 AI 결과 아님은 카드 배지·화면 위 띠가 알림), 정해 둔 틀이면 AI 아님을 밝힘
+export const draftLabel = (kind, demo, fixed = false) => (demo ? `${kind} 예시` : fixed ? `${kind} · 정해 둔 틀 (AI 아님)` : `${kind} 초안`);
 
 export function todoHeadOf(d) {
   const steps = Array.isArray(d.steps) ? d.steps : [];

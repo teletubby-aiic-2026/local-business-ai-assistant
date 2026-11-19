@@ -1,7 +1,6 @@
 /* 오늘 할 일 흐름 (홈·추천 카드·승인할 글·처리 완료). 색·글자는 tokens.css 변수만 */
 
 /* ── 공통 ── */
-.flow-center { display: flex; justify-content: center; }
 .flow-more summary { cursor: pointer; color: var(--accent-text); font-weight: 500; min-height: 32px; display: inline-flex; align-items: center; }
 .flow-more[open] > * + * { margin-top: var(--s-12); }
 .flow-track { display: block; flex: 1; height: 6px; border-radius: var(--r-full); background: var(--chip); overflow: hidden; }
@@ -19,11 +18,18 @@
 /* ── 홈 ── */
 .flow-eyebrow { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .flow-eyebrow span + span::before { content: "·"; margin-right: 12px; color: var(--bar-strong); }
+/* 좁은 본문에서는 줄이 꺾이며 "·"가 줄 맨 앞에 오므로, 기간 줄을 따로 세우고 구분점을 뺀다 */
+@container content (max-width: 479px) { .flow-eyebrow { flex-direction: column; } .flow-eyebrow span + span::before { content: none; } }
 .flow-hero { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; background: var(--bad-bg); border-radius: var(--r-md); padding: var(--s-12) var(--s-16); }
 .flow-hero-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-small); font-weight: 700; color: var(--bad); }
 .flow-hero-label::before { content: ""; width: 8px; height: 8px; border-radius: var(--r-full); background: var(--hot); }
 .flow-unit { font-size: var(--fs-body); font-weight: 500; margin-left: 2px; color: var(--ink-2); }
 .flow-dash { align-items: start; }
+
+/* '상권 저녁 매출' 칸의 범위 칩 (상권명 · 업종 · 시간대) + 비교 기준 한 줄 */
+.flow-scope { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.flow-scope-chip { display: inline-flex; align-items: center; max-width: 100%; padding: 1px 8px; border-radius: var(--r-full); background: var(--panel); color: var(--ink-2); font-size: 13px; line-height: 1.6; font-weight: 500; }
+.flow-scope-base { display: block; margin-top: 4px; }
 
 .flow-todo { display: grid; gap: 4px; margin: 0 calc(var(--s-12) * -1); }
 .flow-todo-item {
@@ -43,6 +49,7 @@
 .flow-todo-item.urgent .flow-todo-st { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .flow-todo-item.done .flow-todo-st { background: var(--ok-bg); border-color: var(--ok-bg); color: var(--ok); }
 .flow-todo-foot { border-top: 1px solid var(--line); padding-top: var(--s-16); }
+.flow-todo-foot .btn { min-width: 160px; }
 
 .flow-staff { display: grid; gap: 4px; margin: 0 calc(var(--s-12) * -1); }
 .flow-staff-go {
@@ -61,7 +68,7 @@
 .flow-hc-n { font-size: 12px; line-height: 1.3; min-height: 16px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .flow-hc-h { font-size: 12px; line-height: 1.3; color: var(--muted); font-variant-numeric: tabular-nums; }
 .flow-hc.hot .flow-hc-h { color: var(--bad); font-weight: 700; }
-@media (max-width: 520px) {
+@container content (max-width: 479px) {
   .flow-hours { gap: 3px; }
   .flow-hc:nth-child(even) .flow-hc-h { visibility: hidden; }   /* 좁으면 시각 글자를 하나 걸러 (막대는 그대로) */
 }
@@ -95,7 +102,8 @@
 .flow-seg button[aria-current="true"] { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: var(--shadow-card); }
 .flow-progress { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-12); font-size: var(--fs-small); font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .flow-progress .flow-track { min-width: 120px; }
-.flow-progress .btn { font-weight: 500; }
+.flow-progress .btn { font-weight: 500; margin-left: auto; }
+.flow-warn { color: var(--warn); font-weight: 500; }
 
 .flow-rv-list { display: grid; gap: var(--s-12); }
 .flow-rv-list li + li { padding-top: var(--s-12); border-top: 1px solid var(--line); }
@@ -117,6 +125,8 @@
 }
 .flow-list button:hover { background: var(--hover); }
 .flow-list button[aria-current="true"] { border-color: var(--accent); background: var(--brand-soft); font-weight: 700; }
+.flow-list-name { min-width: 0; }
+.flow-list-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; font-weight: 500; }
 
 /* ── 처리 완료 ── */
 .flow-log { display: grid; }
@@ -125,3 +135,14 @@
 .flow-log-text { display: grid; gap: 2px; min-width: 0; }
 .flow-rules { margin: 0; padding-left: var(--s-20); display: grid; gap: 4px; }
 .flow-server-log { display: grid; gap: 4px; color: var(--ink-2); }
+
+/* ── 본문 실제 폭(@container content)에 맞춘 줄바꿈. 타일 칸 수·두 칸 패널·여백은 base.css 의 공통 규칙(679·639·479px)을 따르고,
+   여기는 이 화면들에만 필요한 것만 ── */
+@container content (max-width: 759px) {
+  .flow-dash { grid-template-columns: minmax(0, 1fr); }   /* 오늘 할 일은 줄이 길어 공통(639px)보다 먼저 한 줄로 */
+}
+@container content (max-width: 479px) {
+  .flow-progress .btn { margin-left: 0; }
+  .flow-log-item { flex-wrap: wrap; }
+  .flow-todo-foot .btn { width: 100%; }
+}

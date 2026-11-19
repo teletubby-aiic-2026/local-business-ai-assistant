@@ -1,7 +1,7 @@
 // 맞춤 제안의 질문 쪽: 진행 안내·오류·시작 모드 카드·대화 기록·답 고르기 칸 (예전 #mkt-status·#mkt-error·#mkt-log·#mkt-options)
 import { useEffect, useRef, useState } from "react";
-import { Badge, Button, FeatureCard, Panel } from "../../components/ui.jsx";
-import { MKT_MODES, MKT_UNIT, progressLabel } from "./logic.js";
+import { Button, FeatureCard, Panel } from "../../components/ui.jsx";
+import { MKT_MODES, MKT_REPORT_DESC, MKT_UNIT, progressLabel } from "./logic.js";
 import { pickOption, restartChat, retry, sendNumber, sendPicked, sendText, setTab, skip, togglePick, useMkt } from "./state.js";
 
 // Enter = 보내기. 한글 입력 중의 Enter 는 글자만 확정 (보내지 않음)
@@ -42,7 +42,7 @@ function ModeGrid({ opts, busy }) {
         <FeatureCard key={o.label} title={o.label} desc={MKT_MODES[o.label]} icon={o.label} index={i}
           onClick={() => { if (!busy) pickOption(i); }} aria-disabled={busy || undefined} />
       ))}
-      <FeatureCard title="마케팅 보고서" desc="이번 주·이번 달 마케팅 기록을 봐요" icon="마케팅 보고서" index={opts.length} onClick={goReport} />
+      <FeatureCard title="마케팅 보고서" desc={MKT_REPORT_DESC} icon="마케팅 보고서" index={opts.length} onClick={goReport} />
     </div>
   );
 }
@@ -148,8 +148,8 @@ function LogEntry({ e }) {
 function Foot() {
   return (
     <div className="mkt-foot">
-      <Button size="small" id="mkt-restart" onClick={restartChat}>처음부터</Button>
-      <span className="small muted">처음 질문으로 돌아가요. 승인한 기록은 그대로예요.</span>
+      <Button size="small" id="mkt-restart" aria-describedby="mkt-restart-hint" onClick={restartChat}>처음부터</Button>
+      <span id="mkt-restart-hint" className="small muted">승인한 기록은 그대로 남아요</span>
     </div>
   );
 }
@@ -169,13 +169,15 @@ export function StartView() {
   );
 }
 
-// 질문이 진행되는 동안 왼쪽 칸: 진행 배지 · 대화 기록 · 답 고르기 · 처음부터
+// 질문이 진행되는 동안 왼쪽 칸: 제목(고른 모드 · 질문 n) · 대화 기록 · 답 고르기 · 처음부터
 export function AskPanel() {
   const log = useMkt((s) => s.log);
   const questions = useMkt((s) => s.questions);
+  const mode = useMkt((s) => s.mode);
   const progress = progressLabel(questions);
+  const title = <>{mode || "맞춤 제안"}{progress && <span className="mkt-progress"> · {progress}</span>}</>;
   return (
-    <Panel className="mkt-ask" title="질문" titleId="mkt-ask-title" actions={progress ? <Badge tone="brand">{progress}</Badge> : null}>
+    <Panel className="mkt-ask" title={title} titleId="mkt-ask-title">
       <div id="mkt-log" className="mkt-log" role="log" aria-live="polite" aria-label="맞춤 마케팅 대화">
         {log.map((e) => <LogEntry key={e.id} e={e} />)}
       </div>

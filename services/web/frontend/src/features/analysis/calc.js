@@ -92,6 +92,6 @@ export function capItems(r) {
 export const capWarnings = (r) => (Array.isArray(r?.warnings) ? r.warnings : []).filter((w) => typeof w === "string" && w.trim());
 export function capStatusLine(r, count) {
   const pieces = Number(r?.pieces) > 1 ? ` · ${Number(r.pieces)}조각으로 나눠 읽음` : "";
-  return `후보 ${count}건${pieces} · ${r?.demo ? "예시 결과" : `읽은 모델 ${r?.engine || ""}`}. 글과 별점을 고치고, 저장할 리뷰를 골라 주세요.`;
+  return `후보 ${count}건${pieces} · ${r?.demo ? "예시 결과" : `읽은 모델 ${r?.engine || ""}`}`;   // 고치고 고르라는 안내는 후보 목록 위 확인 경고 한 곳에
 }
 export const capPickedOf = (items) => items.filter((x) => x.picked && !x.saved);

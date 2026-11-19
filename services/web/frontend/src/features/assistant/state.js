@@ -122,12 +122,36 @@ export async function chatSend(text) {
   } finally { if (g === gen) { chatBusy(false); chatFocus(); } }
 }
 
-// 선택지: 화면 이동 버튼은 서버로 보내지 않고 navTo 로 바로 간다. 서랍이 본문을 덮는 폭(1279px 이하)에서는 서랍을 닫는다 (11/18)
+// 서랍이 지금 본문(#main)을 덮고 있는가. 화면 폭 숫자 대신 실제 위치로 본다 (layout.css 의 밀기·덮기 기준이 바뀌어도 그대로 맞음).
+// 위치를 잴 수 없으면(시험 환경 등) layout.css 와 같은 숫자로: 본문이 680px 넘게 남을 때만 밂 = 메뉴를 폈으면 1339px 이하, 접었으면 1079px 이하가 덮음
+export function drawerCovers() {
+  const d = $("assistant"), main = $("main");
+  const a = d && !d.hidden ? d.getBoundingClientRect() : null;
+  const b = main ? main.getBoundingClientRect() : null;
+  if (!a || !b || !a.width || !b.width) {
+    const q = document.querySelector(".app.menu-closed") ? "(max-width: 1079px)" : "(max-width: 1339px)";
+    return !!window.matchMedia?.(q)?.matches;
+  }
+  return a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1;
+}
+// 화면 이동으로 서랍을 닫은 뒤: 새 화면 제목(PageHead 의 h1)이 포커스를 받는다. PageHead 가 이미 옮겼거나
+// 새 화면이 다른 곳(예: 맞춤 마케팅의 첫 보기)으로 옮겼으면 그대로 두고, 포커스가 닫힌 서랍·body 에 남았을 때만 제목으로 (화면이 늦게 그려질 수 있어 몇 번 본다)
+function focusTitle(tries = 0) {
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (!a || a === document.body || a.closest?.("#assistant")) document.querySelector("#main h1")?.focus({ preventScroll: true });
+    if (tries < 3) focusTitle(tries + 1);
+  }, tries ? 60 : 0);
+}
+
+// 선택지: 화면 이동 버튼은 서버로 보내지 않고 navTo 로 바로 간다. 서랍이 본문을 덮고 있으면 서랍을 닫고(11/18)
+// 포커스는 'AI에게 묻기' 버튼으로 돌려주지 않고 이동한 화면 제목으로 보낸다
 export async function chatChoose(botId, index, action) {
   const target = chatNavTarget(action);
   if (target) {
+    const cover = drawerCovers();
     navTo(target.route, target.sub);
-    if (window.matchMedia("(max-width: 1279px)").matches) { skipFocus = true; openDrawer(false); }
+    if (cover) { skipFocus = true; openDrawer(false); focusTitle(); }
     return;
   }
   if (chat.busy || !chat.ready || botId !== chat.latest) return;
