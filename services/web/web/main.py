@@ -37,11 +37,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -57,8 +57,19 @@ from .marketing_proxy import MARKETING_CARD_ID, MarketingProxy, create_marketing
 from .settings import Settings
 from .stores import StoreHub
 
-STATIC = Path(__file__).resolve().parent / "static"
-ASSET_PREFIXES = ("/static/", "/assets/")   # 예전 화면 파일, React 빌드 파일
+# 화면: services/web/frontend(React 18 + Vite 5)의 빌드 결과. WEB_FRONTEND_DIST 로 다른 빌드 폴더를 줄 수 있다 (선택)
+FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+ASSET_PREFIXES = ("/assets/",)   # 빌드 파일 (index.html 이 부르는 /assets/index-<해시>.js·.css)
+# 빌드가 없을 때 / 가 주는 안내 (서버 API 와 백엔드 시험은 빌드 없이도 돈다)
+NO_BUILD_HTML = """<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>텔레토비 AI 비서</title></head>
+<body style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.6">
+<h1 style="font-size: 1.25rem">화면 빌드가 아직 없어요</h1>
+<p><code>services/web/frontend</code> 에서 <code>npm ci &amp;&amp; npm run build</code> 를 실행한 뒤 새로고침해 주세요.
+<code>services/web/run.sh</code> 로 띄우면 자동으로 빌드해요.</p>
+</body></html>
+"""
 VISITOR_COOKIE = "visitor_id"
 VISITOR_COOKIE_SECONDS = 60 * 60 * 24 * 30   # 30일
 log = logging.getLogger("web.main")
@@ -236,28 +247,34 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     for router in create_care_routers(care, proxy_of=lambda request: hub.care(sid(request))):
         app.include_router(router)
 
-    # 화면 파일: 기본은 예전 화면(web/static). WEB_FRONTEND_DIST 에 React 빌드 폴더(services/web/frontend/dist)를 주면
-    # / 는 그 폴더의 index.html, /assets/* 는 빌드 결과를 준다 (예전 /static/* 도 그대로 둔다)
-    frontend = react_dist()
+    # 화면 파일: / 는 빌드 폴더의 index.html, /assets/* 는 빌드 결과 (화면 주소는 #/today 처럼 # 뒤라 / 하나면 된다)
+    dist = frontend_dist()
+    index = dist / "index.html"
+    if not index.is_file():
+        log.warning("화면 빌드가 없습니다 (%s). services/web/frontend 에서 npm ci && npm run build 를 먼저 하세요 "
+                    "(run.sh 는 자동으로 빌드합니다). 그 전까지 / 는 안내 글만 줍니다.", index)
 
     @app.get("/")
     def page():
-        return FileResponse((frontend or STATIC) / "index.html")
+        if index.is_file():   # 서버를 띄운 뒤 빌드해도 새로고침하면 보이게 요청마다 확인
+            return FileResponse(index)
+        return HTMLResponse(NO_BUILD_HTML)
 
-    if frontend and (frontend / "assets").is_dir():
-        app.mount("/assets", StaticFiles(directory=frontend / "assets"), name="assets")
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    app.mount("/assets", BuildFiles(directory=dist / "assets", check_dir=False), name="assets")
     return app
 
 
-def react_dist() -> Path | None:
-    """WEB_FRONTEND_DIST 가 가리키는 React 빌드 폴더. 비었거나 index.html 이 없으면 None (예전 화면을 준다)."""
+class BuildFiles(StaticFiles):
+    """빌드 파일. 빌드 폴더가 아직 없으면 500 대신 404 를 주고, 서버를 띄운 뒤 빌드해도 새로고침하면 보인다."""
+
+    async def check_config(self) -> None:
+        if self.directory is not None and not os.path.isdir(self.directory):
+            raise HTTPException(status_code=404)
+        await super().check_config()
+
+
+def frontend_dist() -> Path:
+    """화면 빌드 폴더. 기본은 services/web/frontend/dist, WEB_FRONTEND_DIST 를 주면 그 폴더 (index.html 은 없을 수도 있음)."""
     raw = os.environ.get("WEB_FRONTEND_DIST", "").strip()
-    if not raw:
-        return None
-    path = Path(raw).expanduser().resolve()
-    if not (path / "index.html").is_file():
-        log.warning("WEB_FRONTEND_DIST 에 index.html 이 없어 예전 화면을 줍니다 (%s). services/web/frontend 에서 npm run build 를 먼저 하세요.", path)
-        return None
-    return path
+    return Path(raw).expanduser().resolve() if raw else FRONTEND_DIST
 # 실행: uvicorn web.main:create_app --factory  (import 할 때 앱을 만들지 않아 시험에서 가짜 데이터를 넣을 수 있음)

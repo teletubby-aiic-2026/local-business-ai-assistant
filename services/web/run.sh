@@ -10,6 +10,8 @@
 #     MARKETING_RECORDS_DIR 맞춤 마케팅 기록 폴더 (기본 experiments/marketing/data/marketing)
 #     MARKETING_SURVEY_URL  비우면 띄운 서버 주소를 비서 화면에 넘김. off 면 띄우지 않고 비서 화면에도 off,
 #                           다른 주소를 주면 띄우지 않고 그 주소를 그대로 넘김
+#   화면(services/web/frontend, React + Vite)은 빌드가 없거나 소스보다 오래되었으면 띄우기 전에 다시 빌드한다 (npm 필요)
+#     WEB_FRONTEND_DIST     다른 빌드 폴더를 쓸 때 (주면 자동 빌드를 하지 않음)
 # 키는 저장소 밖 ~/.config/teletubby-aiic/env 에서만 읽고, 값을 화면에 찍지 않는다.
 set -euo pipefail
 
@@ -69,6 +71,29 @@ fi
 export MARKETING_SURVEY_URL
 export MARKETING_APP_MODE="${MARKETING_APP_MODE:-$APP_MODE}"
 [ -n "${MARKETING_RECORDS_DIR:-}" ] && export MARKETING_RECORDS_DIR="$(abspath "$MARKETING_RECORDS_DIR")"
+
+# 화면 빌드: dist/index.html 이 없거나 소스(src·index.html·package*.json·vite.config.js)보다 오래되었으면 새로 빌드한다.
+# node_modules 가 없거나 package-lock.json 보다 오래되었으면 npm ci 부터 한다. 빌드가 실패하면 서버를 띄우지 않는다
+FRONT_DIR="$WEB_DIR/frontend"
+if [ -z "${WEB_FRONTEND_DIST:-}" ] && [ -f "$FRONT_DIR/package.json" ]; then
+  FRONT_INDEX="$FRONT_DIR/dist/index.html"
+  STALE=""
+  if [ ! -f "$FRONT_INDEX" ]; then
+    STALE="빌드가 없음"
+  elif [ -n "$(find "$FRONT_DIR/src" "$FRONT_DIR/index.html" "$FRONT_DIR/package.json" "$FRONT_DIR/package-lock.json" \
+                 "$FRONT_DIR/vite.config.js" -newer "$FRONT_INDEX" -print -quit 2>/dev/null)" ]; then
+    STALE="소스가 빌드보다 새로움"
+  fi
+  if [ -n "$STALE" ]; then
+    command -v npm >/dev/null 2>&1 || { echo "화면을 빌드해야 하는데($STALE) npm 이 없습니다. Node.js 20 이상을 설치하세요."; exit 1; }
+    echo "화면 빌드 ($STALE): $FRONT_DIR"
+    (
+      cd "$FRONT_DIR"
+      if [ ! -d node_modules ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then npm ci --no-audit --no-fund; fi
+      npm run build --silent
+    ) || { echo "화면 빌드에 실패했습니다. 위 오류를 확인하세요 ($FRONT_DIR)"; exit 1; }
+  fi
+fi
 
 # 이미 떠 있는 서버가 있으면 그 서버의 응답을 성공으로 착각하므로, 시작 전에 멈춘다
 port_free() { "$PY" -c "import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('127.0.0.1', int(sys.argv[1])))" "$1" 2>/dev/null; }

@@ -372,7 +372,7 @@ class Demo:
 
     def _mock_measures(self, result: dict, plan: CardPlan, measures: list[str] | None) -> None:
         """mock: 사장님이 고른 조치를 응답(chosen_measures)에 싣는다. 화면이 '오늘부터 실천할 수칙'으로 보여 준다 (초안·완료 화면).
-        저장 예시 글은 고른 조치와 상관없이 그대로다. 그래서 화면은 mock 에서 '글에 반영'이라고 말하지 않는다 (app.js renderDraft·renderDone).
+        저장 예시 글은 고른 조치와 상관없이 그대로다. 그래서 화면은 mock 에서 '글에 반영'이라고 말하지 않는다 (frontend/src/features/flow 의 Draft·Done).
         조치 상자가 없는 카드는 건드리지 않는다 (저장 예시 값 그대로). 모르는 id 는 예전처럼 오류 없이 뺀다 (mock 은 measures 를 검사하지 않는다)."""
         options = {o["id"]: o for o in plan.measures.get("options") or []}
         if plan.card.kind != "complaint" or not options:

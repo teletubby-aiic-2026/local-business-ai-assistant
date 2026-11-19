@@ -11,20 +11,20 @@
 | ③ 답글·공지·홍보글 | C6 (PR #16 `experiments/marketing/c6`) | import (`run_card`) |
 | 계약 | C1 (PR #15 `shared/contracts.py`) | import |
 
-## React 화면 (11/19, `frontend/`)
+## 화면 (`frontend/`, React 18 + Vite 5)
 
-`frontend/` 에 React 18 + Vite 로 옮긴 화면이 있습니다 (가독성 개선 디자인). 예전 화면(`web/static/`)은 그대로 두었고, 서버는 **기본으로 예전 화면**을 줍니다.
+화면은 `frontend/` 하나뿐입니다 (11/20 PR #69 뒤 예전 `web/static/` 을 지움). 서버는 `frontend/dist` 의 `index.html` 을 `/` 로, 빌드 파일을 `/assets/*` 로 줍니다. API 는 같습니다.
 
-- 쓰는 법: `cd services/web/frontend && npm ci && npm run build` 뒤 `WEB_FRONTEND_DIST=<그 폴더>/dist services/web/run.sh`. 서버가 `/` 에 React 화면, `/assets/*` 에 빌드 파일을 줍니다. API 는 같습니다.
+- 실행: `services/web/run.sh` 가 빌드가 없거나 소스보다 오래되었으면 먼저 `npm ci && npm run build` 를 합니다 (Node.js 20 이상 필요).
+- 다른 빌드 폴더를 쓸 때만 `WEB_FRONTEND_DIST=<폴더>` (주면 run.sh 가 빌드하지 않음). 빌드가 없으면 `/` 는 빌드 안내 글(200)만 주고 API 는 그대로 돕니다.
 - 개발: `npm run dev`(5173)가 `/api` 를 8000 으로 넘깁니다. 자세한 내용은 [frontend/README.md](frontend/README.md).
-- 배포: `deploy/make_bundle.sh` 는 이 PC 에 `frontend/dist` 가 있으면 묶음에 넣습니다. 웹 서버 static 모드는 `install_web.sh --static-src <묶음>/services/web/frontend/dist`.
+- 배포: `deploy/make_bundle.sh` 가 그 커밋의 소스로 빌드해 묶음에 넣습니다. 웹 서버 static 모드는 `install_web.sh --mode static`(기본 `<묶음>/services/web/frontend/dist`).
 
 ## 리뷰 분석 화면 (11/13)
 
 - 따로 떠 있던 리뷰 분석 화면이 이 비서 화면 안으로 들어왔습니다. 왼쪽 메뉴 **리뷰 분석**(`#/analysis`)에서 탭 3개(요약 · 불만 묶음 · 리뷰 붙여넣기)로 봅니다.
 - 화면은 이 서버의 API(`GET /api/insight`, `POST /api/reviews`, `DELETE /api/reviews/pasted`)로만 데이터를 받습니다. 브라우저가 리뷰 분석 서버에 직접 묻지 않으니, 서버에 올릴 때 리뷰 분석 서버는 안쪽에만 두면 됩니다.
 - 리뷰를 붙여넣거나 지우면 홈 숫자와 추천 카드도 다시 불러옵니다.
-- 왼쪽 메뉴의 **종합 리포트**·**상권**은 회의에서 정한 뒤 채울 빈 자리입니다 (`web/static/app.js` 의 `LATER` 한 곳).
 
 ## 실행 (저장소 루트에서. #14·#16·#17 은 11/10 main 에 병합됨)
 

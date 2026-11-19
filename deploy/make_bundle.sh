@@ -13,6 +13,8 @@
 # - 예외: 그 커밋에 deploy/ 가 아직 없으면(병합 전), 이 스크립트가 있는 deploy/ 폴더를 묶음에 더한다.
 # - 묶음 안에는 REVISION 파일(커밋 해시 한 줄)이 들어간다. 서버의 /opt/ic26/REVISION 이 된다.
 # - 묶음에 키·비밀번호·.env 는 들어가지 않는다 (git 에 있는 파일만 묶음).
+# - 화면(services/web/frontend, React + Vite)은 그 커밋의 소스로 묶음 안에서 npm ci && npm run build 해 dist 를 넣는다
+#   (작업 폴더에 남아 있던 빌드는 쓰지 않음). node_modules 는 묶음에 넣지 않는다. npm(Node.js 20 이상)이 필요하다.
 set -euo pipefail
 
 die() { echo "오류: $*" >&2; exit 1; }
@@ -75,15 +77,19 @@ else
   DEPLOY_SRC="이 PC의 작업 폴더 deploy/ ($(git_ rev-parse --abbrev-ref HEAD)@$(git_ rev-parse --short=7 HEAD)$([ -z "$(git_ status --porcelain -- "$DEPLOY_DIR" 2>/dev/null)" ] || echo ', 커밋하지 않은 내용 포함'))"
 fi
 
-# React 화면 빌드(services/web/frontend/dist)는 git 에 없다. 이 PC 에서 빌드해 둔 것이 있으면 묶음에 넣는다
-# (웹 서버: install_web.sh --mode static --static-src <묶음>/services/web/frontend/dist, WAS: WEB_FRONTEND_DIST)
-FRONT_DIST="$REPO/services/web/frontend/dist"
-if [ -f "$FRONT_DIST/index.html" ]; then
-  mkdir -p "$STAGE/$NAME/services/web/frontend/dist"
-  (cd "$FRONT_DIST" && tar -cf - .) | tar -x -C "$STAGE/$NAME/services/web/frontend/dist"
-  FRONT_SRC="이 PC 의 services/web/frontend/dist (빌드 $(date -r "$FRONT_DIST/index.html" '+%Y-%m-%d %H:%M' 2>/dev/null || echo '시각 모름'))"
+# 화면 빌드: git 에는 소스만 있다. 이 커밋의 소스로 묶음 안에서 빌드하고 node_modules 는 지운다 (실패하면 묶음을 만들지 않음)
+FRONT_STAGE="$STAGE/$NAME/services/web/frontend"
+if [ -f "$FRONT_STAGE/package.json" ]; then
+  command -v npm >/dev/null 2>&1 || die "화면을 빌드하려면 npm 이 필요합니다 (Node.js 20 이상)"
+  echo "화면 빌드 (커밋 $SHORT 의 services/web/frontend) ..."
+  ( cd "$FRONT_STAGE" && npm ci --no-audit --no-fund --loglevel=error && npm run build --silent ) \
+    || die "화면 빌드에 실패했습니다 (커밋 $SHORT). 묶음을 만들지 않습니다."
+  rm -rf "$FRONT_STAGE/node_modules"
+  [ -f "$FRONT_STAGE/dist/index.html" ] || die "화면 빌드 뒤에 dist/index.html 이 없습니다"
+  FRONT_SRC="커밋 $SHORT 소스로 빌드 (node $(node --version 2>/dev/null || echo '?'), $(date '+%Y-%m-%d %H:%M'))"
 else
-  FRONT_SRC="없음 (React 화면을 쓰려면 services/web/frontend 에서 npm ci && npm run build 뒤 다시 묶음)"
+  warn "커밋 $SHORT 에는 services/web/frontend 가 없어 화면을 빌드하지 않습니다 (예전 화면 커밋)."
+  FRONT_SRC="없음 (이 커밋에 services/web/frontend 가 없음)"
 fi
 
 printf '%s\n' "$COMMIT" > "$STAGE/$NAME/REVISION"
@@ -109,6 +115,11 @@ for must in REVISION deploy/install_was.sh deploy/env.example services/web/web/m
             data/scenario/snapshot_2026Q2.json; do
   grep -qxF "$NAME/$must" <<<"$LIST" || die "묶음에 $must 가 없습니다. 이 커밋으로는 서버에 올릴 수 없습니다."
 done
+if [ -f "$FRONT_STAGE/package.json" ]; then
+  grep -qxF "$NAME/services/web/frontend/dist/index.html" <<<"$LIST" || die "묶음에 화면 빌드(services/web/frontend/dist/index.html)가 없습니다."
+  grep -q "^$NAME/services/web/frontend/dist/assets/." <<<"$LIST" || die "묶음에 화면 빌드 파일(dist/assets)이 없습니다."
+  ! grep -q "^$NAME/services/web/frontend/node_modules/" <<<"$LIST" || die "묶음에 node_modules 가 들어 있습니다."
+fi
 # 상권 공식 자료(수백 MB)는 코드 묶음에 넣지 않는다. 자료 묶음(seoul-market-data-….tar.gz)을 따로 올려 install_market_data.sh 로 깐다
 if grep -Eq '^[^/]+/services/market-analysis/data/(raw|official)/|\.tar\.gz$' <<<"$LIST"; then
   die "묶음에 상권 공식 자료나 .tar.gz 가 들어 있습니다. 자료는 따로 올립니다 (deploy/install_market_data.sh)."
@@ -125,6 +136,7 @@ echo "  파일      $TGZ ($(du -h "$TGZ" | cut -f1), $(grep -vc '/$' <<<"$LIST")
 echo "  체크섬    $TGZ.sha256"
 echo "  커밋      $COMMIT"
 echo "  deploy    $DEPLOY_SRC"
+echo "  frontend  $FRONT_SRC"
 echo
 echo "다음: 베스천을 거쳐 서버로 올립니다 (deploy/README.md 3절)."
 echo "  scp $NAME.tgz $NAME.tgz.sha256 <서버 별칭>:~/"

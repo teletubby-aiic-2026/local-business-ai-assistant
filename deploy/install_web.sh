@@ -7,7 +7,8 @@
 # 옵션:
 #   --lb ADDR         내부 로드 밸런서의 접속 주소 (필수). 도메인 또는 IP, 포트가 80이 아니면 주소:포트. http:// 는 빼도 됨
 #   --mode MODE       proxy-all (기본, 1단계) | static (2단계)
-#   --static-src DIR  static 일 때 화면 파일이 있는 폴더 (기본: 묶음의 services/web/web/static). index.html 이 있어야 함
+#   --static-src DIR  static 일 때 화면 빌드 폴더 (기본: 묶음의 services/web/frontend/dist, make_bundle.sh 가 빌드해 넣음).
+#                     index.html 과 assets/ 가 있어야 함
 #   --no-systemd      Nginx 를 systemctl 로 켜고 다시 읽지 않음 (컨테이너 시험용. nginx 를 직접 띄우거나 nginx -s reload)
 #   --skip-apt        apt 설치를 건너뜀
 #
@@ -46,8 +47,9 @@ CONF_SRC="$SRC/deploy/nginx/$([ "$MODE" = static ] && echo ic26-static.conf || e
 [ -f "$CONF_SRC" ] || die "설정 틀이 없습니다: $CONF_SRC"
 WWW=/var/www/ic26
 if [ "$MODE" = static ]; then
-  STATIC_SRC="${STATIC_SRC:-$SRC/services/web/web/static}"
-  [ -f "$STATIC_SRC/index.html" ] || die "화면 파일 폴더에 index.html 이 없습니다: $STATIC_SRC"
+  STATIC_SRC="${STATIC_SRC:-$SRC/services/web/frontend/dist}"
+  [ -f "$STATIC_SRC/index.html" ] || die "화면 빌드 폴더에 index.html 이 없습니다: $STATIC_SRC (묶음을 deploy/make_bundle.sh 로 다시 만드세요)"
+  [ -d "$STATIC_SRC/assets" ] || die "화면 빌드 폴더에 assets/ 가 없습니다: $STATIC_SRC"
 fi
 
 echo "모드: $MODE   내부 로드 밸런서: $LB"
@@ -117,7 +119,7 @@ if [ "$DO_APT" = 1 ]; then
 fi
 command -v nginx >/dev/null 2>&1 || die "nginx 가 없습니다"
 
-# 화면 파일 (static 모드). 폴더의 '내용'을 /var/www/ic26/ 에 그대로 둔다 (/static/ 주소가 이 폴더로 이어짐)
+# 화면 파일 (static 모드). 빌드 폴더의 '내용'(index.html, assets/)을 /var/www/ic26/ 에 그대로 둔다
 if [ "$MODE" = static ]; then
   install -d -m 755 -o root -g root "$WWW"
   rsync -a --delete --chown=root:root --chmod=D755,F644 "$STATIC_SRC"/ "$WWW"/
