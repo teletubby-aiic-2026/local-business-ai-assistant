@@ -257,9 +257,10 @@ DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여
 
    두 번째 `EnvironmentFile`은 5-1절(Secret Manager)을 쓸 때 `DB_PASSWORD`를 거기서 읽기 위한 것입니다. 쓰지 않으면 건너뜁니다.
 
-   `<DB 주소>:5432/ic26app 표 11개 확인: approvals, auth_sessions, card_reasons, coupon_runs, marketing_sessions, reports, review_labels, reviews, stores, user_stores, users`가 나오면 된 것입니다. 여러 번 돌려도 안전합니다(이미 있는 표는 그대로 둡니다).
+   `<DB 주소>:5432/ic26app 표 13개 확인: approvals, auth_sessions, card_reasons, coupon_runs, marketing_sessions, reports, review_labels, review_records, review_status_events, reviews, stores, user_stores, users`가 나오면 된 것입니다. 여러 번 돌려도 안전합니다(이미 있는 표는 그대로 둡니다).
    11/18 5차 회의 묶음부터 로그인 표 3개(`users`, `user_stores`, `auth_sessions`)가 더해져 9개입니다. **이미 DB를 쓰고 있는 서버도 이 명령을 한 번 더 돌려야** 로그인·가게 바꾸기가 됩니다(돌리기 전에는 로그인 요청이 '로그인 정보를 불러오지 못했어요'로 실패하고, 로그인하지 않은 화면은 그대로).
    11/19 묶음부터 맞춤 마케팅 기록 표 2개(`marketing_sessions`, `coupon_runs`. 이슈 #51 ERD §3.13)가 더해져 11개입니다. 돌리기 전에 새 코드를 올리면 맞춤 마케팅의 기록 쓰기는 조용히 건너뛰고(화면 흐름은 그대로, `session_id`만 `null`, `journalctl -u ic26-marketing`에 경고), 마케팅 보고서와 '처음부터 다시'의 마케팅 기록 지우기는 실패합니다(보고서 `503`, 지우기 `500`).
+   같은 11/19 묶음에 리뷰의 상태·답글 기록 표 2개(`review_records`, `review_status_events`. 리뷰 분석 서비스 `docs/handoff.md` 7절)도 있어 모두 13개입니다. 돌리기 전에 새 코드를 올리면 리뷰 목록·답글 승인 기록·종합 리포트가 503('저장소(DB)에 닿지 못했습니다')이 되므로, **이 묶음은 꼭 표 만들기를 먼저** 합니다. 예전 서버 파일(`/var/lib/ic26/…/records_*.json`)의 기록은 DB 로 옮기지 않습니다.
    11/18부터 `approvals`에 칸 4개(`draft_text`, `checks`, `used_fallback`, `style`. 이슈 #51 ERD)가 더해졌습니다. 이 명령은 이미 있는 표에도 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 칸을 더합니다(있던 기록은 그대로, 새 칸은 비움·`{}`·`false`).
 3. 서비스를 다시 시작하고 확인합니다.
 

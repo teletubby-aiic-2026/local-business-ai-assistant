@@ -172,6 +172,7 @@ class _Down:
             raise err("DB 에 닿지 못했습니다 (PoolTimeout)")
         self.reviews = type("R", (), {"list": boom, "add": boom, "clear": boom})()
         self.labels = type("L", (), {"get_many": boom, "put_many": boom})()
+        self.review_records = type("S", (), {"load": boom, "update": boom, "clear": boom})()   # 상태·답글 기록도 DB (11/19)
 
     def close(self):
         pass

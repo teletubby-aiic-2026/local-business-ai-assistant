@@ -530,7 +530,7 @@ def test_init_db_command_runs_twice_and_without_db_host(db):
     for _ in range(2):
         done = subprocess.run([sys.executable, "-m", "shared.storage.init_db"], cwd=REPO, env=env, capture_output=True, text=True, timeout=60)
         assert done.returncode == 0, done.stderr
-        assert "표 11개 확인" in done.stdout and env["DB_PASSWORD"] not in done.stdout + done.stderr
+        assert "표 13개 확인" in done.stdout and env["DB_PASSWORD"] not in done.stdout + done.stderr
     bare = {k: v for k, v in env.items() if k != "DB_HOST"}
     done = subprocess.run([sys.executable, "-m", "shared.storage.init_db"], cwd=REPO, env=bare, capture_output=True, text=True, timeout=60)
     assert done.returncode == 2 and "DB_HOST" in done.stderr
@@ -716,3 +716,78 @@ def test_pg_marketing_columns_have_erd_types(db):
     assert cols[("coupon_runs", "discount_krw")] == ("integer", "NO")
     assert cols[("coupon_runs", "margin_pct")] == ("double precision", "YES")
     assert cols[("coupon_runs", "period_start")] == ("date", "YES")
+
+
+# ── 리뷰의 상태·답글 기록 (11/19, PostgreSQL 만 — DB 가 없으면 리뷰 분석 서비스가 파일을 쓴다) ──────────────
+def test_pg_review_records_merge_fields_and_keep_history_in_order(db):
+    sid, v = uid("store"), uid("visitor")
+    assert db.review_records.load(sid, v) == {}
+    first = db.review_records.update(sid, v, "rv_x_paste_001", {"source": "capture", "received_at": "2026-11-14T19:02:11+09:00"})
+    assert first == {"source": "capture", "received_at": "2026-11-14T19:02:11+09:00"}        # 쓴 칸만, 한국 시간 그대로
+    second = db.review_records.update(sid, v, "rv_x_paste_001", {"status": "drafted", "status_at": "2026-11-14T19:05:00+09:00"},
+                                      {"status": "drafted", "at": "2026-11-14T19:05:00+09:00"})
+    assert second == {"source": "capture", "received_at": "2026-11-14T19:02:11+09:00", "status": "drafted",
+                      "status_at": "2026-11-14T19:05:00+09:00",
+                      "history": [{"status": "drafted", "at": "2026-11-14T19:05:00+09:00"}]}
+    third = db.review_records.update(
+        sid, v, "rv_x_paste_001",
+        {"status": "replied", "status_at": "2026-11-14T10:10:00+00:00", "reply": {"text": "죄송합니다", "replied_at": "2026-11-14T10:10:00+00:00"}},
+        {"status": "replied", "at": "2026-11-14T10:10:00+00:00"})
+    assert third["reply"] == {"text": "죄송합니다", "replied_at": "2026-11-14T19:10:00+09:00"}   # 다른 시간대로 줘도 한국 시간으로
+    assert [e["status"] for e in third["history"]] == ["drafted", "replied"] and third["source"] == "capture"
+    # 답글 없이 상태만 바꾸면 예전 답글은 그대로 (파일 방식의 row.update 와 같다)
+    fourth = db.review_records.update(sid, v, "rv_x_paste_001", {"status": "skipped", "status_at": "2026-11-14T19:20:00+09:00"},
+                                      {"status": "skipped", "at": "2026-11-14T19:20:00+09:00"})
+    assert fourth["reply"]["text"] == "죄송합니다" and fourth["status"] == "skipped" and len(fourth["history"]) == 3
+    assert db.review_records.load(sid, v) == {"rv_x_paste_001": fourth}
+
+
+def test_pg_review_records_are_separate_per_store_visitor_and_review(db):
+    s1, s2, a, b = uid("store"), uid("store"), uid("visitor"), uid("visitor")
+    event = {"status": "replied", "at": "2026-11-14T19:10:00+09:00"}
+    for store, visitor, rid in ((s1, a, "rv_1"), (s1, a, "rv_2"), (s1, b, "rv_1"), (s2, a, "rv_1"), (s1, COMMON_VISITOR, "rv_1")):
+        db.review_records.update(store, visitor, rid, {"status": "replied", "status_at": event["at"]}, event)
+    assert set(db.review_records.load(s1, a)) == {"rv_1", "rv_2"}
+    assert db.review_records.clear(s1, a) == 2 and db.review_records.clear(s1, a) == 0
+    assert db.review_records.load(s1, a) == {}
+    for store, visitor in ((s1, b), (s2, a), (s1, COMMON_VISITOR)):                       # 다른 방문자·가게·공용은 그대로
+        assert db.review_records.load(store, visitor)["rv_1"]["history"] == [event]
+    left = db.run(lambda conn: conn.execute("SELECT count(*) AS n FROM review_status_events WHERE store_id = %s AND visitor_id = %s",
+                                            (s1, a)).fetchone()["n"])
+    assert left == 0                                                                      # 상태 기록도 같이 지워짐 (CASCADE)
+
+
+def test_pg_review_records_keep_unknown_fields_and_ignore_history_in_fields(db):
+    sid, v = uid("store"), uid("visitor")
+    row = db.review_records.update(sid, v, "rv_1", {"source": "memo", "order_ref": "A-12", "history": [{"status": "x", "at": "y"}]})
+    assert row == {"source": "memo", "order_ref": "A-12"}                                  # 모르는 칸은 extra 에, history 는 event 로만
+    row = db.review_records.update(sid, v, "rv_1", {"reply": None, "order_ref": "A-13"})
+    assert row == {"source": "memo", "order_ref": "A-13"}
+
+
+def test_pg_review_records_two_servers_do_not_lose_each_others_updates(db):
+    """서버 2대(연결 풀 둘)가 같은 리뷰의 상태를 같이 바꿔도 기록이 하나도 빠지지 않는다 (파일 방식은 서버마다 따로였다)."""
+    other = open_test_db("ic26-test-second")
+    sid, v, n = uid("store"), uid("visitor"), 12
+    errors: list[BaseException] = []
+
+    def work(handle, start):
+        try:
+            for i in range(start, start + n):
+                stamp = f"2026-11-14T19:{i:02d}:00+09:00"
+                handle.review_records.update(sid, v, "rv_1", {"status": "drafted", "status_at": stamp}, {"status": "drafted", "at": stamp})
+        except BaseException as exc:       # noqa: BLE001 — 시험이 실패 이유를 보이게
+            errors.append(exc)
+
+    threads = [threading.Thread(target=work, args=(db, 0)), threading.Thread(target=work, args=(other, n))]
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(30)
+        assert not errors, errors
+        seen = other.review_records.load(sid, v)["rv_1"]
+        assert len(seen["history"]) == 2 * n and seen == db.review_records.load(sid, v)["rv_1"]
+        assert {e["at"] for e in seen["history"]} == {f"2026-11-14T19:{i:02d}:00+09:00" for i in range(2 * n)}
+    finally:
+        other.close()

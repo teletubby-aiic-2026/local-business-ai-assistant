@@ -1864,6 +1864,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 - 가게마다 그 사장님(방문자 `u-<user_id>`)의 것만 지웁니다. 다른 가게·다른 사장님·게스트의 기록은 그대로입니다.
   - 승인 기록(DB 에 아직 못 써서 서버가 들고 있던 것 포함). `approvals` = 지운 건수.
   - 붙여넣은 리뷰와 그 상태·답글 기록, 그 리뷰들의 분류 결과(리뷰 분석 서비스 `DELETE /api/review-insight/reviews/pasted?forget_labels=true`). `reviews` = 지운 리뷰 수.
+    상태·답글 기록은 DB 를 쓰면 `review_records`·`review_status_events` 표에 있어(11/19) 어느 WAS 가 요청을 받아도 같이 지워집니다. 그 가게의 기본(합성) 리뷰에 붙인 '답글 달았음' 기록도 그 사장님 것은 함께 지웁니다.
     분류 결과는 글에서 만든 공용 키라, 그 가게의 합성 리뷰가 같이 쓰는 키는 남깁니다. 리뷰 분석 서비스가 분류 결과를 지웠다고 답하지 않으면 `reviews` 는 `null`.
   - 맞춤 마케팅 기록. `marketing`: `cleared`(지웠거나 지울 것이 없음) · `off`(이 서버에서 맞춤 마케팅을 꺼 둠 = 기록이 없음) · `failed`(연결 못 함·거절·주소 설정이 틀림).
   - 못 지운 칸은 `approvals`·`reviews` 가 `null`, `marketing` 이 `failed`. 하나라도 있으면 `complete: false` 와 `message`(어느 가게의 무엇이 남았는지). 그래도 200 이고, 지울 수 있는 것은 지웁니다. 여러 번 해도 안전합니다(이미 지운 것은 0).
@@ -2573,6 +2574,7 @@ const LATER = [
 | `approvals` | 승인 기록 | `approvals.jsonl` 한 줄(`draft_id`, `status`, `edited`, `text`, `approved_at`, `mode`) |
 | `card_reasons` | 카드 추천 이유 | `GET /api/cards`의 `card.reason_text`, `reason_source`, `checked_text`, `facts`, `evidence`, `problems`. 지금은 서버 메모리(`_reason_memo`)에만 있음 |
 | `users` · `user_stores` · `auth_sessions` (11/18, 실제 표) | 사장님 계정·가진 가게·로그인 세션 | `db/schema.sql`. `users(user_id PK, login_id UNIQUE, password_hash, display_name, created_at)`, `user_stores(user_id, store_id, position, PK(user_id, store_id))`, `auth_sessions(token_hash PK, user_id, active_store_id, created_at, expires_at)`. 로그인한 사장님의 승인 기록 등은 다른 표의 `visitor_id` 칸에 `u-<user_id>`로 남음 (1.13) |
+| `review_records` · `review_status_events` (11/19, 실제 표) | 리뷰마다의 상태·답글 기록과 상태가 바뀐 기록 | `db/schema.sql`. 리뷰 분석 서비스 `app/records.py` (`source`, `received_at`, `status`, `status_at`, `reply{text, replied_at}`, `history[{status, at}]`). 열쇠는 (`store_id`, `visitor_id`, `review_id`) — 기본(합성) 리뷰는 `reviews` 표에 줄이 없어도 방문자마다 기록이 붙기 때문. DB 가 없으면 파일 `records_(가게).json` |
 
 지금 쓰는 id 모양 (DB 설계 때 참고. 예시 값):
 

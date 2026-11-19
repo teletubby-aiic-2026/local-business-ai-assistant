@@ -33,11 +33,11 @@ log = logging.getLogger("shared.storage")
 T = TypeVar("T")
 
 TABLES = ("stores", "reviews", "review_labels", "approvals", "card_reasons", "reports", "users", "user_stores", "auth_sessions",
-          "marketing_sessions", "coupon_runs")
+          "marketing_sessions", "coupon_runs", "review_records", "review_status_events")
 
 
 class Database:
-    """연결 풀 하나와 표별 저장소 (reviews, labels, approvals, card_reasons, reports, users, auth_sessions, marketing)."""
+    """연결 풀 하나와 표별 저장소 (reviews, labels, review_records, approvals, card_reasons, reports, users, auth_sessions, marketing)."""
     kind = "postgres"
 
     def __init__(self, config: DbConfig, *, app_name: str = ""):
@@ -48,6 +48,7 @@ class Database:
         self._blocked_until = 0.0
         self.reviews = PgReviews(self)
         self.labels = PgLabels(self)
+        self.review_records = PgReviewRecords(self)
         self.approvals = PgApprovals(self)
         self.card_reasons = PgCardReasons(self)
         self.reports = PgReports(self)
@@ -181,6 +182,89 @@ class PgLabels:
 
 
 # ── 승인 기록 ───────────────────────────────────────────────────────
+# ── 리뷰의 상태·답글 기록 (11/19) ────────────────────────────────────────
+class PgReviewRecords:
+    """리뷰마다 붙는 기록 (리뷰 분석 서비스의 app/records.py 가 씀). 파일 방식(records_<가게>.json)과 같은 모양으로 읽고 쓴다:
+    {"source", "received_at", "status", "status_at", "reply": {"text", "replied_at"}, "history": [{"status", "at"}]}
+    값이 없는 칸은 dict 에 넣지 않는다 (파일에도 쓴 칸만 있다). 시각은 한국 시간 ISO 글자.
+    메모리 구현은 없다: DB 가 없으면 리뷰 분석 서비스가 파일을 쓴다 (reviews·labels 와 같다)."""
+    _COLUMNS = {"source": "source", "received_at": "received_at", "status": "status", "status_at": "status_at"}
+    _TIMES = ("received_at", "status_at")
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    @staticmethod
+    def _shape(row: dict, events: list[dict]) -> dict:
+        out: dict = {}
+        for key in ("source", "received_at", "status", "status_at"):
+            if row.get(key) is not None:
+                out[key] = to_kst_iso(row[key]) if key in PgReviewRecords._TIMES else row[key]
+        if row.get("reply_text") is not None:
+            out["reply"] = {"text": row["reply_text"],
+                            "replied_at": to_kst_iso(row["replied_at"]) if row.get("replied_at") is not None else None}
+        out.update(row.get("extra") or {})
+        if events:
+            out["history"] = [{"status": e["status"], "at": to_kst_iso(e["at"])} for e in events]
+        return out
+
+    def load(self, store_id: str, visitor_id: str) -> dict[str, dict]:
+        """review_id → 기록. 없으면 {}."""
+        def work(conn):
+            rows = conn.execute(
+                "SELECT review_id, source, received_at, status, status_at, reply_text, replied_at, extra FROM review_records "
+                "WHERE store_id = %s AND visitor_id = %s ORDER BY review_id", (store_id, visitor_id)).fetchall()
+            events: dict[str, list[dict]] = {}
+            for e in conn.execute("SELECT review_id, status, at FROM review_status_events "
+                                  "WHERE store_id = %s AND visitor_id = %s ORDER BY id", (store_id, visitor_id)).fetchall():
+                events.setdefault(e["review_id"], []).append(e)
+            return {r["review_id"]: self._shape(r, events.get(r["review_id"], [])) for r in rows}
+        return self._db.run(work)
+
+    def update(self, store_id: str, visitor_id: str, review_id: str, fields: dict, event: dict | None = None) -> dict:
+        """한 리뷰의 기록에 fields 를 덮어쓰고(준 칸만), event 가 있으면 상태 기록에 더한다. 바뀐 기록을 돌려준다.
+        한 트랜잭션이고 그 줄을 잠그므로, 서버 두 대가 같은 리뷰를 같이 고쳐도 서로의 값을 지우지 않는다."""
+        sets, values, extra = [], [], {}
+        for key, value in (fields or {}).items():
+            if key in self._COLUMNS:
+                sets.append(f"{self._COLUMNS[key]} = %s")
+                values.append(to_datetime(value) if key in self._TIMES and value is not None else value)
+            elif key == "reply":
+                reply = value or {}
+                sets += ["reply_text = %s", "replied_at = %s"]
+                values += [reply.get("text"), to_datetime(reply["replied_at"]) if reply.get("replied_at") else None]
+            elif key != "history":                     # history 는 event 로만 쌓는다
+                extra[key] = value
+        if extra:
+            sets.append("extra = extra || %s")
+            values.append(Jsonb(extra))
+
+        def work(conn):
+            key = (store_id, visitor_id, review_id)
+            conn.execute("INSERT INTO review_records (store_id, visitor_id, review_id) VALUES (%s, %s, %s) "
+                         "ON CONFLICT (store_id, visitor_id, review_id) DO NOTHING", key)
+            conn.execute("SELECT 1 FROM review_records WHERE store_id = %s AND visitor_id = %s AND review_id = %s FOR UPDATE", key)
+            if sets:
+                conn.execute(f"UPDATE review_records SET {', '.join(sets)}, updated_at = now() "
+                             "WHERE store_id = %s AND visitor_id = %s AND review_id = %s", (*values, *key))
+            if event:
+                conn.execute("INSERT INTO review_status_events (store_id, visitor_id, review_id, status, at) VALUES (%s, %s, %s, %s, %s)",
+                             (*key, event["status"], to_datetime(event["at"])))
+            row = conn.execute(
+                "SELECT review_id, source, received_at, status, status_at, reply_text, replied_at, extra FROM review_records "
+                "WHERE store_id = %s AND visitor_id = %s AND review_id = %s", key).fetchone()
+            events = conn.execute("SELECT status, at FROM review_status_events "
+                                  "WHERE store_id = %s AND visitor_id = %s AND review_id = %s ORDER BY id", key).fetchall()
+            return self._shape(row, events)
+        return self._db.run(work)
+
+    def clear(self, store_id: str, visitor_id: str) -> int:
+        """그 가게·그 방문자의 기록을 모두 지운다 (상태 기록은 CASCADE). 지운 리뷰 기록 수."""
+        def work(conn):
+            return conn.execute("DELETE FROM review_records WHERE store_id = %s AND visitor_id = %s", (store_id, visitor_id)).rowcount
+        return self._db.run(work)
+
+
 class PgApprovals:
     # 칸 4개(draft_text, checks, used_fallback, style)가 없는 옛 표(11/18 전에 만든 DB)에서 잠시 옛 방식으로 쓰는 시간(초)
     LEGACY_RETRY_SEC = 60.0

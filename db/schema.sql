@@ -3,7 +3,7 @@
 -- 실행: python -m shared.storage.init_db   (여러 번 돌려도 안전: 이미 있으면 건너뜀. 있는 표에 칸을 더할 때는 파일 안의 ALTER ... ADD COLUMN IF NOT EXISTS)
 -- 시각은 TIMESTAMPTZ. 코드는 한국 시간(+09:00) ISO 문자열로 읽고 쓴다.
 -- visitor_id: 브라우저 쿠키의 임의 값. 'common' 은 방문자를 안 가린 호출(공용).
--- 표 11개 (stores … auth_sessions, marketing_sessions, coupon_runs). 새 표가 생기는 코드를 올릴 때는 코드보다 먼저 init_db 를 한 번 돌린다.
+-- 표 13개 (stores … auth_sessions, marketing_sessions, coupon_runs, review_records, review_status_events). 새 표가 생기는 코드를 올릴 때는 코드보다 먼저 init_db 를 한 번 돌린다.
 
 -- 가게. 가게 정보는 지금 git 파일(services/review-insight/data/synthetic/*/store.json)이라 코드가 아직 쓰지 않는다.
 -- 그래서 다른 표가 이 표를 참조(FK)하지 않는다.
@@ -178,3 +178,39 @@ CREATE TABLE IF NOT EXISTS coupon_runs (
     created_at     TIMESTAMPTZ      NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS coupon_runs_by_visitor ON coupon_runs (store_id, visitor_id, period_start);
+
+-- ── 리뷰의 상태·답글 기록 (11/19, services/review-insight/docs/handoff.md 7절) ────────────────
+-- 리뷰 분석 서비스의 app/records.py 가 DB_HOST 가 있을 때 쓴다 (없으면 예전처럼 data/runtime 의 records_<가게>.json).
+-- 리뷰마다: 어디서 들어왔나(source)·실제로 받은 시각·마지막 상태·사장님 답글. WAS 가 두 대여도 같은 기록을 본다.
+-- 예전 파일 기록은 자동으로 옮기지 않는다 (서버에 있던 것은 시험 기록뿐).
+-- 이슈 #51 ERD 4절(확장 묶음, 관계만 그린 초안)과 다른 점
+--   · 답글·상태를 reviews 표의 칸으로 두지 않고 따로 둔다: 합성(기본) 리뷰는 git 파일이라 reviews 표에 줄이 없는데,
+--     그 리뷰에도 방문자마다 '답글 달았음' 기록이 붙는다. 그래서 열쇠가 (store_id, visitor_id, review_id) 다 (handoff.md 7절 그대로).
+--   · review_status_events 도 같은 열쇠로 review_records 를 가리킨다 (reviews 의 줄 번호가 아님).
+--   · visitor_id: approvals·reviews 와 같은 방식 (게스트는 쿠키 값, 로그인한 사장님은 'u-<user_id>', 공용은 'common').
+CREATE TABLE IF NOT EXISTS review_records (
+    store_id     TEXT        NOT NULL,
+    visitor_id   TEXT        NOT NULL,
+    review_id    TEXT        NOT NULL,                  -- 예: rv_ongi_001(합성), rv_ongi_paste_001(붙여넣기)
+    source       TEXT,                                  -- paste | capture | app | memo
+    received_at  TIMESTAMPTZ,                           -- 서버가 실제로 받은 시각 (응대 기한·새 리뷰 조회)
+    status       TEXT,                                  -- 마지막 상태: new | analyzed | drafted | replied | skipped
+    status_at    TIMESTAMPTZ,
+    reply_text   TEXT,                                  -- 사장님 답글. 손님에게 보낸 글이라 개인정보가 섞일 수 있음
+    replied_at   TIMESTAMPTZ,
+    extra        JSONB       NOT NULL DEFAULT '{}'::jsonb,  -- 위 칸에 없는 값이 오면 여기 (조용히 버리지 않게)
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (store_id, visitor_id, review_id)
+);
+
+-- 상태가 바뀐 기록 (덧붙이기만). 점수·보고서가 '그 시각의 상태'를 계산할 때 쓴다
+CREATE TABLE IF NOT EXISTS review_status_events (
+    id          BIGSERIAL   PRIMARY KEY,
+    store_id    TEXT        NOT NULL,
+    visitor_id  TEXT        NOT NULL,
+    review_id   TEXT        NOT NULL,
+    status      TEXT        NOT NULL,
+    at          TIMESTAMPTZ NOT NULL,
+    FOREIGN KEY (store_id, visitor_id, review_id) REFERENCES review_records (store_id, visitor_id, review_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS review_status_events_by_review ON review_status_events (store_id, visitor_id, review_id, id);
