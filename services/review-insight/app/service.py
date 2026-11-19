@@ -190,6 +190,27 @@ def clear_pasted(store_id: str = DEFAULT_STORE, visitor_id: str | None = None) -
     return n
 
 
+def erase_pasted(classifier: Classifier, store_id: str = DEFAULT_STORE, visitor_id: str | None = None) -> dict:
+    """계정 초기화·탈퇴용 (11/19): 이 방문자가 이 가게에 붙여넣은 리뷰·상태·답글 기록과 그 리뷰들의 분류 결과를 지운다.
+
+    clear_pasted 와 같고, 분류 결과(공용 키)를 더 지운다. 그 가게의 합성 리뷰가 같이 쓰는 키는 남긴다 (Classifier.forget).
+    분류 결과를 먼저 지운다: 리뷰를 먼저 지운 뒤 실패하면 어떤 키를 지울지 다시 알 수 없어서. 여러 번 불러도 안전하다.
+    파일 방식이면 빈 목록 파일을 남기지 않고 지우고, 방문자 폴더가 비면 폴더도 지운다."""
+    rows = pasted_reviews(store_id, visitor_id)
+    labels_deleted = classifier.forget(rows, keep=sample_reviews(store_id))
+    n = clear_pasted(store_id, visitor_id)
+    if storage.database() is None and clean_visitor(visitor_id) != COMMON_VISITOR:
+        with _lock:
+            path = _pasted_file(store_id, visitor_id)
+            try:
+                if path.exists() and not pasted_reviews(store_id, visitor_id):
+                    path.unlink()
+                path.parent.rmdir()          # 다른 가게의 기록이 남아 있으면 비어 있지 않아 그대로 둔다
+            except OSError:
+                pass
+    return {"deleted": n, "labels_deleted": labels_deleted}
+
+
 def analyze(classifier: Classifier, store_id: str = DEFAULT_STORE, visitor_id: str | None = None, *,
             end: datetime | None = None) -> ReviewInsight:
     reviews = all_reviews(store_id, visitor_id)

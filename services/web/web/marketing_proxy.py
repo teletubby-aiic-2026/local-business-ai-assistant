@@ -278,27 +278,40 @@ class MarketingProxy:
             detail = MISSING                     # FastAPI 기본 404·405: 이 서비스 판에는 그 경로가 없다
         raise MarketingError(state, detail, r.status_code)
 
-    # ── '처음부터 다시' (main.py 의 DELETE /api/approvals 가 부름) ──────────────
-    def clear_records(self, visitor_id: str | None) -> bool | None:
-        """이 방문자의 마케팅 기록을 지운다. True = 지움(지울 것이 없어도), False = 서비스가 받지 않음·너무 오래 걸림,
-        None = 꺼 둠(off)·연결 못 함. 어떤 경우에도 예외를 내지 않는다 (승인 기록 지우기를 실패시키지 않게)."""
-        if self.client is None or self.config_error:
-            return None
+    # ── '처음부터 다시' (main.py 의 DELETE /api/approvals 가 부름)·계정 초기화·탈퇴 (auth.py) ──────────────
+    def _clear(self, visitor_id: str | None) -> str:
+        """이 방문자의 마케팅 기록을 지운다. 'cleared'(지울 것이 없어도) | 'off'(꺼 둠) | 'config'(주소 설정이 틀림)
+        | 'down'(연결 못 함) | 'refused'(받지 않음·너무 오래 걸림·방문자 id 가 틀림). 예외를 내지 않는다."""
+        if self.config_error:
+            return "config"
+        if self.client is None:
+            return "off"
         if not (visitor_id and VISITOR_ID.fullmatch(visitor_id)):
-            return False
+            return "refused"
         try:
             r = self.client.delete(SERVICE_PREFIX + "/records", params={"store": self.store, "visitor_id": visitor_id},
                                    timeout=httpx.Timeout(connect=1.0, read=CLEAR_TIMEOUT, write=CLEAR_TIMEOUT, pool=1.0))
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
             log.warning("맞춤 마케팅 기록을 지우지 못함: 서비스에 연결하지 못함")
-            return None
+            return "down"
         except Exception as exc:
             log.warning("맞춤 마케팅 기록을 지우지 못함 (%s)", exc.__class__.__name__)
-            return False
+            return "refused"
         if not 200 <= r.status_code < 300:
             log.warning("맞춤 마케팅 서비스가 기록 지우기를 받지 않음 (%s)", r.status_code)
-            return False
-        return True
+            return "refused"
+        return "cleared"
+
+    def clear_records(self, visitor_id: str | None) -> bool | None:
+        """이 방문자의 마케팅 기록을 지운다. True = 지움(지울 것이 없어도), False = 서비스가 받지 않음·너무 오래 걸림,
+        None = 꺼 둠(off)·연결 못 함. 어떤 경우에도 예외를 내지 않는다 (승인 기록 지우기를 실패시키지 않게)."""
+        return {"cleared": True, "refused": False}.get(self._clear(visitor_id))
+
+    def clear_state(self, visitor_id: str | None) -> str:
+        """계정 초기화·탈퇴용 (11/19). clear_records 와 같지만 꺼 둠과 실패를 나눈다:
+        'cleared'(지웠거나 지울 것이 없음) | 'off'(이 서버에서 맞춤 마케팅을 꺼 둠 = 기록이 없음) | 'failed'(연결 못 함·거절·주소 설정이 틀림)."""
+        state = self._clear(visitor_id)
+        return state if state in ("cleared", "off") else "failed"
 
 
 def take_approvals(data: dict) -> list[dict]:

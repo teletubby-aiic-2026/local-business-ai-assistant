@@ -268,12 +268,19 @@ async def capture_reviews(file: UploadFile = File(..., description="리뷰 화�
             "next": "후보를 확인·수정한 뒤 POST /api/review-insight/reviews 로 한 건씩 저장하세요"}
 
 
+ForgetLabelsQ = Query(False, description="true 면 지우는 리뷰들의 분류 결과(공용 저장본)도 지움. 비서 화면의 계정 초기화·탈퇴만 씀 "
+                                         "(그 가게의 합성 리뷰가 같이 쓰는 키는 남김). 응답에 labels_deleted 가 더해짐")
+
+
 @router.delete("/reviews/pasted")
-def reset_pasted(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ):
-    """데모 다시 하기: 그 가게에 (그 방문자가) 붙여넣은 리뷰를 모두 지움 (합성 리뷰는 그대로)."""
+def reset_pasted(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ, forget_labels: bool = ForgetLabelsQ):
+    """데모 다시 하기: 그 가게에 (그 방문자가) 붙여넣은 리뷰를 모두 지움 (합성 리뷰는 그대로).
+    forget_labels=true(계정 초기화·탈퇴, 11/19)면 그 리뷰들의 분류 결과도 지우고 {"deleted", "labels_deleted"} 를 돌려준다."""
     from app import inquiry
     if service.clean_visitor(visitor_id) == service.COMMON_VISITOR:
         inquiry.clear(store_id)              # 공용으로 부를 때만 손님 문의도 지움 (시연자 한 명의 '다시 하기'는 가게 공용 문의를 건드리지 않음)
+    if forget_labels:
+        return service.erase_pasted(classifier(), store_id, visitor_id)
     return {"deleted": service.clear_pasted(store_id, visitor_id)}
 
 

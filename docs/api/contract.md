@@ -1823,6 +1823,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | POST | `/api/auth/logout` | | 게스트 신원. 세션 쿠키와 상권 세션 쿠키(`/api/assistant`·`/api/market`)를 지움 |
 | POST | `/api/auth/store` | `{store_id}` | 신원. 게스트 401, 가진 가게가 아니면 403. 상권 세션 쿠키를 지움(새 가게의 조건으로 다시 시작) |
 | POST | `/api/auth/demo-login` | | 시연 사장님(가게 세 곳)으로 로그인. `DEMO_ACCOUNT_ENABLED=0` 이면 403. 브라우저(방문자 쿠키)마다 다른 시연 사장님이라 기록이 섞이지 않음. 그 아이디를 다른 계정이 이미 쓰면(예약 전 가입) 409 |
+| POST | `/api/auth/reset` | `{scope: "store" \| "account"}` | 계정 초기화(11/19). 아래 '초기화 응답'. 게스트 401 `login_needed`, scope 가 틀리면 422 `invalid`(이 절의 오류 모양). 못 지운 것이 있어도 200. 상권 세션 쿠키 두 개를 만료 |
 
 신원 모양:
 
@@ -1848,6 +1849,27 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 - 아래 서비스로 넘기는 방문자 id: `u-<user_id>` (영문·숫자·하이픈, 64자 이하. 리뷰 분석·맞춤 마케팅의 방문자 규칙과 기록 파일 이름 `records_<가게>_<방문자>.json`에 맞게 `_`를 쓰지 않음).
 - 가게 세 곳의 업종·역·상권 코드와 가정 가격·말투는 `shared/store_profiles.py`. 바삭치킨은 상도역 5번(3110836)·치킨전문점(CS100007), 몽글카페는 장승배기역(3120154)·커피-음료(CS100010). 상권 지표는 `data/scenario/<가게>/snapshot_2026Q2.json`(서울시 공식 원본으로 만든 값, `scripts/reproduce_store_snapshots.py`).
 - mock 에서 저장 예시(온기한식)가 없는 가게의 글은 코드 틀이고, 모든 글에 `needs_input` "시험용 예시 글이에요 … 실제 AI 결과 아님"이 붙어 '확인 필요'로 보입니다.
+
+**계정 초기화 (11/19, `services/web/web/account.py`)**
+
+오류는 모두 `{"error": {"message": "쉬운 한국어", "state": "<키>"}}`, 응답은 모두 `Cache-Control: no-store`.
+
+```json
+{"scope": "store", "complete": true, "message": null,
+ "stores": [{"store_id": "store_ongi", "name": "온기한식", "approvals": 3, "reviews": 2, "marketing": "cleared"}]}
+```
+
+- `scope`: `store` = 지금 보는 가게 하나, `account` = 그 사장님이 가진 가게 모두. 계정·가게 목록·세션은 남습니다.
+- 가게마다 그 사장님(방문자 `u-<user_id>`)의 것만 지웁니다. 다른 가게·다른 사장님·게스트의 기록은 그대로입니다.
+  - 승인 기록(DB 에 아직 못 써서 서버가 들고 있던 것 포함). `approvals` = 지운 건수.
+  - 붙여넣은 리뷰와 그 상태·답글 기록, 그 리뷰들의 분류 결과(리뷰 분석 서비스 `DELETE /api/review-insight/reviews/pasted?forget_labels=true`). `reviews` = 지운 리뷰 수.
+    분류 결과는 글에서 만든 공용 키라, 그 가게의 합성 리뷰가 같이 쓰는 키는 남깁니다. 리뷰 분석 서비스가 분류 결과를 지웠다고 답하지 않으면 `reviews` 는 `null`.
+  - 맞춤 마케팅 기록. `marketing`: `cleared`(지웠거나 지울 것이 없음) · `off`(이 서버에서 맞춤 마케팅을 꺼 둠 = 기록이 없음) · `failed`(연결 못 함·거절·주소 설정이 틀림).
+  - 못 지운 칸은 `approvals`·`reviews` 가 `null`, `marketing` 이 `failed`. 하나라도 있으면 `complete: false` 와 `message`(어느 가게의 무엇이 남았는지). 그래도 200 이고, 지울 수 있는 것은 지웁니다. 여러 번 해도 안전합니다(이미 지운 것은 0).
+- 카드 추천 이유(`card_reasons`)·보고서(`reports`)는 가게 공용이라 지우지 않습니다.
+- 상권 대화·조건: 상권 세션 쿠키(`market_onboarding_session`)의 경로가 `/api/assistant`·`/api/market` 이라 이 요청에는 오지 않습니다. 화면이 먼저 `DELETE /api/assistant/conversation` 을 부르고(대화), 이 응답이 두 쿠키를 만료시킵니다. 상권 서비스에 남은 분석 조건(업종·위치)은 세션이 끊겨 다시 쓰이지 않고 상권 서비스가 30일 뒤 치웁니다.
+- 시연 계정도 같습니다(브라우저마다 다른 시연 사장님이라 그 브라우저 몫만 지워짐).
+- 게스트의 `DELETE /api/approvals`('처음부터 다시', `marketing_cleared` true·false·null)와 `DELETE /api/reviews/pasted`(분류 결과는 남김)는 예전 그대로입니다.
 
 ### 1.14 `/api/market/*` — 상권 분석 화면 프록시 (11/18)
 
@@ -1912,6 +1934,8 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 (11/16 `feat/imkt-b-screen`(맞춤 마케팅) 기준으로 다시 셈. 서랍·캡처·종합 리포트·맞춤 마케팅 id, 왼쪽 메뉴 접기의 `menu-toggle`·`menu-toggle-count` 포함) `app.js`가 찾는 id는 **144개**입니다. `$("…")`로 글자 그대로 적힌 127개(맞춤 마케팅 19개 포함), `"an-" + t`처럼 이어 붙여 찾는 11개(`an-summary`·`an-issues`·`an-paste`, `an-tab-summary`·`an-tab-issues`·`an-tab-paste`, `dot-care`·`dot-mkt`, `staff-care`·`staff-mkt`, 맞춤 마케팅의 `"mkt-tab-" + t`로만 찾는 `mkt-tab-report`), 종합 리포트의 `RP_STATE` 표로 찾는 6개(`rp-daily-state`·`rp-score-state`·`rp-praise-state`·`rp-month-state`·`rp-market-state`·`rp-mkt-state`)를 합한 수입니다. 그중 `approvals`, `restart`, `rp-approvals`와 맞춤 마케팅 입력칸 `mkt-num`·`mkt-text`·`mkt-free`는 HTML이 아니라 `app.js`가 만들어 넣는 요소라서, `index.html`에서 `app.js`가 필요로 하는 id는 138개입니다. 여기에 CSS 선택자 `#staff li`가 쓰는 `staff` 하나가 더 있어서, **`index.html`에서 지우거나 이름을 바꾸면 안 되는 id는 139개**입니다. 이 id 중 하나라도 `index.html`에 없으면 `null`에 접근해서 화면이 멈춥니다.
 
 **11/18 더한 id** (지우거나 이름을 바꾸면 안 됨): 계정 `acct`·`acct-guest`·`acct-login`·`acct-user`·`acct-store-wrap`·`acct-store`·`acct-logout`, 로그인 대화상자 `auth-dialog`·`auth-title`·`auth-close`·`auth-demo`·`auth-tab-login`·`auth-tab-signup`·`auth-login`·`auth-signup`·`auth-login-id`·`auth-login-pw`·`auth-su-id`·`auth-su-pw`·`auth-su-name`·`auth-error`, AI 직원 `dot-data`·`dot-market`·`staff-market`(`staff-go` 버튼 안), 상권 분석 `mk-`로 시작하는 id(`mk-state`·`mk-store`·`mk-cond-text`·`mk-area`·`mk-industry`·`mk-period`·`mk-apply`·`mk-home`·`mk-ask`·`mk-sync`·`mk-data`·`mk-sync-result`·`mk-events`·`mk-events-note`·`mk-tiles`·`mk-t-*`·`mk-tab-*`·`mk-sales`·`mk-stores`·`mk-pop`·`mk-compare`·`mk-cmp-*`). 서랍 첫 안내의 문장 두 개(역할·기본 정보)는 시험이 지킵니다.
+
+**11/19 더한 id (내 계정)**: `acct-user`는 이제 `<button>`(이름을 누르면 '내 계정' 대화상자, 상단 바에 버튼을 더하지 않음). 결과 띠 `acct-notice`·`acct-notice-text`·`acct-notice-close`, 대화상자 `acct-dialog`·`acct-main`·`acct-title`·`acct-close`·`acct-info-name`·`acct-info-id`·`acct-info-stores`·`acct-reset-store`·`acct-reset-all`, 확인 단계 `acct-confirm`·`acct-confirm-title`·`acct-confirm-lead`·`acct-confirm-gone`·`acct-confirm-kept`·`acct-cancel`·`acct-go`, 오류 `acct-error`(`role="alert"`). 위의 151개 셈에는 들어 있지 않습니다.
 
 `index.html`에는 id가 151개 있습니다. 139개를 뺀 나머지 12개는 JS가 찾지 않고 접근성 연결(`aria-labelledby`·`aria-controls`)이나 자리 표시로만 씁니다 (표의 마지막 묶음). 세는 법: `app.js`에서 정규식 ``\$\(\s*["']([\w-]+)["']\s*\)``로 찾은 id + 위의 이어 붙인 id + `RP_STATE` 표의 값, `index.html`에서 `id="([\w-]+)"`.
 
@@ -2220,6 +2244,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 **11/18 5차 회의 뒤 더한 것** (먼저 읽어 두세요)
 
 - `test_post_m5_ui_static.py`: 상권 분석 화면(메뉴 자리·조건 바·서울시 최신화·지표 4칸·탭 4개, `marketApi`로 `/api/market/*`만, 전역 `api()`·`showAlert`·다른 화면의 호출 함수와 `is_store_default` 없음, 서버 글 `esc()`·새 탭 링크 `rel="noopener"`, 탭 키보드, 409 다시 불러오기, 표는 칸 안에서 가로 스크롤, 새 색 토큰 없음), 계정(상단 바의 `acct-*`, `<dialog>`의 '시연 다점포 사장님으로 1초 시작', `/api/auth/*` 경로, `storeChanged`가 모든 화면을 다시 불러옴, `document.cookie`·`localStorage`를 쓰지 않음), AI 직원 네 명(버튼, `dot-*`·`staff-*`, 상태가 읽는 것), 화면 이동(`MKT_SUB` = 서버의 `MKT_SUBS`, `navTo`), 서랍 입력칸 안내 "상권·리뷰·마케팅 무엇이든 물어보세요". `node`가 있으면 `chatNavTarget`·`marketScope`·`wonShort`를 실제로 돌림.
+- `test_account_ui_static.py` (11/19 내 계정): 이름 버튼이 들어가는 곳(상단 바 버튼 수는 그대로), 대화상자와 동작, 확인 단계(기본 포커스 [취소]·Esc 는 취소·요청 중 잠금), 요청 순서(`DELETE /api/assistant/conversation` → `POST /api/auth/reset`), 끝난 뒤 `storeChanged()`로 다시 읽기, 위험 버튼은 `var(--bad)`만, 금지 문자열. 이 묶음은 `// ── 내 계정:` 덩어리에 있고 `AUTH` 덩어리(`/api/auth/*` 경로를 세는 시험) 바로 앞입니다.
 - `test_assistant_drawer_static.py`: 첫 추천 질문이 6개(상권 3 · 불만 리뷰 · 쿠폰 손익 · 남은 재료), `navigate` 버튼은 서버로 보내지 않음. `test_assistant_ux.py`: 추천 질문 6개 중 상권 3개는 상권 서비스로, 3개는 전 파트 답으로.
 - `test_web.py` `test_later_menu_slots`: `LATER`가 빈 목록이고, 상권이 `ROUTES`의 진짜 화면.
 - 서버 쪽: `test_auth_stores.py`(로그인·쿠키·잠금·가게별 기록·아래 서비스로 가는 가게/방문자, PostgreSQL 두 서버), `test_market_proxy.py`(1.14), `test_assistant_domains.py`(1.15).
@@ -2346,6 +2371,8 @@ const on = new Set(m.default || []);
 | '마케팅 보고서' 탭·기간 | `GET report?period=weekly\|monthly` (열 때마다 새로) | 보고서 카드. `demo: true`면 '데모 기록'과 "실제 우리 가게 기록이 아니에요" |
 | '처음부터' (맞춤 마케팅) | `POST step` `{state: null}` | 대화만 처음으로 (기록은 그대로) |
 | 완료의 '처음부터 다시' | `DELETE /api/approvals` (서버가 마케팅 기록도 지움) | 맞춤 마케팅의 대화·카드·보고서도 비우고 다음에 열 때 처음부터 (`mktReset`) |
+| 상단 바의 이름(로그인 뒤, 11/19) | 없음 | '내 계정' 대화상자: 이름·아이디(시연 계정이면 '시연 계정')·가진 가게와 동작 |
+| 내 계정 '(지금 가게) 기록 지우기'·'모든 가게 기록 지우기' → 확인 단계 [지우기] | `DELETE /api/assistant/conversation`(실패·꺼짐은 무시) → `POST /api/auth/reset` `{scope: "store"\|"account"}` | 200 이고 `complete: false` 가 아니면: 대화상자를 닫고 `storeChanged()`로 모든 화면을 서버 기준으로 다시, `#acct-notice`에 가게별 지운 건수(`stores[].name·approvals·reviews·marketing`, `null`은 '못 지움'). `complete: false`면 대화상자를 열어 둔 채 `message`를 `#acct-error`에, 버튼은 '다시 지우기'(화면은 다시 읽음). 오류는 `error.message`를 `#acct-error`에 (401 `login_needed`면 닫을 때 게스트로 다시 읽음) |
 
 - 다시 불러온 카드의 id·근거가 이전과 다르면(`refresh()`), 화면에 있던 만든 글·승인 표시·고친 내용을 모두 버립니다.
 - 모든 진행 상태(만든 글, 승인 표시, 고친 글)는 **브라우저 메모리**(`state` 객체)에만 있습니다. 새로고침하면 사라집니다 (3.1).

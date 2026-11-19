@@ -2813,6 +2813,168 @@ function toggleAssistant(open, opener) {
   if (!back.hidden) back.focus();
 }
 
+// ── 내 계정: 기록 지우기 (11/19) ─────────────────────────────────────────
+// 로그인한 사장님만 (게스트는 이름 버튼이 숨어 있다). 상단 바의 이름(#acct-user)을 누르면 '내 계정' 대화상자.
+// 동작을 누르면 같은 대화상자 안에서 확인 단계로 바뀌고(기본 포커스는 [취소], Esc 도 취소), [지우기]를 눌러야 서버에 보낸다.
+// 순서: 상권 대화 지우기(DELETE /api/assistant/conversation, 실패·꺼짐은 무시) → POST /api/auth/reset.
+// 상권 대화 쿠키는 경로가 /api/assistant 라 auth 경로의 서버가 지우지 못해 화면이 먼저 부른다.
+// 끝나면 지금 화면(승인 대기·완료 목록·붙여넣은 리뷰·직원 줄·맞춤 마케팅·서랍)을 서버 기준으로 다시 읽는다 (storeChanged).
+const acctX = { act: null, busy: false, from: null, stale: false, retry: false };
+const ACCT_KEPT = ["가게 기본 리뷰와 상권 자료 같은 공용 자료", "계정과 로그인(아이디·비밀번호)"];
+const ACCT_ACTS = {
+  store: {
+    title: (n) => `${n} 기록을 지울까요?`,
+    lead: (n) => `지금 보고 있는 ${n} 한 곳의 기록만 지워요. 다른 가게 기록은 그대로예요.`,
+    gone: ["승인 기록(완료 목록)", "붙여넣은 리뷰와 그 분류·답글 상태", "맞춤 마케팅 기록", "AI에게 묻기 대화"],
+    kept: ["다른 가게의 기록", ...ACCT_KEPT],
+    go: "지우기", busy: "지우는 중…",
+  },
+  account: {
+    title: () => "모든 가게 기록을 지울까요?",
+    lead: (n, all) => `가진 가게 ${all}곳의 기록을 모두 지워요. 계정은 남아서 다시 로그인할 수 있어요.`,
+    gone: ["모든 가게의 승인 기록(완료 목록)", "모든 가게의 붙여넣은 리뷰와 그 분류·답글 상태", "모든 가게의 맞춤 마케팅 기록", "AI에게 묻기 대화"],
+    kept: ACCT_KEPT,
+    go: "모두 지우기", busy: "지우는 중…",
+  },
+};
+const ACCT_MKT = { cleared: "지움", off: "꺼져 있어 지울 것 없음", failed: "못 지움" };
+// 지금 가게 이름 (없으면 '이 가게')
+function acctStoreName(me = acct.me) {
+  const s = ((me && me.stores) || []).find((x) => x.store_id === (me && me.store_id));
+  return (s && s.name) || "이 가게";
+}
+function acctErr2(msg) { const el = $("acct-error"); el.hidden = !msg; el.textContent = msg || ""; }
+// 결과 한 줄: 가게별 지운 건수 (못 지운 칸은 '못 지움')
+function acctSummary(r) {
+  const n = (v, unit) => (v === null || v === undefined ? "못 지움" : `${v}${unit}`);
+  return (Array.isArray(r && r.stores) ? r.stores : []).map((s) =>
+    `${s.name || s.store_id}: 승인 기록 ${n(s.approvals, "건")} · 붙여넣은 리뷰 ${n(s.reviews, "건")} · 맞춤 마케팅 ${ACCT_MKT[s.marketing] || "확인 못 함"}`).join(" / ");
+}
+function acctNotice(msg) {
+  $("acct-notice").hidden = !msg;
+  $("acct-notice-text").textContent = msg || "";
+}
+// 대화상자의 두 단계: act 가 없으면 계정 정보와 동작, 있으면 그 동작의 확인 화면
+function acctStep(act) {
+  acctX.act = act || null;
+  acctErr2("");
+  $("acct-main").hidden = !!act;
+  $("acct-confirm").hidden = !act;
+  if (!act) return;
+  const a = ACCT_ACTS[act], name = acctStoreName(), all = ((acct.me && acct.me.stores) || []).length;
+  $("acct-confirm-title").textContent = a.title(name);
+  $("acct-confirm-lead").textContent = a.lead(name, all);
+  $("acct-confirm-gone").innerHTML = a.gone.map((t) => `<li>${esc(t)}</li>`).join("");
+  $("acct-confirm-kept").innerHTML = a.kept.map((t) => `<li>${esc(t)}</li>`).join("");
+  $("acct-go").textContent = a.go;
+  $("acct-cancel").focus();   // Enter 한 번으로 지워지지 않게 기본은 [취소]
+}
+function acctInfo() {
+  const me = acct.me || {}, u = me.user || {};
+  $("acct-info-name").textContent = String(u.display_name || "");
+  $("acct-info-id").textContent = u.demo ? "시연 계정" : String(u.login_id || "");
+  $("acct-info-stores").textContent = (me.stores || []).map((s) => s.name).join(" · ") || "없음";
+  $("acct-reset-store").textContent = `${acctStoreName()} 기록 지우기`;
+}
+function acctOpen() {
+  if (!acct.me || !acct.me.authenticated) return;
+  acctNotice("");
+  acctInfo();
+  acctStep(null);
+  const d = $("acct-dialog");
+  if (typeof d.showModal === "function") { if (!d.open) d.showModal(); } else d.setAttribute("open", "");
+  $("acct-close").focus();
+}
+function acctClose() {
+  if (acctX.busy) return;
+  const d = $("acct-dialog");
+  if (typeof d.close === "function" && d.open) d.close(); else { d.removeAttribute("open"); acctClosed(); }
+}
+// 닫힌 뒤 (닫기·Esc·바깥 누르기 모두): 확인 단계를 치우고 이름 버튼으로 포커스. 로그인이 풀린 것을 봤으면 게스트로 다시 읽는다
+async function acctClosed() {
+  acctStep(null);
+  if (acctX.stale) {
+    acctX.stale = false;
+    try { acct.me = await api("/api/auth/me"); } catch { acct.me = null; }
+    await storeChanged();
+  }
+  const back = $("acct-user").hidden ? $("acct-login") : $("acct-user");
+  back.focus();
+}
+// 확인 단계에서 [취소]·Esc: 대화상자는 그대로, 처음 단계로
+function acctCancel() {
+  if (acctX.busy) return;
+  const from = acctX.from;
+  acctStep(null);
+  (from && !from.hidden ? from : $("acct-close")).focus();
+}
+function acctLock(on) {
+  acctX.busy = on;
+  document.querySelectorAll("#acct-dialog button, #acct-dialog input").forEach((b) => { b.disabled = on; });
+  $("acct-dialog").setAttribute("aria-busy", String(on));
+}
+// 상권 대화 지우기: 실패해도·꺼져 있어도 계속 (8초에서 끊음)
+async function acctClearChat() {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
+  try { await fetch("/api/assistant/conversation", { method: "DELETE", credentials: "same-origin", cache: "no-store", signal: ctl.signal }); }
+  catch { /* 상권 비서가 꺼져 있거나 늦으면 그냥 넘어간다 */ }
+  finally { clearTimeout(timer); }
+}
+// /api/auth/reset · withdraw 호출. 실패하면 서버의 쉬운 문장(error.message)과 status·state 를 담은 Error
+const ACCT_FAIL = {
+  401: "로그인이 풀렸어요. 대화상자를 닫고 다시 로그인해 주세요.",
+  404: "이 서버에는 아직 이 기능이 없어요.",
+  422: "요청을 다시 확인해 주세요.",
+  429: "너무 여러 번 시도했어요. 잠시 뒤 다시 해 주세요.",
+};
+async function acctPost(path, body) {
+  let res;
+  try {
+    res = await fetch(path, { method: "POST", credentials: "same-origin", cache: "no-store",
+      headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body || {}) });
+  } catch { throw Object.assign(new Error("서버에 연결하지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요."), { status: 0, state: "down" }); }
+  const data = await res.json().catch(() => null);
+  if (res.ok && data) return data;
+  const err = (data && data.error) || {};
+  const msg = err.message || ACCT_FAIL[res.status] || (res.ok ? "응답을 읽지 못했어요. 잠시 뒤 다시 확인해 주세요." : `요청이 실패했어요 (${res.status}). 잠시 뒤 다시 눌러 주세요.`);
+  throw Object.assign(new Error(msg), { status: res.status, state: err.state || "" });
+}
+// [지우기] (확인 단계의 submit)
+async function acctSubmit(e) {
+  e.preventDefault();
+  const act = acctX.act;
+  if (acctX.busy || !act) return;
+  const a = ACCT_ACTS[act];
+  acctErr2("");
+  acctLock(true);
+  $("acct-go").textContent = a.busy;
+  let keepOpen = true;
+  try {
+    await acctClearChat();                                                   // ① 상권 대화
+    const r = await acctPost("/api/auth/reset", { scope: act });           // ② 기록
+    const summary = acctSummary(r);
+    if (r.complete === false) {
+      // 일부만 지웠다: 대화상자에 남은 것을 알리고 [다시 지우기]. 지운 것은 화면에도 반영한다
+      acctErr2(`${r.message || "일부 기록을 지우지 못했어요."}${summary ? ` (${summary})` : ""} 다시 눌러 지울 수 있어요.`);
+      acctX.retry = true;
+    } else keepOpen = false;
+    acctLock(false);
+    if (!keepOpen) { acctClose(); }
+    await storeChanged();                                                     // ③ 서버 기준으로 모든 화면 다시
+    if (!keepOpen) { acctNotice(`기록을 지웠어요. ${summary}`.trim()); $("acct-user").focus(); }   // storeChanged 의 route() 가 제목으로 옮긴 포커스를 이름 버튼으로
+  } catch (err) {
+    acctErr2(err.message);
+    if (err.status === 401 && err.state === "login_needed") acctX.stale = true;
+  } finally {
+    if (acctX.busy) acctLock(false);
+    if (keepOpen && acctX.act) {
+      $("acct-go").textContent = acctX.retry ? "다시 지우기" : a.go;
+      acctX.retry = false;
+      $("acct-cancel").focus();
+    }
+  }
+}
+
 // ── 로그인·가게 바꾸기 (5차 회의 11/18) ──────────────────────────────────
 // /api/auth/* 만 부른다. 로그인하지 않으면 '게스트 체험'(기본 가게 온기한식). 로그인하면 가진 가게를 고르고, 바꾸면 모든 화면
 // (브리핑·추천 카드·리뷰 분석·맞춤 마케팅·상권 분석·종합 리포트·서랍)이 새 가게 기준으로 다시 불러온다 (storeChanged).
@@ -2920,6 +3082,7 @@ async function storeChanged() {
   mkvReset();
   chatReset();
   showAlert("");
+  acctNotice("");   // 내 계정에서 지운 결과 띠 (11/19). 지운 뒤에는 storeChanged 가 끝난 다음 다시 띄운다
   try {
     state.health = await api("/api/health"); renderHealth(state.health);
     await refresh();
@@ -3479,6 +3642,25 @@ document.querySelectorAll("[data-auth-tab]").forEach((t) => {
   });
 });
 $("auth-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) authClose(); });   // 바깥(어두운 곳)을 누르면 닫기
+// 내 계정 (11/19): 이름을 누르면 열고, 확인 단계의 Esc 는 취소(처음 단계로), 처음 단계의 Esc·바깥 누르기는 닫기. 요청 중에는 닫지 않는다
+$("acct-user").addEventListener("click", acctOpen);
+$("acct-close").addEventListener("click", acctClose);
+$("acct-cancel").addEventListener("click", acctCancel);
+$("acct-confirm").addEventListener("submit", acctSubmit);
+document.querySelectorAll("[data-acct-act]").forEach((b) => b.addEventListener("click", () => { acctX.from = b; acctStep(b.dataset.acctAct); }));
+// Esc 는 keydown 에서 먼저 받는다: Chrome 은 Esc 를 연달아 누르면 cancel 을 막을 수 없게(cancelable=false) 보내 대화상자가 닫혀 버린다
+$("acct-dialog").addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || e.isComposing || !(acctX.busy || acctX.act)) return;
+  e.preventDefault(); e.stopPropagation();
+  acctCancel();
+});
+$("acct-dialog").addEventListener("cancel", (e) => {
+  if (acctX.busy) { e.preventDefault(); return; }
+  if (acctX.act) { e.preventDefault(); acctCancel(); }
+});
+$("acct-dialog").addEventListener("close", acctClosed);
+$("acct-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget && !acctX.act) acctClose(); });
+$("acct-notice-close").addEventListener("click", () => acctNotice(""));
 // AI 직원: 누르면 맡은 화면으로 (button 이라 Enter·Space 도 같음)
 $("staff").addEventListener("click", (e) => { const b = e.target.closest("[data-staff-go]"); if (b) staffGo(b.dataset.staffGo); });
 $("staff-strip").addEventListener("click", (e) => { const b = e.target.closest("[data-staff-go]"); if (b) staffGo(b.dataset.staffGo); });   // 홈 직원 줄도 같게

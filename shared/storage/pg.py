@@ -169,6 +169,16 @@ class PgLabels:
                     [(k, Jsonb(v), prompt_version, model) for k, v in items.items()])
         self._db.run(work)
 
+    def delete_many(self, keys: "list[str] | set[str]") -> int:
+        """그 키들의 분류 결과를 지운다 (계정 초기화·탈퇴, 11/19). 지운 개수. 없는 키는 건너뛴다."""
+        keys = sorted(set(keys))
+        if not keys:
+            return 0
+
+        def work(conn):
+            return conn.execute("DELETE FROM review_labels WHERE label_key = ANY(%s)", (keys,)).rowcount
+        return self._db.run(work)
+
 
 # ── 승인 기록 ───────────────────────────────────────────────────────
 class PgApprovals:

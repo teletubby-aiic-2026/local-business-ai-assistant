@@ -665,3 +665,16 @@ class Demo:
             return self._src(visitor).reset_pasted(self.s.store_id)
         except SourceError as exc:
             raise DemoError(str(exc), 503) from None
+
+    def erase_pasted(self, visitor: str) -> int:
+        """계정 초기화·탈퇴용 (11/19): 이 방문자가 이 가게에 붙여넣은 리뷰·상태·답글 기록과 그 리뷰들의 분류 결과를 지운다.
+        지운 리뷰 수. 리뷰 분석 서비스가 분류 결과를 지웠다고 답하지 않으면(옛 판 등) 다 지운 것으로 보지 않고 DemoError(503)."""
+        if not visitor:
+            raise DemoError("방문자 없이 기록을 지울 수 없어요", 400)      # 공용 기록을 지우지 않게
+        try:
+            data = self._src(visitor).reset_pasted(self.s.store_id, forget_labels=True)
+        except SourceError as exc:
+            raise DemoError(str(exc), 503) from None
+        if not isinstance(data, dict) or not isinstance(data.get("deleted"), int) or not isinstance(data.get("labels_deleted"), int):
+            raise DemoError("리뷰 분석 서비스가 분류 결과를 지웠다고 답하지 않았어요", 503)
+        return data["deleted"]

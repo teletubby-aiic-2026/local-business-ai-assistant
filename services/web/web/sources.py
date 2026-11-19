@@ -99,9 +99,14 @@ class ReviewSource:
             raise SourceError(f"리뷰 분석 서비스({self.base_url})에 연결하지 못했습니다: {exc.__class__.__name__}") from None
         return self._json(res)
 
-    def reset_pasted(self, store_id: str) -> dict:
+    def reset_pasted(self, store_id: str, forget_labels: bool = False) -> dict:
+        """forget_labels: 그 리뷰들의 분류 결과도 지움 (계정 초기화·탈퇴만, 11/19). 응답에 labels_deleted 가 더해진다.
+        '데모 다시 하기'(DELETE /api/reviews/pasted)는 예전처럼 이 값 없이 부른다."""
+        params = {"store_id": store_id, **self._visitor()}
+        if forget_labels:
+            params["forget_labels"] = "true"
         try:
-            res = self._client.delete("/api/review-insight/reviews/pasted", params={"store_id": store_id, **self._visitor()})
+            res = self._client.delete("/api/review-insight/reviews/pasted", params=params)
         except httpx.HTTPError as exc:
             raise SourceError(f"리뷰 분석 서비스({self.base_url})에 연결하지 못했습니다: {exc.__class__.__name__}") from None
         return self._json(res)

@@ -15,7 +15,7 @@
 | *      | /api/assistant/*              | 서랍의 상권 채팅. 상권 서비스(ic26-market)를 대신 불러 줌 (assistant_proxy.py) |
 | *      | /api/care/*                   | 캡처 입력·응대 점수·보고서. 리뷰 분석 서비스의 고객응대 API 를 대신 불러 줌 (care_proxy.py) |
 | *      | /api/marketing-survey/*       | 맞춤 마케팅(#/marketing). 마케팅 서비스(김수현 님 설문형)를 대신 불러 줌 (marketing_proxy.py) |
-| *      | /api/auth/*                   | 로그인·회원가입·로그아웃·가게 바꾸기·시연 로그인 (auth.py, 5차 회의 11/18) |
+| *      | /api/auth/*                   | 로그인·회원가입·로그아웃·가게 바꾸기·시연 로그인 (auth.py, 5차 회의 11/18), 계정 초기화 (11/19, account.py) |
 | *      | /api/market/*                 | 상권 분석 화면(#/market). 상권 서비스의 분석·서울시 자료 확인·문화행사를 대신 불러 줌 (market_proxy.py) |
 
 리뷰 답글을 승인하면(④) 리뷰 분석 서비스에 '답글 달았음'을 따로 기록한다 (care_proxy.mark_replied_later, 승인 응답은 기다리지 않음).
@@ -46,6 +46,7 @@ from pydantic import BaseModel, Field
 
 from shared.storage import new_visitor_id, open_store, visitor_from_cookie
 
+from .account import AccountData
 from .assistant_proxy import AssistantProxy, create_assistant_router, validation_error_response
 from .auth import SESSION_COOKIE, AuthService, create_auth_router
 from .care_proxy import CareProxy, create_care_routers
@@ -217,7 +218,8 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     def reset_pasted(request: Request):
         return store_demo(request).reset_pasted(request.state.visitor_id)
 
-    app.include_router(create_auth_router(auth, who_of=lambda request: request.state.who))
+    app.state.account = AccountData(hub)              # 계정 초기화·탈퇴가 사장님 기록을 지우는 곳 (account.py, 11/19)
+    app.include_router(create_auth_router(auth, who_of=lambda request: request.state.who, erase=app.state.account.clear))
     app.include_router(create_assistant_router(assistant, proxy_of=lambda request: hub.assistant(sid(request))))
     app.include_router(create_market_router(market, store_of=sid))
 

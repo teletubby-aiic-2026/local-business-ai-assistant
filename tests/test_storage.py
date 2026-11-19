@@ -265,6 +265,17 @@ def test_users_ensure_refuses_a_login_taken_by_another_user(backend):
     assert backend.users.stores(other) == ["store_ongi"]
 
 
+def test_pg_labels_delete_many_removes_only_those_keys(db):
+    """계정 초기화·탈퇴가 지우는 리뷰들의 분류 결과만 지운다 (11/19). 없는 키·빈 입력은 0."""
+    keep, gone1, gone2 = (uid("k") for _ in range(3))
+    result = {"sentiment": "negative", "topics": [], "summary": "요약"}
+    db.labels.put_many({keep: result, gone1: result, gone2: result}, prompt_version="c3-v7", model="HCX-005")
+    assert db.labels.delete_many([]) == 0
+    assert db.labels.delete_many({gone1, gone2, uid("none")}) == 2
+    assert db.labels.get_many([keep, gone1, gone2]) == {keep: result}
+    assert db.labels.delete_many([gone1]) == 0                                       # 여러 번 불러도 안전
+
+
 def test_auth_sessions_create_get_switch_delete_and_expire(backend):
     from datetime import datetime, timedelta, timezone
     uid_ = uuid.uuid4().hex[:16]

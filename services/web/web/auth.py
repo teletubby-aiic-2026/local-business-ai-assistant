@@ -8,6 +8,7 @@
 | POST   | /api/auth/logout       | 세션을 지우고 쿠키를 지움 → 게스트 |
 | POST   | /api/auth/store        | 지금 보는 가게 바꾸기 (가진 가게만) |
 | POST   | /api/auth/demo-login   | 시연용: 가게 세 곳을 가진 사장님으로 바로 로그인 (DEMO_ACCOUNT_ENABLED, 기본 켜짐) |
+| POST   | /api/auth/reset        | 계정 초기화: 지금 가게(scope=store) 또는 가진 가게 모두(scope=account)의 이 사장님 기록을 지움 (11/19, account.py) |
 
 지키는 것
 - 로그인하지 않으면 예전과 똑같다: 가게는 DEMO_STORE_ID(store_ongi), 기록은 쿠키 visitor_id 로 나뉜다.
@@ -29,6 +30,7 @@ import base64
 import hashlib
 import hmac
 import ipaddress
+import json
 import logging
 import os
 import re
@@ -40,6 +42,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from fastapi import APIRouter, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -72,7 +75,10 @@ MESSAGES = {
     "reserved": "'demo-'로 시작하는 아이디는 시연 계정용이라 쓸 수 없어요. 다른 아이디를 골라 주세요.",
     "demo_taken": "시연 계정을 준비하지 못했어요. 아이디와 비밀번호로 로그인해 주세요.",
     "down": "지금 로그인 정보를 불러오지 못했어요. 잠시 뒤 다시 해 주세요.",
+    "invalid": "요청 모양이 맞지 않아요.",
 }
+LOGIN_NEEDED_FOR_RECORDS = "로그인한 사장님만 기록을 지울 수 있어요."
+RESET_SCOPES = ("store", "account")
 
 
 class AuthError(Exception):
@@ -376,7 +382,22 @@ def _reset_market(out: JSONResponse, secure: bool) -> None:
         out.delete_cookie(MARKET_COOKIE, path=path, secure=secure, httponly=True, samesite="lax")
 
 
-def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who]) -> APIRouter:
+async def _json_body(request: Request) -> dict | None:
+    """본문 JSON 객체. 비었거나 JSON 객체가 아니면 None (pydantic 기본 422 대신 auth 오류 모양으로 답하려고 직접 읽는다)."""
+    raw = await request.body()
+    if len(raw) > 4096:
+        return None
+    try:
+        data = json.loads(raw or b"null")
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who],
+                       erase: Callable[[list[str], str], dict] | None = None) -> APIRouter:
+    """erase(가게 목록, 방문자) → {complete, message, stores}: 사장님 기록 지우기 (account.AccountData.clear, 11/19).
+    안 주면 초기화·탈퇴는 503."""
     router = APIRouter(prefix="/api/auth", tags=["auth"])
 
     def signed_in(request: Request, token: str) -> JSONResponse:
@@ -439,6 +460,26 @@ def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who]) -> A
         token = request.cookies.get(SESSION_COOKIE) or ""
         out = _json(auth.view(auth.resolve(token, who.visitor_id)))
         _reset_market(out, secure)
+        return out
+
+    @router.post("/reset")
+    async def reset(request: Request):
+        """계정 초기화 (11/19). 본문 {"scope": "store" | "account"}. store = 지금 보는 가게 하나, account = 가진 가게 모두.
+        계정·가게 목록·세션은 남긴다. 못 지운 것이 있어도 200 (complete=false, message). 상권 세션 쿠키 두 개를 만료시킨다
+        (상권 대화 자체는 화면이 먼저 DELETE /api/assistant/conversation 으로 지운다)."""
+        who = who_of(request)
+        if not who.authenticated:
+            return failed(AuthError("login_needed", 401, LOGIN_NEEDED_FOR_RECORDS))
+        body = await _json_body(request)
+        scope = body.get("scope") if body else None
+        if scope not in RESET_SCOPES:
+            return failed(AuthError("invalid", 422, "scope 는 store(지금 가게) 또는 account(가진 가게 모두)로 보내 주세요."))
+        if erase is None:
+            return failed(AuthError("down", 503))
+        stores = [who.store_id] if scope == "store" else list(who.stores)
+        result = await run_in_threadpool(erase, stores, who.visitor_id)
+        out = _json({"scope": scope, "complete": result["complete"], "message": result["message"], "stores": result["stores"]})
+        _reset_market(out, secure_request(request))
         return out
 
     return router
