@@ -197,6 +197,13 @@ class MemoryUsers:
         with self._lock:
             return list(self._stores.get(user_id, []))
 
+    def delete(self, user_id: str) -> bool:
+        """계정과 가진 가게 목록을 지운다 (회원 탈퇴, 11/19). 있었으면 True. 그 뒤 같은 아이디로 새로 가입할 수 있다.
+        PostgreSQL 은 세션(auth_sessions)도 CASCADE 로 같이 지워지지만, 메모리는 세션이 따로라 auth_sessions.delete_user 를 같이 부른다."""
+        with self._lock:
+            self._stores.pop(user_id, None)
+            return self._users.pop(user_id, None) is not None
+
 
 class MemoryAuthSessions:
     def __init__(self) -> None:
@@ -220,6 +227,14 @@ class MemoryAuthSessions:
                 del self._rows[token_hash]
                 return None
             return {k: v for k, v in row.items() if not k.startswith("_")}
+
+    def delete_user(self, user_id: str) -> int:
+        """그 사장님의 세션을 모두 지운다 (회원 탈퇴: 다른 기기의 로그인도 끊김, 11/19). 지운 개수 (지난 세션 포함)."""
+        with self._lock:
+            gone = [k for k, v in self._rows.items() if v["user_id"] == user_id]
+            for k in gone:
+                del self._rows[k]
+            return len(gone)
 
     def set_store(self, token_hash: str, store_id: str) -> bool:
         with self._lock:

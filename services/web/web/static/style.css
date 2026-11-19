@@ -993,6 +993,9 @@ body:has(> .shell > .drawer:not([hidden])) { padding-right: 400px; }
 .acct-list-title { margin: 12px 0 4px; font-size: .875rem; font-weight: 600; }
 .acct-list { margin: 0; padding-left: 20px; font-size: .875rem; color: var(--ink-2); }
 .acct-list li + li { margin-top: 2px; }
+.acct-withdraw { color: var(--bad); border-color: currentColor; }
+.acct-pw { display: grid; gap: 4px; margin-top: 14px; font-size: .875rem; font-weight: 500; }
+.acct-pw input { min-height: 40px; padding: 6px 12px; border: 1px solid var(--field-line); border-radius: 10px; background: var(--panel); color: var(--ink); }
 .acct-irrev { margin: 14px 0 0; color: var(--bad); font-size: .875rem; font-weight: 600; }
 .acct-confirm-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .acct-cancel { border-color: var(--line-strong); }

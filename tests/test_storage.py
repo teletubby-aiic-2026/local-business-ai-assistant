@@ -276,6 +276,40 @@ def test_pg_labels_delete_many_removes_only_those_keys(db):
     assert db.labels.delete_many([gone1]) == 0                                       # 여러 번 불러도 안전
 
 
+def test_users_delete_and_auth_sessions_delete_user(backend):
+    """회원 탈퇴 (11/19): 세션을 사장님 단위로 지우고 계정을 지운다. 같은 아이디로 다시 가입할 수 있다. 다른 사장님은 그대로."""
+    from datetime import datetime, timedelta, timezone
+    soon = datetime.now(timezone.utc) + timedelta(days=7)
+    me, them = uuid.uuid4().hex[:16], uuid.uuid4().hex[:16]
+    login = "w" + me[:10]
+    backend.users.create(me, login, "scrypt$x", "사장", ["store_ongi", "store_basak"])
+    backend.users.create(them, "w" + them[:10], "scrypt$x", "옆집", ["store_ongi"])
+    mine, theirs = ["h" + uuid.uuid4().hex for _ in range(2)], "h" + uuid.uuid4().hex
+    for h in mine:
+        backend.auth_sessions.create(h, me, "store_ongi", soon)
+    backend.auth_sessions.create(theirs, them, "store_ongi", soon)
+    assert backend.auth_sessions.delete_user(me) == 2
+    assert [backend.auth_sessions.get(h) for h in mine] == [None, None]
+    assert backend.auth_sessions.get(theirs)["user_id"] == them
+    assert backend.users.delete(me) is True
+    assert backend.users.get(me) is None and backend.users.by_login(login) is None and backend.users.stores(me) == []
+    assert backend.users.delete(me) is False and backend.auth_sessions.delete_user(me) == 0     # 여러 번 불러도 안전
+    assert backend.users.get(them) is not None and backend.users.stores(them) == ["store_ongi"]
+    again = uuid.uuid4().hex[:16]
+    assert backend.users.create(again, login, "scrypt$y", "새 사장", ["store_mongle"])["login_id"] == login
+    assert backend.users.by_login(login)["user_id"] == again
+
+
+def test_pg_users_delete_cascades_to_stores_and_sessions(db):
+    from datetime import datetime, timedelta, timezone
+    me = uuid.uuid4().hex[:16]
+    db.users.create(me, "c" + me[:10], "scrypt$x", "사장", ["store_ongi", "store_basak"])
+    h = "h" + uuid.uuid4().hex
+    db.auth_sessions.create(h, me, "store_ongi", datetime.now(timezone.utc) + timedelta(days=7))
+    assert db.users.delete(me) is True
+    assert db.auth_sessions.get(h) is None and db.users.stores(me) == []
+
+
 def test_auth_sessions_create_get_switch_delete_and_expire(backend):
     from datetime import datetime, timedelta, timezone
     uid_ = uuid.uuid4().hex[:16]

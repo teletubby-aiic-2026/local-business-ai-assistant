@@ -31,7 +31,7 @@
         <div id="acct" class="acct">
           <span id="acct-guest" class="badge acct-guest">게스트 체험</span>
           <button id="acct-login" class="ghost acct-btn" type="button" aria-haspopup="dialog" aria-controls="auth-dialog">로그인</button>
-          <!-- 이름을 누르면 '내 계정' 대화상자 (11/19): 기록 지우기. 상단 바에 버튼을 더하지 않으려고 이름 자체를 버튼으로 -->
+          <!-- 이름을 누르면 '내 계정' 대화상자 (11/19): 기록 지우기·회원 탈퇴. 상단 바에 버튼을 더하지 않으려고 이름 자체를 버튼으로 -->
           <button id="acct-user" class="acct-user" type="button" aria-haspopup="dialog" aria-controls="acct-dialog" title="내 계정" hidden></button>
           <label class="acct-store" id="acct-store-wrap" hidden><span class="sr">지금 보는 가게</span><select id="acct-store"></select></label>
           <button id="acct-logout" class="ghost acct-btn" type="button" hidden>로그아웃</button>
@@ -499,7 +499,7 @@
     </form>
     <p id="auth-error" class="auth-error" role="alert" hidden></p>
   </dialog>
-  <!-- 내 계정 (11/19): 이름·아이디·가진 가게와 기록 지우기. 동작을 누르면 같은 대화상자 안에서 확인 단계로 바뀐다
+  <!-- 내 계정 (11/19): 이름·아이디·가진 가게와 기록 지우기·회원 탈퇴. 동작을 누르면 같은 대화상자 안에서 확인 단계로 바뀐다
        (무엇이 지워지고 무엇이 남는지·되돌릴 수 없음). 확인 단계의 기본 포커스는 [취소], Esc 도 취소 -->
   <dialog id="acct-dialog" class="auth-dialog acct-dialog" aria-labelledby="acct-title">
     <div id="acct-main">
@@ -515,6 +515,11 @@
         <button id="acct-reset-store" type="button" data-acct-act="store">이 가게 기록 지우기</button>
         <button id="acct-reset-all" type="button" data-acct-act="account">모든 가게 기록 지우기</button>
       </div>
+      <h3 class="acct-sub">회원 탈퇴</h3>
+      <p class="small muted">계정과 모든 가게 기록을 지우고, 이 아이디로 다시 로그인할 수 없어요.</p>
+      <div class="acct-actions">
+        <button id="acct-withdraw" class="acct-withdraw" type="button" data-acct-act="withdraw">회원 탈퇴</button>
+      </div>
     </div>
     <form id="acct-confirm" class="acct-confirm" novalidate hidden>
       <h2 id="acct-confirm-title" class="acct-confirm-title" tabindex="-1"></h2>
@@ -523,7 +528,9 @@
       <ul id="acct-confirm-gone" class="acct-list"></ul>
       <p class="acct-list-title">그대로 남는 것</p>
       <ul id="acct-confirm-kept" class="acct-list"></ul>
-      <p class="acct-irrev">지우면 되돌릴 수 없어요.</p>
+      <!-- 탈퇴(일반 계정)만: 비밀번호 한 번 더. 보낸 뒤 비운다. 시연 계정은 칸 없음 -->
+      <label id="acct-pw-wrap" class="acct-pw" hidden>비밀번호 확인<input id="acct-pw" name="password" type="password" autocomplete="current-password" maxlength="128"></label>
+      <p id="acct-irrev" class="acct-irrev">지우면 되돌릴 수 없어요.</p>
       <div class="acct-confirm-btns">
         <button id="acct-cancel" class="ghost acct-cancel" type="button">취소</button>
         <button id="acct-go" class="danger" type="submit">지우기</button>

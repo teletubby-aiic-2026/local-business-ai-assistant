@@ -407,6 +407,12 @@ class PgUsers:
             return [r["store_id"] for r in rows]
         return self._db.run(work)
 
+    def delete(self, user_id: str) -> bool:
+        """계정을 지운다 (회원 탈퇴, 11/19). user_stores·auth_sessions 는 CASCADE 로 같이 지워진다. 있었으면 True."""
+        def work(conn):
+            return conn.execute("DELETE FROM users WHERE user_id = %s", (user_id,)).rowcount > 0
+        return self._db.run(work)
+
 
 class PgAuthSessions:
     def __init__(self, db: Database):
@@ -426,6 +432,12 @@ class PgAuthSessions:
             row = conn.execute("SELECT token_hash, user_id, active_store_id, created_at, expires_at FROM auth_sessions "
                                "WHERE token_hash = %s AND expires_at > now()", (token_hash,)).fetchone()
             return _kst(row, "created_at", "expires_at") if row else None
+        return self._db.run(work)
+
+    def delete_user(self, user_id: str) -> int:
+        """그 사장님의 세션을 모두 지운다 (회원 탈퇴: 다른 기기의 로그인도 끊김, 11/19). 지운 개수 (지난 세션 포함)."""
+        def work(conn):
+            return conn.execute("DELETE FROM auth_sessions WHERE user_id = %s", (user_id,)).rowcount
         return self._db.run(work)
 
     def set_store(self, token_hash: str, store_id: str) -> bool:

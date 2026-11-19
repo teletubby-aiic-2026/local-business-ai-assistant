@@ -1,6 +1,6 @@
-"""내 계정 화면(11/19): 기록 지우기. 화면 파일을 글자로 읽는다.
+"""내 계정 화면(11/19): 기록 지우기·회원 탈퇴. 화면 파일을 글자로 읽는다.
 
-서버 약속(POST /api/auth/reset)은 백엔드가 따로 만든다. 여기서는 화면이 약속대로 부르는지·확인 단계가 안전한지만 본다.
+서버 약속(POST /api/auth/reset · /api/auth/withdraw)은 백엔드가 따로 만든다. 여기서는 화면이 약속대로 부르는지·확인 단계가 안전한지만 본다.
 node 가 있으면 작은 순수 함수(acctSummary)를 실제로 돌려 본다 (없으면 그 한 건만 건너뜀).
 """
 from __future__ import annotations
@@ -144,6 +144,43 @@ class Requests(unittest.TestCase):
         self.assertNotIn("localStorage", AUTH)
         self.assertNotIn("document.cookie", JS)
         self.assertNotRegex(code(ACCOUNT), r"innerHTML = [^`'\"]*\$\{(?!esc\()")
+
+
+class Withdraw(unittest.TestCase):
+    def test_withdraw_action_and_password_field(self):
+        self.assertIn('<button id="acct-withdraw" class="acct-withdraw" type="button" data-acct-act="withdraw">회원 탈퇴</button>', DIALOG)
+        pw = tag("acct-pw")
+        for want in ('type="password"', 'autocomplete="current-password"', 'maxlength="128"'):
+            self.assertIn(want, pw)
+        self.assertRegex(DIALOG, r'<label id="acct-pw-wrap"[^>]*hidden>')
+        step = func("acctStep")
+        self.assertIn('$("acct-pw-wrap").hidden = !(act === "withdraw" && !acctIsDemo());', step)   # 시연 계정은 칸 없음
+        self.assertIn("acct.me.user.demo", JS[JS.index("const acctIsDemo"):][:120])
+        acts = ACCOUNT[ACCOUNT.index("  withdraw: {"):ACCOUNT.index("const acctIsDemo")]
+        self.assertIn("계정과 로그인(아이디·비밀번호)", acts)
+        self.assertIn("공용 자료", acts)
+        self.assertIn('irrev: "탈퇴하면 되돌릴 수 없어요."', acts)
+
+    def test_withdraw_request_order_and_body(self):
+        sub = code(func("acctSubmit"))
+        self.assertLess(sub.index("await acctClearChat();"), sub.index('"/api/auth/withdraw"'))
+        self.assertIn('acctPost("/api/auth/withdraw", demo ? {} : { password: pw })', sub)
+        self.assertLess(sub.index('if (act === "withdraw" && !demo && !pw)'), sub.index("acctLock(true);"))   # 빈 칸이면 보내지 않음
+
+    def test_password_is_emptied_after_sending(self):
+        sub = code(func("acctSubmit"))
+        fin = sub[sub.index("finally {"):]
+        self.assertIn('$("acct-pw").value = "";', fin)                        # 성공·실패 모두
+        self.assertIn('$("acct-pw").value = "";', func("acctStep"))
+        self.assertIn('err.state === "bad_password"', sub)
+
+    def test_after_withdraw_back_to_guest(self):
+        sub = code(func("acctSubmit"))
+        w = sub[sub.index('"/api/auth/withdraw"'):sub.index('"/api/auth/reset"')]
+        self.assertIn("r.authenticated === false ? r : null", w)
+        self.assertIn("await storeChanged();", w)
+        self.assertIn('acctNotice("회원 탈퇴를 마쳤어요.', w)
+        self.assertIn('$("acct-login").focus();', w)
 
 
 class Look(unittest.TestCase):

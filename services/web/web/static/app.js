@@ -2813,10 +2813,11 @@ function toggleAssistant(open, opener) {
   if (!back.hidden) back.focus();
 }
 
-// ── 내 계정: 기록 지우기 (11/19) ─────────────────────────────────────────
+// ── 내 계정: 기록 지우기·회원 탈퇴 (11/19) ───────────────────────────────
 // 로그인한 사장님만 (게스트는 이름 버튼이 숨어 있다). 상단 바의 이름(#acct-user)을 누르면 '내 계정' 대화상자.
 // 동작을 누르면 같은 대화상자 안에서 확인 단계로 바뀌고(기본 포커스는 [취소], Esc 도 취소), [지우기]를 눌러야 서버에 보낸다.
-// 순서: 상권 대화 지우기(DELETE /api/assistant/conversation, 실패·꺼짐은 무시) → POST /api/auth/reset.
+// 순서: 상권 대화 지우기(DELETE /api/assistant/conversation, 실패·꺼짐은 무시) → POST /api/auth/reset 또는 /api/auth/withdraw.
+// 탈퇴는 일반 계정이면 비밀번호를 한 번 더 받고(보낸 뒤 칸을 비움), 시연 계정(user.demo)은 칸 없이 본문 {}. 끝나면 로그아웃 때와 같은 게스트 화면.
 // 상권 대화 쿠키는 경로가 /api/assistant 라 auth 경로의 서버가 지우지 못해 화면이 먼저 부른다.
 // 끝나면 지금 화면(승인 대기·완료 목록·붙여넣은 리뷰·직원 줄·맞춤 마케팅·서랍)을 서버 기준으로 다시 읽는다 (storeChanged).
 const acctX = { act: null, busy: false, from: null, stale: false, retry: false };
@@ -2836,7 +2837,18 @@ const ACCT_ACTS = {
     kept: ACCT_KEPT,
     go: "모두 지우기", busy: "지우는 중…",
   },
+  withdraw: {
+    title: () => "회원 탈퇴할까요?",
+    lead: (n, all, demo) => (demo
+      ? "시연 계정과 그 기록을 지우고 게스트 화면으로 돌아가요. 다시 시연으로 시작하면 빈 기록부터예요."
+      : `계정과 가진 가게 ${all}곳의 기록을 모두 지워요. 같은 아이디로 다시 로그인할 수 없어요. 확인을 위해 비밀번호를 적어 주세요.`),
+    gone: ["모든 가게의 승인 기록(완료 목록)", "모든 가게의 붙여넣은 리뷰와 그 분류·답글 상태", "모든 가게의 맞춤 마케팅 기록", "AI에게 묻기 대화",
+      "계정과 로그인(아이디·비밀번호)"],
+    kept: ["가게 기본 리뷰와 상권 자료 같은 공용 자료"],
+    go: "탈퇴하기", busy: "탈퇴하는 중…", irrev: "탈퇴하면 되돌릴 수 없어요.",
+  },
 };
+const acctIsDemo = () => !!(acct.me && acct.me.user && acct.me.user.demo);
 const ACCT_MKT = { cleared: "지움", off: "꺼져 있어 지울 것 없음", failed: "못 지움" };
 // 지금 가게 이름 (없으면 '이 가게')
 function acctStoreName(me = acct.me) {
@@ -2858,12 +2870,16 @@ function acctNotice(msg) {
 function acctStep(act) {
   acctX.act = act || null;
   acctErr2("");
+  $("acct-pw").value = "";
   $("acct-main").hidden = !!act;
   $("acct-confirm").hidden = !act;
   if (!act) return;
   const a = ACCT_ACTS[act], name = acctStoreName(), all = ((acct.me && acct.me.stores) || []).length;
   $("acct-confirm-title").textContent = a.title(name);
-  $("acct-confirm-lead").textContent = a.lead(name, all);
+  $("acct-confirm-lead").textContent = a.lead(name, all, acctIsDemo());
+  $("acct-irrev").textContent = a.irrev || "지우면 되돌릴 수 없어요.";
+  $("acct-pw").value = "";
+  $("acct-pw-wrap").hidden = !(act === "withdraw" && !acctIsDemo());   // 시연 계정은 비밀번호 칸 없음
   $("acct-confirm-gone").innerHTML = a.gone.map((t) => `<li>${esc(t)}</li>`).join("");
   $("acct-confirm-kept").innerHTML = a.kept.map((t) => `<li>${esc(t)}</li>`).join("");
   $("acct-go").textContent = a.go;
@@ -2939,18 +2955,32 @@ async function acctPost(path, body) {
   const msg = err.message || ACCT_FAIL[res.status] || (res.ok ? "응답을 읽지 못했어요. 잠시 뒤 다시 확인해 주세요." : `요청이 실패했어요 (${res.status}). 잠시 뒤 다시 눌러 주세요.`);
   throw Object.assign(new Error(msg), { status: res.status, state: err.state || "" });
 }
-// [지우기] (확인 단계의 submit)
+// [지우기]·[탈퇴하기] (확인 단계의 submit)
 async function acctSubmit(e) {
   e.preventDefault();
   const act = acctX.act;
   if (acctX.busy || !act) return;
-  const a = ACCT_ACTS[act];
+  const a = ACCT_ACTS[act], demo = acctIsDemo(), pw = $("acct-pw").value;
   acctErr2("");
+  if (act === "withdraw" && !demo && !pw) { acctErr2("비밀번호를 적어 주세요."); $("acct-pw").focus(); return; }
   acctLock(true);
   $("acct-go").textContent = a.busy;
-  let keepOpen = true;
+  let keepOpen = true, focusPw = false;
   try {
     await acctClearChat();                                                   // ① 상권 대화
+    if (act === "withdraw") {
+      const r = await acctPost("/api/auth/withdraw", demo ? {} : { password: pw });   // ② 계정과 기록
+      $("acct-pw").value = "";
+      keepOpen = false;
+      acct.me = r && r.authenticated === false ? r : null;
+      if (!acct.me) { try { acct.me = await api("/api/auth/me"); } catch { acct.me = null; } }
+      acctLock(false);
+      acctClose();
+      await storeChanged();                                                   // ③ 로그아웃 때와 같은 게스트 화면
+      acctNotice("회원 탈퇴를 마쳤어요. 계정과 기록을 지웠고, 지금은 게스트 체험 화면이에요.");
+      $("acct-login").focus();
+      return;
+    }
     const r = await acctPost("/api/auth/reset", { scope: act });           // ② 기록
     const summary = acctSummary(r);
     if (r.complete === false) {
@@ -2965,12 +2995,14 @@ async function acctSubmit(e) {
   } catch (err) {
     acctErr2(err.message);
     if (err.status === 401 && err.state === "login_needed") acctX.stale = true;
+    focusPw = err.state === "bad_password";                                  // 비밀번호가 틀렸으면 칸으로 (칸은 비운 채)
   } finally {
+    $("acct-pw").value = "";                                                  // 보낸 뒤 비밀번호 칸은 늘 비운다
     if (acctX.busy) acctLock(false);
     if (keepOpen && acctX.act) {
       $("acct-go").textContent = acctX.retry ? "다시 지우기" : a.go;
       acctX.retry = false;
-      $("acct-cancel").focus();
+      $(focusPw ? "acct-pw" : "acct-cancel").focus();
     }
   }
 }

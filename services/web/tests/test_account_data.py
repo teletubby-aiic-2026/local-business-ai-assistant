@@ -333,3 +333,162 @@ class WithPostgres(unittest.TestCase):
         self.assertEqual(self.db.approvals.list("store_ongi", me), [])
         self.assertEqual(self.db.approvals.list("store_basak", me), [])
         self.assertEqual(len(self.db.approvals.list("store_ongi", them)), 2)
+
+
+# ── 회원 탈퇴 ───────────────────────────────────────────────────────
+class Withdraw(unittest.TestCase):
+    def setUp(self):
+        self.app, self.demo, self.review, self.mkt = build()
+        self.client = TestClient(self.app)
+        self.assertEqual(signup(self.client, stores=("store_ongi", "store_basak")).status_code, 201)
+        self.me = visitor_of(self.client)
+        other = TestClient(self.app)
+        signup(other, login="owner02", stores=STORES)
+        self.other = visitor_of(other)
+        guest = TestClient(self.app)
+        guest.get("/api/auth/me")
+        self.guest = guest.cookies["visitor_id"]
+        for v in (self.me, self.other, self.guest):
+            seed(self.demo.storage, self.review, v)          # 가지지 않은 몽글카페에도 내 기록이 있다고 둠 (모두 지워야 함)
+
+    def test_guest_gets_401(self):
+        guest = TestClient(self.app)
+        res = guest.post("/api/auth/withdraw", json={"password": "pass-word-1"})
+        self.assertEqual((res.status_code, res.json()["error"]["state"]), (401, "login_needed"))
+        self.assertEqual(res.headers["cache-control"], "no-store")
+        self.assertEqual(self.review.deletes(), [])
+
+    def test_wrong_password_keeps_everything_and_counts_as_a_login_failure(self):
+        for body in ({"password": "wrong-pass"}, {}, None):
+            res = self.client.post("/api/auth/withdraw", json=body)
+            self.assertEqual((res.status_code, res.json()["error"]["state"]), (401, "bad_password"))
+            self.assertNotIn("pass-word-1", res.text)
+        self.assertEqual(self.review.deletes(), [])
+        self.assertEqual(len(self.demo.storage.approvals.list("store_ongi", self.me)), 2)
+        self.assertTrue(self.client.get("/api/auth/me").json()["authenticated"])
+        bad = self.client.post("/api/auth/withdraw", json={"password": 123})
+        self.assertEqual((bad.status_code, bad.json()["error"]["state"]), (422, "invalid"))
+
+    def test_too_many_wrong_passwords_is_429_and_also_blocks_login(self):
+        for _ in range(10):
+            self.assertEqual(self.client.post("/api/auth/withdraw", json={"password": "wrong-pass"}).status_code, 401)
+        res = self.client.post("/api/auth/withdraw", json={"password": "pass-word-1"})
+        self.assertEqual((res.status_code, res.json()["error"]["state"]), (429, "too_many"))
+        login = TestClient(self.app).post("/api/auth/login", json={"login_id": "owner01", "password": "pass-word-1"})
+        self.assertEqual(login.status_code, 429)                                      # 같은 아이디 키
+        self.assertTrue(self.client.get("/api/auth/me").json()["authenticated"])
+
+    def test_records_left_keeps_the_account_and_a_retry_finishes(self):
+        self.review.fail_stores = {"store_mongle"}
+        res = self.client.post("/api/auth/withdraw", json={"password": "pass-word-1"})
+        self.assertEqual((res.status_code, res.json()["error"]["state"]), (503, "records_left"))
+        self.assertTrue(self.client.get("/api/auth/me").json()["authenticated"])          # 계정·세션 그대로
+        self.assertIsNotNone(self.demo.storage.users.by_login("owner01"))
+        self.assertEqual(self.review.pasted[("store_mongle", self.me)], 2)
+        self.assertEqual(self.review.pasted.get(("store_ongi", self.me)), None)            # 지울 수 있던 것은 지워짐
+        self.review.fail_stores = set()
+        res = self.client.post("/api/auth/withdraw", json={"password": "pass-word-1"})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertNotIn(("store_mongle", self.me), self.review.pasted)
+
+    def test_success_erases_every_store_deletes_the_account_and_ends_other_sessions(self):
+        laptop = TestClient(self.app)
+        self.assertEqual(laptop.post("/api/auth/login", json={"login_id": "owner01", "password": "pass-word-1"}).status_code, 200)
+        self.assertTrue(laptop.get("/api/auth/me").json()["authenticated"])
+        res = self.client.post("/api/auth/withdraw", json={"password": "pass-word-1"})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.headers["cache-control"], "no-store")
+        data = res.json()
+        self.assertTrue(data.pop("withdrawn"))
+        self.assertEqual(data, self.client.get("/api/auth/me").json())                   # 게스트 신원 모양 그대로
+        self.assertFalse(data["authenticated"])
+        self.assertTrue(any(v.startswith(f"{SESSION_COOKIE}=") and "Path=/" in v and
+                            ("Max-Age=0" in v or "1970" in v) for v in res.headers.get_list("set-cookie")))
+        self.assertEqual(market_cookies_expired(res), {"/api/assistant", "/api/market"})
+        self.assertFalse(laptop.get("/api/auth/me").json()["authenticated"])            # 다른 기기의 세션도 끊김
+        # 가게 세 곳 모두 (가지지 않은 몽글카페 포함) 내 기록만 지워짐
+        for s in STORES:
+            self.assertEqual(self.demo.storage.approvals.list(s, self.me), [])
+            self.assertNotIn((s, self.me), self.review.pasted)
+            for v in (self.other, self.guest):
+                self.assertEqual(len(self.demo.storage.approvals.list(s, v)), 2)
+                self.assertEqual(self.review.pasted[(s, v)], 2)
+        self.assertEqual({(p["store_id"], p["visitor_id"], p["forget_labels"]) for p in self.review.deletes()},
+                         {(s, self.me, "true") for s in STORES})
+        self.assertEqual({(r["params"]["store"], r["params"]["visitor_id"]) for r in self.mkt.requests},
+                         {(s, self.me) for s in STORES})
+        # 탈퇴한 아이디로는 로그인 안 됨, 같은 아이디로 새로 가입은 됨 (빈 계정)
+        again = TestClient(self.app)
+        login = again.post("/api/auth/login", json={"login_id": "owner01", "password": "pass-word-1"})
+        self.assertEqual((login.status_code, login.json()["error"]["state"]), (401, "bad_login"))
+        self.assertEqual(signup(again, stores=("store_mongle",)).status_code, 201)
+        self.assertNotEqual(visitor_of(again), self.me)
+        self.assertEqual(again.get("/api/approvals").json()["items"], [])
+
+    def test_account_delete_failure_is_503_down_not_500(self):
+        with mock.patch.object(self.demo.storage.users, "delete", side_effect=StorageError("DB 에 닿지 못함")):
+            res = self.client.post("/api/auth/withdraw", json={"password": "pass-word-1"})
+        self.assertEqual((res.status_code, res.json()["error"]["state"]), (503, "down"))
+        self.assertTrue(self.client.get("/api/auth/me").json()["authenticated"])
+
+
+class WithdrawDemo(unittest.TestCase):
+    def test_demo_owner_withdraws_without_a_password_and_comes_back_empty(self):
+        app, demo, review, _ = build()
+        a, b = TestClient(app), TestClient(app)
+        for c in (a, b):
+            c.get("/api/auth/me")
+            c.post("/api/auth/demo-login")
+        va, vb = visitor_of(a), visitor_of(b)
+        seed(demo.storage, review, va)
+        seed(demo.storage, review, vb)
+        res = a.post("/api/auth/withdraw")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertTrue(res.json()["withdrawn"])
+        self.assertIsNone(demo.storage.users.get(va[2:]))
+        for s in STORES:
+            self.assertEqual(demo.storage.approvals.list(s, va), [])
+            self.assertEqual(len(demo.storage.approvals.list(s, vb)), 2)                 # 다른 브라우저의 시연 사장님은 그대로
+        self.assertEqual(a.post("/api/auth/demo-login").status_code, 200)                  # 다시 누르면 빈 계정으로 새로
+        self.assertEqual(visitor_of(a), va)
+        self.assertEqual(a.get("/api/approvals").json()["items"], [])
+        self.assertTrue(b.get("/api/auth/me").json()["authenticated"])
+
+
+class WithdrawWithPostgres(unittest.TestCase):
+    """PostgreSQL 실DB 에서 계정·가진 가게·세션·승인 기록이 실제로 사라지는지 (TEST_DB_HOST 가 있을 때만)."""
+
+    def setUp(self):
+        from shared.storage.testing import open_test_db
+        self.db = open_test_db(app_name="ic26-test-withdraw")
+        if self.db is None:
+            self.skipTest("TEST_DB_HOST 없음 (PostgreSQL 시험은 건너뜀)")
+
+    def tearDown(self):
+        if getattr(self, "db", None) is not None:
+            self.db.close()
+
+    def test_rows_are_gone_and_the_login_can_be_reused(self):
+        from web.auth import token_hash
+        app, demo, review, _ = build(storage=self.db)
+        login = "pg" + __import__("uuid").uuid4().hex[:10]
+        phone, laptop, other = TestClient(app), TestClient(app), TestClient(app)
+        signup(phone, login=login, stores=("store_ongi", "store_basak"))
+        laptop.post("/api/auth/login", json={"login_id": login, "password": "pass-word-1"})
+        signup(other, login="pg" + __import__("uuid").uuid4().hex[:10], stores=("store_ongi",))
+        me, them = visitor_of(phone), visitor_of(other)
+        user_id = me[2:]
+        hashes = [token_hash(c.cookies[SESSION_COOKIE]) for c in (phone, laptop)]
+        seed(self.db, review, me)
+        seed(self.db, review, them, stores=("store_ongi",))
+        res = phone.post("/api/auth/withdraw", json={"password": "pass-word-1"})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertIsNone(self.db.users.get(user_id))
+        self.assertIsNone(self.db.users.by_login(login))
+        self.assertEqual(self.db.users.stores(user_id), [])
+        self.assertEqual([self.db.auth_sessions.get(h) for h in hashes], [None, None])
+        for s in STORES:
+            self.assertEqual(self.db.approvals.list(s, me), [])
+        self.assertEqual(len(self.db.approvals.list("store_ongi", them)), 2)
+        self.assertFalse(laptop.get("/api/auth/me").json()["authenticated"])
+        self.assertEqual(signup(TestClient(app), login=login).status_code, 201)

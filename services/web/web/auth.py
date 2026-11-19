@@ -9,6 +9,7 @@
 | POST   | /api/auth/store        | 지금 보는 가게 바꾸기 (가진 가게만) |
 | POST   | /api/auth/demo-login   | 시연용: 가게 세 곳을 가진 사장님으로 바로 로그인 (DEMO_ACCOUNT_ENABLED, 기본 켜짐) |
 | POST   | /api/auth/reset        | 계정 초기화: 지금 가게(scope=store) 또는 가진 가게 모두(scope=account)의 이 사장님 기록을 지움 (11/19, account.py) |
+| POST   | /api/auth/withdraw     | 회원 탈퇴: 비밀번호 확인(시연 계정은 없이) → 가게 세 곳의 기록을 다 지움 → 계정 삭제 → 게스트 (11/19) |
 
 지키는 것
 - 로그인하지 않으면 예전과 똑같다: 가게는 DEMO_STORE_ID(store_ongi), 기록은 쿠키 visitor_id 로 나뉜다.
@@ -76,6 +77,8 @@ MESSAGES = {
     "demo_taken": "시연 계정을 준비하지 못했어요. 아이디와 비밀번호로 로그인해 주세요.",
     "down": "지금 로그인 정보를 불러오지 못했어요. 잠시 뒤 다시 해 주세요.",
     "invalid": "요청 모양이 맞지 않아요.",
+    "bad_password": "비밀번호가 맞지 않아요.",
+    "records_left": "기록을 다 지우지 못해 탈퇴를 멈췄어요. 계정은 그대로예요. 잠시 뒤 다시 해 주세요.",
 }
 LOGIN_NEEDED_FOR_RECORDS = "로그인한 사장님만 기록을 지울 수 있어요."
 RESET_SCOPES = ("store", "account")
@@ -284,6 +287,36 @@ class AuthService:
             except StorageError:
                 log.warning("세션을 지우지 못했어요 (쿠키는 지움)")
 
+    def check_withdraw(self, who: Who, password: str, client: str) -> None:
+        """회원 탈퇴 전 비밀번호 다시 확인 (11/19). 시연 계정(비밀번호 로그인을 막은 '!')은 비밀번호 없이 통과.
+        틀리면 로그인 실패와 같이 센다(아이디·주소 키). 막혀 있으면 429."""
+        if not who.authenticated:
+            raise AuthError("login_needed", 401, LOGIN_NEEDED_FOR_RECORDS)
+        login = who.user["login_id"]
+        try:
+            user = self.storage.users.by_login(login)
+        except StorageError:
+            raise AuthError("down", 503) from None
+        if user is None or user["user_id"] != who.user["user_id"]:
+            raise AuthError("login_needed", 401, LOGIN_NEEDED_FOR_RECORDS)
+        if user.get("password_hash") == DISABLED_PASSWORD:
+            return
+        keys = [f"id:{login}", f"ip:{client}"]
+        if self._blocked(keys):
+            raise AuthError("too_many", 429)
+        if not verify_password(password or "", user.get("password_hash")):
+            self._fail(keys)
+            raise AuthError("bad_password", 401)
+
+    def delete_account(self, user_id: str) -> None:
+        """계정 삭제 (11/19). PostgreSQL 은 가진 가게·세션이 CASCADE 로 같이 지워지고, 메모리는 세션을 따로 지운다.
+        어느 쪽이든 그 사장님의 다른 기기 세션도 끊긴다."""
+        try:
+            self.storage.users.delete(user_id)
+            self.storage.auth_sessions.delete_user(user_id)
+        except StorageError:
+            raise AuthError("down", 503) from None
+
     def switch_store(self, who: Who, store_id: str) -> None:
         if not who.authenticated or not who.token_hash:
             raise AuthError("login_needed", 401)
@@ -480,6 +513,38 @@ def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who],
         result = await run_in_threadpool(erase, stores, who.visitor_id)
         out = _json({"scope": scope, "complete": result["complete"], "message": result["message"], "stores": result["stores"]})
         _reset_market(out, secure_request(request))
+        return out
+
+    @router.post("/withdraw")
+    async def withdraw(request: Request):
+        """회원 탈퇴 (11/19). 본문 {"password": "…"} (시연 계정은 없어도 됨).
+        순서: 비밀번호 확인 → 가게 세 곳(store_profiles.STORE_IDS) 모두에서 그 사장님 기록을 지움 → 다 지웠을 때만 계정 삭제
+        → 세션 쿠키·상권 쿠키 만료. 기록이 남으면 계정을 지우지 않고 503 records_left (다시 하면 이어서 지움)."""
+        who = who_of(request)
+        if not who.authenticated:
+            return failed(AuthError("login_needed", 401, LOGIN_NEEDED_FOR_RECORDS))
+        body = await _json_body(request)
+        password = body.get("password") if body else None
+        if password is not None and (not isinstance(password, str) or len(password) > 256):
+            return failed(AuthError("invalid", 422, "비밀번호를 글자로 보내 주세요."))
+        try:
+            await run_in_threadpool(auth.check_withdraw, who, password or "", _client(request))
+        except AuthError as exc:
+            return failed(exc)
+        if erase is None:
+            return failed(AuthError("down", 503))
+        result = await run_in_threadpool(erase, list(store_profiles.STORE_IDS), who.visitor_id)
+        if not result["complete"]:
+            log.warning("탈퇴를 멈춤: 기록이 남음 (%s)", result["message"])
+            return failed(AuthError("records_left", 503))
+        try:
+            await run_in_threadpool(auth.delete_account, who.user["user_id"])
+        except AuthError as exc:
+            return failed(exc)
+        secure = secure_request(request)
+        out = _json({**auth.view(auth.guest(getattr(request.state, "guest_visitor_id", "") or "")), "withdrawn": True})
+        out.delete_cookie(SESSION_COOKIE, path="/", secure=secure, httponly=True, samesite="lax")
+        _reset_market(out, secure)
         return out
 
     return router
