@@ -5,6 +5,7 @@ services/web 의 Demo 가 한다 (경로가 웹 설정이라서).
 """
 from __future__ import annotations
 
+import json
 import threading
 from datetime import date, datetime, timezone
 
@@ -233,8 +234,117 @@ class MemoryAuthSessions:
             return self._rows.pop(token_hash, None) is not None
 
 
+# ── 맞춤 마케팅 기록 (11/19, 이슈 #51 ERD §3.13) ───────────────────────
+# experiments/marketing/marketing_survey/records.py 가 DB 설정이 있을 때 쓴다. 줄(row) 모양은 그 파일의 파일 방식과 같다.
+MARKETING_SESSIONS = "marketing_sessions"
+COUPON_RUNS = "coupon_runs"
+MARKETING_TABLES = (MARKETING_SESSIONS, COUPON_RUNS)
+_INT_MIN, _INT_MAX = -2**31, 2**31 - 1        # 표의 INTEGER 칸 범위. 두 구현이 같은 값을 같게 거절한다
+_ID_MAX = 64
+
+
+def _text(value, name: str, *, required: bool = False) -> str | None:
+    if value is None and not required:
+        return None
+    if not isinstance(value, str) or (required and not value):
+        raise ValueError(f"{name} 는 글자여야 합니다")
+    return value
+
+
+def _int(value, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not _INT_MIN <= value <= _INT_MAX:
+        raise ValueError(f"{name} 는 INTEGER 범위의 정수여야 합니다")
+    return value
+
+
+def _json(value, name: str) -> dict:
+    """JSONB 칸. 표에 넣었다 꺼낸 것과 같은 값(복사본)을 돌려준다. JSON 이 아닌 값은 ValueError."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} 는 JSON 객체여야 합니다")
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} 를 JSON 으로 바꾸지 못했습니다") from None
+
+
+def margin_value(value) -> int | float | None:
+    """margin_pct (DOUBLE PRECISION). 정수 값은 int 로 돌려준다 (파일 방식에서 int 로 쓰던 값이 30.0 으로 바뀌지 않게)."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("margin_pct 는 숫자여야 합니다")
+    out = float(value)
+    if out != out or out in (float("inf"), float("-inf")):
+        raise ValueError("margin_pct 는 유한한 숫자여야 합니다")
+    return int(out) if out.is_integer() else out
+
+
+def clean_marketing_row(row: dict) -> dict:
+    """records.py 가 만든 줄을 표에 넣을 모양으로 검사·정리한다 (모양이 틀리면 ValueError — 기록은 건너뛰고 화면은 그대로).
+    돌려주는 dict 의 칸 순서는 파일 방식의 줄과 같다 ("visitor_id" 는 빼고. 방문자는 따로 받는다)."""
+    if not isinstance(row, dict) or row.get("table") not in MARKETING_TABLES:
+        raise ValueError("table 은 marketing_sessions 또는 coupon_runs 여야 합니다")
+    rid, store = _text(row.get("id"), "id", required=True), _text(row.get("store_id"), "store_id", required=True)
+    if len(rid) > _ID_MAX:
+        raise ValueError("id 가 너무 깁니다")
+    created = to_kst_iso(row["created_at"]) if row.get("created_at") else now_kst()
+    if row["table"] == MARKETING_SESSIONS:
+        return {"table": MARKETING_SESSIONS, "id": rid, "store_id": store,
+                "feature": _text(row.get("feature"), "feature", required=True), "goal": _text(row.get("goal"), "goal"),
+                "answers": _json(row.get("answers"), "answers"), "decision": _text(row.get("decision"), "decision"),
+                "result": _json(row.get("result"), "result"), "parent_id": _text(row.get("parent_id"), "parent_id"),
+                "created_at": created}
+    period = {k: to_date(row[k]).isoformat() if row.get(k) is not None else None for k in ("period_start", "period_end")}
+    if period["period_start"] and period["period_end"] and period["period_end"] < period["period_start"]:
+        raise ValueError("끝일이 시작일보다 빠릅니다")
+    return {"table": COUPON_RUNS, "id": rid, "store_id": store, "menu_name": _text(row.get("menu_name"), "menu_name"),
+            **{k: _int(row.get(k), k) for k in ("discount_krw", "issued", "used", "avg_order_krw")},
+            "margin_pct": margin_value(row.get("margin_pct")), **period, "created_at": created}
+
+
+def with_visitor(row: dict, visitor_id: str) -> dict:
+    """꺼낼 때: 방문자를 가린 기록이면 파일 방식처럼 "visitor_id" 칸을 붙인다 (공용 'common' 이면 붙이지 않음)."""
+    from .visitor import COMMON_VISITOR
+    return row if visitor_id == COMMON_VISITOR else {**row, "visitor_id": visitor_id}
+
+
+class MemoryMarketingRecords:
+    """맞춤 마케팅 기록 (marketing_sessions + coupon_runs). PgMarketingRecords 와 같은 이름·인자·돌려주는 모양.
+    visitor_id 는 늘 값이 있다 (방문자를 안 가린 호출은 부르는 쪽이 'common' 으로 바꿔서 준다)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._rows: dict[tuple[str, str], list[dict]] = {}
+        self._ids: set[tuple[str, str]] = set()     # (표, id). PostgreSQL 처럼 표마다 id 가 유일하다
+
+    def add(self, store_id: str, visitor_id: str, row: dict) -> dict:
+        """한 줄 넣고 표에 들어간 모양(꺼낼 때와 같은 모양)을 돌려준다. 같은 표에 같은 id 가 이미 있으면 ValueError."""
+        clean = clean_marketing_row({**row, "store_id": store_id})
+        with self._lock:
+            if (clean["table"], clean["id"]) in self._ids:
+                raise ValueError("같은 id 의 기록이 이미 있습니다")
+            self._ids.add((clean["table"], clean["id"]))
+            self._rows.setdefault((store_id, visitor_id), []).append(clean)
+        return with_visitor(dict(clean), visitor_id)
+
+    def list(self, store_id: str, visitor_id: str) -> list[dict]:
+        """넣은 순서대로 (두 표가 섞여서). 이 가게·이 방문자의 것만."""
+        with self._lock:
+            rows = list(self._rows.get((store_id, visitor_id), []))
+        return [with_visitor(json.loads(json.dumps(r, ensure_ascii=False)), visitor_id) for r in rows]
+
+    def delete(self, store_id: str, visitor_id: str) -> int:
+        """이 가게·이 방문자의 기록을 두 표에서 모두 지우고 지운 줄 수를 돌려준다."""
+        with self._lock:
+            rows = self._rows.pop((store_id, visitor_id), [])
+            self._ids.difference_update((r["table"], r["id"]) for r in rows)
+            return len(rows)
+
+
 class MemoryStore:
-    """승인 기록·카드 이유·보고서를 메모리에 둔다. (붙여넣은 리뷰와 분류 결과는 리뷰 분석 서비스가 자기 파일로 다룬다.)"""
+    """승인 기록·카드 이유·보고서·맞춤 마케팅 기록을 메모리에 둔다. (붙여넣은 리뷰와 분류 결과는 리뷰 분석 서비스가 자기 파일로 다룬다.)"""
     kind = "memory"
 
     def __init__(self) -> None:
@@ -243,6 +353,7 @@ class MemoryStore:
         self.reports = MemoryReports()
         self.users = MemoryUsers()
         self.auth_sessions = MemoryAuthSessions()
+        self.marketing = MemoryMarketingRecords()
 
     def close(self) -> None:
         pass

@@ -167,6 +167,7 @@ else
       MDEMO="$(jq_ "$TMP/mdirect" 'd.get("demo")')"; MW="$(jq_ "$TMP/mdirect" 'd.get("records_dir_writable")')"
       ok "직접 $MKT/health 200"
       echo "        모드: $MMODE ($(jq_ "$TMP/mdirect" 'd.get("mode_source")'))   키 있음: $MKEY   데모: $MDEMO   기록 폴더 쓰기: $MW"
+      echo "        기록 저장: $(jq_ "$TMP/mdirect" 'd.get("records_store") or "file(옛 코드)"')   (db 면 PostgreSQL 표, file 이면 서버마다 따로인 파일)"
       if [ "$MMODE" = live ]; then [ "$MKEY" = True ] && ok "live 이고 키가 있음" || bad "live 인데 키가 없음 (CLOVA_API_KEY) → 저장된 예시로만 돎"; fi
       [ "$MMODE" = mock ] && echo "        (mock: 키가 있어도 HCX 를 부르지 않습니다. 실제 AI 결과가 아닙니다)"
       [ "$MW" = True ] && ok "기록 폴더에 쓸 수 있음" || bad "기록 폴더에 쓸 수 없음 (/var/lib/ic26/marketing 소유자 ic26 인지. install_was.sh 를 다시 돌림)"

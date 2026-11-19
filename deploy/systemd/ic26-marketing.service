@@ -5,7 +5,9 @@
 # 키(CLOVA_API_KEY)와 모드는 /etc/ic26/env 에서 읽습니다. 모드는 MARKETING_APP_MODE(mock|live) → 없으면 APP_MODE → 없으면 키 유무.
 # mock 이면 키가 있어도 HCX 를 부르지 않습니다. live 인데 키가 비어 있으면 저장된 예시·코드 템플릿으로 돌고 /health 의 notes 에 보입니다.
 # 상태 확인: curl -s http://127.0.0.1:8030/health (키 값은 싣지 않음)
-# 기록(설문 결과·승인·쿠폰 결과·광고비 점검)은 MARKETING_RECORDS_DIR 에 방문자마다 파일 하나로 남습니다 (install_was.sh 가 ic26 소유로 만듦).
+# 기록(설문 결과·승인·쿠폰 결과·광고비 점검)은 /etc/ic26/env 에 DB_HOST 가 있으면 DB(marketing_sessions·coupon_runs 표, 11/19),
+# 없으면 MARKETING_RECORDS_DIR 에 방문자마다 파일 하나로 남습니다 (install_was.sh 가 ic26 소유로 만듦).
+# DB 를 쓸 때 shared.storage 는 아래 PYTHONPATH 의 /opt/ic26 에서, psycopg 는 /opt/ic26/.venv(services/web/requirements.txt)에서 옵니다.
 [Unit]
 Description=ic26 marketing-survey (127.0.0.1:8030)
 After=network-online.target ic26-secrets.service

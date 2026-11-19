@@ -485,7 +485,7 @@ def test_init_db_command_runs_twice_and_without_db_host(db):
     for _ in range(2):
         done = subprocess.run([sys.executable, "-m", "shared.storage.init_db"], cwd=REPO, env=env, capture_output=True, text=True, timeout=60)
         assert done.returncode == 0, done.stderr
-        assert "표 9개 확인" in done.stdout and env["DB_PASSWORD"] not in done.stdout + done.stderr
+        assert "표 11개 확인" in done.stdout and env["DB_PASSWORD"] not in done.stdout + done.stderr
     bare = {k: v for k, v in env.items() if k != "DB_HOST"}
     done = subprocess.run([sys.executable, "-m", "shared.storage.init_db"], cwd=REPO, env=bare, capture_output=True, text=True, timeout=60)
     assert done.returncode == 2 and "DB_HOST" in done.stderr
@@ -573,3 +573,101 @@ def test_wrong_password_is_reported_without_leaking_it(caplog):
         assert "wrong-pw-Zq91" not in str(err.value) + caplog.text + repr(db)
     finally:
         db.close()
+
+
+# ── 맞춤 마케팅 기록 (11/19, marketing_sessions·coupon_runs) — 두 구현이 같은 약속 ─────────
+def mk_session(rid=None, **kw):
+    return {"table": "marketing_sessions", "id": rid or uuid.uuid4().hex, "feature": "survey", "goal": None, "answers": {},
+            "decision": "proposed", "result": {}, "parent_id": None, "created_at": "2026-11-19T10:00:00+09:00", **kw}
+
+
+def mk_coupon(rid=None, **kw):
+    return {"table": "coupon_runs", "id": rid or uuid.uuid4().hex, "menu_name": None, "discount_krw": 2000, "issued": 100,
+            "used": 10, "avg_order_krw": 15000, "margin_pct": 30, "period_start": None, "period_end": None,
+            "created_at": "2026-11-19T10:00:00+09:00", **kw}
+
+
+def test_marketing_add_list_keeps_order_shape_and_types(backend):
+    sid, v = uid("store"), uid("v")
+    s1 = backend.marketing.add(sid, v, mk_session(answers={"goal": "재방문", "n": [1, 2]}, result={"title": "제목"}))
+    c1 = backend.marketing.add(sid, v, mk_coupon(margin_pct=12.5, period_start="2026-11-01", period_end="2026-11-14",
+                                                 created_at="2026-11-19T01:02:03+00:00"))
+    s2 = backend.marketing.add(sid, v, mk_session(decision="approved", parent_id=s1["id"]))
+    rows = backend.marketing.list(sid, v)
+    assert rows == [s1, c1, s2]                                        # 넣은 순서, 돌려준 모양 그대로
+    assert list(rows[0]) == ["table", "id", "store_id", "feature", "goal", "answers", "decision", "result", "parent_id",
+                             "created_at", "visitor_id"]
+    assert list(rows[1]) == ["table", "id", "store_id", "menu_name", "discount_krw", "issued", "used", "avg_order_krw",
+                             "margin_pct", "period_start", "period_end", "created_at", "visitor_id"]
+    assert rows[0]["answers"] == {"goal": "재방문", "n": [1, 2]} and rows[0]["store_id"] == sid and rows[0]["visitor_id"] == v
+    assert rows[1]["created_at"] == "2026-11-19T10:02:03+09:00"         # 한국 시간 ISO
+    assert (rows[1]["margin_pct"], rows[1]["period_start"], rows[1]["period_end"]) == (12.5, "2026-11-01", "2026-11-14")
+    whole = backend.marketing.add(sid, v, mk_coupon(margin_pct=30))
+    assert backend.marketing.list(sid, v)[-1]["margin_pct"] == 30 and type(whole["margin_pct"]) is int   # 30.0 이 아니라 30
+
+
+def test_marketing_is_separate_per_visitor_and_store_and_common_has_no_visitor_key(backend):
+    sid, other, v, w = uid("store"), uid("store"), uid("v"), uid("w")
+    backend.marketing.add(sid, v, mk_session())
+    backend.marketing.add(sid, w, mk_coupon())
+    backend.marketing.add(other, v, mk_session())
+    common = backend.marketing.add(sid, COMMON_VISITOR, mk_session())
+    assert "visitor_id" not in common and backend.marketing.list(sid, COMMON_VISITOR) == [common]
+    assert [r["table"] for r in backend.marketing.list(sid, v)] == ["marketing_sessions"]
+    assert [r["table"] for r in backend.marketing.list(sid, w)] == ["coupon_runs"]
+    assert backend.marketing.list(uid("store"), v) == []
+
+
+def test_marketing_delete_removes_only_that_visitor_in_that_store_from_both_tables(backend):
+    sid, other, v, w = uid("store"), uid("store"), uid("v"), uid("w")
+    for row in (mk_session(), mk_coupon(), mk_session()):
+        backend.marketing.add(sid, v, row)
+    backend.marketing.add(sid, w, mk_coupon())
+    backend.marketing.add(other, v, mk_session())
+    assert backend.marketing.delete(sid, v) == 3
+    assert backend.marketing.list(sid, v) == [] and backend.marketing.delete(sid, v) == 0
+    assert len(backend.marketing.list(sid, w)) == 1 and len(backend.marketing.list(other, v)) == 1
+
+
+@pytest.mark.parametrize("bad", [
+    mk_coupon(discount_krw=2**31), mk_coupon(issued=-2**31 - 1), mk_coupon(used="10"), mk_coupon(issued=True),
+    mk_coupon(margin_pct=float("nan")), mk_coupon(margin_pct="30"), mk_coupon(period_start="어제"),
+    mk_coupon(period_start="2026-11-14", period_end="2026-11-01"), mk_session(feature=None), mk_session(answers=[1]),
+    mk_session(result={"x": object()}), mk_session(table="approvals"), mk_session(rid="x" * 65)])
+def test_marketing_rejects_bad_rows_the_same_way(backend, bad):
+    sid, v = uid("store"), uid("v")
+    with pytest.raises(ValueError):
+        backend.marketing.add(sid, v, bad)
+    assert backend.marketing.list(sid, v) == []
+
+
+def test_marketing_same_id_twice_is_a_value_error(backend):
+    sid, v, rid = uid("store"), uid("v"), uuid.uuid4().hex
+    backend.marketing.add(sid, v, mk_session(rid))
+    with pytest.raises(ValueError):
+        backend.marketing.add(sid, uid("v"), mk_session(rid))          # 같은 표에 같은 id (다른 방문자여도)
+    assert len(backend.marketing.list(sid, v)) == 1
+
+
+def test_pg_marketing_two_servers_see_the_same_records(db):
+    other = open_test_db("ic26-test-second-server")
+    try:
+        sid, v = uid("store"), uid("v")
+        row = db.marketing.add(sid, v, mk_coupon())
+        assert other.marketing.list(sid, v) == [row]
+        assert other.marketing.delete(sid, v) == 1 and db.marketing.list(sid, v) == []
+    finally:
+        other.close()
+
+
+def test_pg_marketing_columns_have_erd_types(db):
+    rows = db.run(lambda c: c.execute(
+        "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns "
+        "WHERE table_schema = current_schema() AND table_name IN ('marketing_sessions', 'coupon_runs')").fetchall())
+    cols = {(r["table_name"], r["column_name"]): (r["data_type"], r["is_nullable"]) for r in rows}
+    assert cols[("marketing_sessions", "answers")] == ("jsonb", "NO")
+    assert cols[("marketing_sessions", "created_at")] == ("timestamp with time zone", "NO")
+    assert cols[("marketing_sessions", "visitor_id")] == ("text", "NO")
+    assert cols[("coupon_runs", "discount_krw")] == ("integer", "NO")
+    assert cols[("coupon_runs", "margin_pct")] == ("double precision", "YES")
+    assert cols[("coupon_runs", "period_start")] == ("date", "YES")

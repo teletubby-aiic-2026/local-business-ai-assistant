@@ -25,17 +25,19 @@ from psycopg_pool import ConnectionPool
 
 from .config import DbConfig
 from .errors import DuplicateLogin, StorageError
-from .memory import check_period, clean_detail
+from .memory import (COUPON_RUNS, MARKETING_SESSIONS, check_period, clean_detail, clean_marketing_row, margin_value,
+                     with_visitor)
 from .times import to_date, to_datetime, to_kst_iso
 
 log = logging.getLogger("shared.storage")
 T = TypeVar("T")
 
-TABLES = ("stores", "reviews", "review_labels", "approvals", "card_reasons", "reports", "users", "user_stores", "auth_sessions")
+TABLES = ("stores", "reviews", "review_labels", "approvals", "card_reasons", "reports", "users", "user_stores", "auth_sessions",
+          "marketing_sessions", "coupon_runs")
 
 
 class Database:
-    """연결 풀 하나와 표별 저장소 (reviews, labels, approvals, card_reasons, reports, users, auth_sessions)."""
+    """연결 풀 하나와 표별 저장소 (reviews, labels, approvals, card_reasons, reports, users, auth_sessions, marketing)."""
     kind = "postgres"
 
     def __init__(self, config: DbConfig, *, app_name: str = ""):
@@ -51,6 +53,7 @@ class Database:
         self.reports = PgReports(self)
         self.users = PgUsers(self)
         self.auth_sessions = PgAuthSessions(self)
+        self.marketing = PgMarketingRecords(self)
 
     def __repr__(self) -> str:   # 비밀번호는 넣지 않는다
         return f"Database({self.config.host}:{self.config.port}/{self.config.dbname})"
@@ -425,3 +428,73 @@ class PgAuthSessions:
         def work(conn):
             return conn.execute("DELETE FROM auth_sessions WHERE token_hash = %s", (token_hash,)).rowcount > 0
         return self._db.run(work)
+
+
+# ── 맞춤 마케팅 기록 (11/19, 이슈 #51 ERD §3.13) ───────────────────────
+_SESSION_COLUMNS = "id, store_id, feature, goal, answers, decision, result, parent_id, created_at"
+_COUPON_COLUMNS = ("id, store_id, menu_name, discount_krw, issued, used, avg_order_krw, margin_pct, period_start, period_end, "
+                   "created_at")
+
+
+def _marketing_row(table: str, row: dict) -> dict:
+    """표의 한 행 → 파일 방식과 같은 모양의 dict (칸 순서도 같게)."""
+    out = {"table": table, **{k: v for k, v in row.items() if k != "seq"}}
+    out["created_at"] = to_kst_iso(row["created_at"])
+    if table == COUPON_RUNS:
+        out["margin_pct"] = margin_value(row["margin_pct"])
+        for k in ("period_start", "period_end"):
+            out[k] = row[k].isoformat() if row[k] is not None else None
+    return out
+
+
+class PgMarketingRecords:
+    """MemoryMarketingRecords 와 같은 이름·인자·돌려주는 모양. 두 표가 같은 번호표(marketing_records_seq)를 써서
+    두 표를 섞어 읽어도 넣은 순서 그대로다 (파일에 한 줄씩 덧붙이던 순서와 같음)."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    def _run(self, work):
+        """표에 맞지 않는 값(범위 밖 숫자, NUL 글자, 같은 id)은 ValueError 로 바꾼다. 연결 문제는 run() 이 StorageError 로 바꾼다."""
+        try:
+            return self._db.run(work)
+        except (psycopg.DataError, psycopg.IntegrityError) as exc:
+            raise ValueError(f"마케팅 기록을 표에 넣지 못했습니다 ({exc.__class__.__name__})") from None
+
+    def add(self, store_id: str, visitor_id: str, row: dict) -> dict:
+        r = clean_marketing_row({**row, "store_id": store_id})
+
+        def work(conn):
+            if r["table"] == MARKETING_SESSIONS:
+                conn.execute(
+                    "INSERT INTO marketing_sessions (id, store_id, visitor_id, feature, goal, answers, decision, result, parent_id, "
+                    "created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (r["id"], store_id, visitor_id, r["feature"], r["goal"], Jsonb(r["answers"]), r["decision"],
+                     Jsonb(r["result"]), r["parent_id"], to_datetime(r["created_at"])))
+            else:
+                conn.execute(
+                    "INSERT INTO coupon_runs (id, store_id, visitor_id, menu_name, discount_krw, issued, used, avg_order_krw, "
+                    "margin_pct, period_start, period_end, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (r["id"], store_id, visitor_id, r["menu_name"], r["discount_krw"], r["issued"], r["used"], r["avg_order_krw"],
+                     r["margin_pct"], to_date(r["period_start"]) if r["period_start"] else None,
+                     to_date(r["period_end"]) if r["period_end"] else None, to_datetime(r["created_at"])))
+        self._run(work)
+        return with_visitor(r, visitor_id)
+
+    def list(self, store_id: str, visitor_id: str) -> list[dict]:
+        """넣은 순서대로 (두 표가 섞여서). 이 가게·이 방문자의 것만."""
+        def work(conn):
+            where = "WHERE store_id = %s AND visitor_id = %s"
+            s = conn.execute(f"SELECT seq, {_SESSION_COLUMNS} FROM marketing_sessions {where}", (store_id, visitor_id)).fetchall()
+            c = conn.execute(f"SELECT seq, {_COUPON_COLUMNS} FROM coupon_runs {where}", (store_id, visitor_id)).fetchall()
+            return sorted([(x["seq"], MARKETING_SESSIONS, x) for x in s] + [(x["seq"], COUPON_RUNS, x) for x in c],
+                          key=lambda t: t[0])
+        return [with_visitor(_marketing_row(table, row), visitor_id) for _, table, row in self._run(work)]
+
+    def delete(self, store_id: str, visitor_id: str) -> int:
+        """이 가게·이 방문자의 기록을 두 표에서 모두 지우고 지운 줄 수를 돌려준다."""
+        def work(conn):
+            args = (store_id, visitor_id)
+            return (conn.execute("DELETE FROM marketing_sessions WHERE store_id = %s AND visitor_id = %s", args).rowcount
+                    + conn.execute("DELETE FROM coupon_runs WHERE store_id = %s AND visitor_id = %s", args).rowcount)
+        return self._run(work)

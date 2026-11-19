@@ -3,6 +3,7 @@
 -- 실행: python -m shared.storage.init_db   (여러 번 돌려도 안전: 이미 있으면 건너뜀. 있는 표에 칸을 더할 때는 파일 안의 ALTER ... ADD COLUMN IF NOT EXISTS)
 -- 시각은 TIMESTAMPTZ. 코드는 한국 시간(+09:00) ISO 문자열로 읽고 쓴다.
 -- visitor_id: 브라우저 쿠키의 임의 값. 'common' 은 방문자를 안 가린 호출(공용).
+-- 표 11개 (stores … auth_sessions, marketing_sessions, coupon_runs). 새 표가 생기는 코드를 올릴 때는 코드보다 먼저 init_db 를 한 번 돌린다.
 
 -- 가게. 가게 정보는 지금 git 파일(services/review-insight/data/synthetic/*/store.json)이라 코드가 아직 쓰지 않는다.
 -- 그래서 다른 표가 이 표를 참조(FK)하지 않는다.
@@ -131,3 +132,49 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 );
 CREATE INDEX IF NOT EXISTS auth_sessions_by_user ON auth_sessions (user_id);
 CREATE INDEX IF NOT EXISTS auth_sessions_by_expiry ON auth_sessions (expires_at);
+
+-- ── 맞춤 마케팅 기록 (11/19, 이슈 #51 ERD §3.13) ──────────────────────────
+-- experiments/marketing/marketing_survey/records.py 가 DB_HOST 가 있을 때 쓴다 (없으면 예전처럼 WAS 디스크의 records_<가게>_<방문자>.json).
+-- WAS 가 두 대여도 같은 기록을 본다. 예전 파일 기록은 자동으로 옮기지 않는다 (서버에 있던 것은 시험 기록뿐).
+-- ERD 와 다른 점 (지금 코드가 쓰는 대로 두고, 기록 때문에 화면 흐름이 막히지 않게)
+--   · user_id 대신 visitor_id: approvals·reviews 처럼 방문자 id 로 나눈다 (게스트는 쿠키 값, 로그인한 사장님은 'u-<user_id>',
+--     방문자를 안 가린 호출(단독 화면·시험)은 'common'). 그래서 users·stores 로 가는 FK 는 두지 않는다.
+--   · parent_id 에 FK 를 두지 않는다: 화면이 보낸 session_id 를 그대로 받으므로, 없는 id 여도 승인 기록은 남긴다.
+--   · coupon_runs 의 menu_name·period_start·period_end 는 비울 수 있다: 지금 쿠폰 결과 확인은 메뉴·기간을 묻지 않는다
+--     (보고서는 created_at 으로 센다). 숫자 칸의 0 이상·used ≤ issued 검사는 두지 않는다 (사장님이 적은 값 그대로 남김).
+--   · seq 칸을 더했다: 두 표가 같은 번호표(marketing_records_seq)를 써서, 두 표를 섞어 읽어도 넣은 순서 그대로다 (파일에 덧붙인 순서).
+CREATE SEQUENCE IF NOT EXISTS marketing_records_seq;
+
+-- 설문 답과 그 결과, 아이디어 해 보기, 광고비 점검, 승인 기록
+CREATE TABLE IF NOT EXISTS marketing_sessions (
+    id          TEXT        PRIMARY KEY,                -- 기록 id (uuid hex). /plan 응답의 session_id
+    store_id    TEXT        NOT NULL,
+    visitor_id  TEXT        NOT NULL,
+    seq         BIGINT      NOT NULL DEFAULT nextval('marketing_records_seq'),
+    feature     TEXT        NOT NULL,                   -- survey | follow_up | adspend | idea | leftover | story ...
+    goal        TEXT,                                   -- 사장님이 고른 목표 (예: repeat_complaint)
+    answers     JSONB       NOT NULL DEFAULT '{}'::jsonb,  -- 설문 답. 가게의 영업 정보(광고비·주문 금액)가 들어갈 수 있음
+    decision    TEXT,                                   -- proposed | checked | tried | approved
+    result      JSONB       NOT NULL DEFAULT '{}'::jsonb,  -- AI 가 낸 제안 제목과 만든 글의 종류 등
+    parent_id   TEXT,                                   -- 승인 기록이면 그 바탕이 된 설문 결과의 id
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS marketing_sessions_by_visitor ON marketing_sessions (store_id, visitor_id, created_at);
+
+-- 쿠폰을 돌린 결과 (쿠폰 결과 확인)
+CREATE TABLE IF NOT EXISTS coupon_runs (
+    id             TEXT             PRIMARY KEY,
+    store_id       TEXT             NOT NULL,
+    visitor_id     TEXT             NOT NULL,
+    seq            BIGINT           NOT NULL DEFAULT nextval('marketing_records_seq'),
+    menu_name      TEXT,                                -- 쿠폰을 건 메뉴. 모르면 NULL
+    discount_krw   INTEGER          NOT NULL,           -- 할인 금액(원)
+    issued         INTEGER          NOT NULL,           -- 발행 수
+    used           INTEGER          NOT NULL,           -- 사용 수
+    avg_order_krw  INTEGER          NOT NULL,           -- 평균 주문 금액(원)
+    margin_pct     DOUBLE PRECISION,                    -- 남는 비율(%). 본전 주문 수 계산에 씀
+    period_start   DATE,                                -- 기간을 모르면 NULL (보고서는 created_at 으로 셈)
+    period_end     DATE,
+    created_at     TIMESTAMPTZ      NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS coupon_runs_by_visitor ON coupon_runs (store_id, visitor_id, period_start);

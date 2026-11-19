@@ -2562,7 +2562,7 @@ const LATER = [
 | 시작 명령 | `cd experiments/marketing && PYTHONPATH=<저장소 루트>:<저장소 루트>/experiments/marketing python -m uvicorn marketing_survey.server:app --host 127.0.0.1 --port 8030` |
 | 주소 | `127.0.0.1:8030` (같은 컴퓨터 안쪽만. 서버에서는 `ic26-marketing`, 로컬에서는 `run.sh`의 `MARKETING_PORT`) |
 | 상태 | 서버에 대화 상태를 두지 않습니다. 화면이 `state` = `{node, raw, confirms, mode}`를 들고 다니며 매 요청마다 보냅니다 |
-| 기록 | 설문 결과·승인·쿠폰 결과·광고비 점검을 파일에 한 줄씩 (4.4) |
+| 기록 | 설문 결과·승인·쿠폰 결과·광고비 점검을 한 줄씩. `DB_HOST`가 있으면 PostgreSQL 표, 없으면 파일 (4.4, 11/19) |
 | 오류 모양 | FastAPI 기본: `{"detail": "한국어 문장"}`(400·404·500), 형식 오류는 `{"detail": [ … ]}`(422). 비서 화면 서버의 `{"error": {"message"}}`와 다릅니다 |
 
 ### 4.2 경로
@@ -2583,7 +2583,7 @@ const LATER = [
 | `POST /api/marketing-survey/coupon-calc` | 쿠폰 슬라이더 계산 | | |
 | `POST /api/marketing-survey/approve` | 승인. 본문 `{state, session_id, edited_texts}` | 씀 (`approved`) | |
 | `POST /api/marketing-survey/notice-followup` | 개선 인증 소식 (코드가 리뷰 수를 셈) | | |
-| `GET /api/marketing-survey/report?period=weekly\|monthly` | 마케팅 보고서. 기록이 없으면 데모 (`demo: true`) | 읽음 | |
+| `GET /api/marketing-survey/report?period=weekly\|monthly` | 마케팅 보고서. 기록이 없으면 데모 (`demo: true`). 기록을 읽지 못하면 `503` (4.4) | 읽음 | |
 | `DELETE /api/marketing-survey/records` | 그 방문자의 기록만 지움 (4.5, 11/16 새로) | 지움 | |
 | `GET /` · `/web/…` | 이 서버의 단독 화면 (통합 화면에서는 쓰지 않음) | | |
 
@@ -2598,9 +2598,16 @@ const LATER = [
   {"detail": "visitor_id 형식이 올바르지 않아요. 영문·숫자·_·- 로 1~64자여야 해요."}
   ```
 - 본문이 아니라 쿼리로 받는 이유: 비서 화면 서버가 GET·POST 모두 쿼리에 `store`·`visitor_id`를 붙여 중계하고 본문은 손대지 않기 때문입니다.
-- 쓰는 곳: `plan`·`approve`·`idea-try`는 기록을 그 방문자 파일에 쓰고, `report`는 그 방문자 파일만 읽고, `DELETE /records`는 그 파일만 지웁니다. 나머지 경로는 받아서 형식만 봅니다.
+- 쓰는 곳: `plan`·`approve`·`idea-try`는 기록을 그 방문자 자리(파일 또는 DB)에 쓰고, `report`는 그 방문자 기록만 읽고, `DELETE /records`는 그 방문자 기록만 지웁니다. 나머지 경로는 받아서 형식만 봅니다.
 
-### 4.4 기록 파일
+### 4.4 기록 (파일 또는 DB)
+
+저장 위치 (11/19): 맞춤 마케팅 서버 환경에 `DB_HOST`가 있으면 PostgreSQL의 `marketing_sessions`·`coupon_runs` 표(`db/schema.sql`, 이슈 #51 ERD §3.13), 없으면 아래 표의 파일입니다. `/health`의 `records_store`(`db` | `file`)로 보입니다. API와 응답 모양은 두 방식이 같습니다.
+
+- DB 방식에서는 방문자 id를 `visitor_id` 칸에 둡니다(ERD의 `user_id` 대신. 로그인한 사장님은 `u-<user_id>`). `visitor_id`가 없는 호출은 공용 값 `common`에 둡니다(승인 기록 표와 같은 관례). `visitor_id=common`을 직접 주면 공용과 같은 곳을 보고, `DELETE /records?visitor_id=common`은 아무것도 지우지 않습니다(`{"deleted": false}`).
+- WAS가 2대여도 같은 기록을 봅니다. 예전 파일 기록은 DB로 옮기지 않습니다.
+- DB에 닿지 못할 때: 쓰기는 건너뛰고 응답은 그대로(`session_id: null`), `report`는 데모로 바꾸지 않고 `503` `{"detail": "기록을 읽지 못했어요. 잠시 뒤 다시 해 주세요."}`, `DELETE /records`는 `500`(4.5). 파일 방식에서 기록 파일을 읽지 못할 때도 `report`는 같은 `503`입니다.
+
 
 | `visitor_id` | 파일 (`MARKETING_RECORDS_DIR`, 기본 `experiments/marketing/data/marketing/`) | 보고서 |
 |---|---|---|
@@ -2608,24 +2615,24 @@ const LATER = [
 | 없음 | `records_{store}.json` (예전과 같음. 단독 화면·시험용) | 예전과 같음 |
 
 - 줄 하나가 JSON 하나이고 칸 이름은 나중 DB 표 이름과 같습니다(`marketing_sessions`, `coupon_runs`. `records.py` 머리말).
-- 기록은 보조 기능입니다. 파일을 못 써도(`OSError`·`ValueError`) 응답은 그대로 가고 `session_id`만 `null`이 됩니다.
+- 기록은 보조 기능입니다. 파일·DB에 못 써도(`OSError`·`ValueError`, DB 오류도 `OSError`로 바뀜) 응답은 그대로 가고 `session_id`만 `null`이 됩니다.
 - 서버: `/var/lib/ic26/marketing` (`ic26` 소유). 저장소 안 기본 폴더는 `.gitignore` 대상입니다(데모 파일만 올라감).
 - 주의: 가게 id가 '다른 가게 id + `_` + 방문자 id' 꼴이면 파일 이름이 겹칩니다. 지금 가게 목록(`store_ongi` 하나)에는 없습니다.
 
 ### 4.5 `DELETE /api/marketing-survey/records` (11/16)
 
-- `?visitor_id=…`(필수) `&store=…`(선택). 그 방문자의 파일 하나만 지웁니다.
+- `?visitor_id=…`(필수) `&store=…`(선택). 그 방문자의 기록만 지웁니다(파일 방식은 그 파일 하나, DB 방식은 두 표의 그 가게·그 방문자 줄).
 
   ```json
   {"deleted": true}
   ```
-- 파일이 없으면 `{"deleted": false}` (오류 아님, `200`).
+- 기록이 없으면 `{"deleted": false}` (오류 아님, `200`).
 - `visitor_id`가 없으면 `400` (가게 공용 파일 `records_{store}.json`은 지우지 않음):
 
   ```json
   {"detail": "visitor_id 가 있어야 기록을 지울 수 있어요. 가게 공용 기록은 지우지 않아요."}
   ```
-- 데이터가 없는 가게 `404`, 파일을 지우지 못하면 `500` `{"detail": "기록을 지우지 못했어요. 잠시 뒤 다시 해 주세요."}`.
+- 데이터가 없는 가게 `404`, 기록을 지우지 못하면(파일 오류, DB에 닿지 못함) `500` `{"detail": "기록을 지우지 못했어요. 잠시 뒤 다시 해 주세요."}`.
 
 ### 4.6 `GET /health` · `GET /api/marketing-survey/health` (11/16)
 
@@ -2639,6 +2646,7 @@ const LATER = [
   "demo": true,
   "store_id": "store_ongi",
   "records_dir_writable": true,
+  "records_store": "file",
   "notes": [
     "mock: 키가 있어도 HCX 를 부르지 않아요. 글은 저장된 예시·코드 템플릿이에요(실제 AI 결과 아님)."
   ]
@@ -2652,6 +2660,7 @@ const LATER = [
 | `demo` | HCX를 부르지 않는 상태인지 (mock이거나 live인데 키 없음) |
 | `store_id` | 기본 가게 |
 | `records_dir_writable` | 기록 폴더(아직 없으면 만들 수 있는 윗폴더)에 쓸 수 있는지. 폴더 경로는 싣지 않습니다 |
+| `records_store` | 기록을 두는 곳: `db`(PostgreSQL) \| `file` (11/19). DB에 닿는지는 보지 않습니다(DB가 꺼져도 `/health`는 `200`) |
 | `notes` | 사람이 볼 안내 (live인데 키 없음, 기록 폴더에 못 씀 등) |
 
 ### 4.7 모드 (11/16)
