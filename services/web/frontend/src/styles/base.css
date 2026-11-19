@@ -1,0 +1,137 @@
+/* 바탕 규칙과 공통 부품 모양. 화면마다의 모양은 src/features/<화면>/<화면>.css */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--page); color: var(--ink);
+  font-family: var(--font); font-size: var(--fs-body); line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: anywhere;
+}
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 700; }
+h2 { font-size: var(--fs-panel); line-height: var(--lh-panel); font-weight: 700; }
+h3 { font-size: var(--fs-body); line-height: var(--lh-body); font-weight: 700; }
+a { color: var(--accent-text); }
+ul.plain, ol.plain { list-style: none; margin: 0; padding: 0; }
+.small { font-size: var(--fs-small); line-height: var(--lh-small); }
+.muted { color: var(--muted); }
+.strong { font-weight: 700; }
+.num { font-size: var(--fs-num); line-height: var(--lh-num); font-weight: 700; font-variant-numeric: tabular-nums; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+h1:focus { outline: none; }
+
+/* ── 버튼 ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; padding: 10px 18px; border-radius: var(--r-md);
+  font: 500 var(--fs-button)/1.4 var(--font); cursor: pointer; text-decoration: none;
+  border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink);
+}
+.btn:hover:not(:disabled) { background: var(--hover); }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn.danger { color: var(--bad); border-color: #f0c4c4; }
+.btn.text { border-color: transparent; background: transparent; color: var(--accent-text); padding: 6px 8px; min-height: 36px; }
+.btn.small { min-height: 36px; padding: 6px 12px; font-size: var(--fs-small); }
+.btn.big { min-height: 52px; padding: 14px 24px; font-size: var(--fs-body); }
+.btn-row { display: flex; flex-wrap: wrap; gap: var(--s-8); align-items: center; }
+
+/* ── 패널·카드 ── */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: var(--s-24); }
+.panel > * + * { margin-top: var(--s-16); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-12); flex-wrap: wrap; }
+.panel-head .sub { color: var(--muted); font-size: var(--fs-small); }
+.inset { background: var(--surface); border-radius: var(--r-md); padding: var(--s-16); }
+
+/* ── 배지 ── */
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: var(--r-full); background: var(--chip); color: var(--ink-2); font-size: var(--fs-small); line-height: 1.6; font-weight: 500; white-space: nowrap; }
+.badge.ok { background: var(--ok-bg); color: var(--ok); }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.badge.bad { background: var(--bad-bg); color: var(--bad); }
+.badge.brand { background: var(--brand-soft); color: var(--accent-text); }
+
+/* ── 알림 띠 ── */
+.notice { border-radius: var(--r-md); padding: var(--s-12) var(--s-16); font-size: var(--fs-small); background: var(--surface); color: var(--ink-2); display: flex; gap: var(--s-12); align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.notice.warn { background: var(--warn-bg); color: var(--warn); }
+.notice.bad { background: var(--bad-bg); color: var(--bad); }
+.notice.ok { background: var(--ok-bg); color: var(--ok); }
+.notice.brand { background: var(--brand-soft); color: var(--green-800); }
+
+/* ── 숫자 타일 ── */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s-16); }
+.tile { border-radius: var(--r-lg); padding: var(--s-20); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile .tile-label { font-size: var(--fs-small); color: var(--ink-2); font-weight: 500; }
+.tile .tile-sub { font-size: var(--fs-small); color: var(--muted); }
+.tile .tile-change { font-size: var(--fs-small); color: var(--accent-text); font-weight: 500; }
+.tile.tint-green { background: var(--tint-green-bg); border-color: transparent; box-shadow: none; --tint: var(--tint-green); }
+.tile.tint-mint { background: var(--tint-mint-bg); border-color: transparent; box-shadow: none; --tint: var(--tint-mint); }
+.tile.tint-lime { background: var(--tint-lime-bg); border-color: transparent; box-shadow: none; --tint: var(--tint-lime); }
+.tile.tint-sage { background: var(--tint-sage-bg); border-color: transparent; box-shadow: none; --tint: var(--tint-sage); }
+
+/* ── 아이콘 자리 (Figma 04 에셋의 자리 부품. 에셋을 받으면 Icon 안의 그림만 바꾼다) ── */
+.icon-circle { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-full); background: var(--tint, var(--accent)); color: #fff; flex: none; }
+.icon-circle.soft { background: var(--tint-bg, var(--brand-soft)); color: var(--tint, var(--accent-text)); }
+.icon { width: 18px; height: 18px; flex: none; }
+
+/* ── 주제 막대 ── */
+.topic-bar { display: grid; gap: 6px; }
+.topic-bar .tb-line { display: flex; justify-content: space-between; gap: var(--s-12); }
+.topic-bar .tb-value { font-size: var(--fs-small); color: var(--muted); white-space: nowrap; }
+.topic-bar .tb-track { height: 8px; border-radius: var(--r-full); background: var(--chip); overflow: hidden; }
+.topic-bar .tb-fill { display: block; height: 100%; border-radius: var(--r-full); background: var(--green-500); }
+.topic-bar.complaint .tb-fill { background: var(--bad); }
+.topic-bar.hot .tb-fill { background: var(--hot); }
+
+/* ── 기능 카드 ── */
+.feature-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--s-16); }
+.feature-card { text-align: left; display: flex; flex-direction: column; gap: var(--s-12); padding: var(--s-20); border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow-card); cursor: pointer; font: inherit; color: inherit; }
+.feature-card:hover:not(:disabled) { border-color: var(--green-300); }
+.feature-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+.feature-card .fc-title { font-weight: 700; }
+.feature-card .fc-desc { font-size: var(--fs-small); color: var(--muted); }
+
+/* ── 탭 ── */
+.tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: var(--r-md); background: var(--chip); flex-wrap: wrap; }
+.tabs [role="tab"] { border: 0; background: transparent; padding: 8px 16px; border-radius: var(--r-sm); font: 500 var(--fs-button)/1.4 var(--font); color: var(--ink-2); cursor: pointer; min-height: 40px; }
+.tabs [role="tab"][aria-selected="true"] { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+/* ── 입력 ── */
+.field { display: grid; gap: 6px; font-size: var(--fs-small); font-weight: 500; color: var(--ink-2); }
+.field input, .field select, .field textarea, input.input, select.input, textarea.input {
+  font: 400 var(--fs-body)/1.5 var(--font); color: var(--ink); background: var(--panel);
+  border: 1px solid var(--field-line); border-radius: var(--r-md); padding: 10px 12px; min-height: 44px; width: 100%;
+}
+.field textarea, textarea.input { min-height: 120px; resize: vertical; }
+
+/* ── 빈 안내 ── */
+.empty { text-align: center; display: grid; justify-items: center; gap: var(--s-12); padding: var(--s-40) var(--s-24); }
+.empty .empty-art { width: 160px; height: 120px; border-radius: var(--r-md); border: 1px dashed var(--line-strong); display: grid; place-items: center; color: var(--muted); font-size: var(--fs-small); }
+
+/* ── 화면 머리 ── */
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--s-16); flex-wrap: wrap; }
+.page-head .ph-text { display: grid; gap: 8px; }
+.owner-chip { justify-self: start; display: inline-flex; gap: 6px; align-items: center; padding: 3px 10px; border-radius: var(--r-full); background: var(--brand-soft); color: var(--accent-text); font-size: var(--fs-small); font-weight: 500; }
+.page-head .ph-sub { color: var(--muted); }
+
+/* ── 상태 점 ── */
+.dot { width: 8px; height: 8px; border-radius: var(--r-full); background: var(--bar); display: inline-block; flex: none; }
+.dot.ok { background: var(--brand); }
+.dot.warn { background: var(--warn-dot); }
+.dot.bad { background: var(--bad); }
+
+/* ── 대화상자 ── */
+dialog.dialog { border: 0; border-radius: var(--r-lg); padding: 0; width: min(480px, calc(100vw - 32px)); box-shadow: var(--shadow-over); color: var(--ink); }
+dialog.dialog::backdrop { background: var(--scrim); }
+dialog.dialog .dlg-body { padding: var(--s-32); display: grid; gap: var(--s-16); }
+dialog.dialog .dlg-head { display: flex; justify-content: space-between; align-items: center; gap: var(--s-12); }
+
+/* 줄 간격 도우미 */
+.stack { display: grid; gap: var(--s-24); }
+.stack-16 { display: grid; gap: var(--s-16); }
+.stack-8 { display: grid; gap: var(--s-8); }
+.row { display: flex; gap: var(--s-16); flex-wrap: wrap; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-16); }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-16); }
+@media (max-width: 900px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }

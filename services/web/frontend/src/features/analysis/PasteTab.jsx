@@ -1,0 +1,120 @@
+// 리뷰 넣기 탭: 리뷰 붙여넣기(+ 분류 결과) · 캡처로 넣기. 예전 paste·resetPaste·renderPasteResult
+// 붙여넣기는 POST /api/reviews → 결과(감정·주제·들어간 묶음)를 보이고, 홈 숫자·추천 카드·요약·묶음을 모두 다시 불러온다 (refresh)
+import { Button, Panel } from "../../components/ui.jsx";
+import { api } from "../../lib/api.js";
+import { getState, setState, useStore } from "../../state/store.js";
+import { refresh } from "../../state/boot.js";
+import { CHANNELS, PASTE_SAMPLES, RATINGS, SENTIMENT_NAMES, pasteJoin, topicName } from "./calc.js";
+import { getMod, setPaste, showTab, useMod } from "./state.js";
+import Capture from "./Capture.jsx";
+
+const focusText = () => document.getElementById("paste-text")?.focus();
+
+async function paste() {
+  const p = getMod().paste;
+  const text = p.text.trim();
+  if (!text) { setPaste({ msg: "리뷰 글을 넣어 주세요." }); focusText(); return; }
+  const ep = getState().epoch, alive = () => getState().epoch === ep;   // 그 사이 가게가 바뀌면 옛 가게 결과를 버린다
+  const body = { text, rating: p.rating ? Number(p.rating) : null };
+  if (p.channel) body.channel = p.channel;   // 고른 경우만 (안 고르면 예전과 같은 본문)
+  setPaste({ busy: true, msg: "분류하는 중…" });
+  try {
+    const r = await api("/api/reviews", { method: "POST", body: JSON.stringify(body) });
+    if (!alive()) return;
+    setState({ joined: r.joined_issues || [] });
+    setPaste({ result: r, text: "", rating: "", msg: "붙여 넣었어요. 홈 숫자와 추천 카드도 다시 불러와요…" });
+    await refresh();   // 홈 숫자 · 추천 카드 · 리뷰 분석(요약·묶음)을 모두 새로
+    if (alive()) setPaste({ msg: "붙여 넣었어요. 홈 숫자, 추천 카드, 요약, 불만 묶음에 반영했어요." });
+  } catch (e) { if (alive()) setPaste({ msg: e.message }); }
+  finally { if (alive()) setPaste({ busy: false }); }
+}
+
+async function resetPaste() {
+  const ep = getState().epoch, alive = () => getState().epoch === ep;
+  setPaste({ resetBusy: true });
+  try {
+    const r = await api("/api/reviews/pasted", { method: "DELETE" });
+    if (!alive()) return;
+    setState({ joined: [] });
+    setPaste({ result: null });
+    await refresh();
+    if (alive()) setPaste({ msg: `붙여넣은 리뷰${Number.isFinite(r.deleted) ? ` ${r.deleted}건` : ""}을 지웠어요. 홈 숫자와 추천 카드도 다시 불러왔어요.` });
+  } catch (e) { if (alive()) setPaste({ msg: e.message }); }
+  finally { if (alive()) setPaste({ resetBusy: false }); }
+}
+
+function PasteResult({ r }) {
+  const insightGroups = useStore((s) => s.insight?.groups);
+  if (!r) return <p className="muted an-result-empty">분류하면 감정·주제·근거 문장이 여기 보여요.</p>;
+  const c = r.classification || {};
+  const topics = c.topics || [];
+  const { joined, negative } = pasteJoin(r, insightGroups);
+  const sub = `${r.review?.review_id || ""}${c.method ? ` · 분류 방식 ${c.method}` : ""}${r.review?.pii_masked ? " · 개인정보 가림" : ""}`;
+  return (
+    <>
+      {sub && <p className="small muted">{sub}</p>}
+      <p className="an-rv-text">{r.review?.text || ""}</p>
+      <p className="small">감정 <b>{SENTIMENT_NAMES[c.sentiment] || c.sentiment || "?"}</b></p>
+      <div className="an-chips">
+        {topics.length
+          ? topics.map((t, i) => (
+            <span key={`${t.topic}-${i}`} className={`an-chip ${t.polarity === "negative" ? "neg" : "pos"}`}>
+              {t.polarity === "negative" ? "불만" : "칭찬"} · {topicName(t.topic)}{t.evidence ? ` “${t.evidence}”` : ""}
+            </span>))
+          : <span className="small muted">찾은 주제가 없어요.</span>}
+      </div>
+      <p className="small an-joined">
+        {joined.length
+          ? <>→ 불만 묶음에 들어갔어요: <b>{joined.join(", ")}</b> <Button size="small" onClick={() => showTab("issues", true)}>불만 묶음 보기</Button></>
+          : negative ? "→ 아직 어느 묶음에도 들지 않았어요 (같은 불만이 2건 이상이면 묶여요)." : "→ 불만 주제가 없어 묶음에는 들지 않아요."}
+      </p>
+      {(c.warnings || []).length > 0 && <ul className="an-warns">{c.warnings.map((w, i) => <li key={i}>검증: {w}</li>)}</ul>}
+    </>
+  );
+}
+
+export default function PasteTab() {
+  const p = useMod((m) => m.paste);
+  return (
+    <div className="stack">
+      <div className="grid-2 an-paste-grid">
+        <Panel title="리뷰 붙여넣기" titleId="an-paste-title">
+          <div className="field">
+            <label htmlFor="paste-text"><b>리뷰 글</b> <span className="muted">· 전화번호·이메일·링크는 저장 전에 가려요.</span></label>
+            <textarea id="paste-text" className="input" rows={4} maxLength={1000} placeholder="배달앱에서 받은 리뷰 글을 붙여넣으세요."
+              value={p.text} onChange={(e) => setPaste({ text: e.target.value })} />
+          </div>
+          <div className="grid-2 an-paste-opts">
+            <label className="field" htmlFor="paste-channel">채널
+              <select id="paste-channel" className="input" value={p.channel} onChange={(e) => setPaste({ channel: e.target.value })}>
+                {CHANNELS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+              </select>
+            </label>
+            <label className="field" htmlFor="paste-rating">별점
+              <select id="paste-rating" className="input" value={p.rating} onChange={(e) => setPaste({ rating: e.target.value })}>
+                {RATINGS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="btn-row an-samples">
+            <span className="small muted">예시:</span>
+            {PASTE_SAMPLES.map((s, i) => (
+              <Button key={i} size="small" title={s.text} onClick={() => { setPaste({ text: s.text, rating: String(s.rating) }); focusText(); }}>
+                {s.text.slice(0, 16)}…
+              </Button>
+            ))}
+          </div>
+          <div className="btn-row">
+            <Button variant="primary" onClick={paste} disabled={p.busy}>분류하기</Button>
+            <Button onClick={resetPaste} disabled={p.resetBusy}>붙여넣은 리뷰 지우기</Button>
+          </div>
+          <p className="small muted an-msg" role="status">{p.msg}</p>
+        </Panel>
+        <Panel title="분류 결과" titleId="an-result-title" className="an-result">
+          <PasteResult r={p.result} />
+        </Panel>
+      </div>
+      <Capture />
+    </div>
+  );
+}

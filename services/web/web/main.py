@@ -32,6 +32,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -57,6 +58,7 @@ from .settings import Settings
 from .stores import StoreHub
 
 STATIC = Path(__file__).resolve().parent / "static"
+ASSET_PREFIXES = ("/static/", "/assets/")   # 예전 화면 파일, React 빌드 파일
 VISITOR_COOKIE = "visitor_id"
 VISITOR_COOKIE_SECONDS = 60 * 60 * 24 * 30   # 30일
 log = logging.getLogger("web.main")
@@ -135,7 +137,7 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
         found = visitor_from_cookie(request.cookies.get(VISITOR_COOKIE))
         guest = found or new_visitor_id()
         request.state.guest_visitor_id = guest
-        if request.url.path.startswith("/static/"):
+        if request.url.path.startswith(ASSET_PREFIXES):   # 화면 파일은 로그인 세션을 볼 필요가 없다
             who = auth.guest(guest)
         else:
             who = await run_in_threadpool(auth.resolve, request.cookies.get(SESSION_COOKIE), guest)
@@ -143,7 +145,7 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
         request.state.visitor_id = who.visitor_id
         request.state.store_id = who.store_id if hub.known(who.store_id) else demo.s.store_id
         response = await call_next(request)
-        if found is None and not request.url.path.startswith("/static/"):
+        if found is None and not request.url.path.startswith(ASSET_PREFIXES):
             secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"
             response.set_cookie(VISITOR_COOKIE, guest, max_age=VISITOR_COOKIE_SECONDS, path="/",
                                 httponly=True, samesite="lax", secure=secure)
@@ -234,10 +236,28 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     for router in create_care_routers(care, proxy_of=lambda request: hub.care(sid(request))):
         app.include_router(router)
 
+    # 화면 파일: 기본은 예전 화면(web/static). WEB_FRONTEND_DIST 에 React 빌드 폴더(services/web/frontend/dist)를 주면
+    # / 는 그 폴더의 index.html, /assets/* 는 빌드 결과를 준다 (예전 /static/* 도 그대로 둔다)
+    frontend = react_dist()
+
     @app.get("/")
     def page():
-        return FileResponse(STATIC / "index.html")
+        return FileResponse((frontend or STATIC) / "index.html")
 
+    if frontend and (frontend / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=frontend / "assets"), name="assets")
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
+
+
+def react_dist() -> Path | None:
+    """WEB_FRONTEND_DIST 가 가리키는 React 빌드 폴더. 비었거나 index.html 이 없으면 None (예전 화면을 준다)."""
+    raw = os.environ.get("WEB_FRONTEND_DIST", "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser().resolve()
+    if not (path / "index.html").is_file():
+        log.warning("WEB_FRONTEND_DIST 에 index.html 이 없어 예전 화면을 줍니다 (%s). services/web/frontend 에서 npm run build 를 먼저 하세요.", path)
+        return None
+    return path
 # 실행: uvicorn web.main:create_app --factory  (import 할 때 앱을 만들지 않아 시험에서 가짜 데이터를 넣을 수 있음)

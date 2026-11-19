@@ -1,0 +1,157 @@
+/* 맞춤 마케팅 (#/marketing): 첫 질문은 기능 카드 격자, 질문이 진행되면 두 칸(질문 · 제안 결과), 900px 이하면 위아래.
+   색은 tokens.css 변수만 쓴다. 넓은 광고비 표는 그 칸 안에서만 옆으로 밀린다 */
+.mkt { word-break: keep-all; overflow-wrap: break-word; }
+.mkt [role="tabpanel"]:focus-visible { outline-offset: 4px; }
+.mkt-state > * + * { margin-top: var(--s-12); }
+
+/* 두 칸 */
+.mkt-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: var(--s-16); align-items: start; }
+@media (max-width: 900px) { .mkt-split { grid-template-columns: 1fr; } }
+.mkt-ask, .mkt-results, .mkt-start { min-width: 0; }
+.mkt-cards { display: grid; gap: var(--s-16); }
+.mkt-modes { margin-top: var(--s-4); }
+.mkt-modes .feature-card[aria-disabled="true"] { opacity: .6; cursor: progress; }
+
+/* 대화: 사장님 답 = 오른쪽 연한 말풍선, 비서 = 면 없이 글만 */
+.mkt-log { display: grid; gap: var(--s-12); }
+.mkt-log:empty { display: none; }
+.mkt-msg { min-width: 0; }
+.mkt-msg.bot p { white-space: pre-line; }
+.mkt-msg.user { justify-self: end; max-width: 85%; }
+.mkt-bubble { padding: 8px 14px; border-radius: 18px; background: var(--brand-soft); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.mkt-sub, .mkt-example { margin-top: -6px; color: var(--muted); font-size: var(--fs-small); }
+
+/* 진행 (role=status): 깜박이는 점 + 글 + 걸린 초 · 오류 (role=alert): 이 화면 안에서만 */
+.mkt-status { color: var(--muted); font-size: var(--fs-small); }
+.mkt-status:empty { display: none; }
+.mkt-status.busy { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.mkt-status.busy::before { content: ""; flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); animation: mkt-pulse 1.2s ease-in-out infinite; }
+@keyframes mkt-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mkt-status.busy::before { animation: none; } }
+.mkt-sec { font-variant-numeric: tabular-nums; }
+.mkt-error { padding: 8px 12px; border-radius: var(--r-md); background: var(--bad-bg); color: var(--bad); font-size: var(--fs-small); font-weight: 500; }
+.mkt-error:empty { display: none; }
+
+/* 답 고르기 칸: 보기 칩(여러 개 고르기는 ✓) · 입력 상자 */
+.mkt-options { display: grid; gap: 10px; }
+.mkt-options:empty { display: none; }
+.mkt-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.mkt-chip { min-height: 40px; padding: 6px 14px; border-radius: var(--r-full); border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink);
+  font: 500 var(--fs-small)/1.4 var(--font); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.mkt-chip:hover:not(:disabled) { background: var(--hover); border-color: var(--green-300); }
+.mkt-chip:disabled { opacity: .55; cursor: not-allowed; }
+.mkt-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--brand-soft); color: var(--accent-text); font-weight: 700; box-shadow: inset 0 0 0 1px var(--accent); }
+.mkt-chip[aria-pressed="true"]::before { content: "✓"; font-weight: 700; }
+.mkt-input { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 4px 4px 16px; border: 1px solid var(--field-line); border-radius: var(--r-full); background: var(--panel); }
+.mkt-input:focus-within, .mkt-free:focus-within, .mkt-draft:focus-within { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+.mkt-input input { flex: 1 1 auto; min-width: 0; height: 40px; padding: 0; border: 0; background: transparent; color: var(--ink); font: 400 var(--fs-body)/1.5 var(--font); }
+.mkt-input input:focus, .mkt-free textarea:focus, .mkt-draft textarea:focus { outline: none; }   /* 포커스는 상자 테두리와 링으로 보임 */
+.mkt-input .btn { border-radius: var(--r-full); }
+.mkt-unit { flex: 0 0 auto; color: var(--ink-2); font-size: var(--fs-small); }
+.mkt-free { padding: 12px 12px 8px 16px; border: 1px solid var(--field-line); border-radius: var(--r-lg); background: var(--panel); }
+.mkt-free textarea { display: block; width: 100%; min-height: 84px; padding: 0; border: 0; background: transparent; color: var(--ink); font: 400 var(--fs-body)/1.6 var(--font); resize: vertical; }
+.mkt-free-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.mkt-input-err { color: var(--bad); font-size: var(--fs-small); font-weight: 500; }
+.mkt-input-err:empty { display: none; }
+.mkt-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-12); padding-top: var(--s-16); border-top: 1px solid var(--line); }
+
+/* 결과 카드 */
+.mkt-card { display: grid; gap: 14px; min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); }
+.mkt-card > * { min-width: 0; }
+.mkt-card.approved { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); }
+.mkt-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.mkt-card-head h3 { margin-right: 6px; font-size: var(--fs-panel); line-height: var(--lh-panel); }
+.mkt-card-head h3:focus { outline: none; }
+.mkt-card-head .badge { white-space: normal; }
+.mkt-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr)); gap: 8px; margin: 0; }
+.mkt-tiles > div { min-width: 0; padding: 10px 12px; border-radius: var(--r-md); background: var(--tint-green-bg); overflow-wrap: anywhere; }
+.mkt-tiles dt { color: var(--ink-2); font-size: var(--fs-small); font-weight: 500; }
+.mkt-tiles dd { margin: 2px 0 0; font-size: var(--fs-panel); font-weight: 700; font-variant-numeric: tabular-nums; }
+.mkt-why { padding: 12px 16px; border-radius: var(--r-md); background: var(--surface); display: grid; gap: 4px; }
+.mkt-why-title { color: var(--ink-2); font-size: var(--fs-small); font-weight: 700; }
+.mkt-why ul { margin: 0; padding-left: 18px; }
+.mkt-warn, .mkt-demo { padding: 8px 12px; border-radius: var(--r-md); font-size: var(--fs-small); }
+.mkt-warn { background: var(--warn-bg); color: var(--warn); }
+.mkt-demo { background: var(--warn-bg); color: var(--warn); font-weight: 500; }
+.mkt-line b { font-variant-numeric: tabular-nums; }
+.mkt-todo-head { font-weight: 700; }
+.mkt-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.mkt-step { display: grid; gap: 8px; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.mkt-step-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.mkt-step-n { display: inline-grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%; background: var(--brand-soft);
+  color: var(--accent-text); font-size: var(--fs-small); font-weight: 700; font-variant-numeric: tabular-nums; }
+.mkt-step-top b { flex: 1 1 160px; min-width: 0; }
+.mkt-step-meta { color: var(--muted); font-size: var(--fs-small); }
+.mkt-tip { color: var(--ink-2); }
+.mkt-list { margin: 0; padding-left: 18px; }
+.mkt-box { display: grid; gap: 8px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.mkt-box.dashed { border-style: dashed; border-color: var(--line-strong); }
+.mkt-box-title { font-weight: 700; }
+.mkt-measure { display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: var(--fs-small); }
+.mkt-card-actions { padding-top: 4px; }
+.mkt-card-msg { color: var(--ink-2); }
+.mkt-card-msg:empty { display: none; }
+.mkt-card-msg.bad { color: var(--bad); font-weight: 500; }
+.mkt-follow { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+/* 글 상자: 바로 고칠 수 있는 칸 */
+.mkt-draft { display: grid; gap: 6px; min-width: 0; padding: 12px 16px 10px; border: 1px solid var(--field-line); border-radius: var(--r-md); background: var(--panel); }
+.mkt-draft-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.mkt-draft-head label { color: var(--muted); font-size: var(--fs-small); font-weight: 700; }
+.mkt-draft textarea { display: block; width: 100%; min-height: 110px; padding: 0; border: 0; background: transparent; color: var(--ink);
+  font: 400 var(--fs-body)/1.7 var(--font); resize: vertical; }
+.mkt-draft textarea[readonly] { color: var(--ink-2); }
+.mkt-card.approved .mkt-draft { border-color: var(--ok); }
+.mkt-fail { margin: 0; padding: 8px 12px 8px 28px; border-radius: var(--r-sm); background: var(--bad-bg); color: var(--bad); font-size: var(--fs-small); }
+
+/* 쿠폰 카드와 슬라이더 */
+.mkt-coupon { display: grid; gap: 10px; padding: 14px 16px; border: 1px dashed var(--line-strong); border-radius: var(--r-md); }
+.mkt-coupon-title { font-size: 17px; font-weight: 700; }
+.mkt-kv { display: grid; gap: 4px; margin: 0; font-size: var(--fs-small); }
+.mkt-kv > div { display: grid; grid-template-columns: 6em minmax(0, 1fr); gap: 14px; }
+.mkt-kv dt { color: var(--muted); }
+.mkt-kv dd { margin: 0; }
+.mkt-calc { display: grid; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.mkt-slider label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: var(--fs-small); font-weight: 700; }
+.mkt-slider output { font-variant-numeric: tabular-nums; color: var(--accent-text); }
+.mkt-slider input[type="range"] { display: block; width: 100%; margin: 8px 0 2px; accent-color: var(--accent); }
+.mkt-minmax { display: flex; justify-content: space-between; gap: 8px; }
+.mkt-budget p { margin-top: 6px; }
+
+/* 광고비 표·막대 (표는 이 칸 안에서만 옆으로 밀림) */
+.mkt-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-md); }
+.mkt-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: var(--fs-small); }
+.mkt-table th, .mkt-table td { padding: 8px 10px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.mkt-table thead th { border-top: 0; background: var(--surface); color: var(--muted); font-weight: 700; white-space: nowrap; }
+.mkt-table .r { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mkt-bars { display: grid; gap: 12px; }
+.mkt-bar-row { display: grid; gap: 4px; min-width: 0; }
+.mkt-bar-name { font-size: var(--fs-small); font-weight: 700; }
+.mkt-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.mkt-bar .small { color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mkt-bar-track { display: block; height: 8px; border-radius: var(--r-full); background: var(--chip); overflow: hidden; }
+.mkt-bar-track i { display: block; height: 100%; border-radius: var(--r-full); background: var(--bar-strong); }
+.mkt-bar-track i.bad { background: var(--hot); }
+.mkt-bar-track i.warn { background: var(--warn-dot); }
+.mkt-bar-track i.ok { background: var(--brand); }
+.mkt-bar-track i.profit { background: var(--accent); }
+
+/* 추천 아이디어 */
+.mkt-idea { display: grid; gap: 8px; padding: 14px 16px; border-radius: var(--r-md); background: var(--tint-mint-bg); }
+.mkt-idea-tag { display: inline-flex; align-items: center; gap: 6px; color: var(--tint-mint); font-size: var(--fs-small); font-weight: 700; }
+.mkt-idea-tag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.mkt-idea h4 { margin: 0; font-size: var(--fs-body); font-weight: 700; }
+.mkt-idea h4:focus { outline: none; }
+.mkt-idea-why { color: var(--ink-2); }
+.mkt-idea-msg:empty { display: none; }
+.mkt-q { display: grid; gap: 8px; }
+
+/* 마케팅 보고서 */
+.mkt-report-state { color: var(--muted); font-size: var(--fs-small); }
+.mkt-report-state:empty { display: none; }
+.mkt-report-state.bad { padding: 8px 12px; border-radius: var(--r-md); background: var(--bad-bg); color: var(--bad); font-weight: 500; }
+
+@media (max-width: 499px) {
+  .mkt-card { padding: 16px; }
+  .mkt-msg.user { max-width: 92%; }
+}

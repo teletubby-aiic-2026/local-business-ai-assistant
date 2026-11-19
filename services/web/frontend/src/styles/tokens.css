@@ -1,0 +1,66 @@
+/* 디자인 토큰: Figma 파일 '부여 AI'의 변수 모음 '토큰'과 글자 스타일 (2026-11-19 가독성 개선판)
+   - 바탕은 회색(--page), 패널·카드는 흰색 + 옅은 그림자. 포인트 색은 초록 하나(단계 50~900)와 초록 계열 타일 색 4쌍.
+   - 대비(WCAG AA): 본문 글자 4.5:1 이상. --muted #5A5E66 은 흰 바탕 6.4, --page 위 5.9. */
+:root {
+  color-scheme: light;
+  --page: #f3f5f7;
+  --bg: #ffffff;
+  --side: #ffffff;
+  --panel: #ffffff;
+  --surface: #f7f7f8;
+  --chip: #f0f1f3;
+  --hover: #f1f3f5;
+  --active: #e7e7e9;
+  --wire: #e6e8eb;
+
+  --ink: #111111;
+  --ink-2: #3f4147;
+  --muted: #5a5e66;
+  --line: #eaecef;
+  --line-strong: #d9dce1;
+  --field-line: #8a8e95;
+
+  --accent: #00843d;        /* 주 버튼·현재 메뉴 바탕 (흰 글자 4.81) */
+  --accent-hover: #007a38;
+  --accent-ink: #ffffff;
+  --accent-text: #00843d;   /* 초록 글자 */
+  --brand: #03c75a;         /* 점·막대에만 (글자에는 쓰지 않음) */
+  --brand-soft: #e8f9f0;
+  --focus: #009f47;
+
+  --green-50: #eefbf3; --green-100: #d3f5e1; --green-200: #a8ebc4; --green-300: #6edb9e; --green-400: #34cf79;
+  --green-500: #03c75a; --green-600: #02a84c; --green-700: #00843d; --green-800: #0b6633; --green-900: #0e4a28;
+
+  /* 숫자 타일·기능 카드의 초록 계열 (바탕 + 아이콘 원). 아이콘 원 위에는 흰 아이콘 */
+  --tint-green-bg: #e8f9f0; --tint-green: #00843d;
+  --tint-mint-bg: #e4f6f2;  --tint-mint: #0e8c7a;
+  --tint-lime-bg: #f0f7e3;  --tint-lime: #4f8a17;
+  --tint-sage-bg: #edf2ea;  --tint-sage: #4e6e40;
+
+  --ok: #007a38; --ok-bg: #e8f9f0;
+  --warn: #8a5300; --warn-bg: #fff6e5; --warn-dot: #e8a33a;
+  --bad: #c62828; --bad-bg: #fef1f1;
+  --hot: #e5484d;
+  --bar: #d0d3d8; --bar-strong: #a9aeb6;
+  --scrim: rgba(0, 0, 0, .32);
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 41, .04), 0 4px 16px rgba(15, 23, 41, .06);
+  --shadow-over: 0 8px 32px rgba(15, 23, 41, .16);
+
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-full: 999px;
+  --s-4: 4px; --s-8: 8px; --s-12: 12px; --s-16: 16px; --s-20: 20px; --s-24: 24px; --s-32: 32px; --s-40: 40px;
+
+  /* 글자 (Figma 글자 스타일) */
+  --font: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+  --fs-title: 28px;  --lh-title: 1.3;    /* 제목/화면 제목 Bold */
+  --fs-panel: 20px;  --lh-panel: 1.4;    /* 제목/패널 제목 Bold */
+  --fs-body: 16px;   --lh-body: 1.6;     /* 본문/기본 · 본문/강조(Bold) */
+  --fs-small: 14px;  --lh-small: 1.5;    /* 보조/작게 */
+  --fs-num: 32px;    --lh-num: 1.2;      /* 숫자/큰 숫자 Bold */
+  --fs-button: 15px;                     /* 버튼/글자 Medium */
+
+  --side-w: 260px;
+  --top-h: 72px;
+  --drawer-w: 400px;
+  --col: 880px; --col-wide: 1040px; --col-narrow: 720px;
+}

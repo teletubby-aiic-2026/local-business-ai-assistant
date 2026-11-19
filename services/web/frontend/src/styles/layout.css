@@ -1,0 +1,81 @@
+/* 화면 틀: 왼쪽 메뉴(260, 흰색) + 상단 바 + 회색 본문 + 오른쪽 서랍(400)
+   1025px 이상: 메뉴 고정(상단 바 버튼으로 접기, 접은 상태는 localStorage 'ic26.menu')
+   761~1024px: 메뉴는 접힌 채 시작하고, 펼치면 본문 위에 덮임
+   760px 이하: 메뉴는 상단 바 아래 가로줄, 서랍은 아래에서 올라오는 시트 */
+.app { min-height: 100vh; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); }
+.app.menu-closed { grid-template-columns: 0 minmax(0, 1fr); }
+
+.side {
+  position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--side);
+  border-right: 1px solid var(--line); padding: 20px 16px; display: flex; flex-direction: column; gap: 2px;
+}
+.app.menu-closed .side { display: none; }
+.side .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; color: var(--ink); text-decoration: none; font-size: var(--fs-panel); font-weight: 700; }
+.logo-slot { width: 32px; height: 32px; border-radius: var(--r-sm); background: var(--brand); color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 700; flex: none; }
+.side .group { padding: 20px 14px 6px; font-size: var(--fs-small); color: var(--muted); font-weight: 500; }
+.side .menu-item {
+  display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 10px 14px; border-radius: var(--r-md);
+  color: var(--ink-2); text-decoration: none; font-size: var(--fs-body);
+}
+.side .menu-item:hover { background: var(--hover); }
+.side .menu-item[aria-current="page"] { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.side .menu-item .count { margin-left: auto; min-width: 24px; padding: 0 8px; border-radius: var(--r-full); background: var(--bad); color: #fff; font-size: 13px; line-height: 22px; text-align: center; font-weight: 700; }
+.side .menu-item[aria-current="page"] .count { background: #fff; color: var(--accent-text); }
+.side .spacer { flex: 1; min-height: 16px; }
+.side .account { display: flex; gap: 12px; align-items: center; border-top: 1px solid var(--line); padding: 16px 8px 0; }
+.side .account .face { width: 36px; height: 36px; border-radius: var(--r-full); background: var(--brand-soft); color: var(--accent-text); display: grid; place-items: center; font-weight: 700; flex: none; }
+.side .account .who { display: grid; min-width: 0; }
+.side .account .who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side .account .btn.text { justify-self: start; padding: 0; min-height: 24px; font-size: var(--fs-small); }
+
+.main { min-width: 0; display: flex; flex-direction: column; }
+.top {
+  position: sticky; top: 0; z-index: 20; min-height: var(--top-h); background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 32px; flex-wrap: wrap;
+}
+.top .top-left, .top .top-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.menu-toggle { width: 44px; padding: 0; }
+.store-pick { display: flex; align-items: center; gap: 12px; padding: 6px 12px 6px 14px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--panel); }
+.store-pick .sp-text { display: grid; line-height: 1.4; }
+.store-pick .sp-name { font-weight: 700; }
+.store-pick .sp-sub { font-size: var(--fs-small); color: var(--muted); }
+.store-pick select { border: 0; background: transparent; font: 500 var(--fs-small)/1.4 var(--font); color: var(--accent-text); cursor: pointer; padding: 4px; }
+
+.mode-band { background: var(--warn-bg); color: var(--warn); font-size: var(--fs-small); padding: 8px 32px; }
+.content { flex: 1; padding: 32px; display: grid; justify-items: center; align-content: start; gap: 24px; }
+.col { width: min(100%, var(--col)); display: grid; gap: 24px; }
+.col.wide { width: min(100%, var(--col-wide)); }
+.col.narrow { width: min(100%, var(--col-narrow)); }
+.honesty { width: min(100%, var(--col-wide)); display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: var(--fs-small); padding: 8px 0 24px; }
+
+/* 서랍 */
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: var(--drawer-w); z-index: 40; background: var(--panel);
+  border-left: 1px solid var(--line); box-shadow: var(--shadow-over); display: flex; flex-direction: column;
+}
+@media (min-width: 1280px) { .app.drawer-open .main { margin-right: var(--drawer-w); } .app.drawer-open .drawer { box-shadow: none; } }
+
+@media (max-width: 1024px) and (min-width: 761px) {
+  .app { grid-template-columns: 0 minmax(0, 1fr); }
+  .app .side { display: none; }
+  .app.menu-over .side { display: flex; position: fixed; left: 0; top: 0; z-index: 50; width: var(--side-w); box-shadow: var(--shadow-over); }
+  .app.menu-over::after { content: ""; position: fixed; inset: 0; background: var(--scrim); z-index: 45; }
+}
+@media (max-width: 760px) {
+  .app, .app.menu-closed { grid-template-columns: 1fr; }
+  .app .side, .app.menu-closed .side { display: flex; position: sticky; top: 0; z-index: 30; height: auto; flex-direction: row; overflow-x: auto; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); gap: 4px; }
+  .side .brand, .side .group, .side .spacer, .side .account { display: none; }
+  .side > [role="group"] { display: contents; }   /* 묶음을 풀어 한 줄 가로 메뉴로 */
+  .side .menu-item { white-space: nowrap; min-height: 40px; padding: 8px 12px; }
+  .menu-toggle { display: none; }
+  .top { padding: 12px 16px; position: static; }
+  .content { padding: 20px 16px; }
+  .mode-band { padding: 8px 16px; }
+  .drawer { top: auto; height: 85vh; width: 100%; border-left: 0; border-top: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+}
+@media print {
+  .side, .top, .drawer, .honesty, .mode-band { display: none !important; }
+  .app { display: block; }
+  body { background: #fff; }
+  .panel, .tile { box-shadow: none; }
+}

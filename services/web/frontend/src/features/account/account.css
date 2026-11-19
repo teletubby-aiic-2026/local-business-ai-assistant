@@ -1,0 +1,47 @@
+/* 로그인·회원가입 창과 내 계정 창 (Figma 화면 16·17). 공통 dialog.dialog 위에 덧붙인다 */
+dialog.acct-dlg { max-height: calc(100vh - 32px); overflow: auto; }
+dialog.auth-dlg { width: min(440px, calc(100vw - 32px)); }
+@media (max-width: 480px) { dialog.acct-dlg .dlg-body { padding: var(--s-24) var(--s-16); } }
+
+.acct-title { margin: 0; font-size: var(--fs-panel); line-height: var(--lh-panel); font-weight: 700; overflow-wrap: anywhere; }
+.acct-tight { margin: 0; }
+.acct-full { width: 100%; }
+.acct-bad { color: var(--bad); }
+
+/* 오류: 폼 위 빨간 글 */
+.acct-error { margin: 0; padding: var(--s-8) var(--s-12); border-radius: var(--r-md); background: var(--bad-bg); color: var(--bad); font-size: var(--fs-small); line-height: var(--lh-small); }
+
+/* 가입의 가진 가게 */
+.acct-stores { display: flex; flex-wrap: wrap; gap: var(--s-8) var(--s-16); margin: 0; padding: var(--s-12) var(--s-16); border: 1px solid var(--line-strong); border-radius: var(--r-md); }
+.acct-stores legend { padding: 0 var(--s-4); font-size: var(--fs-small); font-weight: 500; color: var(--ink-2); }
+.acct-stores label { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: var(--fs-body); cursor: pointer; }
+.acct-stores input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* 내 계정: 요약 상자 */
+.acct-info { display: grid; gap: var(--s-8); margin: 0; font-size: var(--fs-small); line-height: var(--lh-small); }
+.acct-info > div { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: var(--s-8); }
+.acct-info dt { color: var(--muted); }
+.acct-info dd { margin: 0; color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
+.acct-sub { margin: var(--s-8) 0 0; font-size: var(--fs-body); font-weight: 700; }
+.acct-actions { display: grid; gap: var(--s-8); }
+.acct-actions > .btn { justify-content: flex-start; width: 100%; text-align: left; white-space: normal; }
+
+/* 확인 단계 */
+.acct-lists { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-16); }
+@media (max-width: 480px) { .acct-lists { grid-template-columns: 1fr; } }
+.acct-list-title { margin: 0 0 var(--s-4); font-size: var(--fs-small); font-weight: 700; }
+.acct-list { margin: 0; padding-left: 20px; font-size: var(--fs-small); line-height: var(--lh-small); color: var(--ink-2); }
+.acct-list li + li { margin-top: 2px; }
+.acct-irrev { margin: 0; color: var(--bad); font-size: var(--fs-small); font-weight: 700; }
+.acct-confirm-btns { justify-content: flex-end; }
+
+/* 결과 띠: 화면 오른쪽 아래 고정 */
+.acct-toast {
+  position: fixed; right: var(--s-24); bottom: var(--s-24); z-index: 60; max-width: min(480px, calc(100vw - 32px));
+  display: flex; align-items: flex-start; gap: var(--s-12); padding: var(--s-12) var(--s-12) var(--s-12) var(--s-16);
+  border-radius: var(--r-md); background: var(--ok-bg); color: var(--ok); box-shadow: var(--shadow-over);
+  font-size: var(--fs-small); line-height: var(--lh-small); overflow-wrap: anywhere;
+}
+.acct-toast > span { flex: 1 1 auto; padding-top: 6px; }
+.acct-toast .btn { flex: 0 0 auto; color: inherit; }
+@media (max-width: 480px) { .acct-toast { right: var(--s-16); left: var(--s-16); bottom: var(--s-16); max-width: none; } }

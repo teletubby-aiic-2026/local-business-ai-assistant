@@ -11,6 +11,14 @@
 | ③ 답글·공지·홍보글 | C6 (PR #16 `experiments/marketing/c6`) | import (`run_card`) |
 | 계약 | C1 (PR #15 `shared/contracts.py`) | import |
 
+## React 화면 (11/19, `frontend/`)
+
+`frontend/` 에 React 18 + Vite 로 옮긴 화면이 있습니다 (가독성 개선 디자인). 예전 화면(`web/static/`)은 그대로 두었고, 서버는 **기본으로 예전 화면**을 줍니다.
+
+- 쓰는 법: `cd services/web/frontend && npm ci && npm run build` 뒤 `WEB_FRONTEND_DIST=<그 폴더>/dist services/web/run.sh`. 서버가 `/` 에 React 화면, `/assets/*` 에 빌드 파일을 줍니다. API 는 같습니다.
+- 개발: `npm run dev`(5173)가 `/api` 를 8000 으로 넘깁니다. 자세한 내용은 [frontend/README.md](frontend/README.md).
+- 배포: `deploy/make_bundle.sh` 는 이 PC 에 `frontend/dist` 가 있으면 묶음에 넣습니다. 웹 서버 static 모드는 `install_web.sh --static-src <묶음>/services/web/frontend/dist`.
+
 ## 리뷰 분석 화면 (11/13)
 
 - 따로 떠 있던 리뷰 분석 화면이 이 비서 화면 안으로 들어왔습니다. 왼쪽 메뉴 **리뷰 분석**(`#/analysis`)에서 탭 3개(요약 · 불만 묶음 · 리뷰 붙여넣기)로 봅니다.
