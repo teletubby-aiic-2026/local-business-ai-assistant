@@ -75,11 +75,23 @@ else
   DEPLOY_SRC="이 PC의 작업 폴더 deploy/ ($(git_ rev-parse --abbrev-ref HEAD)@$(git_ rev-parse --short=7 HEAD)$([ -z "$(git_ status --porcelain -- "$DEPLOY_DIR" 2>/dev/null)" ] || echo ', 커밋하지 않은 내용 포함'))"
 fi
 
+# React 화면 빌드(services/web/frontend/dist)는 git 에 없다. 이 PC 에서 빌드해 둔 것이 있으면 묶음에 넣는다
+# (웹 서버: install_web.sh --mode static --static-src <묶음>/services/web/frontend/dist, WAS: WEB_FRONTEND_DIST)
+FRONT_DIST="$REPO/services/web/frontend/dist"
+if [ -f "$FRONT_DIST/index.html" ]; then
+  mkdir -p "$STAGE/$NAME/services/web/frontend/dist"
+  (cd "$FRONT_DIST" && tar -cf - .) | tar -x -C "$STAGE/$NAME/services/web/frontend/dist"
+  FRONT_SRC="이 PC 의 services/web/frontend/dist (빌드 $(date -r "$FRONT_DIST/index.html" '+%Y-%m-%d %H:%M' 2>/dev/null || echo '시각 모름'))"
+else
+  FRONT_SRC="없음 (React 화면을 쓰려면 services/web/frontend 에서 npm ci && npm run build 뒤 다시 묶음)"
+fi
+
 printf '%s\n' "$COMMIT" > "$STAGE/$NAME/REVISION"
 {
   echo "commit      $COMMIT"
   echo "ref         $REF"
   echo "deploy      $DEPLOY_SRC"
+  echo "frontend    $FRONT_SRC"
   echo "bundled_at  $(date '+%Y-%m-%d %H:%M:%S %z')"
 } > "$STAGE/$NAME/deploy/BUNDLE_INFO"
 

@@ -1,0 +1,128 @@
+/* 디자인 토큰: Figma 파일 '부여 AI'의 변수 모음 '토큰'과 글자 스타일 (2026-11-19 가독성 개선판)
+   - 바탕은 회색(--page), 패널·카드는 흰색 + 옅은 그림자. 포인트 색은 초록 하나(단계 50~900)와 초록 계열 타일 색 4쌍.
+   - 대비(WCAG AA): 본문 글자 4.5:1 이상. --muted #5A5E66 은 흰 바탕 6.4, --page 위 5.9. */
+:root {
+  color-scheme: light;
+  --page: #f3f5f7;
+  --bg: #ffffff;
+  --side: #ffffff;
+  --panel: #ffffff;
+  --surface: #f7f7f8;
+  --chip: #f0f1f3;
+  --hover: #f1f3f5;
+  --active: #e7e7e9;
+  --wire: #e6e8eb;
+
+  --ink: #111111;
+  --ink-2: #3f4147;
+  --muted: #5a5e66;
+  --line: #eaecef;
+  --line-strong: #d9dce1;
+  --field-line: #8a8e95;
+
+  --accent: #00843d;        /* 주 버튼·현재 메뉴 바탕 (흰 글자 4.81) */
+  --accent-hover: #007a38;
+  --accent-ink: #ffffff;
+  --accent-text: #00843d;   /* 초록 글자 */
+  --brand: #03c75a;         /* 점·막대에만 (글자에는 쓰지 않음) */
+  --brand-soft: #e8f9f0;
+  --focus: #009f47;
+
+  --green-50: #eefbf3; --green-100: #d3f5e1; --green-200: #a8ebc4; --green-300: #6edb9e; --green-400: #34cf79;
+  --green-500: #03c75a; --green-600: #02a84c; --green-700: #00843d; --green-800: #0b6633; --green-900: #0e4a28;
+
+  /* 숫자 타일·기능 카드의 초록 계열 (바탕 + 아이콘 원). 아이콘 원 위에는 흰 아이콘 */
+  --tint-green-bg: #e8f9f0; --tint-green: #00843d;
+  --tint-mint-bg: #e4f6f2;  --tint-mint: #0e8c7a;
+  --tint-lime-bg: #f0f7e3;  --tint-lime: #4f8a17;
+  --tint-sage-bg: #edf2ea;  --tint-sage: #4e6e40;
+
+  --tint-ink: #ffffff;      /* 아이콘 원 위의 아이콘 */
+  --on-brand: #ffffff;      /* 로고 자리 등 brand 바탕 위 글자 */
+
+  --ok: #007a38; --ok-bg: #e8f9f0;
+  --warn: #8a5300; --warn-bg: #fff6e5; --warn-dot: #e8a33a;
+  --bad: #c62828; --bad-bg: #fef1f1; --bad-line: #f0c4c4;
+  --hot: #e5484d;
+  --bar: #d0d3d8; --bar-strong: #a9aeb6;
+  --scrim: rgba(0, 0, 0, .32);
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 41, .04), 0 4px 16px rgba(15, 23, 41, .06);
+  --shadow-over: 0 8px 32px rgba(15, 23, 41, .16);
+  --shadow-tab: 0 1px 2px rgba(0, 0, 0, .08);
+
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-full: 999px;
+  --s-4: 4px; --s-8: 8px; --s-12: 12px; --s-16: 16px; --s-20: 20px; --s-24: 24px; --s-32: 32px; --s-40: 40px;
+
+  /* 글자 (Figma 글자 스타일) */
+  --font: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+  --fs-title: 28px;  --lh-title: 1.3;    /* 제목/화면 제목 Bold */
+  --fs-panel: 20px;  --lh-panel: 1.4;    /* 제목/패널 제목 Bold */
+  --fs-body: 16px;   --lh-body: 1.6;     /* 본문/기본 · 본문/강조(Bold) */
+  --fs-small: 14px;  --lh-small: 1.5;    /* 보조/작게 */
+  --fs-num: 32px;    --lh-num: 1.2;      /* 숫자/큰 숫자 Bold */
+  --fs-button: 15px;                     /* 버튼/글자 Medium */
+
+  --side-w: 260px;
+  --top-h: 72px;
+  --drawer-w: 400px;
+  --col: 880px; --col-wide: 1040px; --col-narrow: 720px;
+}
+
+/* ── 다크 (11/19) ─────────────────────────────────────────────────
+   운영체제가 다크이면 따르고, 상단 바의 '화면 모양' 버튼으로 밝게·어둡게를 고정할 수 있다 (lib/theme.js, html[data-theme]).
+   설계: 거의 검은 남색 바탕(#0e1013) 위에 한 단계 밝은 카드(#181b20). 그림자 대신 카드 테두리로 구역을 나누고,
+   초록은 밝은 초록(#4ade80)을 글자·현재 메뉴에, 브랜드 초록(#03c75a)을 주 버튼 바탕(검은 글자)에 쓴다.
+   초록 단계는 어두운 쪽이 50, 밝은 쪽이 900 이 되도록 뒤집어 '연한 바탕 + 진한 글자' 짝이 그대로 맞게 했다.
+   대비(카드 #181b20 기준, 계산값): ink 14.9, ink-2 10.7, muted 6.6(바탕 7.3·칩 5.5), accent-text 9.9, bad 7.6, warn 9.5,
+   입력칸 테두리 3.6, 주 버튼(#03c75a 위 #04140a) 8.4, 아이콘 원 위 아이콘 7.9 이상 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0e1013; --bg: #14171b; --side: #14171b; --panel: #181b20; --surface: #20242a; --chip: #262b32;
+    --hover: #22272d; --active: #2c3239; --wire: #2a2f36;
+    --ink: #eceef1; --ink-2: #c7ccd3; --muted: #9aa1aa;
+    --line: #2a2f36; --line-strong: #3a4048; --field-line: #6b727c;
+    --accent: #03c75a; --accent-hover: #2bd474; --accent-ink: #04140a; --accent-text: #4ade80;
+    --brand: #03c75a; --brand-soft: #133222; --focus: #4ade80;
+    --green-50: #0f2a1b; --green-100: #123522; --green-200: #17492e; --green-300: #1f6b41; --green-400: #279657;
+    --green-500: #03c75a; --green-600: #34d27a; --green-700: #4ade80; --green-800: #86efac; --green-900: #bbf7d0;
+    --tint-green-bg: #11261a; --tint-green: #2fbf71;
+    --tint-mint-bg: #0f2523;  --tint-mint: #2bb8a3;
+    --tint-lime-bg: #1c2612;  --tint-lime: #8cc63f;
+    --tint-sage-bg: #1b2219;  --tint-sage: #8fb07c;
+    --tint-ink: #0b0d10; --on-brand: #04140a;
+    --ok: #4ade80; --ok-bg: #10291a;
+    --warn: #f5b544; --warn-bg: #33260f; --warn-dot: #f5b544;
+    --bad: #ff8a80; --bad-bg: #3a1a1a; --bad-line: #5c2b2b;
+    --hot: #f26b6b; --bar: #3a4048; --bar-strong: #6b727c;
+    --scrim: rgba(0, 0, 0, .6);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, .45);
+    --shadow-over: 0 12px 40px rgba(0, 0, 0, .6);
+    --shadow-tab: 0 1px 2px rgba(0, 0, 0, .5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0e1013; --bg: #14171b; --side: #14171b; --panel: #181b20; --surface: #20242a; --chip: #262b32;
+  --hover: #22272d; --active: #2c3239; --wire: #2a2f36;
+  --ink: #eceef1; --ink-2: #c7ccd3; --muted: #9aa1aa;
+  --line: #2a2f36; --line-strong: #3a4048; --field-line: #6b727c;
+  --accent: #03c75a; --accent-hover: #2bd474; --accent-ink: #04140a; --accent-text: #4ade80;
+  --brand: #03c75a; --brand-soft: #133222; --focus: #4ade80;
+  --green-50: #0f2a1b; --green-100: #123522; --green-200: #17492e; --green-300: #1f6b41; --green-400: #279657;
+  --green-500: #03c75a; --green-600: #34d27a; --green-700: #4ade80; --green-800: #86efac; --green-900: #bbf7d0;
+  --tint-green-bg: #11261a; --tint-green: #2fbf71;
+  --tint-mint-bg: #0f2523;  --tint-mint: #2bb8a3;
+  --tint-lime-bg: #1c2612;  --tint-lime: #8cc63f;
+  --tint-sage-bg: #1b2219;  --tint-sage: #8fb07c;
+  --tint-ink: #0b0d10; --on-brand: #04140a;
+  --ok: #4ade80; --ok-bg: #10291a;
+  --warn: #f5b544; --warn-bg: #33260f; --warn-dot: #f5b544;
+  --bad: #ff8a80; --bad-bg: #3a1a1a; --bad-line: #5c2b2b;
+  --hot: #f26b6b; --bar: #3a4048; --bar-strong: #6b727c;
+  --scrim: rgba(0, 0, 0, .6);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, .45);
+  --shadow-over: 0 12px 40px rgba(0, 0, 0, .6);
+  --shadow-tab: 0 1px 2px rgba(0, 0, 0, .5);
+}

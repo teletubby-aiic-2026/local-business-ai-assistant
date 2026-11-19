@@ -1,0 +1,127 @@
+/* 오늘 할 일 흐름 (홈·추천 카드·승인할 글·처리 완료). 색·글자는 tokens.css 변수만 */
+
+/* ── 공통 ── */
+.flow-center { display: flex; justify-content: center; }
+.flow-more summary { cursor: pointer; color: var(--accent-text); font-weight: 500; min-height: 32px; display: inline-flex; align-items: center; }
+.flow-more[open] > * + * { margin-top: var(--s-12); }
+.flow-track { display: block; flex: 1; height: 6px; border-radius: var(--r-full); background: var(--chip); overflow: hidden; }
+.flow-track i { display: block; height: 100%; border-radius: var(--r-full); background: var(--brand); }
+
+/* 3단계 표시 */
+.flow-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); font-size: var(--fs-small); color: var(--muted); }
+.flow-steps li { display: inline-flex; align-items: center; gap: var(--s-8); }
+.flow-step-sep { color: var(--bar-strong); padding-right: 2px; }
+.flow-step-n { width: 24px; height: 24px; border-radius: var(--r-full); display: inline-grid; place-items: center; background: var(--chip); color: var(--ink-2); font-weight: 700; font-size: 13px; }
+.flow-steps li.past .flow-step-n { background: var(--brand-soft); color: var(--accent-text); }
+.flow-steps li.on { color: var(--ink); font-weight: 700; }
+.flow-steps li.on .flow-step-n { background: var(--accent); color: var(--accent-ink); }
+
+/* ── 홈 ── */
+.flow-eyebrow { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.flow-eyebrow span + span::before { content: "·"; margin-right: 12px; color: var(--bar-strong); }
+.flow-hero { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; background: var(--bad-bg); border-radius: var(--r-md); padding: var(--s-12) var(--s-16); }
+.flow-hero-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-small); font-weight: 700; color: var(--bad); }
+.flow-hero-label::before { content: ""; width: 8px; height: 8px; border-radius: var(--r-full); background: var(--hot); }
+.flow-unit { font-size: var(--fs-body); font-weight: 500; margin-left: 2px; color: var(--ink-2); }
+.flow-dash { align-items: start; }
+
+.flow-todo { display: grid; gap: 4px; margin: 0 calc(var(--s-12) * -1); }
+.flow-todo-item {
+  width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: var(--s-12); align-items: start; text-align: left;
+  padding: var(--s-12); border: 0; border-radius: var(--r-md); background: transparent; color: inherit; font: inherit; cursor: pointer;
+}
+.flow-todo-item:hover:not(:disabled) { background: var(--hover); }
+.flow-todo-item:disabled { cursor: progress; opacity: .7; }
+.flow-todo-check { width: 22px; height: 22px; margin-top: 2px; display: grid; place-items: center; border: 1.5px solid var(--field-line); border-radius: var(--r-full); font-size: 13px; font-weight: 700; }
+.flow-todo-item.done .flow-todo-check { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.flow-todo-item.done strong { color: var(--muted); text-decoration: line-through; }
+.flow-todo-text { display: grid; gap: 2px; min-width: 0; }
+.flow-todo-text .small { color: var(--ink-2); }
+.flow-todo-text .small.muted { color: var(--muted); }
+.flow-urgent { display: inline-block; margin-right: 8px; padding: 0 8px; border-radius: var(--r-sm); background: var(--bad-bg); color: var(--bad); font-size: var(--fs-small); font-weight: 700; }
+.flow-todo-st { padding: 3px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-full); color: var(--ink-2); font-size: var(--fs-small); font-weight: 500; white-space: nowrap; }
+.flow-todo-item.urgent .flow-todo-st { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.flow-todo-item.done .flow-todo-st { background: var(--ok-bg); border-color: var(--ok-bg); color: var(--ok); }
+.flow-todo-foot { border-top: 1px solid var(--line); padding-top: var(--s-16); }
+
+.flow-staff { display: grid; gap: 4px; margin: 0 calc(var(--s-12) * -1); }
+.flow-staff-go {
+  width: 100%; display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: var(--s-12); align-items: center; text-align: left;
+  padding: var(--s-12); border: 0; border-radius: var(--r-md); background: transparent; color: inherit; font: inherit; cursor: pointer; min-height: 44px;
+}
+.flow-staff-go:hover { background: var(--hover); }
+.flow-staff-text { display: grid; gap: 2px; min-width: 0; }
+.flow-staff-arrow { color: var(--muted); font-size: var(--fs-panel); }
+
+.flow-hours { display: flex; align-items: stretch; gap: 6px; height: 168px; }
+.flow-hc { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.flow-hc-bar { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
+.flow-hc-bar i { display: block; width: 100%; max-width: 28px; border-radius: 4px 4px 0 0; background: var(--bar); }
+.flow-hc.hot .flow-hc-bar i { background: var(--hot); }
+.flow-hc-n { font-size: 12px; line-height: 1.3; min-height: 16px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.flow-hc-h { font-size: 12px; line-height: 1.3; color: var(--muted); font-variant-numeric: tabular-nums; }
+.flow-hc.hot .flow-hc-h { color: var(--bad); font-weight: 700; }
+@media (max-width: 520px) {
+  .flow-hours { gap: 3px; }
+  .flow-hc:nth-child(even) .flow-hc-h { visibility: hidden; }   /* 좁으면 시각 글자를 하나 걸러 (막대는 그대로) */
+}
+
+.flow-ask {
+  width: 100%; display: flex; align-items: center; gap: var(--s-12); min-height: 56px; padding: var(--s-12) var(--s-20); text-align: left;
+  border: 1px solid var(--line-strong); border-radius: var(--r-full); background: var(--panel); box-shadow: var(--shadow-card);
+  color: var(--muted); font: inherit; cursor: pointer;
+}
+.flow-ask:hover { border-color: var(--field-line); }
+.flow-ask[aria-expanded="true"] { border-color: var(--accent); }
+.flow-ask-ph { flex: 1; min-width: 0; }
+.flow-ask-go { width: 32px; height: 32px; border-radius: var(--r-full); display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+/* ── 추천 카드 ── */
+.flow-card-grid { align-items: stretch; }
+.flow-card { display: flex; flex-direction: column; gap: var(--s-12); }
+.flow-card > * + * { margin-top: 0; }
+.flow-card-kind { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); font-size: var(--fs-small); color: var(--ink-2); }
+.flow-card-go { margin-top: auto; align-self: flex-start; }
+.flow-ev { display: grid; gap: var(--s-8); }
+.flow-ev li { background: var(--surface); border-radius: var(--r-sm); padding: var(--s-8) var(--s-12); }
+.flow-measures { margin: 0; padding: var(--s-12) 0 0; border: 0; border-top: 1px solid var(--line); min-width: 0; display: grid; gap: 6px; }
+.flow-measures legend { float: left; width: 100%; padding: 0; margin: 0 0 4px; color: var(--ink); }
+.flow-measures label { display: flex; align-items: flex-start; gap: var(--s-8); clear: both; min-height: 28px; cursor: pointer; }
+.flow-measures input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+
+/* ── 승인할 글 ── */
+.flow-seg { display: inline-flex; gap: 4px; max-width: 100%; overflow-x: auto; padding: 4px; border-radius: var(--r-md); background: var(--chip); justify-self: start; }
+.flow-seg button { min-height: 40px; padding: 6px 16px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink-2); font: 500 var(--fs-button)/1.4 var(--font); white-space: nowrap; cursor: pointer; }
+.flow-seg button[aria-current="true"] { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: var(--shadow-card); }
+.flow-progress { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-12); font-size: var(--fs-small); font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.flow-progress .flow-track { min-width: 120px; }
+.flow-progress .btn { font-weight: 500; }
+
+.flow-rv-list { display: grid; gap: var(--s-12); }
+.flow-rv-list li + li { padding-top: var(--s-12); border-top: 1px solid var(--line); }
+.flow-rv-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: center; }
+.flow-stars { color: var(--warn); letter-spacing: 1px; }
+
+.flow-draft-box.approved { border-color: var(--green-200); }
+.flow-reply-label { font-size: var(--fs-small); font-weight: 700; color: var(--ink); }
+.flow-textarea { min-height: 180px; }
+.flow-textarea[readonly] { background: var(--surface); }
+.flow-issues { margin: 0; padding: var(--s-12) 0 0 var(--s-20); border-top: 1px solid var(--line); color: var(--warn); font-size: var(--fs-small); display: grid; gap: 4px; }
+.flow-issues.bad { color: var(--bad); }
+.flow-issues + .flow-issues { border-top: 0; padding-top: 0; margin-top: var(--s-8); }
+
+.flow-list { display: grid; gap: 4px; }
+.flow-list button {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--s-12); min-height: 44px; padding: var(--s-8) var(--s-12);
+  border: 1px solid transparent; border-radius: var(--r-md); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.flow-list button:hover { background: var(--hover); }
+.flow-list button[aria-current="true"] { border-color: var(--accent); background: var(--brand-soft); font-weight: 700; }
+
+/* ── 처리 완료 ── */
+.flow-log { display: grid; }
+.flow-log-item { display: flex; align-items: center; justify-content: space-between; gap: var(--s-12); padding: var(--s-12) 0; }
+.flow-log-item + .flow-log-item { border-top: 1px solid var(--line); }
+.flow-log-text { display: grid; gap: 2px; min-width: 0; }
+.flow-rules { margin: 0; padding-left: var(--s-20); display: grid; gap: 4px; }
+.flow-server-log { display: grid; gap: 4px; color: var(--ink-2); }

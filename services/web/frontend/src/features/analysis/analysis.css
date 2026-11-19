@@ -1,0 +1,85 @@
+/* 리뷰 분석 화면 (Figma 08·09). 공통 모양은 styles/base.css, 색·글자는 tokens.css 변수만 */
+.an-period { margin-top: calc(var(--s-16) * -1); }   /* 화면 머리 바로 아래 한 줄 */
+.an-tabpanel:focus-visible { outline-offset: 6px; border-radius: var(--r-sm); }
+
+/* 요약 */
+.an-tiles .num { display: flex; align-items: baseline; gap: 2px; }
+.an-unit { font-size: var(--fs-body); font-weight: 500; color: var(--ink-2); }
+.an-kw { gap: var(--s-32); }
+.an-topics { display: grid; gap: var(--s-12); align-content: start; }
+.an-topic-list { display: grid; gap: var(--s-12); }
+
+/* 불만 묶음 */
+.an-funnel { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-8) 22px; }
+.an-fn { font-size: var(--fs-num); line-height: var(--lh-num); font-weight: 700; font-variant-numeric: tabular-nums; }
+.an-arrow { align-self: center; color: var(--muted); font-size: 18px; }
+.an-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: var(--s-16); }
+.an-group > * + * { margin-top: var(--s-12); }
+.an-group.new { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow-card); }   /* 같은 뜻을 배지 글자로도 */
+.an-group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.an-group-head h3 { margin-right: 4px; }
+.an-bands { display: grid; gap: 6px; }
+.an-band { display: grid; grid-template-columns: 64px minmax(0, 1fr) 40px; align-items: center; gap: 10px; font-size: var(--fs-small); }
+.an-band-name { color: var(--ink-2); }
+.an-band-track { height: 8px; border-radius: var(--r-full); background: var(--chip); overflow: hidden; }
+.an-band-track i { display: block; height: 100%; border-radius: var(--r-full); background: var(--bar-strong); }
+.an-band-track i.hot { background: var(--hot); }
+.an-band-n { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.an-quotes { display: grid; gap: var(--s-8); }
+.an-quote { padding-left: var(--s-12); border-left: 2px solid var(--line-strong); color: var(--ink-2); font-size: var(--fs-small); }
+.an-rid { white-space: nowrap; }
+
+/* 리뷰 넣기 */
+.an-paste-grid { align-items: start; }
+.an-paste-opts { gap: var(--s-12); }
+.an-samples { gap: 6px; }
+.an-samples .btn { color: var(--ink-2); }
+.an-msg:empty, .an-cap-save-msg:empty { display: none; }
+.an-result-empty { font-size: var(--fs-small); }
+.an-rv-text { white-space: pre-wrap; }
+.an-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.an-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: var(--r-full); background: var(--chip); color: var(--ink); font-size: var(--fs-small); }
+.an-chip::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); }
+.an-chip.neg::before { border-radius: 1px; background: var(--hot); }   /* 색 말고 모양(네모)으로도 불만을 구분 */
+.an-joined .btn { margin-left: 4px; }
+.an-warns { margin: 0; padding: var(--s-12) 0 0 18px; border-top: 1px solid var(--line); color: var(--warn); font-size: var(--fs-small); }
+
+/* 캡처로 넣기 */
+.an-cap.drop { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus); }   /* 파일을 끌어 올렸을 때 */
+.an-cap-pick { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8) var(--s-12); }
+.an-cap-file { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-cap-status { color: var(--ink-2); font-size: var(--fs-small); }
+.an-cap-status:empty, .an-cap-error:empty { display: none; }
+.an-cap-status.busy { display: flex; align-items: flex-start; gap: 10px; }
+.an-cap-status.busy::before { content: ""; flex: none; width: 9px; height: 9px; margin-top: .45em; border-radius: 50%; background: var(--accent); animation: an-pulse 1.2s ease-in-out infinite; }
+@keyframes an-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .an-cap-status.busy::before { animation: none; } }
+.an-cap-sec { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.an-cap-error { position: relative; padding: var(--s-8) var(--s-12) var(--s-8) 30px; border-radius: var(--r-md); background: var(--bad-bg); color: var(--bad); font-size: var(--fs-small); font-weight: 500; }
+.an-cap-error::before { content: ""; position: absolute; left: 13px; top: 15px; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.an-cap-result { padding-top: var(--s-16); border-top: 1px solid var(--line); }
+.an-cap-result > * + * { margin-top: var(--s-12); }
+.an-cap-demo { position: relative; padding: 10px 14px 10px 34px; border-radius: var(--r-md); background: var(--surface); color: var(--ink-2); font-size: var(--fs-small); }
+.an-cap-demo::before { content: ""; position: absolute; left: 15px; top: 17px; width: 9px; height: 8px; background: var(--warn-dot); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.an-cap-demo b { display: block; color: var(--ink); }
+.an-cap-star { display: block; }
+.an-cap-shot img { display: block; max-width: 100%; max-height: 420px; margin-top: 4px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.an-cap-list { display: grid; gap: 10px; }
+.an-cap-item { padding: var(--s-12) 14px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--panel); }
+.an-cap-item.dup { background: var(--surface); }
+.an-cap-item.saved { border-color: var(--ok); }
+.an-cap-item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: var(--s-8); }
+.an-cap-check { display: inline-flex; align-items: center; gap: var(--s-8); margin-right: 4px; font-size: var(--fs-small); font-weight: 700; cursor: pointer; }
+.an-cap-check input { width: 18px; height: 18px; margin: 0; }
+.an-cap-text { min-height: 72px; resize: vertical; }
+.an-cap-item textarea:disabled, .an-cap-item select:disabled { color: var(--muted); background: var(--surface); cursor: not-allowed; }
+.an-cap-item-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: var(--s-8); }
+.an-select { min-height: 36px; padding: 4px 10px; border: 1px solid var(--field-line); border-radius: var(--r-sm); background: var(--panel); color: var(--ink); font: 400 var(--fs-small)/1.4 var(--font); }
+.an-cap-item-msg { margin-top: 6px; color: var(--bad); font-size: var(--fs-small); font-weight: 500; }
+.an-cap-save-msg { color: var(--ink-2); }
+
+@media (max-width: 760px) {
+  .an-funnel { gap: 6px 14px; }
+  .an-fn { font-size: 24px; }
+  .an-band { grid-template-columns: 56px minmax(0, 1fr) 36px; }
+}
