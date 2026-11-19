@@ -3106,6 +3106,7 @@ async function acctSwitch(storeId) {
 // 가게가 바뀌었다 (로그인·로그아웃·가게 고르기): 이 브라우저가 들고 있던 그 가게의 진행을 비우고 모든 화면을 새 가게로
 async function storeChanged() {
   acctRender();
+  acctBarLock(true);   // 다 읽을 때까지 상단 바의 계정 버튼을 잠근다 (맨 아래에서 품)
   Object.assign(state, { results: {}, pending: {}, reviews: {}, current: null, draftId: null, cards: [], insight: null, joined: [], approvedLog: [] });
   state.approved.clear();
   staffInfo.mktServer = 0;
@@ -3121,7 +3122,12 @@ async function storeChanged() {
     $("start").disabled = false; $("start").textContent = "무엇을 할까요?";
   } catch (e) { showAlert(e.message); }
   staffMarket();
-  route();
+  try { route(); } finally { acctBarLock(false); }
+}
+// 화면을 다시 읽는 동안(로그인·로그아웃·가게 바꾸기·기록 지우기·탈퇴 뒤) 상단 바의 계정 버튼을 잠근다 (11/19).
+// 그 사이에 누른 것이 조용히 사라지거나(예: 로그아웃 직후 [로그인] → 시연으로 시작) 다시 읽기가 겹치지 않게 한다
+function acctBarLock(on) {
+  ["acct-login", "acct-user", "acct-store", "acct-logout"].forEach((id) => { $(id).disabled = on; });
 }
 
 // ── AI 직원 (5차 회의 11/18) ─────────────────────────────────────────────

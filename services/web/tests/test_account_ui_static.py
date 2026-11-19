@@ -198,6 +198,21 @@ class Banned(unittest.TestCase):
                 self.assertNotIn(banned, text)
 
 
+class ReloadLock(unittest.TestCase):
+    """화면을 다시 읽는 동안 상단 바의 계정 버튼을 잠근다 (11/19).
+    로그아웃 직후 [로그인] → '시연으로 시작'을 누르면 acct.busy 때문에 누름이 조용히 사라지던 것 (브라우저 스모크로 찾음)."""
+
+    def test_account_buttons_are_locked_while_every_screen_reloads(self):
+        changed = func("storeChanged")
+        self.assertIn("acctBarLock(true);", changed)
+        self.assertLess(changed.index("acctBarLock(true);"), changed.index("await refresh()"))
+        self.assertIn("try { route(); } finally { acctBarLock(false); }", changed)       # 오류가 나도 반드시 푼다
+        lock = func("acctBarLock")
+        for id_ in ("acct-login", "acct-user", "acct-store", "acct-logout"):
+            self.assertIn(f'"{id_}"', lock)
+        self.assertIn(".disabled = on;", lock)
+
+
 @unittest.skipUnless(shutil.which("node"), "node 없음")
 class SummaryWithNode(unittest.TestCase):
     def test_summary(self):
