@@ -24,6 +24,8 @@ SERVICES = MappingProxyType({
     "population": "VwsmTrdarFlpopQq",
     "areas": "TbgisTrdarRelm",
 })
+# 상권 분석 원본이 아닌 보조 조회(화면 안내용). 분석 카탈로그에 들어가지 않는다.
+AUXILIARY_SERVICES = frozenset({"culturalEventInfo"})
 
 
 class SeoulApiError(RuntimeError):
@@ -120,44 +122,34 @@ def _reject_nonfinite(_: str) -> None:
 class SeoulClient:
     """Read-only client. Empty credentials select the public five-row sample."""
 
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(self, api_key: str | None = None, *, timeout: float = TIMEOUT_SECONDS,
+                 opener=None) -> None:
         value = os.getenv("SEOUL_OPENAPI_KEY", "") if api_key is None else api_key
         if not isinstance(value, str):
             raise ValueError("API key must be a string.")
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= 60:
+            raise ValueError("Timeout must be a number of seconds from 0 to 60.")
         value = value.strip()
         self.sample_only = not value or value == "sample"
         self._api_key = "sample" if self.sample_only else value
+        self._timeout = timeout
+        # 시험에서는 가짜 opener를 넣는다. 기본값은 호출 시점의 urlopen이다.
+        self._opener = opener
 
     def __repr__(self) -> str:
         return f"SeoulClient(sample_only={self.sample_only})"
 
-    def fetch_page(
-        self, dataset: str, period: str | None = None, start: int = 1, count: int = 5,
-        *, area_code: str | None = None,
-    ) -> SeoulPage:
-        validate_query(dataset, period, start, count)
-        if area_code is not None and (
-            dataset != "stores" or period is None or not isinstance(area_code, str)
-            or re.fullmatch(r"[0-9]{7}", area_code) is None
-        ):
-            raise ValueError("Area filtering requires the stores API, a period, and a 7-digit area code.")
-        end = start + count - 1
-        if self.sample_only and end > 5:
-            raise ValueError("Sample-only mode permits indices 1 through 5 only.")
-        service = SERVICES[dataset]
-        suffix = f"/json/{service}/{start}/{end}/"
-        if period is not None:
-            suffix += f"{period}/"
-        if area_code is not None:
-            suffix += f"{area_code}/"
+    def _get_json(self, suffix: str) -> tuple[Any, str]:
+        """Fetch one JSON document. Errors and the returned URL never carry the key."""
         request_url = f"{BASE_URL}/{quote(self._api_key, safe='')}{suffix}"
         # Never derive user-visible diagnostics from the credential-bearing URL.
         source_url = f"{BASE_URL}/REDACTED{suffix}"
+        opener = self._opener if self._opener is not None else urlopen
         safe_error = None
         raw = b""
         try:
             request = Request(request_url, headers={"Accept": "application/json"})
-            with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            with opener(request, timeout=self._timeout) as response:
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
         except HTTPError as exc:
             status = exc.code if type(exc.code) is int else "unknown"
@@ -184,6 +176,41 @@ class SeoulClient:
             invalid_json = True
         if invalid_json:
             raise SeoulApiError("Seoul API returned invalid JSON.")
+        return payload, source_url
+
+    def fetch_auxiliary(self, service: str, start: int = 1, count: int = 5) -> tuple[Any, str]:
+        """Read one page of an allowed non-analysis service; the envelope is not validated here."""
+        if service not in AUXILIARY_SERVICES:
+            raise ValueError("Unsupported auxiliary Seoul API service.")
+        if type(start) is not int or start < 1:
+            raise ValueError("Start index must be a positive integer.")
+        if type(count) is not int or not 1 <= count <= 1000:
+            raise ValueError("Page size must be an integer from 1 to 1000.")
+        end = start + count - 1
+        if self.sample_only and end > 5:
+            raise ValueError("Sample-only mode permits indices 1 through 5 only.")
+        return self._get_json(f"/json/{service}/{start}/{end}/")
+
+    def fetch_page(
+        self, dataset: str, period: str | None = None, start: int = 1, count: int = 5,
+        *, area_code: str | None = None,
+    ) -> SeoulPage:
+        validate_query(dataset, period, start, count)
+        if area_code is not None and (
+            dataset != "stores" or period is None or not isinstance(area_code, str)
+            or re.fullmatch(r"[0-9]{7}", area_code) is None
+        ):
+            raise ValueError("Area filtering requires the stores API, a period, and a 7-digit area code.")
+        end = start + count - 1
+        if self.sample_only and end > 5:
+            raise ValueError("Sample-only mode permits indices 1 through 5 only.")
+        service = SERVICES[dataset]
+        suffix = f"/json/{service}/{start}/{end}/"
+        if period is not None:
+            suffix += f"{period}/"
+        if area_code is not None:
+            suffix += f"{area_code}/"
+        payload, source_url = self._get_json(suffix)
         parsed = parse_seoul_response(payload, service)
         if len(parsed.rows) > count:
             raise SeoulApiError("Invalid API response: returned more rows than requested.")

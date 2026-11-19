@@ -456,7 +456,7 @@ class TestSetup(Base):
 
     def test_force_on_a_store_without_defaults_changes_nothing(self):
         market = FakeMarket()
-        client, _ = build(market, store_id="store_basak")
+        client, _ = build(market, store_id="store_unknown")
         data = client.post("/api/assistant/setup?force=1").json()
         self.assertEqual((data["status"], data["conditions"]), ("already", None))
         self.assertFalse([r for r in market.requests if r["method"] == "POST"])
@@ -479,8 +479,9 @@ class TestSetup(Base):
         self.assertEqual(self.client.post("/api/assistant/setup").json()["state"], "no_data")
 
     def test_a_store_without_defaults_is_left_alone(self):
+        # 11/18 부터 store_basak·store_mongle 은 기본 조건이 있다 (아래 시험). 기본 조건이 없는 가게는 등록하지 않은 id 로 본다
         market = FakeMarket()
-        client, _ = build(market, store_id="store_basak")
+        client, _ = build(market, store_id="store_unknown")
         self.assertIsNone(client.get("/api/assistant/status").json()["setup"]["label"])
         data = client.post("/api/assistant/setup").json()
         self.assertEqual((data["status"], data["state"], data["conditions"]), ("already", "ready", None))

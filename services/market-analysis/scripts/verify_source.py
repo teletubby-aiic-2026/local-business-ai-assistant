@@ -19,10 +19,10 @@ SOURCE_TESTS = (
     'tests.test_onboarding', 'tests.test_intake_location',
     'tests.test_onboarding_analysis',
     'tests.test_onboarding_analysis_catalog.RawValidationTests',
-    'tests.test_onboarding_sales', 'tests.test_onboarding_stores',
+    'tests.test_onboarding_sales', 'tests.test_onboarding_stores', 'tests.test_onboarding_area_context',
     'tests.test_onboarding_population', 'tests.test_onboarding_comparison',
     'tests.test_onboarding_changes', 'tests.test_prepare_data',
-    'tests.test_source_runtime',
+    'tests.test_source_runtime', 'tests.test_onboarding_data_sync',
 )
 OFFICIAL_TESTS = (
     'tests.official_selection_tests.OfficialSelectionTests',

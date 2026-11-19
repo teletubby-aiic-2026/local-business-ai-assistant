@@ -339,6 +339,34 @@ class Classifier:
         except storage.StorageUnavailable as exc:      # 못 남겨도 이번 결과는 그대로 쓴다
             log.warning("분류 결과를 저장하지 못함: %s", exc)
 
+    def forget(self, reviews: list[Review], keep: list[Review] = ()) -> int:
+        """지우는 리뷰들의 분류 결과(붙여넣은 리뷰의 저장본)를 지운다. 지운 개수를 돌려준다 (계정 초기화·탈퇴, 11/19).
+
+        - 키는 글·별점·채널·모델로 만든 공용 키라 방문자 칸이 없다. 그래서 지우는 리뷰들의 키만 지우고,
+          keep(그 가게의 합성 리뷰)이 같은 키를 쓰면 남긴다. kiwi 참고 자료를 켠 키·끈 키를 둘 다 지운다(설정이 바뀌었을 수 있어서).
+        - 다른 방문자가 같은 글·별점·채널로 붙여넣었다면 그 사람의 저장본도 같은 키라 같이 지워진다. 그 사람은 다음 분석 때 다시 분류된다.
+        - 파일 방식은 RUNTIME_CACHE, DB 방식은 review_labels 표. DB 에 닿지 못하면 StorageUnavailable (API 는 503)."""
+        def keys_of(rows, only_pasted: bool) -> set[str]:
+            return {cache_key(r, self.model, hints) for r in rows for hints in (False, True)
+                    if not (only_pasted and r.input_method == "sample")}
+
+        keys = keys_of(reviews, True) - keys_of(keep, False)
+        if not keys:
+            return 0
+        db = storage.database()
+        if db is not None:
+            with storage.guarded():
+                return db.labels.delete_many(keys)
+        with self._lock:
+            data = self._load(RUNTIME_CACHE)
+            gone = [k for k in keys if k in data]
+            if gone:
+                for k in gone:
+                    del data[k]
+                RUNTIME_CACHE.parent.mkdir(parents=True, exist_ok=True)
+                RUNTIME_CACHE.write_text(json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        return len(gone)
+
     # ── 모델 호출 ──
     def _call(self, batch: list[Review]) -> list:
         body = {"messages": [{"role": "system", "content": system_prompt(self.hints)},

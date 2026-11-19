@@ -15,6 +15,8 @@
 | *      | /api/assistant/*              | 서랍의 상권 채팅. 상권 서비스(ic26-market)를 대신 불러 줌 (assistant_proxy.py) |
 | *      | /api/care/*                   | 캡처 입력·응대 점수·보고서. 리뷰 분석 서비스의 고객응대 API 를 대신 불러 줌 (care_proxy.py) |
 | *      | /api/marketing-survey/*       | 맞춤 마케팅(#/marketing). 마케팅 서비스(김수현 님 설문형)를 대신 불러 줌 (marketing_proxy.py) |
+| *      | /api/auth/*                   | 로그인·회원가입·로그아웃·가게 바꾸기·시연 로그인 (auth.py, 5차 회의 11/18), 계정 초기화 (11/19, account.py) |
+| *      | /api/market/*                 | 상권 분석 화면(#/market). 상권 서비스의 분석·서울시 자료 확인·문화행사를 대신 불러 줌 (market_proxy.py) |
 
 리뷰 답글을 승인하면(④) 리뷰 분석 서비스에 '답글 달았음'을 따로 기록한다 (care_proxy.mark_replied_later, 승인 응답은 기다리지 않음).
 캡처 후보 저장은 붙여넣기와 같은 POST /api/reviews 에 source="capture" 를 붙여 보낸다.
@@ -23,6 +25,8 @@
 
 방문자 구분: 쿠키 `visitor_id`(없으면 서버가 새로 만들어 응답에 실음. HttpOnly, SameSite=Lax). 이 값으로 승인 기록과
 붙여넣은 리뷰를 방문자별로 나눈다. 합성 리뷰와 카드 추천 이유 문장은 모두에게 같다. 화면(JS)은 쿠키를 다룰 필요가 없다.
+로그인(쿠키 `ic26_session`)하면 방문자 id 는 'u-<user_id>', 가게는 세션의 고른 가게가 된다 (auth.py). 로그인하지 않으면
+예전과 똑같이 기본 가게(DEMO_STORE_ID)와 쿠키 visitor_id 다. 가게마다의 Demo·프록시는 stores.StoreHub 가 고른다.
 저장: 환경 변수 DB_HOST 가 있으면 PostgreSQL, 없으면 서버 메모리·파일 (shared/storage).
 """
 from __future__ import annotations
@@ -33,6 +37,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import FileResponse, JSONResponse
@@ -41,11 +46,15 @@ from pydantic import BaseModel, Field
 
 from shared.storage import new_visitor_id, open_store, visitor_from_cookie
 
+from .account import AccountData
 from .assistant_proxy import AssistantProxy, create_assistant_router, validation_error_response
+from .auth import SESSION_COOKIE, AuthService, create_auth_router
 from .care_proxy import CareProxy, create_care_routers
 from .demo import Demo, DemoError
+from .market_proxy import MarketProxy, create_market_router
 from .marketing_proxy import MARKETING_CARD_ID, MarketingProxy, create_marketing_router
 from .settings import Settings
+from .stores import StoreHub
 
 STATIC = Path(__file__).resolve().parent / "static"
 VISITOR_COOKIE = "visitor_id"
@@ -83,13 +92,17 @@ class PasteIn(BaseModel):
 
 
 def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None, care: CareProxy | None = None,
-               marketing: MarketingProxy | None = None) -> FastAPI:
+               marketing: MarketingProxy | None = None, auth: AuthService | None = None,
+               market: MarketProxy | None = None) -> FastAPI:
     # 저장 위치는 여기서만 환경 변수로 정한다 (DB_HOST 가 있으면 PostgreSQL, 없으면 메모리·파일)
     demo = demo or Demo(Settings.from_env(), storage=open_store(app_name="ic26-web"))
     assistant = assistant or AssistantProxy.from_settings(demo.s)   # 시험에서는 가짜 상권 서비스를 넣은 것을 줄 수 있다
     assistant.attach_store(demo)                                    # 서랍의 가게 기본 질문(이름·메뉴)에 답할 때 가게 프로필을 읽을 곳
     care = care or CareProxy.from_settings(demo.s)                  # 고객응대 프록시 (시험에서는 가짜 리뷰 분석 서비스)
     marketing = marketing or MarketingProxy.from_settings(demo.s)   # 맞춤 마케팅 프록시 (시험에서는 가짜 마케팅 서비스)
+    market = market or MarketProxy.from_settings(demo.s)            # 상권 분석 화면(#/market) 프록시 (시험에서는 가짜 상권 서비스)
+    hub = StoreHub(demo, assistant, care, marketing)                # 가게마다의 Demo·프록시 (기본 가게는 위의 객체 그대로)
+    auth = auth or AuthService.from_env(demo.storage, demo.s.store_id)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -98,22 +111,41 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
         assistant.close()
         care.close()
         marketing.close()
+        market.close()
 
     app = FastAPI(title="텔레토비 AI 비서 — 한 화면", docs_url="/docs", redoc_url=None, lifespan=lifespan)
     app.state.demo = demo
     app.state.assistant = assistant
     app.state.care = care
     app.state.marketing = marketing
+    app.state.hub = hub
+    app.state.market = market
+    app.state.auth = auth
+
+    def sid(request: Request) -> str:
+        return getattr(request.state, "store_id", None) or demo.s.store_id
+
+    def store_demo(request: Request) -> Demo:
+        return hub.demo(sid(request))
 
     @app.middleware("http")
     async def _visitor(request: Request, call_next):
-        """방문자마다 임의의 id 를 쿠키로 준다. 쿠키가 없거나 형식이 틀리면 새로 만들어 이 요청에도 쓰고 응답에 싣는다."""
+        """방문자마다 임의의 id 를 쿠키로 준다. 쿠키가 없거나 형식이 틀리면 새로 만들어 이 요청에도 쓰고 응답에 싣는다.
+        로그인 세션(ic26_session)이 살아 있으면 이 요청의 방문자 id 는 'u-<user_id>', 가게는 세션이 고른 가게다 (auth.py)."""
         found = visitor_from_cookie(request.cookies.get(VISITOR_COOKIE))
-        request.state.visitor_id = found or new_visitor_id()
+        guest = found or new_visitor_id()
+        request.state.guest_visitor_id = guest
+        if request.url.path.startswith("/static/"):
+            who = auth.guest(guest)
+        else:
+            who = await run_in_threadpool(auth.resolve, request.cookies.get(SESSION_COOKIE), guest)
+        request.state.who = who
+        request.state.visitor_id = who.visitor_id
+        request.state.store_id = who.store_id if hub.known(who.store_id) else demo.s.store_id
         response = await call_next(request)
         if found is None and not request.url.path.startswith("/static/"):
             secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"
-            response.set_cookie(VISITOR_COOKIE, request.state.visitor_id, max_age=VISITOR_COOKIE_SECONDS, path="/",
+            response.set_cookie(VISITOR_COOKIE, guest, max_age=VISITOR_COOKIE_SECONDS, path="/",
                                 httponly=True, samesite="lax", secure=secure)
         return response
 
@@ -128,23 +160,24 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
         return await request_validation_exception_handler(request, exc)
 
     @app.get("/api/health")
-    def health():
-        return demo.health()
+    def health(request: Request):
+        return store_demo(request).health()
 
     @app.get("/api/briefing")
     def briefing(request: Request):
-        return demo.briefing(request.state.visitor_id)
+        return store_demo(request).briefing(request.state.visitor_id)
 
     @app.get("/api/insight")
     def insight(request: Request):
-        return demo.insight(request.state.visitor_id)
+        return store_demo(request).insight(request.state.visitor_id)
 
     @app.get("/api/cards")
     def cards(request: Request):
-        return demo.cards(request.state.visitor_id)
+        return store_demo(request).cards(request.state.visitor_id)
 
     @app.post("/api/cards/{card_id}/run")
     def run(card_id: str, request: Request, body: RunIn | None = None):
+        demo = store_demo(request)
         if body is not None and body.generator is not None:   # 개별 다시 만들기: 그 글 한 건만
             return demo.run(card_id, measures=body.measures, visitor=request.state.visitor_id, generator=body.generator,
                             review_id=body.review_id, reply_texts=body.reply_texts, replaces=body.replaces)
@@ -153,6 +186,7 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
 
     @app.post("/api/drafts/{draft_id}/approve")
     def approve(draft_id: str, body: ApproveIn, request: Request):
+        demo, care = store_demo(request), hub.care(sid(request))
         entry = demo.approve(draft_id, body.text, body.original, visitor=request.state.visitor_id,
                              card_id=body.card_id, kind=body.kind)
         # 리뷰 답글이면 리뷰 분석 서비스에 '답글 달았음'을 기록 (응대 기한·점수가 이 기록으로 계산됨). 따로 보내고 기다리지 않는다
@@ -166,32 +200,38 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
 
     @app.get("/api/approvals")
     def approvals(request: Request):
-        return {"items": demo.list_approvals(request.state.visitor_id)}
+        return {"items": store_demo(request).list_approvals(request.state.visitor_id)}
 
     @app.delete("/api/approvals")
     def clear_approvals(request: Request):
-        deleted = demo.clear_approvals(request.state.visitor_id)
+        deleted = store_demo(request).clear_approvals(request.state.visitor_id)
         # 맞춤 마케팅의 이 방문자 기록도 지운다 (보고서가 데모 기록으로 돌아감). 마케팅 서비스가 꺼져 있어도 승인 기록 지우기는 성공:
         # true = 지움, false = 서비스가 받지 않음, null = 꺼 둠·연결 못 함
-        return {"deleted": deleted, "marketing_cleared": marketing.clear_records(request.state.visitor_id)}
+        return {"deleted": deleted, "marketing_cleared": hub.marketing(sid(request)).clear_records(request.state.visitor_id)}
 
     @app.post("/api/reviews", status_code=201)
     def paste(body: PasteIn, request: Request):
-        return demo.paste(body.text, body.rating, body.channel, visitor=request.state.visitor_id, source=body.source or "paste")
+        return store_demo(request).paste(body.text, body.rating, body.channel, visitor=request.state.visitor_id,
+                                         source=body.source or "paste")
 
     @app.delete("/api/reviews/pasted")
     def reset_pasted(request: Request):
-        return demo.reset_pasted(request.state.visitor_id)
+        return store_demo(request).reset_pasted(request.state.visitor_id)
 
-    app.include_router(create_assistant_router(assistant))
+    app.state.account = AccountData(hub)              # 계정 초기화·탈퇴가 사장님 기록을 지우는 곳 (account.py, 11/19)
+    app.include_router(create_auth_router(auth, who_of=lambda request: request.state.who, erase=app.state.account.clear))
+    app.include_router(create_assistant_router(assistant, proxy_of=lambda request: hub.assistant(sid(request))))
+    app.include_router(create_market_router(market, store_of=sid))
 
-    def record_marketing(visitor: str | None, item: dict) -> dict:
-        # 맞춤 마케팅에서 승인한 글을 이 방문자의 승인 기록에 (리뷰 답글이 아니므로 리뷰 분석 서비스의 '답글 달았음'은 부르지 않는다)
-        return demo.approve(item["draft_id"], item["text"], item["original"], visitor=visitor,
-                            card_id=MARKETING_CARD_ID, kind=item["kind"])
+    def record_marketing(visitor: str | None, item: dict, store: str) -> dict:
+        # 맞춤 마케팅에서 승인한 글을 이 방문자·이 가게의 승인 기록에 (리뷰 답글이 아니므로 '답글 달았음'은 부르지 않는다)
+        return hub.demo(store).approve(item["draft_id"], item["text"], item["original"], visitor=visitor,
+                                       card_id=MARKETING_CARD_ID, kind=item["kind"])
 
-    app.include_router(create_marketing_router(marketing, record=record_marketing))
-    for router in create_care_routers(care):   # 손님용 문의 페이지는 CARE_PUBLIC=1 일 때만 들어 있다
+    app.include_router(create_marketing_router(marketing, proxy_of=lambda request: hub.marketing(sid(request)),
+                                               record_store=record_marketing))
+    # 손님용 문의 페이지는 CARE_PUBLIC=1 일 때만 들어 있다 (기본 가게 하나)
+    for router in create_care_routers(care, proxy_of=lambda request: hub.care(sid(request))):
         app.include_router(router)
 
     @app.get("/")

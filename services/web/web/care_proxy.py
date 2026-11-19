@@ -44,6 +44,7 @@
 """
 from __future__ import annotations
 
+import copy
 import http.cookiejar
 import json
 import logging
@@ -148,6 +149,16 @@ class CareProxy:
         s = re.escape(store_id)
         # 손님용은 우리 가게 하나만 (가게 고르기 없음)
         self.public_routes = [(m, re.compile(p.format(s=s))) for m, p in zip(("GET", "POST", "GET"), public_paths)]
+
+    def for_store(self, store_id: str) -> "CareProxy":
+        """다른 가게의 프록시 (얕은 사본: 같은 연결·동시 요청 한도·답글 기록 일꾼). 가게 id 와 손님용 경로만 그 가게 것 (11/18)."""
+        if store_id == self.store:
+            return self
+        view = copy.copy(self)
+        view.store = store_id
+        public_paths = [r"/public/{s}/info", r"/public/{s}/inquiries", r"/public/{s}/inquiries/[A-Za-z0-9_-]{{1,40}}"]
+        view.public_routes = [(m, re.compile(p.format(s=re.escape(store_id)))) for m, p in zip(("GET", "POST", "GET"), public_paths)]
+        return view
 
     @classmethod
     def from_settings(cls, settings) -> "CareProxy":
@@ -330,21 +341,26 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
-def create_care_routers(proxy: CareProxy, visitor_of: Callable[[Request], str | None] | None = None) -> list[APIRouter]:
-    """main.py 가 붙인다. 손님용 페이지 라우터는 CARE_PUBLIC=1 일 때만 목록에 들어간다."""
+def create_care_routers(proxy: CareProxy, visitor_of: Callable[[Request], str | None] | None = None,
+                        proxy_of: Callable[[Request], CareProxy] | None = None) -> list[APIRouter]:
+    """main.py 가 붙인다. 손님용 페이지 라우터는 CARE_PUBLIC=1 일 때만 목록에 들어간다.
+    proxy_of(요청) 이 있으면 요청마다 그 가게의 프록시를 쓴다 (5차 회의 11/18). 손님용 페이지는 기본 가게 하나만."""
     visitor_of = visitor_of or (lambda request: getattr(request.state, "visitor_id", None))
+    pick = proxy_of or (lambda request: proxy)
+    base = proxy
     api = APIRouter(prefix="/api/care", tags=["customer-care-proxy"])
 
     @api.get("/status")
-    def status():
+    def status(request: Request):
         try:
-            data = proxy.status()
+            data = pick(request).status()
         except Exception as exc:          # status 는 어떤 경우에도 200
             log.exception("고객응대 status 오류 (%s)", exc.__class__.__name__)
             data = {"state": "error", "message": MESSAGES["error"]}
         return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
     async def _forward(path: str, request: Request) -> Response:
+        proxy = pick(request)
         path = "/" + path
         method = request.method
         public = proxy.public and path.startswith("/public/")
@@ -394,15 +410,15 @@ def create_care_routers(proxy: CareProxy, visitor_of: Callable[[Request], str | 
             return fail("error")
 
     routers = [api]
-    if proxy.public:
+    if base.public:
         pages = APIRouter(tags=["customer-care-proxy"])
 
         @pages.get("/s/{store_id}")
         async def inquiry_page(store_id: str):
-            if store_id != proxy.store:
+            if store_id != base.store:
                 return fail("not_found", 404)
             try:
-                r = await run_in_threadpool(proxy.forward, "GET", f"/s/{store_id}", params={}, content=None, content_type=None,
+                r = await run_in_threadpool(base.forward, "GET", f"/s/{store_id}", params={}, content=None, content_type=None,
                                             public=True, service_path=f"/s/{store_id}")
                 if r.status_code != 200 or not (r.media_type or "").startswith("text/html"):
                     return r

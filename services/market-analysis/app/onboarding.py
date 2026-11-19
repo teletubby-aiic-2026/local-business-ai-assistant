@@ -22,9 +22,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.config import ROOT
+from app.cultural_events import DISTRICT_PATTERN, CulturalEventsService
+from app.data_sync import DataSyncBusy, DataSyncService
 from app.intake_location import declared_region, resolve_location, _candidate as parse_geocode_candidate
 from app.naver_clients import NaverApiError
-from app.onboarding_catalog import get_options
+from app.onboarding_catalog import SEOUL_DISTRICTS, get_options
 
 COOKIE_NAME = "market_onboarding_session"
 SEARCH_TTL = 600
@@ -38,6 +40,12 @@ def _database_path(path=None):
     if configured and not Path(configured).is_absolute():
         raise ValueError("ONBOARDING_DB_PATH must be an absolute database path")
     return str(path if path is not None else configured or ROOT / "data" / "onboarding.sqlite3")
+
+
+def _writable_dir():
+    """서비스 계정이 쓸 수 있는 폴더: 설정한 사용자 DB가 있는 곳. 공식 자료 폴더가 아니다."""
+    target = _database_path()
+    return None if target == ":memory:" else Path(target).parent
 
 
 class InputModel(BaseModel):
@@ -261,6 +269,16 @@ class OnboardingStore:
 def create_onboarding_router(store: OnboardingStore, *, cookie_secure=False) -> APIRouter:
     router = APIRouter(prefix="/api/onboarding")
     search_slot = threading.BoundedSemaphore(2)
+    # 시험은 app.state.data_sync / app.state.cultural_events 로 가짜 서비스를 넣는다.
+    default_data_sync = DataSyncService(state_dir=_writable_dir)
+    default_cultural_events = CulturalEventsService()
+    district_names = frozenset(d["name"] for d in SEOUL_DISTRICTS)
+
+    def data_sync_service(request):
+        return getattr(request.app.state, "data_sync", None) or default_data_sync
+
+    def cultural_events_service(request):
+        return getattr(request.app.state, "cultural_events", None) or default_cultural_events
 
     def owned(request):
         return store.session(request.cookies.get(COOKIE_NAME))
@@ -570,6 +588,34 @@ def create_onboarding_router(store: OnboardingStore, *, cookie_secure=False) -> 
             raise HTTPException(409, "조회 중 분석 조건이 변경됐습니다. 최신 조건을 불러온 뒤 다시 조회해 주세요.")
         return response({**result, "revision": state["revision"], "feature": "sales", "analysis_stage": "sales_result"}, token)
 
+    @router.get("/area-context")
+    def area_context(request: Request, expected_revision: int | None = Query(default=None, ge=0)):
+        """고른 상권의 직장인구·상주인구·세대·집객시설·상권 변화 (5차 회의 11/18, 상권 화면의 '유동·배후인구·집객시설' 탭).
+        챗봇이 쓰는 것과 같은 출처 확인 파일(data/assistant_context, app/assistant/context.py)을 읽기만 한다.
+        파일이 없거나 그 상권 값이 없으면 status 'not_collected' (지어내지 않음). 자료마다 실제 기준분기를 같이 준다."""
+        if (set(request.query_params) - {"expected_revision"}
+                or len(request.query_params.getlist("expected_revision")) > 1):
+            raise HTTPException(422, "입지 자료는 저장한 분석 조건을 사용합니다. 다른 상권·기간을 직접 전달할 수 없습니다.")
+        owner, token = owned(request)
+        state = analysis_state(owner)
+        if expected_revision is not None and expected_revision != state["revision"]:
+            raise HTTPException(409, "분석 조건이 변경됐습니다. 최신 조건을 불러온 뒤 다시 조회해 주세요.")
+        if not state["conditions_confirmed"]:
+            raise HTTPException(409, "분석할 상권과 기간을 먼저 선택하거나 현재 자료로 다시 확인해 주세요.")
+        selected = state["analysis_selection"]
+        from app.assistant.context import WARNING, area_table, card_values, period_sentence, sentence
+
+        row = area_table(selected["period"]).get(selected["area_code"])
+        name = selected.get("area_name")
+        result = {"status": "not_collected", "selection": {k: selected.get(k) for k in ("area_code", "area_name", "period",
+                                                                                       "period_label", "industry_code")},
+                  "values": [], "sentence": None, "period_note": None, "warnings": [WARNING]}
+        if row:
+            figure = {**row, "name": name}
+            result.update(status="available", values=card_values(figure), sentence=sentence(figure) or None,
+                          period_note=period_sentence(figure) or None)
+        return response({**result, "revision": state["revision"], "feature": "area_context"}, token)
+
     @router.get("/stores")
     def stores(request: Request, expected_revision: int | None = Query(default=None, ge=0)):
         if (set(request.query_params) - {"expected_revision"}
@@ -698,5 +744,32 @@ def create_onboarding_router(store: OnboardingStore, *, cookie_secure=False) -> 
                          "analysis_setup_complete": saved["analysis_setup_complete"],
                          "conditions_confirmed": saved["conditions_confirmed"],
                          "analysis_stage": "configuration_only", "ready_for_analysis": False}, token)
+
+    @router.get("/data-status")
+    def data_status(request: Request):
+        _owner, token = owned(request)
+        return response(data_sync_service(request).status(), token)
+
+    @router.post("/data-sync")
+    def data_sync(request: Request):
+        # 서울시 최신 발행 분기만 확인한다. 서비스 자료를 바꾸거나 수집하지 않는다.
+        _owner, token = owned(request)
+        try:
+            result = data_sync_service(request).sync()
+        except DataSyncBusy as error:
+            raise HTTPException(429, "다른 자료 확인이 진행 중이에요. 잠시 후 다시 시도해 주세요.",
+                                headers={"Retry-After": "5"}) from error
+        return response(result, token)
+
+    @router.get("/cultural-events")
+    def cultural_events(request: Request, district: str = Query(default="", max_length=10)):
+        if (set(request.query_params) - {"district"}
+                or len(request.query_params.getlist("district")) > 1):
+            raise HTTPException(422, "문화행사는 서울 자치구 이름 하나로만 조회할 수 있어요.")
+        district = district.strip()
+        if district and (DISTRICT_PATTERN.fullmatch(district) is None or district not in district_names):
+            raise HTTPException(422, "서울 자치구 이름을 확인해 주세요. 예: 동작구")
+        _owner, token = owned(request)
+        return response(cultural_events_service(request).events(district or None), token)
 
     return router

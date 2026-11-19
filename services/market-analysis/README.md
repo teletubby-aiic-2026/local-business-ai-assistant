@@ -73,6 +73,21 @@ python -m app.intake_api
 
 위치·업종·운영 상태를 저장한 뒤 분석할 상권·분기를 확인하고 결과 메뉴를 선택합니다. 프로필과 분석 조건은 브라우저 세션별 SQLite에 보존됩니다. 회원 계정이나 장치 간 동기화 기능은 포함하지 않습니다.
 
+## 자료 상태·실시간 발행 확인·문화행사 API
+
+다른 `/api/onboarding/*` 경로와 같이 Host·Origin 검사, 세션 쿠키, `Cache-Control: no-store`를 적용합니다. 세 경로 모두 서비스가 쓰는 공식 원본(`data/raw/official`)과 분석 카탈로그(`data/official`)를 바꾸지 않습니다.
+
+| 경로 | 하는 일 |
+|---|---|
+| `GET /api/onboarding/data-status` | 앱이 읽은 분석 카탈로그 기준 적재 분기(`periods`, `latest_period`), 준비 단계에서 SHA-256으로 검증한 원본 중 지금 있는 파일 수(`verified_files`/`listed_files`/`missing_files`), 최신 분기 전체 건수(`local_totals`), 마지막 실시간 확인 시각(`last_synced_at`, 없으면 `null`), 인증키 설정 여부(`key_configured`, 키 값은 넣지 않음) |
+| `POST /api/onboarding/data-sync` | 추정매출·점포·길단위인구 3개 자료에 대해 서버 최신 분기의 서울시 전체 건수와 다음 2개 분기 발행 여부(`INFO-000` 있음, `INFO-200` 없음)를 1~5건 조회로 확인합니다. 조회마다 5초 제한, 자료별 실패는 `datasets.<자료>.error`로 돌려주고 500을 내지 않습니다. 한 번에 하나만 실행하며 진행 중에 다시 부르면 `429`, 성공 직후 30초 안의 재요청은 앞 결과(`reused: true`)를 돌려줍니다. |
+| `GET /api/onboarding/cultural-events?district=동작구` | 서울시 문화행사 정보(`culturalEventInfo`) 목록 앞 40건 중 끝나지 않은 행사를 자치구(`GUNAME`)로 고릅니다. 맞는 행사가 없으면 서울 전체(`fallback: true`), 응답은 메모리에 10분 보관(실패는 1분), `district`는 서울 25개 자치구 이름 또는 빈 값만 받습니다(그 밖은 `422`). |
+
+- 다음 분기가 발행돼도 자료를 자동으로 바꾸거나 수집하지 않습니다(`staged: null`, `data_changed: false`). 앱이 시작할 때 읽은 카탈로그를 캐시하므로, 서비스를 멈춘 뒤 새 분기를 포함한 자료 묶음을 다시 설치하거나 `python -m scripts.prepare_data --from-dir ...`로 준비하고 다시 시작합니다(`apply_hint`).
+- `SEOUL_OPENAPI_KEY`가 비어 있으면 실시간 확인은 서울시 공개 `sample` 키로 1~5건만 확인하고 `sample_only: true`와 안내를 돌려줍니다. 이때는 마지막 확인 시각을 저장하지 않습니다. 문화행사는 키가 없거나 조회·응답 확인에 실패하면 `demo: true`와 '예시'로 표시한 가짜 목록을 돌려줍니다.
+- 쓰는 파일은 `ONBOARDING_DB_PATH`가 있는 폴더(기본 `data/`)의 `market-data-sync.json` 하나이며, 실제 키로 실패 없이 확인했을 때만 갱신합니다.
+- 인증키는 `SeoulClient`가 환경 변수에서만 읽습니다. 응답·로그·상태 파일에는 키를 넣지 않고, 진단용 주소는 키 자리를 `REDACTED`로 바꿉니다. 시험은 가짜 응답만 쓰며 서울시 API를 호출하지 않습니다.
+
 공개 서버에서는 `APP_PUBLIC_ORIGIN`에 실제 HTTPS origin 하나를 지정하고 Nginx 등에서 loopback 앱으로 연결합니다. 개인 서버 IP·SSH 설정·인증서·자동 배포 스크립트는 이 패키지에 포함하지 않습니다.
 
 ## 검증

@@ -9,6 +9,7 @@
   /health 의 demo·notes 에 보인다. 키를 읽는 곳은 hcx_key() 하나다.
 방문자 (11/16): 모든 /api/marketing-survey/* 가 선택 쿼리 visitor_id(^[A-Za-z0-9_-]{1,64}$, 틀리면 400)를 받는다.
   있으면 기록을 그 방문자 파일(records_{store}_{visitor}.json)에 쓰고 읽는다 — marketing_survey.records 참고.
+기록 저장 (11/19): DB_HOST 가 있으면 PostgreSQL(marketing_sessions·coupon_runs 표), 없으면 위 파일. /health 의 records_store.
   통합 화면의 서버(services/web)가 GET·POST 모두 쿼리에 store·visitor_id 를 붙여 중계한다(본문은 그대로).
 
 실행: python -m uvicorn marketing_survey.server:app --port 8030 --host 127.0.0.1
@@ -16,6 +17,7 @@
 
 import os
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -76,7 +78,15 @@ def _visitor_query(visitor_id: str | None = Query(
         raise HTTPException(400, "visitor_id 형식이 올바르지 않아요. 영문·숫자·_·- 로 1~64자여야 해요.") from None
 
 
-app = FastAPI(title="설문 맞춤 마케팅", dependencies=[Depends(_visitor_query)])
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    # DB_HOST 가 있는데 설정이 틀렸으면(또는 psycopg·shared 가 없으면) 켜질 때 멈춘다. DB 가 꺼져 있는 것은 괜찮다 (records.py)
+    records.backend()
+    yield
+    records.close()
+
+
+app = FastAPI(title="설문 맞춤 마케팅", dependencies=[Depends(_visitor_query)], lifespan=_lifespan)
 if WEB_DIR.is_dir():
     app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
 
@@ -244,17 +254,18 @@ def _health_payload() -> dict:
     key_present = _env_key() is not None
     demo = hcx_key() is None
     writable = _records_dir_writable()
+    store_kind = records.storage_kind()
     notes = []
     if mode == "mock":
         notes.append("mock: 키가 있어도 HCX 를 부르지 않아요. 글은 저장된 예시·코드 템플릿이에요(실제 AI 결과 아님).")
     elif not key_present:
         notes.append("live 인데 CLOVA_API_KEY 가 없어 저장된 예시·코드 템플릿으로 동작해요(실제 AI 결과 아님).")
-    if not writable:
+    if store_kind == "file" and not writable:
         notes.append("기록 폴더에 쓸 수 없어요. 승인·보고서 기록이 남지 않아요(화면 흐름은 그대로).")
     return {
         "status": "ok", "service": SERVICE_NAME, "mode": mode, "mode_source": source,
         "key_present": key_present, "demo": demo, "store_id": stores.DEFAULT_STORE_ID,
-        "records_dir_writable": writable, "notes": notes,
+        "records_dir_writable": writable, "records_store": store_kind, "notes": notes,
     }
 
 
@@ -529,12 +540,15 @@ def report_endpoint(period: str = "monthly", store: str = stores.DEFAULT_STORE_I
     _get_ctx(store)
     if period not in report.PERIOD_KINDS:
         raise HTTPException(400, "period 는 weekly 또는 monthly 여야 해요.")
-    return report.marketing_section(store, period, visitor_id=visitor_id)
+    try:
+        return report.marketing_section(store, period, visitor_id=visitor_id)
+    except OSError:     # 기록을 읽지 못함 (DB 에 닿지 못함 등). 데모로 바꾸지 않는다 — 기록이 있는 사장님에게 틀린 화면이 되지 않게
+        raise HTTPException(503, "기록을 읽지 못했어요. 잠시 뒤 다시 해 주세요.") from None
 
 
 @app.delete("/api/marketing-survey/records")
 def delete_records(store: str = stores.DEFAULT_STORE_ID, visitor_id: str | None = Depends(_visitor_query)):
-    """그 방문자의 기록 파일만 지운다 → {"deleted": true|false}. 파일이 없으면 deleted:false(오류 아님).
+    """그 방문자의 기록만 지운다(파일 또는 DB) → {"deleted": true|false}. 기록이 없으면 deleted:false(오류 아님).
     visitor_id 가 없으면 400 — 가게 공용 기록(records_{store}.json)은 이 경로로 지우지 않는다."""
     if not visitor_id:
         raise HTTPException(400, "visitor_id 가 있어야 기록을 지울 수 있어요. 가게 공용 기록은 지우지 않아요.")

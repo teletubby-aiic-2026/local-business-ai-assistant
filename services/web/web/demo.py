@@ -22,6 +22,7 @@ from .generate import (DEFAULT_MEASURES, GenerateError, adapt_seed, add_pasted_r
                        ensure_marketing_on_path, load_pasted_examples, load_seed, measure_catalog, pasted_reply_targets,
                        pick_measures, run_live, run_live_pasted_replies, seed_pasted_replies, summarize)
 from .generate import pick_seed_draft, reply_order, run_live_one   # 개별 다시 만들기 (11/16)
+from .generate import SEED_STORE_ID, mock_template   # 저장본이 없는 가게의 mock 글 (11/18)
 from .settings import Settings
 from .sources import ReviewSource, SourceError, is_dev_fake, load_snapshots, to_review_records, to_store_profile
 
@@ -326,7 +327,7 @@ class Demo:
             return self._replaced(made, visitor, old)
         card = plan.card
         if self.s.mode == "mock":
-            result = adapt_seed(self.seed[card.kind], card) if card.kind in self.seed else None
+            result = self._mock_result(st, card)
             if result is None:
                 raise DemoError("이 카드에 맞는 저장본이 없어요 (붙여넣기로 묶음이 바뀌었을 수 있어요). "
                                 "키가 있으면 APP_MODE=live 로 생성하세요.", status=404)
@@ -361,6 +362,14 @@ class Demo:
         self._remember_drafts(card_id, made)
         return self._replaced(made, visitor, old)
 
+    def _mock_result(self, st: dict, card) -> dict | None:
+        """mock: 기본 가게(저장본을 만든 온기한식)는 저장본을 카드에 맞춰 쓰고, 다른 가게는 코드 틀 글 (11/18)."""
+        if self.s.store_id == SEED_STORE_ID:
+            return adapt_seed(self.seed[card.kind], card) if card.kind in self.seed else None
+        store, reviews = self._contract_inputs(st)
+        found = praised_coupon_menu(store, reviews) if card.kind == "promo" else None
+        return mock_template(card, store, reviews, st["snapshots"], coupon_menu=(found or {}).get("menu"))
+
     def _mock_measures(self, result: dict, plan: CardPlan, measures: list[str] | None) -> None:
         """mock: 사장님이 고른 조치를 응답(chosen_measures)에 싣는다. 화면이 '오늘부터 실천할 수칙'으로 보여 준다 (초안·완료 화면).
         저장 예시 글은 고른 조치와 상관없이 그대로다. 그래서 화면은 mock 에서 '글에 반영'이라고 말하지 않는다 (app.js renderDraft·renderDone).
@@ -387,7 +396,7 @@ class Demo:
         not_target = "그 리뷰는 이 카드에서 답글을 만드는 리뷰가 아니에요. 새로 고침 하세요."
         pasted = False
         if self.s.mode == "mock":
-            result = adapt_seed(self.seed[card.kind], card) if card.kind in self.seed else None
+            result = self._mock_result(st, card)
             if result is None:
                 raise DemoError("이 카드에 맞는 저장본이 없어요 (붙여넣기로 묶음이 바뀌었을 수 있어요). "
                                 "키가 있으면 APP_MODE=live 로 생성하세요.", status=404)
@@ -656,3 +665,16 @@ class Demo:
             return self._src(visitor).reset_pasted(self.s.store_id)
         except SourceError as exc:
             raise DemoError(str(exc), 503) from None
+
+    def erase_pasted(self, visitor: str) -> int:
+        """계정 초기화·탈퇴용 (11/19): 이 방문자가 이 가게에 붙여넣은 리뷰·상태·답글 기록과 그 리뷰들의 분류 결과를 지운다.
+        지운 리뷰 수. 리뷰 분석 서비스가 분류 결과를 지웠다고 답하지 않으면(옛 판 등) 다 지운 것으로 보지 않고 DemoError(503)."""
+        if not visitor:
+            raise DemoError("방문자 없이 기록을 지울 수 없어요", 400)      # 공용 기록을 지우지 않게
+        try:
+            data = self._src(visitor).reset_pasted(self.s.store_id, forget_labels=True)
+        except SourceError as exc:
+            raise DemoError(str(exc), 503) from None
+        if not isinstance(data, dict) or not isinstance(data.get("deleted"), int) or not isinstance(data.get("labels_deleted"), int):
+            raise DemoError("리뷰 분석 서비스가 분류 결과를 지웠다고 답하지 않았어요", 503)
+        return data["deleted"]

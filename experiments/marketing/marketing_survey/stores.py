@@ -1,9 +1,9 @@
 """가게 레지스트리 — server 가 ?store=store_id 로 가게를 고를 때 쓴다.
 
-실제 데이터(StoreProfile·리뷰·상권 지표·카드)가 갖춰진 가게만 "available=True" 다. 다른 팀
-브랜치(scripts/pull_team_data.py 가 아는 store_basak·store_mongle)는 이 가게들의 id 는 알지만
-아직 이 프로젝트가 쓸 수 있는 형태(shared.contracts.StoreProfile 등)의 데이터가 없어
-available=False 로만 둔다 — 메뉴·가격을 지어내지 않는다.
+실제 데이터(StoreProfile·리뷰·상권 지표·카드)가 갖춰진 가게만 "available=True" 다.
+5차 회의(11/18) '사장님 한 명이 가게 여러 개' 결정으로 store_basak(바삭치킨)·store_mongle(몽글카페)도 쓸 수 있다:
+가게·리뷰는 리뷰 분석 서비스의 합성 자료, 상권 지표는 서울시 공식 원본으로 만든 가게별 파일, 가격·말투·예전 답글은
+shared.store_profiles 의 가정값이다 (온기한식의 가격과 같은 성격). 등록하지 않은 id 는 고를 수 없다(서버가 404).
 """
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from c6.contract import C6Context, build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
+from shared import store_profiles
 from shared.sample_scenario import (
     SAMPLE_CARDS, SAMPLE_REVIEWS, SAMPLE_SNAPSHOTS, SAMPLE_STORE, SAMPLE_TONE,
 )
@@ -32,14 +33,28 @@ _ONGI_CTX = build_context(
 
 DEFAULT_STORE_ID = SAMPLE_STORE.store_id
 
+
+
+def _shared_ctx(store_id: str) -> C6Context:
+    """바삭치킨·몽글카페 (11/18). 공용 가게 정보(shared.store_profiles)로 만든 컨텍스트."""
+    bundle = store_profiles.BUNDLES[store_id]
+    return build_context(
+        store=store_profiles.store_profile(store_id), reviews=store_profiles.review_records(store_id), tone=bundle.tone,
+        cards=store_profiles.sample_cards(store_id), snapshots=store_profiles.load_snapshots(store_id),
+        owner_replies=list(bundle.owner_replies), policies=[dict(p) for p in store_profiles.COMMON_POLICIES],
+    )
+
+
 _AVAILABLE: dict[str, StoreEntry] = {
     SAMPLE_STORE.store_id: StoreEntry(
         store_id=SAMPLE_STORE.store_id, name=SAMPLE_STORE.name, available=True, ctx=_ONGI_CTX,
     ),
 }
+for _sid in ("store_basak", "store_mongle"):
+    _AVAILABLE[_sid] = StoreEntry(store_id=_sid, name=store_profiles.BUNDLES[_sid].name, available=True, ctx=_shared_ctx(_sid))
 
-# scripts/pull_team_data.py 가 아는 다른 팀 가게 id — 이름·메뉴·가격 데이터가 아직 여기 없다.
-_KNOWN_NOT_AVAILABLE = ("store_basak", "store_mongle")
+# 이름은 알지만 데이터가 아직 없는 가게 id. 11/18 부터 비어 있다 (바삭치킨·몽글카페가 쓸 수 있게 됨).
+_KNOWN_NOT_AVAILABLE: tuple[str, ...] = ()
 # 데이터 없는 가게의 화면 표시 이름(id 대신). 모르는 id 는 "다른 가게".
 _NOT_AVAILABLE_LABELS = {"store_basak": "바삭", "store_mongle": "몽글"}
 _NOT_AVAILABLE_FALLBACK = "다른 가게"

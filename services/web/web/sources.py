@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 
 from shared.contracts import AnalysisSnapshot, ReviewRecord, StoreProfile, load_json
-from shared.sample_scenario import SAMPLE_STORE
+from shared import store_profiles
 
 DEV_FAKE_PREFIX = "개발용 가짜 값"
 
@@ -99,9 +99,14 @@ class ReviewSource:
             raise SourceError(f"리뷰 분석 서비스({self.base_url})에 연결하지 못했습니다: {exc.__class__.__name__}") from None
         return self._json(res)
 
-    def reset_pasted(self, store_id: str) -> dict:
+    def reset_pasted(self, store_id: str, forget_labels: bool = False) -> dict:
+        """forget_labels: 그 리뷰들의 분류 결과도 지움 (계정 초기화·탈퇴만, 11/19). 응답에 labels_deleted 가 더해진다.
+        '데모 다시 하기'(DELETE /api/reviews/pasted)는 예전처럼 이 값 없이 부른다."""
+        params = {"store_id": store_id, **self._visitor()}
+        if forget_labels:
+            params["forget_labels"] = "true"
         try:
-            res = self._client.delete("/api/review-insight/reviews/pasted", params={"store_id": store_id, **self._visitor()})
+            res = self._client.delete("/api/review-insight/reviews/pasted", params=params)
         except httpx.HTTPError as exc:
             raise SourceError(f"리뷰 분석 서비스({self.base_url})에 연결하지 못했습니다: {exc.__class__.__name__}") from None
         return self._json(res)
@@ -123,13 +128,15 @@ def is_dev_fake(snapshot: AnalysisSnapshot) -> bool:
 
 # ── 형식 변환 ────────────────────────────────────────────────────────
 def to_store_profile(store: dict, area_name: str | None) -> StoreProfile:
-    """#14 store.json → StoreProfile. 메뉴 가격(C6 쿠폰용)은 #14 에 없어서 C1 샘플 가게가 같은 가게일 때만 가져온다."""
+    """#14 store.json → StoreProfile. 메뉴 가격(C6 쿠폰용)은 #14 에 없어서 shared.store_profiles 의 가정 가격을 쓴다
+    (온기한식은 C1 샘플 가게와 같은 값. 11/18 바삭치킨·몽글카페를 더함)."""
     names = StoreProfile.__dataclass_fields__
     data = {k: v for k, v in store.items() if k in names}
     if area_name:
         data["area_name"] = area_name
-    if store.get("store_id") == SAMPLE_STORE.store_id and not data.get("menu_prices"):
-        data["menu_prices"] = dict(SAMPLE_STORE.menu_prices)
+    if not data.get("menu_prices") and store_profiles.known(store.get("store_id")):
+        menu = set(data.get("menu") or [])      # 메뉴판에 있는 메뉴의 가격만 (메뉴가 바뀌어도 StoreProfile 검사에 걸리지 않게)
+        data["menu_prices"] = {k: v for k, v in store_profiles.menu_prices(store.get("store_id")).items() if not menu or k in menu}
     return StoreProfile.from_dict(data)
 
 

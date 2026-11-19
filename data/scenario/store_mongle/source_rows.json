@@ -1,0 +1,32 @@
+{
+  "schema_version": "store-evening-v1",
+  "periods": [
+    "20252",
+    "20262"
+  ],
+  "fields": [
+    "TMZON_17_21_SELNG_AMT",
+    "TMZON_21_24_SELNG_AMT"
+  ],
+  "source_url": "https://data.seoul.go.kr/dataList/OA-15572/S/1/datasetView.do",
+  "rows": {
+    "20252": {
+      "STDR_YYQU_CD": "20252",
+      "TRDAR_CD": "3120154",
+      "TRDAR_CD_NM": "장승배기역",
+      "SVC_INDUTY_CD": "CS100010",
+      "SVC_INDUTY_CD_NM": "커피-음료",
+      "TMZON_17_21_SELNG_AMT": 60740661.0,
+      "TMZON_21_24_SELNG_AMT": 6395182.0
+    },
+    "20262": {
+      "STDR_YYQU_CD": "20262",
+      "TRDAR_CD": "3120154",
+      "TRDAR_CD_NM": "장승배기역",
+      "SVC_INDUTY_CD": "CS100010",
+      "SVC_INDUTY_CD_NM": "커피-음료",
+      "TMZON_17_21_SELNG_AMT": 51720209.0,
+      "TMZON_21_24_SELNG_AMT": 3884141.0
+    }
+  }
+}

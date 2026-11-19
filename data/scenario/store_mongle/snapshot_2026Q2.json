@@ -1,0 +1,14 @@
+[
+  {
+    "snapshot_id": "snap_3120154_evening_17_24_CS100010_yoy_2026Q2",
+    "area_name": "장승배기역",
+    "metric_name": "저녁 시간대(17~24시) 추정매출 전년 동기 대비 변화율 · 커피-음료",
+    "value": -17.176358387277567,
+    "unit": "%",
+    "basis_quarter": "2026Q2",
+    "is_estimate": true,
+    "source": "서울시 상권분석서비스 · https://data.seoul.go.kr/dataList/OA-15572/S/1/datasetView.do",
+    "compared_with_quarter": "2025Q2",
+    "note": "상권코드 3120154, 업종 CS100010(커피-음료) 한 업종. 17~21시와 21~24시 추정매출 합산: 2025Q2 67,135,843원 → 2026Q2 55,604,350원. 동작구 장승배기·상도 근처 상권 중 이 업종의 두 분기 행이 모두 있는 곳에서 고름; 서울 전체 순위가 아님. 하루 전체 매출·개별 가게 실적과 구분."
+  }
+]

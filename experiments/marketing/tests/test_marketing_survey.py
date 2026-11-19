@@ -1928,16 +1928,29 @@ class TestStoreRegistry(unittest.TestCase):
         self.assertTrue(listed[stores.DEFAULT_STORE_ID]["available"])
         self.assertIsNotNone(stores.get_ctx(stores.DEFAULT_STORE_ID))
 
-    def test_known_other_stores_are_listed_but_not_available(self):
-        """scripts/pull_team_data.py 가 아는 store_basak·store_mongle — 데이터가 없어 고를 수 없다."""
+    def test_basak_and_mongle_are_available_with_their_own_data(self):
+        """5차 회의(11/18): store_basak·store_mongle 도 고를 수 있다. 자기 가게 이름·메뉴·리뷰·상권 지표로 만든 컨텍스트."""
         from marketing_survey import stores
 
         listed = {s["store_id"]: s for s in stores.list_stores()}
-        for store_id in ("store_basak", "store_mongle"):
-            self.assertIn(store_id, listed)
-            self.assertFalse(listed[store_id]["available"])
-        self.assertIsNone(stores.get_ctx("store_basak"))
-        self.assertIsNone(stores.get_ctx("store_mongle"))
+        for store_id, name, menu in (("store_basak", "바삭치킨", "후라이드"), ("store_mongle", "몽글카페", "아메리카노")):
+            self.assertTrue(listed[store_id]["available"])
+            self.assertEqual(listed[store_id]["name"], name)
+            ctx = stores.get_ctx(store_id)
+            self.assertEqual(ctx.store.store_id, store_id)
+            self.assertIn(menu, ctx.store.menu_prices)
+            self.assertTrue(ctx.reviews and all(r.store_id == store_id for r in ctx.reviews))
+            self.assertTrue(ctx.snapshots and ctx.snapshots[0].value < 0)
+            self.assertNotIn("온기한식", " ".join(ctx.owner_replies))
+            self.assertEqual(ctx.tone.store_id, store_id)
+
+    def test_unknown_store_is_not_listed_and_has_no_context(self):
+        """등록하지 않은 가게 id 는 목록에 없고 고를 수 없다."""
+        from marketing_survey import stores
+
+        listed = {s["store_id"] for s in stores.list_stores()}
+        self.assertNotIn("store_unknown", listed)
+        self.assertIsNone(stores.get_ctx("store_unknown"))
 
 
 class TestServerStoreParam(unittest.TestCase):
@@ -1960,15 +1973,28 @@ class TestServerStoreParam(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.text)
         listed = {s["store_id"]: s["available"] for s in res.json()["stores"]}
         self.assertEqual(listed["store_ongi"], True)
-        self.assertEqual(listed["store_basak"], False)
+        self.assertEqual(listed["store_basak"], True)
+        self.assertEqual(listed["store_mongle"], True)
+        self.assertNotIn("store_unknown", listed)
 
     def test_unavailable_store_returns_404_on_step(self):
         res = self.client.post(
             "/api/marketing-survey/step",
             json={"state": None, "answer": None},
-            params={"store": "store_basak"},
+            params={"store": "store_unknown"},
         )
         self.assertEqual(res.status_code, 404)
+
+    def test_basak_and_mongle_steps_and_meta_use_their_store(self):
+        """11/18: 바삭치킨·몽글카페로 대화를 시작하면 그 가게 이름이 보이고 시작 노드가 같다."""
+        for store_id, name in (("store_basak", "바삭치킨"), ("store_mongle", "몽글카페")):
+            meta = self.client.get("/api/marketing-survey/meta", params={"store": store_id})
+            self.assertEqual(meta.status_code, 200, meta.text)
+            self.assertEqual(meta.json()["store_id"], store_id)
+            self.assertIn(name, meta.json().get("store_name", ""))
+            res = self.client.post("/api/marketing-survey/step", json={"state": None, "answer": None}, params={"store": store_id})
+            self.assertEqual(res.status_code, 200, res.text)
+            self.assertEqual(res.json()["state"]["node"], "start")
 
     def test_step_works_with_explicit_default_store_param(self):
         res = self.client.post(
@@ -2255,7 +2281,7 @@ class TestMarketingReportServer(unittest.TestCase):
 
     def test_report_endpoint_rejects_bad_period_and_unknown_store(self):
         self.assertEqual(self.client.get("/api/marketing-survey/report", params={"period": "daily"}).status_code, 400)
-        res = self.client.get("/api/marketing-survey/report", params={"store": "store_basak"})
+        res = self.client.get("/api/marketing-survey/report", params={"store": "store_unknown"})
         self.assertEqual(res.status_code, 404)
 
     def test_plan_then_approve_leaves_linked_records(self):

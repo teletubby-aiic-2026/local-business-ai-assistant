@@ -23,7 +23,7 @@ PC ──(scp, 베스천 거침)──▶ ic26-was1 ─ install_was.sh ─▶ ic
 | `systemd/ic26-was.service` | WAS 서버 | 비서 화면 서버 (0.0.0.0:8000, 상태 확인 `/api/health`) |
 | `systemd/ic26-market.service` | WAS 서버 | 상권 서비스 (127.0.0.1:8766). 상권 자료를 깔면 켬 (자료가 없으면 파일만) |
 | `systemd/ic26-marketing.service` | WAS 서버 | 맞춤 마케팅 서버 (127.0.0.1:8030, 상태 확인 `/health`). 10-2절 |
-| `smoke_test.sh` | WAS 서버, 웹 서버 | `/api/health`와 `/api/briefing`, 맞춤 마케팅 `/health`, 상권 `/health`와 서랍 `ready` 확인. `--generate`로 글 생성·상권 질문 1회씩 |
+| `smoke_test.sh` | WAS 서버, 웹 서버 | `/api/health`와 `/api/briefing`, 로그인 `/api/auth/me`, 맞춤 마케팅 `/health`, 상권 `/health`와 서랍·상권 분석 화면(`/api/market/status`) `ready` 확인. `--generate`로 글 생성·상권 질문 1회씩 |
 | `prepare_image.sh` | WAS 서버 | 서버 이미지를 만들기 전에 키 값과 실행 중 데이터를 비움 |
 | `install_web.sh` | 웹 서버 | Nginx 설치와 설정 넣기 (1단계 또는 2단계) |
 | `nginx/ic26-proxy-all.conf` | 웹 서버 | (가) 1단계: 모든 요청을 WAS로 |
@@ -215,7 +215,7 @@ sudo ss -ltnp | grep -E ':(8000|8020|8030|8766)'        # 8000 은 0.0.0.0, 8020
 bash ~/ic26-<커밋>/deploy/smoke_test.sh --expect-reviews 40
 ```
 
-`smoke_test.sh`는 `/api/health`(모드, 키 유무, 리뷰 분석 상태 ok, 막힘 목록 비어 있음)와 `/api/briefing`(리뷰 건수), 맞춤 마케팅(10-2절: 비서 화면을 거친 `/api/marketing-survey/health`와 서버 안 `127.0.0.1:8030/health`), 상권(10절: 서버 안 `127.0.0.1:8766/health`와 비서 화면을 거친 `/api/assistant/status`가 `ready`)을 봅니다. 상권 서비스가 꺼져 있으면(자료를 아직 안 깜) 주의만 내고, `--market`을 주면 꺼져 있는 것도 실패로 셉니다. 모두 통과하면 종료 코드 0입니다.
+`smoke_test.sh`는 `/api/health`(모드, 키 유무, 리뷰 분석 상태 ok, 막힘 목록 비어 있음)와 `/api/briefing`(리뷰 건수), `/api/auth/me`(로그인 기능, 로그인 표가 없으면 실패), 맞춤 마케팅(10-2절: 비서 화면을 거친 `/api/marketing-survey/health`와 서버 안 `127.0.0.1:8030/health`), 상권(10절: 서버 안 `127.0.0.1:8766/health`와 비서 화면을 거친 `/api/assistant/status`·`/api/market/status`가 `ready`)을 봅니다. 상권 서비스가 꺼져 있으면(자료를 아직 안 깜) 주의만 내고, `--market`을 주면 꺼져 있는 것도 실패로 셉니다. 모두 통과하면 종료 코드 0입니다.
 
 글 생성까지 보려면(live는 HCX를 실제로 한 번 부르므로 비용이 듭니다):
 
@@ -241,7 +241,9 @@ bash ~/ic26-<커밋>/deploy/smoke_test.sh --generate
 
 ## 6-1. DB를 연결할 때: 표 만들기
 
-묶음에는 DB를 쓰는 코드(`shared/storage`)가 들어 있습니다. `DB_HOST`가 비어 있으면 DB 없이 돌고(서버 메모리와 파일), 넣으면 붙여넣은 리뷰, 승인 기록, 카드 추천 이유를 PostgreSQL에 둡니다.
+묶음에는 DB를 쓰는 코드(`shared/storage`)가 들어 있습니다. `DB_HOST`가 비어 있으면 DB 없이 돌고(서버 메모리와 파일), 넣으면 붙여넣은 리뷰, 승인 기록, 카드 추천 이유, 계정·로그인 세션, 맞춤 마케팅 기록을 PostgreSQL에 둡니다.
+
+**순서: 새 표가 생기는 묶음은 코드보다 먼저 이 절의 표 만들기(init_db)를 한 번 돌립니다.** 표 만들기는 옛 코드가 도는 중에 돌려도 안전하고(있는 표는 그대로, 새 표·새 칸만 더함), 그 뒤에 서버를 한 대씩 갱신합니다(8절). 코드를 먼저 올리면 표가 생길 때까지 그 기능이 실패합니다(아래 2번 설명).
 DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여러 대여도 표 만들기는 **한 대에서 한 번**이면 됩니다(같은 DB를 보기 때문).
 
 1. `/etc/ic26/env`에 `DB_HOST`(DB의 사설 도메인), `DB_USER`, `DB_PASSWORD`를 5절과 같은 방법으로 넣습니다. `DB_HOST`만 넣고 `DB_USER`를 비우면 두 서비스가 켜지지 않습니다.
@@ -255,12 +257,15 @@ DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여
 
    두 번째 `EnvironmentFile`은 5-1절(Secret Manager)을 쓸 때 `DB_PASSWORD`를 거기서 읽기 위한 것입니다. 쓰지 않으면 건너뜁니다.
 
-   `<DB 주소>:5432/ic26app 표 6개 확인: approvals, card_reasons, reports, review_labels, reviews, stores`가 나오면 된 것입니다. 여러 번 돌려도 안전합니다(이미 있는 표는 그대로 둡니다).
+   `<DB 주소>:5432/ic26app 표 13개 확인: approvals, auth_sessions, card_reasons, coupon_runs, marketing_sessions, reports, review_labels, review_records, review_status_events, reviews, stores, user_stores, users`가 나오면 된 것입니다. 여러 번 돌려도 안전합니다(이미 있는 표는 그대로 둡니다).
+   11/18 5차 회의 묶음부터 로그인 표 3개(`users`, `user_stores`, `auth_sessions`)가 더해져 9개입니다. **이미 DB를 쓰고 있는 서버도 이 명령을 한 번 더 돌려야** 로그인·가게 바꾸기가 됩니다(돌리기 전에는 로그인 요청이 '로그인 정보를 불러오지 못했어요'로 실패하고, 로그인하지 않은 화면은 그대로).
+   11/19 묶음부터 맞춤 마케팅 기록 표 2개(`marketing_sessions`, `coupon_runs`. 이슈 #51 ERD §3.13)가 더해져 11개입니다. 돌리기 전에 새 코드를 올리면 맞춤 마케팅의 기록 쓰기는 조용히 건너뛰고(화면 흐름은 그대로, `session_id`만 `null`, `journalctl -u ic26-marketing`에 경고), 마케팅 보고서와 '처음부터 다시'의 마케팅 기록 지우기는 실패합니다(보고서 `503`, 지우기 `500`).
+   같은 11/19 묶음에 리뷰의 상태·답글 기록 표 2개(`review_records`, `review_status_events`. 리뷰 분석 서비스 `docs/handoff.md` 7절)도 있어 모두 13개입니다. 돌리기 전에 새 코드를 올리면 리뷰 목록·답글 승인 기록·종합 리포트가 503('저장소(DB)에 닿지 못했습니다')이 되므로, **이 묶음은 꼭 표 만들기를 먼저** 합니다. 예전 서버 파일(`/var/lib/ic26/…/records_*.json`)의 기록은 DB 로 옮기지 않습니다.
    11/18부터 `approvals`에 칸 4개(`draft_text`, `checks`, `used_fallback`, `style`. 이슈 #51 ERD)가 더해졌습니다. 이 명령은 이미 있는 표에도 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 칸을 더합니다(있던 기록은 그대로, 새 칸은 비움·`{}`·`false`).
 3. 서비스를 다시 시작하고 확인합니다.
 
    ```bash
-   sudo systemctl restart ic26-review ic26-was
+   sudo systemctl restart ic26-review ic26-marketing ic26-was
    bash ~/ic26-<커밋>/deploy/smoke_test.sh --expect-reviews 40
    ```
 
@@ -272,6 +277,7 @@ DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여
 
 - `표를 만들지 못했습니다: …`가 나오면 그 뒤의 내용을 봅니다. 접속 실패면 ACG와 `DB_HOST`를, 권한 오류면 `DB_USER`가 `ic26app`에 표를 만들 수 있는 계정인지 봅니다.
 - DB에 닿지 못하는 동안에는 승인은 되고(경고가 붙고, 서버가 들고 있다가 DB가 돌아오면 저장), 브리핑, 카드, 리뷰 분석, 붙여넣기는 503입니다. DB가 돌아오면 서비스를 다시 켜지 않아도 이어집니다.
+- 맞춤 마케팅 서비스(`ic26-marketing`)도 같은 `DB_HOST`를 읽습니다. DB에 닿지 못하는 동안 마케팅 기록 쓰기는 건너뛰고(화면은 그대로), 마케팅 보고서는 데모로 바꾸지 않고 `503`입니다(기록이 있는 사장님에게 '기록 없음' 화면이 나가지 않게).
 - DB 없이 되돌리려면 `DB_HOST`를 비우고 서비스를 다시 시작합니다.
 - 표 정의는 `db/schema.sql`입니다. 칸을 **더하는** 변경은 `schema.sql` 끝의 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 명령이 처리합니다. 칸 이름·형식을 바꾸거나 지우는 변경은 따로 옮깁니다.
 - 선택 변수: `DB_SSLMODE`, `DB_CONNECT_TIMEOUT`(3초), `DB_QUERY_TIMEOUT`(5초), `DB_POOL_MAX`(5). 설명은 `shared/storage/config.py`에 있습니다.
@@ -314,7 +320,7 @@ bash ic26-<새 커밋>/deploy/smoke_test.sh
 - 코드만 바뀌었으면 `--skip-pip`으로 빠르게 할 수 있습니다. requirements가 바뀐 갱신(예: DB 코드가 처음 들어온 묶음은 `psycopg`가 더해짐)에는 붙이지 않습니다.
 - **PR #49(리뷰 캡처·응대 점수·보고서)와 비서 화면 연결(`feat/connect-care-ui`)이 처음 들어가는 갱신은 `--skip-pip` 없이 돌립니다.** 리뷰 분석 서비스가 `pillow`와 `python-multipart`를 새로 씁니다. `python-multipart`가 없으면 리뷰 분석 서비스(`ic26-review`)가 **아예 켜지지 않고**, 비서 화면의 브리핑·카드·리뷰 분석도 모두 `503`이 됩니다. 갱신 뒤 `curl -s http://127.0.0.1:8020/api/health`와 `curl -s http://127.0.0.1:8000/api/care/status`(`"state":"ready"`)를 봅니다.
 - **맞춤 마케팅(`ic26-marketing`)이 처음 들어가는 갱신**은 `install_was.sh`가 서비스 파일을 넣고 enable·시작하며 `/var/lib/ic26/marketing`을 만듭니다. 새 패키지는 없습니다. 갱신 뒤 `curl -s http://127.0.0.1:8030/health`를 봅니다(10-2절).
-- `db/schema.sql`에 새 표나 새 칸이 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다. **11/18 묶음(`approvals` 칸 4개)이 그렇습니다.** 돌리기 전에도 승인 기록은 저장됩니다(새 칸이 없으면 칸 없이 예전처럼 쓰고 `journalctl -u ic26-was`에 'init_db 를 다시 돌리세요' 경고). 표 만들기를 돌린 뒤부터 새 칸이 채워집니다.
+- `db/schema.sql`에 새 표나 새 칸이 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다. **11/18 묶음(`approvals` 칸 4개)과 11/19 묶음(마케팅 표 2개)이 그렇습니다. 표 만들기를 먼저, 서버 갱신은 그 뒤에 합니다.** 돌리기 전에도 승인 기록은 저장됩니다(새 칸이 없으면 칸 없이 예전처럼 쓰고 `journalctl -u ic26-was`에 'init_db 를 다시 돌리세요' 경고). 표 만들기를 돌린 뒤부터 새 칸이 채워집니다.
 - 상권 자료(`/opt/ic26/services/market-analysis/data/`)는 갱신 때 그대로입니다. 자료가 깔려 있으면 `install_was.sh`가 `ic26-market`도 새 코드로 다시 시작합니다. 자료 묶음이 새로 나오면 4-1절(`--replace`).
 - 환경 파일 틀에 새 변수가 생기면 스크립트가 빠진 변수 이름을 알려 줍니다. 편집기로 줄을 추가합니다.
 - 단계 15(Auto Scaling) 뒤에는 그룹 서버를 직접 고치지 않습니다(체크리스트 단계 13-A).
@@ -382,10 +388,13 @@ sudo bash ic26-<커밋>/deploy/install_web.sh --mode static --lb <내부 로드 
 - 김수현 님의 설문 맞춤 마케팅 서버(`experiments/marketing/marketing_survey`, PR #56)를 4번째 서비스로 띄웁니다. 서버 안에서만 열립니다(`127.0.0.1:8030`). 비서 화면 서버가 `MARKETING_SURVEY_URL`(서비스 파일에 `http://127.0.0.1:8030`)로 `/api/marketing-survey/*`를 대신 불러 줍니다. API는 `docs/api/contract.md` 4부.
 - **모드**: `MARKETING_APP_MODE`(mock|live) → 없으면 `APP_MODE` → 없으면 키 유무. 보통은 적지 않고 `APP_MODE`를 따릅니다. **mock이면 키가 있어도 HCX를 부르지 않습니다.** live인데 `CLOVA_API_KEY`가 비어 있으면 저장된 예시·코드 템플릿으로 돌고(`demo: true`), `/health`의 `notes`에 그렇게 나옵니다.
 - **키**: `CLOVA_API_KEY`(비서 화면과 같은 이름)를 읽습니다. `/health`에는 키가 있는지(`key_present`)만 나오고 값은 나오지 않습니다.
-- **기록**: 설문 결과·승인·쿠폰 결과·광고비 점검을 `/var/lib/ic26/marketing/records_<가게>_<방문자>.json`에 방문자마다 한 줄씩 덧붙입니다(방문자 id는 비서 화면의 쿠키, 로그인 아님). 마케팅 보고서는 그 방문자의 기록만 세고, 없으면 데모 기록을 보여 줍니다. **WAS가 2대이면 서버마다 따로**입니다. 기록 쓰기가 실패해도 화면 흐름은 그대로 갑니다(`/health`의 `records_dir_writable`). 이미지를 만들기 전에 `prepare_image.sh`가 비웁니다.
+- **기록**: 설문 결과·승인·쿠폰 결과·광고비 점검을 방문자마다 남깁니다(방문자 id는 비서 화면의 쿠키 값, 로그인한 사장님은 `u-<user_id>`). 마케팅 보고서는 그 방문자의 기록만 세고, 없으면 데모 기록을 보여 줍니다. 기록 쓰기가 실패해도 화면 흐름은 그대로 갑니다.
+  - **`DB_HOST`가 있으면(11/19부터)** PostgreSQL의 `marketing_sessions`·`coupon_runs` 표에 둡니다. WAS가 2대여도 같은 기록을 봅니다. 표는 6-1절의 표 만들기로 **코드보다 먼저** 만듭니다. `/health`의 `records_store`가 `db`입니다. 예전 파일 기록은 DB로 옮기지 않습니다(서버에 있던 것은 시험 기록뿐).
+  - **`DB_HOST`가 없으면** 예전처럼 `/var/lib/ic26/marketing/records_<가게>_<방문자>.json`에 한 줄씩 덧붙입니다(`records_store`가 `file`). **WAS가 2대이면 서버마다 따로**입니다(`/health`의 `records_dir_writable`). 이미지를 만들기 전에 `prepare_image.sh`가 비웁니다.
+  - `DB_HOST`를 넣었는데 `DB_USER`가 비는 등 설정이 틀리면 `ic26-marketing`도 켜지지 않습니다(리뷰 분석·비서 화면과 같은 규칙). DB가 꺼져 있는 것만으로는 켜지는 데 문제가 없습니다.
 - **로그**: `sudo journalctl -u ic26-marketing -n 50` (uvicorn `--log-level warning`이라 평소에는 조용함). live에서 답글 생성기는 `experiments/marketing/results/c6_reply_raw.txt`에 모델 원문 응답을 남깁니다(비서 화면과 같은 폴더).
-- **패키지**: 서버는 `fastapi`·`uvicorn`·`pydantic`만 씁니다(비서 화면 requirements에 들어 있음). `experiments/marketing/requirements.txt`는 개발용 데모 화면의 `streamlit`이 들어 있어 설치하지 않습니다.
-- **상태 확인**: `curl -s http://127.0.0.1:8030/health` → `{"status":"ok","service":"marketing-survey","mode":…,"key_present":…,"demo":…,"records_dir_writable":true,…}`.
+- **패키지**: 서버는 `fastapi`·`uvicorn`·`pydantic`과, DB를 쓸 때 `psycopg`를 씁니다(모두 비서 화면 requirements에 들어 있고 같은 `/opt/ic26/.venv`를 씀). `experiments/marketing/requirements.txt`는 개발용 데모 화면의 `streamlit`이 들어 있어 설치하지 않습니다.
+- **상태 확인**: `curl -s http://127.0.0.1:8030/health` → `{"status":"ok","service":"marketing-survey","mode":…,"key_present":…,"demo":…,"records_dir_writable":true,"records_store":"db"|"file",…}`.
 - **끄는 법**: `/etc/ic26/env`에 `MARKETING_SURVEY_URL=off`를 넣고(비서 화면 서버가 부르지 않음) `sudo systemctl disable --now ic26-marketing && sudo systemctl restart ic26-was`. 다시 켤 때는 그 줄을 지우고 `sudo systemctl enable --now ic26-marketing && sudo systemctl restart ic26-was`. `ic26-was`는 `ic26-marketing`을 순서(`After`)로만 기다리고 `Wants`로 끌어오지 않아, 꺼 둔 채로 화면 서버를 다시 시작해도 마케팅이 켜지지 않습니다.
 - **로컬**: `services/web/run.sh`가 같이 띄웁니다(`MARKETING_PORT`, 기본 8030). `MARKETING_SURVEY_URL=off`면 띄우지 않습니다.
 

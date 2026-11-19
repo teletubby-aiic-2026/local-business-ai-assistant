@@ -24,18 +24,20 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from .config import DbConfig
-from .errors import StorageError
-from .memory import check_period, clean_detail
+from .errors import DuplicateLogin, StorageError
+from .memory import (COUPON_RUNS, MARKETING_SESSIONS, check_period, clean_detail, clean_marketing_row, margin_value,
+                     with_visitor)
 from .times import to_date, to_datetime, to_kst_iso
 
 log = logging.getLogger("shared.storage")
 T = TypeVar("T")
 
-TABLES = ("stores", "reviews", "review_labels", "approvals", "card_reasons", "reports")
+TABLES = ("stores", "reviews", "review_labels", "approvals", "card_reasons", "reports", "users", "user_stores", "auth_sessions",
+          "marketing_sessions", "coupon_runs", "review_records", "review_status_events")
 
 
 class Database:
-    """연결 풀 하나와 표별 저장소 (reviews, labels, approvals, card_reasons, reports)."""
+    """연결 풀 하나와 표별 저장소 (reviews, labels, review_records, approvals, card_reasons, reports, users, auth_sessions, marketing)."""
     kind = "postgres"
 
     def __init__(self, config: DbConfig, *, app_name: str = ""):
@@ -46,9 +48,13 @@ class Database:
         self._blocked_until = 0.0
         self.reviews = PgReviews(self)
         self.labels = PgLabels(self)
+        self.review_records = PgReviewRecords(self)
         self.approvals = PgApprovals(self)
         self.card_reasons = PgCardReasons(self)
         self.reports = PgReports(self)
+        self.users = PgUsers(self)
+        self.auth_sessions = PgAuthSessions(self)
+        self.marketing = PgMarketingRecords(self)
 
     def __repr__(self) -> str:   # 비밀번호는 넣지 않는다
         return f"Database({self.config.host}:{self.config.port}/{self.config.dbname})"
@@ -164,8 +170,101 @@ class PgLabels:
                     [(k, Jsonb(v), prompt_version, model) for k, v in items.items()])
         self._db.run(work)
 
+    def delete_many(self, keys: "list[str] | set[str]") -> int:
+        """그 키들의 분류 결과를 지운다 (계정 초기화·탈퇴, 11/19). 지운 개수. 없는 키는 건너뛴다."""
+        keys = sorted(set(keys))
+        if not keys:
+            return 0
+
+        def work(conn):
+            return conn.execute("DELETE FROM review_labels WHERE label_key = ANY(%s)", (keys,)).rowcount
+        return self._db.run(work)
+
 
 # ── 승인 기록 ───────────────────────────────────────────────────────
+# ── 리뷰의 상태·답글 기록 (11/19) ────────────────────────────────────────
+class PgReviewRecords:
+    """리뷰마다 붙는 기록 (리뷰 분석 서비스의 app/records.py 가 씀). 파일 방식(records_<가게>.json)과 같은 모양으로 읽고 쓴다:
+    {"source", "received_at", "status", "status_at", "reply": {"text", "replied_at"}, "history": [{"status", "at"}]}
+    값이 없는 칸은 dict 에 넣지 않는다 (파일에도 쓴 칸만 있다). 시각은 한국 시간 ISO 글자.
+    메모리 구현은 없다: DB 가 없으면 리뷰 분석 서비스가 파일을 쓴다 (reviews·labels 와 같다)."""
+    _COLUMNS = {"source": "source", "received_at": "received_at", "status": "status", "status_at": "status_at"}
+    _TIMES = ("received_at", "status_at")
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    @staticmethod
+    def _shape(row: dict, events: list[dict]) -> dict:
+        out: dict = {}
+        for key in ("source", "received_at", "status", "status_at"):
+            if row.get(key) is not None:
+                out[key] = to_kst_iso(row[key]) if key in PgReviewRecords._TIMES else row[key]
+        if row.get("reply_text") is not None:
+            out["reply"] = {"text": row["reply_text"],
+                            "replied_at": to_kst_iso(row["replied_at"]) if row.get("replied_at") is not None else None}
+        out.update(row.get("extra") or {})
+        if events:
+            out["history"] = [{"status": e["status"], "at": to_kst_iso(e["at"])} for e in events]
+        return out
+
+    def load(self, store_id: str, visitor_id: str) -> dict[str, dict]:
+        """review_id → 기록. 없으면 {}."""
+        def work(conn):
+            rows = conn.execute(
+                "SELECT review_id, source, received_at, status, status_at, reply_text, replied_at, extra FROM review_records "
+                "WHERE store_id = %s AND visitor_id = %s ORDER BY review_id", (store_id, visitor_id)).fetchall()
+            events: dict[str, list[dict]] = {}
+            for e in conn.execute("SELECT review_id, status, at FROM review_status_events "
+                                  "WHERE store_id = %s AND visitor_id = %s ORDER BY id", (store_id, visitor_id)).fetchall():
+                events.setdefault(e["review_id"], []).append(e)
+            return {r["review_id"]: self._shape(r, events.get(r["review_id"], [])) for r in rows}
+        return self._db.run(work)
+
+    def update(self, store_id: str, visitor_id: str, review_id: str, fields: dict, event: dict | None = None) -> dict:
+        """한 리뷰의 기록에 fields 를 덮어쓰고(준 칸만), event 가 있으면 상태 기록에 더한다. 바뀐 기록을 돌려준다.
+        한 트랜잭션이고 그 줄을 잠그므로, 서버 두 대가 같은 리뷰를 같이 고쳐도 서로의 값을 지우지 않는다."""
+        sets, values, extra = [], [], {}
+        for key, value in (fields or {}).items():
+            if key in self._COLUMNS:
+                sets.append(f"{self._COLUMNS[key]} = %s")
+                values.append(to_datetime(value) if key in self._TIMES and value is not None else value)
+            elif key == "reply":
+                reply = value or {}
+                sets += ["reply_text = %s", "replied_at = %s"]
+                values += [reply.get("text"), to_datetime(reply["replied_at"]) if reply.get("replied_at") else None]
+            elif key != "history":                     # history 는 event 로만 쌓는다
+                extra[key] = value
+        if extra:
+            sets.append("extra = extra || %s")
+            values.append(Jsonb(extra))
+
+        def work(conn):
+            key = (store_id, visitor_id, review_id)
+            conn.execute("INSERT INTO review_records (store_id, visitor_id, review_id) VALUES (%s, %s, %s) "
+                         "ON CONFLICT (store_id, visitor_id, review_id) DO NOTHING", key)
+            conn.execute("SELECT 1 FROM review_records WHERE store_id = %s AND visitor_id = %s AND review_id = %s FOR UPDATE", key)
+            if sets:
+                conn.execute(f"UPDATE review_records SET {', '.join(sets)}, updated_at = now() "
+                             "WHERE store_id = %s AND visitor_id = %s AND review_id = %s", (*values, *key))
+            if event:
+                conn.execute("INSERT INTO review_status_events (store_id, visitor_id, review_id, status, at) VALUES (%s, %s, %s, %s, %s)",
+                             (*key, event["status"], to_datetime(event["at"])))
+            row = conn.execute(
+                "SELECT review_id, source, received_at, status, status_at, reply_text, replied_at, extra FROM review_records "
+                "WHERE store_id = %s AND visitor_id = %s AND review_id = %s", key).fetchone()
+            events = conn.execute("SELECT status, at FROM review_status_events "
+                                  "WHERE store_id = %s AND visitor_id = %s AND review_id = %s ORDER BY id", key).fetchall()
+            return self._shape(row, events)
+        return self._db.run(work)
+
+    def clear(self, store_id: str, visitor_id: str) -> int:
+        """그 가게·그 방문자의 기록을 모두 지운다 (상태 기록은 CASCADE). 지운 리뷰 기록 수."""
+        def work(conn):
+            return conn.execute("DELETE FROM review_records WHERE store_id = %s AND visitor_id = %s", (store_id, visitor_id)).rowcount
+        return self._db.run(work)
+
+
 class PgApprovals:
     # 칸 4개(draft_text, checks, used_fallback, style)가 없는 옛 표(11/18 전에 만든 DB)에서 잠시 옛 방식으로 쓰는 시간(초)
     LEGACY_RETRY_SEC = 60.0
@@ -328,3 +427,180 @@ class PgReports:
                 "ORDER BY period_start DESC, created_at DESC LIMIT %s", (store_id, period_kind, period_kind, limit)).fetchall()
             return [_report(r) for r in rows]
         return self._db.run(work)
+
+
+# ── 로그인 (5차 회의 11/18) ──────────────────────────────────────────
+_USER_COLUMNS = "user_id, login_id, display_name, created_at"
+
+
+class PgUsers:
+    """사장님 계정과 가진 가게. MemoryUsers 와 같은 이름·인자·돌려주는 모양."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    def create(self, user_id: str, login_id: str, password_hash: str, display_name: str, store_ids: list[str]) -> dict:
+        def work(conn):
+            try:
+                row = conn.execute(
+                    f"INSERT INTO users (user_id, login_id, password_hash, display_name) VALUES (%s, %s, %s, %s) "
+                    f"RETURNING {_USER_COLUMNS}", (user_id, login_id.lower(), password_hash, display_name)).fetchone()
+            except psycopg.errors.UniqueViolation:
+                raise DuplicateLogin("이미 있는 아이디예요") from None
+            with conn.cursor() as cur:
+                cur.executemany("INSERT INTO user_stores (user_id, store_id, position) VALUES (%s, %s, %s)",
+                                [(user_id, s, i) for i, s in enumerate(store_ids)])
+            return _kst(row, "created_at")
+        return self._db.run(work)
+
+    def ensure(self, user_id: str, login_id: str, password_hash: str, display_name: str, store_ids: list[str]) -> dict:
+        """없으면 만들고 있으면 그대로 (가진 가게는 store_ids 로 맞춤). 시연 계정처럼 여러 서버가 동시에 불러도 안전하다.
+        다른 계정이 이 로그인 아이디를 이미 쓰면 DuplicateLogin (처리 안 된 UniqueViolation 이 500 으로 새지 않게)."""
+        def work(conn):
+            # 대상 없는 ON CONFLICT: user_id 든 login_id 든 겹치면 넣지 않는다. 넣었는지는 아래 SELECT 로 본다
+            conn.execute("INSERT INTO users (user_id, login_id, password_hash, display_name) VALUES (%s, %s, %s, %s) "
+                         "ON CONFLICT DO NOTHING", (user_id, login_id.lower(), password_hash, display_name))
+            row = conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE user_id = %s", (user_id,)).fetchone()
+            if row is None:
+                raise DuplicateLogin("이미 있는 아이디예요")            # 트랜잭션은 되돌려진다
+            with conn.cursor() as cur:
+                cur.executemany("INSERT INTO user_stores (user_id, store_id, position) VALUES (%s, %s, %s) "
+                                "ON CONFLICT (user_id, store_id) DO UPDATE SET position = EXCLUDED.position",
+                                [(user_id, s, i) for i, s in enumerate(store_ids)])
+            return _kst(row, "created_at")
+        return self._db.run(work)
+
+    def by_login(self, login_id: str) -> dict | None:
+        """비밀번호 해시까지 (로그인 확인용)."""
+        def work(conn):
+            row = conn.execute(f"SELECT {_USER_COLUMNS}, password_hash FROM users WHERE login_id = %s",
+                               (login_id.lower(),)).fetchone()
+            return _kst(row, "created_at") if row else None
+        return self._db.run(work)
+
+    def get(self, user_id: str) -> dict | None:
+        def work(conn):
+            row = conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE user_id = %s", (user_id,)).fetchone()
+            return _kst(row, "created_at") if row else None
+        return self._db.run(work)
+
+    def stores(self, user_id: str) -> list[str]:
+        def work(conn):
+            rows = conn.execute("SELECT store_id FROM user_stores WHERE user_id = %s ORDER BY position, store_id",
+                                (user_id,)).fetchall()
+            return [r["store_id"] for r in rows]
+        return self._db.run(work)
+
+    def delete(self, user_id: str) -> bool:
+        """계정을 지운다 (회원 탈퇴, 11/19). user_stores·auth_sessions 는 CASCADE 로 같이 지워진다. 있었으면 True."""
+        def work(conn):
+            return conn.execute("DELETE FROM users WHERE user_id = %s", (user_id,)).rowcount > 0
+        return self._db.run(work)
+
+
+class PgAuthSessions:
+    def __init__(self, db: Database):
+        self._db = db
+
+    def create(self, token_hash: str, user_id: str, active_store_id: str, expires_at: datetime) -> None:
+        def work(conn):
+            conn.execute("INSERT INTO auth_sessions (token_hash, user_id, active_store_id, expires_at) VALUES (%s, %s, %s, %s)",
+                         (token_hash, user_id, active_store_id, to_datetime(expires_at)))
+            # 오래된 세션을 가끔 치운다 (만들 때마다 지난 것만)
+            conn.execute("DELETE FROM auth_sessions WHERE expires_at < now()")
+        self._db.run(work)
+
+    def get(self, token_hash: str) -> dict | None:
+        """살아 있는 세션 {token_hash, user_id, active_store_id, created_at, expires_at}. 지났거나 없으면 None."""
+        def work(conn):
+            row = conn.execute("SELECT token_hash, user_id, active_store_id, created_at, expires_at FROM auth_sessions "
+                               "WHERE token_hash = %s AND expires_at > now()", (token_hash,)).fetchone()
+            return _kst(row, "created_at", "expires_at") if row else None
+        return self._db.run(work)
+
+    def delete_user(self, user_id: str) -> int:
+        """그 사장님의 세션을 모두 지운다 (회원 탈퇴: 다른 기기의 로그인도 끊김, 11/19). 지운 개수 (지난 세션 포함)."""
+        def work(conn):
+            return conn.execute("DELETE FROM auth_sessions WHERE user_id = %s", (user_id,)).rowcount
+        return self._db.run(work)
+
+    def set_store(self, token_hash: str, store_id: str) -> bool:
+        def work(conn):
+            return conn.execute("UPDATE auth_sessions SET active_store_id = %s WHERE token_hash = %s AND expires_at > now()",
+                                (store_id, token_hash)).rowcount > 0
+        return self._db.run(work)
+
+    def delete(self, token_hash: str) -> bool:
+        def work(conn):
+            return conn.execute("DELETE FROM auth_sessions WHERE token_hash = %s", (token_hash,)).rowcount > 0
+        return self._db.run(work)
+
+
+# ── 맞춤 마케팅 기록 (11/19, 이슈 #51 ERD §3.13) ───────────────────────
+_SESSION_COLUMNS = "id, store_id, feature, goal, answers, decision, result, parent_id, created_at"
+_COUPON_COLUMNS = ("id, store_id, menu_name, discount_krw, issued, used, avg_order_krw, margin_pct, period_start, period_end, "
+                   "created_at")
+
+
+def _marketing_row(table: str, row: dict) -> dict:
+    """표의 한 행 → 파일 방식과 같은 모양의 dict (칸 순서도 같게)."""
+    out = {"table": table, **{k: v for k, v in row.items() if k != "seq"}}
+    out["created_at"] = to_kst_iso(row["created_at"])
+    if table == COUPON_RUNS:
+        out["margin_pct"] = margin_value(row["margin_pct"])
+        for k in ("period_start", "period_end"):
+            out[k] = row[k].isoformat() if row[k] is not None else None
+    return out
+
+
+class PgMarketingRecords:
+    """MemoryMarketingRecords 와 같은 이름·인자·돌려주는 모양. 두 표가 같은 번호표(marketing_records_seq)를 써서
+    두 표를 섞어 읽어도 넣은 순서 그대로다 (파일에 한 줄씩 덧붙이던 순서와 같음)."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    def _run(self, work):
+        """표에 맞지 않는 값(범위 밖 숫자, NUL 글자, 같은 id)은 ValueError 로 바꾼다. 연결 문제는 run() 이 StorageError 로 바꾼다."""
+        try:
+            return self._db.run(work)
+        except (psycopg.DataError, psycopg.IntegrityError) as exc:
+            raise ValueError(f"마케팅 기록을 표에 넣지 못했습니다 ({exc.__class__.__name__})") from None
+
+    def add(self, store_id: str, visitor_id: str, row: dict) -> dict:
+        r = clean_marketing_row({**row, "store_id": store_id})
+
+        def work(conn):
+            if r["table"] == MARKETING_SESSIONS:
+                conn.execute(
+                    "INSERT INTO marketing_sessions (id, store_id, visitor_id, feature, goal, answers, decision, result, parent_id, "
+                    "created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (r["id"], store_id, visitor_id, r["feature"], r["goal"], Jsonb(r["answers"]), r["decision"],
+                     Jsonb(r["result"]), r["parent_id"], to_datetime(r["created_at"])))
+            else:
+                conn.execute(
+                    "INSERT INTO coupon_runs (id, store_id, visitor_id, menu_name, discount_krw, issued, used, avg_order_krw, "
+                    "margin_pct, period_start, period_end, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (r["id"], store_id, visitor_id, r["menu_name"], r["discount_krw"], r["issued"], r["used"], r["avg_order_krw"],
+                     r["margin_pct"], to_date(r["period_start"]) if r["period_start"] else None,
+                     to_date(r["period_end"]) if r["period_end"] else None, to_datetime(r["created_at"])))
+        self._run(work)
+        return with_visitor(r, visitor_id)
+
+    def list(self, store_id: str, visitor_id: str) -> list[dict]:
+        """넣은 순서대로 (두 표가 섞여서). 이 가게·이 방문자의 것만."""
+        def work(conn):
+            where = "WHERE store_id = %s AND visitor_id = %s"
+            s = conn.execute(f"SELECT seq, {_SESSION_COLUMNS} FROM marketing_sessions {where}", (store_id, visitor_id)).fetchall()
+            c = conn.execute(f"SELECT seq, {_COUPON_COLUMNS} FROM coupon_runs {where}", (store_id, visitor_id)).fetchall()
+            return sorted([(x["seq"], MARKETING_SESSIONS, x) for x in s] + [(x["seq"], COUPON_RUNS, x) for x in c],
+                          key=lambda t: t[0])
+        return [with_visitor(_marketing_row(table, row), visitor_id) for _, table, row in self._run(work)]
+
+    def delete(self, store_id: str, visitor_id: str) -> int:
+        """이 가게·이 방문자의 기록을 두 표에서 모두 지우고 지운 줄 수를 돌려준다."""
+        def work(conn):
+            args = (store_id, visitor_id)
+            return (conn.execute("DELETE FROM marketing_sessions WHERE store_id = %s AND visitor_id = %s", args).rowcount
+                    + conn.execute("DELETE FROM coupon_runs WHERE store_id = %s AND visitor_id = %s", args).rowcount)
+        return self._run(work)

@@ -8,3 +8,7 @@ class StorageError(RuntimeError):
 
 class StorageConfigError(ValueError):
     """DB 환경 변수나 드라이버(psycopg) 설치가 잘못됐을 때. 켜질 때 바로 알리려고 따로 둡니다."""
+
+
+class DuplicateLogin(ValueError):
+    """같은 로그인 아이디가 이미 있을 때 (회원가입). 두 구현이 같은 오류를 낸다."""

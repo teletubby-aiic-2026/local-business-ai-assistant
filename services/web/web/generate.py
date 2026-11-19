@@ -59,6 +59,62 @@ def load_seed(marketing_dir: Path) -> dict[str, dict]:
     return {item["kind"]: item for item in json.loads(path.read_text(encoding="utf-8"))}
 
 
+SEED_STORE_ID = "store_ongi"     # 김수현 저장본(c6_cache_best.json)이 만들어진 가게. 다른 가게는 저장본 글이 맞지 않는다
+MOCK_TEMPLATE_NOTE = "시험용 예시 글이에요 (이 가게는 저장된 AI 예시가 없어 코드 틀로 만든 글. 실제 AI 결과 아님)"
+
+
+def _short(name: str) -> str:
+    return (name or "").replace("(가상)", "").strip() or "저희 가게"
+
+
+def _josa(word: str, pair: tuple[str, str]) -> str:
+    """받침이 있으면 pair[0], 없으면 pair[1] ('을'/'를' 등). 한글이 아니면 pair[1]."""
+    last = word[-1:] if word else ""
+    if "가" <= last <= "힣":
+        return pair[0] if (ord(last) - 0xAC00) % 28 else pair[1]
+    return pair[1]
+
+
+def mock_template(card: RecommendationCard, store: StoreProfile, reviews: list[ReviewRecord],
+                  snapshots: list[AnalysisSnapshot], coupon_menu: str | None = None) -> dict:
+    """mock: 저장본이 없는 가게(바삭치킨·몽글카페, 11/18)의 화면 확인용 글. 코드 틀이고 AI 가 쓴 글이 아니다.
+    모든 글에 needs_input 으로 그렇게 적어 화면이 '확인 필요'로 보여 준다 (점검 통과로 보이지 않게)."""
+    shop = _short(store.name)
+    by_id = {r.review_id: r for r in reviews}
+    drafts: list[dict] = []
+
+    def draft(n: int, generator: str, text: str, target: str | None = None, evidence: list[str] | None = None) -> dict:
+        return {"draft_id": f"d_mock_{card.card_id}_{n}", "card_id": card.card_id, "store_id": store.store_id,
+                "generator": generator, "target_review_id": target, "text": text, "evidence_ids": list(evidence or []),
+                "checks": {}, "failed_reasons": [], "rewrites": 0, "needs_input": [MOCK_TEMPLATE_NOTE], "status": "draft",
+                "edited_text": None, "model": None, "elapsed_ms": 0, "data_origin": "synthetic", "stance": None,
+                "stance_reasons": [], "style": None}
+
+    if card.kind == "complaint":
+        targets = [by_id[r] for r in card.review_ids if r in by_id]
+        drafts.append(draft(0, "prevention_notice",
+                            f"[안내] {shop} 주문·포장 안내\n{shop}{_josa(shop, ('을', '를'))} 찾아 주시는 분들께\n"
+                            "최근 같은 불편을 말씀해 주신 리뷰가 이어졌습니다. 불편을 드려 죄송합니다.\n"
+                            "오늘부터 포장을 마치기 전에 주문서와 한 번 더 대조하겠습니다.\n"
+                            "요청하실 내용은 주문 요청사항에 적어 주시면 꼭 챙기겠습니다.",
+                            evidence=[f"F_{r.review_id}" for r in targets]))
+        for i, review in enumerate(targets, start=1):
+            drafts.append(draft(i, "reply_draft",
+                                f"안녕하세요 고객님, {shop}입니다. 말씀해 주신 불편을 드려 죄송해요. "
+                                "남겨 주신 내용을 확인했고, 다음 주문부터 한 번 더 꼼꼼히 챙길게요.",
+                                target=review.review_id, evidence=[f"F_{review.review_id}"]))
+    else:
+        menu = coupon_menu or (store.menu[0] if store.menu else "대표 메뉴")
+        snap = snapshots[0] if snapshots else None
+        line = (f"요즘 저녁 시간이 조금 한가해졌어요. 오늘 저녁 {menu} 주문에 쓰실 수 있는 쿠폰을 준비했어요."
+                if snap is not None else f"오늘 {menu} 주문에 쓰실 수 있는 쿠폰을 준비했어요.")
+        drafts.append(draft(0, "coupon_promo", f"{shop}에서 알려 드려요.\n{line}\n따뜻할 때 맛있게 드실 수 있게 준비할게요.",
+                            evidence=[s.snapshot_id for s in snapshots]))
+    return {"card_id": card.card_id, "kind": card.kind, "reason_text": card.reason_text, "basis_label": None,
+            "drafts": drafts, "chosen_measures": [], "elapsed_ms": 0, "won": 0.0, "source": "seed",
+            "source_note": "시험용 실행: 이 가게는 저장된 AI 예시가 없어 코드 틀 글을 보여 줘요 (실제 AI 결과 아님)"}
+
+
 def adapt_seed(seed: dict, card: RecommendationCard) -> dict | None:
     """저장본 CardResult 를 우리 카드에 맞춘다. 글은 그대로, 카드 ID·이유·근거 ID만 바꾼다.
 
@@ -114,7 +170,9 @@ def pick_measures(ids: list[str] | None) -> list[dict]:
 def _context(store: StoreProfile, reviews: list[ReviewRecord], card: RecommendationCard,
              snapshots: list[AnalysisSnapshot]):
     from c6.contract import build_context
-    return build_context(store=store, reviews=reviews, cards=[card], snapshots=snapshots)
+    from shared.store_profiles import c6_extras
+    # 가게별 말투·예전 답글·정책 (11/18). 온기한식은 비어 있어 C6 기본값(지금까지와 같은 결과)
+    return build_context(store=store, reviews=reviews, cards=[card], snapshots=snapshots, **c6_extras(store.store_id))
 
 
 def run_live(card: RecommendationCard, *, store: StoreProfile, reviews: list[ReviewRecord],
