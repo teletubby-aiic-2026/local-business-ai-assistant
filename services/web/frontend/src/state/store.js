@@ -27,6 +27,7 @@ export function initialState() {
     stage: "boot",
     stageError: "",      // error 단계에 보일 한 줄 (서버가 준 notice 등)
     storeNew: null,      // store-new 단계의 {mode: "signup"|"add"|"edit", storeId?}
+    storeNewFrom: "pick", // store-new 의 [취소]가 돌아갈 단계 (pick · profile)
     entered: null,       // app 단계에서 자료를 불러온 가게 id (sessionStorage ic26.entered 와 같음)
     resume: null,        // 로그인이 끝나 expired 로 갈 때 {userId, storeId}: 같은 사장님·같은 가게로 다시 로그인하면 app 으로 바로
     // 화면 공통

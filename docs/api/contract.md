@@ -2042,7 +2042,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `market` | 상권 분석 | `Market.jsx` | `marketApi` (`market/state.js` 안) |
 | `assistant` | AI에게 묻기 서랍 | `Drawer.jsx` | `drawerApi` (`assistant/chat.js`) |
 | `account` | 단계 화면 (11/20): A1 로그인 · A2 회원가입 · A3 가게 선택 · A5 사장님 프로필 · X1 오류 · X2 다시 로그인·권한 없음, 기록 지우기·탈퇴 확인 창 | `Login.jsx` · `Signup.jsx` · `PickStore.jsx` · `Profile.jsx` · `StageCards.jsx` · `AccountDialog.jsx`(확인 창 + `AcctToast`), 공통 틀 `Stage.jsx`(`StageFrame`·`StageCenter`·`StageTitle`·`ModeBand`·`Face`) | `api()` (`state/account.js`, `acctApi.js`의 `listStores`·`storeSummary`·`removeStore`·`orderStores`·`saveProfile`·`changePassword`), `acctPost` · `clearChat` (`acctApi.js`) |
-| `stores` | A4 새 가게 등록 (11/20 자리만, 다음 단계에서 바뀜) | `StoreNew.jsx` (`{mode: "signup"\|"add"\|"edit", storeId?}`) | 없음 |
+| `stores` | A4 새 가게 등록 · 가게 정보 고치기 (11/20) | `StoreNew.jsx` (`{mode: "signup"\|"add"\|"edit", storeId?}`, 폼은 `StoreForm`) | `storeApi.js`: 계정의 가게는 `api()`(`createStore`·`getStore`·`patchStore`), 상권 서비스는 `serviceApi()`(`marketOptions`·`searchAddress`·`resolveAreas`). 순수 계산(`areaRows`·`defaultArea`·`checkMenus`·`locationBody`·`storePatch`·`errorField` 등)도 이 파일 |
 
 - `analysis/careApi.js`와 `report/careApi.js`는 같은 함수가 두 벌 있습니다 (분석 쪽에만 캡처용 `CAP_WAIT_MS`).
 
@@ -2086,7 +2086,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 묶음 | 칸 |
 |---|---|
 | 서버에서 받은 것 | `health`, `briefing`, `reviewsById`(브리핑의 리뷰 원문), `cards`, `noCardB`, `insight`, `insightError`, `me`(`GET /api/auth/me`, `null`이면 아직 모름) |
-| 단계 (11/20, 아래 (5)) | `stage`, `stageError`(X1 에 보일 한 줄), `storeNew`(새 가게 등록의 `{mode, storeId?}`), `entered`(자료를 불러온 가게 id), `resume`(로그인이 끝났을 때 `{userId, storeId, loginId}`) |
+| 단계 (11/20, 아래 (5)) | `stage`, `stageError`(X1 에 보일 한 줄), `storeNew`(새 가게 등록의 `{mode, storeId?}`), `storeNewFrom`(새 가게 등록의 [취소]가 돌아갈 단계 `pick`·`profile`), `entered`(자료를 불러온 가게 id), `resume`(로그인이 끝났을 때 `{userId, storeId, loginId}`) |
 | 오늘 할 일 진행 (브라우저 메모리에만) | `results`(카드 id → `POST …/run` 응답), `approved`(승인한 글 id `Set`), `approvedLog`(처리 완료 목록, 맞춤 마케팅 것은 `mkt: true`), `pending`(고치는 중인 글), `current`·`draftId`(초안 화면에 보이는 카드·글), `joined`(방금 붙여넣은 리뷰가 들어간 묶음) |
 | 화면 공통 | `booted`(들어간 가게의 자료를 한 번 다 불러옴)·`bootError`, `alert`(맨 위 알림 띠), `acctBusy`·`acctNotice`(결과 띠), `drawerOpen`(서랍), `staffMarket`(`/api/market/status`), `mktServer`(서버에 남은 맞춤 마케팅 승인 수), `nav`(`navTo` 요청), `mktResetSeq`·`mktCleared`('처음부터 다시'), `epoch` |
 
@@ -2134,7 +2134,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `boot` | 빈 바탕 (`/api/auth/me`를 기다리는 동안. 대시보드가 스쳐 보이지 않게) | `account/Stage.jsx` `StageBoot` |
 | `login` · `signup` | A1 로그인 · A2 회원가입 (왼쪽 소개 + 오른쪽 카드, 760px 이하 1단) | `account/Login.jsx` · `Signup.jsx` |
 | `pick` | A3 가게 선택 | `account/PickStore.jsx` |
-| `store-new` | A4 새 가게 등록 (`storeNew.mode`: `signup` 가입 직후 · `add` 가게 더하기 · `edit` 정보 고치기) | `stores/StoreNew.jsx` (11/20 자리만) |
+| `store-new` | A4 새 가게 등록 (`storeNew.mode`: `signup` 가입 직후 · `add` 가게 더하기 · `edit` 정보 고치기) | `stores/StoreNew.jsx` (흐름은 2.6 '새 가게 등록') |
 | `profile` | A5 사장님 프로필 | `account/Profile.jsx` |
 | `app` | 메인 화면 (해시 주소 8개 + 서랍) | `App.jsx` `Shell` |
 | `error` · `expired` · `forbidden` | X1 오류 · X2 다시 로그인(401) · X2 권한 없음(403) | `account/StageCards.jsx` |
@@ -2152,7 +2152,9 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | A3 [이 가게 열기] | `POST /api/auth/store {store_id}` → `ic26.entered` 저장 → `storeChanged()` → `app`, 홈(`today`). 이미 자료를 받아 둔 가게면 서버를 부르지 않고 `app` 홈으로만 |
 | 상단 바 [바꾸기] · A5 [가게로 돌아가기] | `pick` · (들어가 있던 가게가 지금 가게이고 내 가게면) `app`, 아니면 `pick` |
 | 상단 바·왼쪽 메뉴의 이름·'프로필', A3 [사장님 프로필] | `profile` |
-| A3·A5 '+ 새 가게 등록', A5 [정보 고치기] | `store-new` (`add` · `edit` + `storeId`) |
+| A3·A5 '+ 새 가게 등록', A5 [정보 고치기] | `store-new` (`add` · `edit` + `storeId`). `storeNewFrom`에 온 단계(프로필이면 `profile`, 그 밖은 `pick`)를 적음 |
+| A4 [가게 등록하고 시작] | `POST /api/account/stores` → A3 [이 가게 열기]와 같은 `openStore` (`POST /api/auth/store` → `ic26.entered` → `storeChanged()` → `app` 홈) |
+| A4 고치기 [저장] · A4 [취소] | `profile` (바뀐 칸만 `PATCH`) · `storeNewFrom` (가입 직후는 `pick`) |
 | 로그아웃·탈퇴 | `ic26.entered`를 지우고 서랍을 닫고 가게 자료를 비운 뒤 `login` |
 | 로그인한 단계(`pick`·`store-new`·`profile`·`app`·`expired`·`forbidden`)에서 받은 401 `login_needed` | `expired` ([로그인] → `login`, 아이디 칸을 채워 둠) |
 | 같은 때의 409 `no_store` · 403 `not_your_store` | `pick` (`ic26.entered` 지움) · `forbidden` ([가게 선택으로]·[로그아웃]) |
@@ -2166,7 +2168,10 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 - 로그인한 동안(`me.authenticated`)은 모든 요청에 헤더 `X-IC26-Signed-In: 1`을 붙입니다 (`authHeaders()`). 서버는 이 표시가 있는데 세션이 끝났으면 게스트로 답하지 않고 401 `login_needed`를 줍니다 (1.13).
 - 공통 `api()`·`serviceApi()`는 실패한 응답의 `status`·`error.state`를 `handleAuthError()`에 넘겨 위 표대로 단계를 바꾸고, 오류에 `authHandled: true`를 답니다 (부른 쪽이 알림 띠를 또 띄우지 않게). `authStageOf(status, state)`는 그 대응표 (401 `login_needed` → `expired`, 409 `no_store` → `pick`, 403 `not_your_store` → `forbidden`, 그 밖은 `null`).
 - 로그인 실패(401 `bad_login`)·비밀번호 틀림(401 `bad_password`)·시연 계정(403 `demo_account`) 같은 것은 단계를 바꾸지 않고 부른 화면이 그대로 보여 줍니다.
-- 공통 `api()` 없이 따로 `fetch`하는 곳(`features/market/state.js`, `features/marketing/api.js`, `features/analysis/careApi.js`, `features/report/careApi.js`, `features/assistant/chat.js`)은 헤더에 `...authHeaders()`를 펼쳐 넣고, 실패한 응답에서 `handleAuthError({status, state})`를 불러야 같은 규칙이 됩니다 (11/20 이 브랜치에서는 아직 고치지 않음). `features/account/acctApi.js`의 `acctPost`·`clearChat`은 고쳤습니다.
+- 공통 `api()` 없이 따로 `fetch`하는 곳은 헤더에 `...authHeaders()`를 펼쳐 넣고, 실패한 응답의 `status`·`error.state`로 `handleAuthError({status, state})`를 불러 같은 규칙을 따릅니다 (11/20 통합 뒤 정리). 붙인 곳:
+  `features/market/state.js`(`marketApi`), `features/marketing/api.js`(`mktApi`), `features/analysis/careApi.js`(`careApi`), `features/assistant/state.js`의 `call`(= `chat.js`의 `drawerApi` + 헤더·단계 전환. `chat.js`는 서버 시험이 node 로 그대로 불러 보므로 React 를 부르는 `lib/api.js`를 import 하지 않고, `drawerApi`는 `options.headers`를 기본 헤더 위에 더하고 오류에 `status`를 답니다),
+  `components/NaverMap.jsx`(`/api/market/map-config`), `features/account/acctApi.js`(`acctPost`·`clearChat`). 새 가게 등록(`features/stores/storeApi.js`)은 `api()`·`serviceApi()`를 써서 따로 할 일이 없습니다.
+  `features/report/careApi.js`는 종합 리포트 작업(다른 브랜치)에서 고칩니다. 시험은 `src/lib/authFetch.test.js`.
 
 ### 2.3 공통 부품과 디자인 토큰
 
@@ -2229,6 +2234,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `.sr` | 화면에는 안 보이고 읽기 프로그램에만 읽히는 글 |
 | `:focus-visible { outline: 3px solid var(--focus) }`, `h1:focus { outline: none }` | 키보드 포커스는 보이게, 화면을 열 때 제목에 준 포커스는 테두리 없이 |
 
+- 탭 줄: 화면 열(`.col`, 격자)에 바로 놓인 탭 줄은 `.col > .tabs { justify-self: start; }`(base.css)로 글자 폭만큼만 차지합니다 (11/20. 예전 `analysis.css`·`Marketing.css`의 같은 규칙은 지움). 상권 분석의 탭 줄(`.mk-tabbar` 안)도 넓을 때는 글자 폭, 탭 칸이 779px 이하면 2×2 로 칸을 채웁니다.
 - CSS 순서: `main.jsx`가 공통 CSS를 먼저 읽고, 화면 CSS(`features/*/*.css`)는 `App`을 읽을 때 그 뒤에 붙습니다. 같은 무게의 규칙이면 화면 CSS가 공통 규칙을 덮습니다 (`Market.css` 맨 위 주석의 "base.css 보다 먼저 읽혀서"는 지금 순서와 반대로 적혀 있음).
 
 **(6) 코드가 이름으로 찾는 것** (이름을 바꾸면 그 동작이 조용히 멈춤)
@@ -2242,6 +2248,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `#assistant` · `#assistant-q` · `#assistant-retry` · `#assistant-home` · `#assistant-scroll` · `#assistant-log` 안의 `[data-msg]`·`.chat-msg.user` · `#assistant-close` | `assistant/state.js`·`Drawer.jsx` | 서랍 포커스·스크롤 |
 | `[aria-controls="assistant"]` (`.top` 안 먼저) · `dialog[open]` | `Drawer.jsx` | 서랍을 닫을 때 돌려줄 버튼(연 버튼이 사라졌으면), 대화상자가 떠 있으면 Esc는 그 창이 먼저 |
 | `#acct-user`(상단 바 이름 → 프로필) · `#acct-store`(상단 바 [바꾸기] → 가게 선택) · `#auth-demo`(시연 시작) · `#auth-login`·`#auth-signup`(폼) · `#stage-title`(단계 화면 제목) · `#acct-dialog`(기록 지우기·탈퇴 확인 창) · `#prof-pw` · `#prof-up-<가게>`·`#prof-down-<가게>`·`#prof-remove-<가게>`·`#prof-keep-<가게>` | `Topbar.jsx`·`account/*`·시험(`App.test.jsx`·`account.test.jsx`·`stages.test.jsx`) | 시험이 이름으로 찾음, 프로필의 순서 바꾸기·빼기 뒤 포커스. 예전 `#acct-login`(게스트 [로그인])·`#auth-dialog`(로그인 창)는 11/20에 없앰 |
+| `#sn-name` · `#sn-industry` · `#sn-status` · `#sn-ch-<채널 code>` · `#sn-addr` · `#sn-line` · `#sn-station` · `#sn-loc-change` · `#sn-area-<상권 코드>` · `#sn-area-box` · `#sn-area-note` · `#sn-menu-name-<줄>` · `#sn-menu-price-<줄>` · `#sn-menu-add` · `#sn-err-<칸>` · `#sn-form-err` | `stores/StoreNew.jsx`·`StoreNew.test.jsx` | 새 가게 등록의 오류 칸 포커스(틀린 첫 칸으로)와 `aria-describedby`(칸 ↔ 그 칸의 오류 줄), 줄 지우기·더하기 뒤 포커스 |
 | `#paste-text` | `analysis/PasteTab.jsx` | 예시 문장·빈 글일 때 포커스 |
 | `#an-tab-<탭>` · `#mk-tab-<탭>` · `#mkt-tab-chat` · `#mkt-tab-report` | `Tabs`·`analysis/state.js`·`Market.jsx`·`marketing/*` | 탭 키보드 이동, `navTo`로 연 탭에 포커스 |
 | `#mkt-options` · `#mkt-retry` · `#mkt-card-<n>`(`-title`) · `#mkt-idea-<n>`(`-title`·`-q`) · `#mkt-text-<n>-<열쇠>` | `marketing/state.js`·`ResultCard.jsx` | 맞춤 마케팅의 포커스·스크롤 |
@@ -2293,7 +2300,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `label` · `listLabel` | 지도 칸(`role="region"`)과 목록의 읽기 이름 |
 | `children` | 지도(또는 실패 안내)와 목록 사이에 그림. 범례는 `ul.nmap-legend` + `span.nmap-key.pin`·`.selected`·`.nearby`, 지도에만 있는 칸은 `li.nmap-only`(지도가 안 뜨면 숨김) |
 
-- **SDK 불러오기** `loadNaverMaps()`: 모듈에 Promise 하나라 지도가 여럿 떠도, 화면을 떠났다 와도 한 번만 부릅니다. `GET /api/market/map-config` → `configured`가 `true`면 `<script src="…maps.js?ncpKeyId=…">`를 `head`에 붙임 → 15초(`MAP_TIMEOUT_MS`) 안에 `onload`. 네이버 SDK가 인증에 실패하면 전역 `window.navermap_authFailure`를 부르는데(스크립트를 읽은 뒤, 지도를 그린 뒤에도 옴) 이 이름을 이 부품이 정합니다. 실패는 `kind`가 있는 Error: `no_key`(`configured: false`) · `auth` · `timeout` · `error`(map-config 실패·스크립트 오류).
+- **SDK 불러오기** `loadNaverMaps()`: 모듈에 Promise 하나라 지도가 여럿 떠도, 화면을 떠났다 와도 한 번만 부릅니다. `GET /api/market/map-config`(로그인 표시 헤더, 401·409·403 이면 단계 전환 · 11/20) → `configured`가 `true`면 `<script src="…maps.js?ncpKeyId=…">`를 `head`에 붙임 → 15초(`MAP_TIMEOUT_MS`) 안에 `onload`. 네이버 SDK가 인증에 실패하면 전역 `window.navermap_authFailure`를 부르는데(스크립트를 읽은 뒤, 지도를 그린 뒤에도 옴) 이 이름을 이 부품이 정합니다. 실패는 `kind`가 있는 Error: `no_key`(`configured: false`) · `auth` · `timeout` · `error`(map-config 실패·스크립트 오류).
 - **상태**: 불러오는 중(지도 칸에 '지도를 불러오는 중…') → 준비됨 / 키 없음 · 인증 실패 · 시간 초과 · 연결 실패. 안 뜨는 상태에서는 지도 칸을 숨기고(`hidden`) 그 자리에 한 줄(`.nmap-fail`, `role="status"`)과 [다시 시도]만 둡니다: "지금은 지도를 볼 수 없어요." / "지도를 불러오지 못했어요." / "지도를 여는 데 시간이 너무 걸려요." + 목록이 있으면 "아래 목록에서 상권을 고를 수 있어요." 키 이름·콘솔 설정은 화면에 쓰지 않습니다. [다시 시도]는 `retryNaverMaps()`(받은 결과와 붙인 스크립트를 버림) 뒤 map-config부터 다시.
 - **그리기**: 다각형 하나마다 `naver.maps.Polygon`(MultiPolygon은 다각형 수만큼), `LatLng(위도, 경도)`로 순서를 뒤집음. 색은 그릴 때 `tokens.css`의 `--accent`(고른 상권 선)·`--brand`(채움)·`--muted`(주변 상권)를 읽음. 마우스를 올리면 지도 왼쪽 위에 상권 이름(`.nmap-hover`, JSX). 마커 그림은 `.nmap-pin`(`--bad`). props가 바뀌면 지우고 다시 그리되, 내용이 같은 새 배열이면 그대로 둡니다(사장님이 옮긴 지도를 되돌리지 않게). 언마운트하면 리스너·다각형·마커를 지우고 `map.destroy()`.
 - **높이**: 본문 폭에 맞춰 240~420px (`clamp(240px, 38cqi, 420px)`). 지도 타일은 밝은 색 그대로입니다(다크에서도).
@@ -2338,11 +2345,13 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 | 영역 | 파일 | 보는 것 |
 |---|---|---|
-| 화면 틀 | `src/App.test.jsx` | (app 단계 전제) 덮는 메뉴의 첫 포커스·Tab 가두기·Esc·바깥·[메뉴 닫기] 뒤 토글 버튼 포커스, 메뉴 항목으로 이동하면 그 화면 제목 포커스, 메뉴의 '프로필'로 프로필 단계, 승인 대기 칩(`#top-waiting`), 시험용 안내 띠 한 곳·바닥 줄, 사장님 칸('{이름} 사장님' · '프로필 · 로그아웃')·가게 칩('(가상)'·[바꾸기]), 휴대폰 계정 그림 단추(`#acct-user`) |
+| 화면 틀 | `src/App.test.jsx` | (app 단계 전제) 덮는 메뉴의 첫 포커스·Tab 가두기·Esc·바깥·[메뉴 닫기] 뒤 토글 버튼 포커스, 메뉴 항목으로 이동하면 그 화면 제목 포커스, 메뉴의 '프로필'로 프로필 단계, 승인 대기 칩(`#top-waiting`), 시험용 안내 띠 한 곳·바닥 줄, 사장님 칸('{이름} 사장님' · '프로필 · 로그아웃')·가게 칩('(가상)'·[바꾸기], 아래 줄은 `me.stores` 값: 여는 중·브리핑이 없어도 '불러오는 중'으로 남지 않음), 휴대폰 계정 그림 단추(`#acct-user`) |
 | 단계 전환 | `src/features/account/stages.test.jsx` | 부팅 분기(게스트 → A1 · 로그인 + 들어간 가게 → app · 로그인만 → A3 · 신원 실패·`notice` → X1과 [다시 시도]), 로그인 → A3 → 가게 열기 → app 홈과 새로고침 유지, [바꾸기]로 같은 가게를 다시 열면 서버를 안 부름, 로그아웃 → A1, 회원가입 → 새 가게 등록, 401 `login_needed` → X2 → 같은 사장님·가게면 하던 화면, 다른 사장님이면 A3, 409 → A3, 403 → 권한 없음, 로그인 전 단계의 늦은 401 무시, `X-IC26-Signed-In` 헤더, 가게 자료는 app 단계에서만 부름 |
-| 틀 도우미 | `src/lib/shell.test.js` · `src/lib/theme.test.js` · `src/state/staff.test.js` | 안내 띠·바닥 줄 문구와 폭 구간(760·761~1024·그 위, 소수 폭), 화면 모양 순서·저장, 오늘 할 일·AI 비서 상태 |
+| 틀 도우미 | `src/lib/shell.test.js` · `src/lib/theme.test.js` · `src/state/staff.test.js` | 안내 띠·바닥 줄 문구와 폭 구간(760·761~1024·그 위, 소수 폭), 화면 모양 순서·저장, 오늘 할 일·AI 비서 상태, 리뷰 0건의 핵심 문제('아직 들어온 리뷰가 없어요')·데이터 분석 비서('아직 리뷰 없음') |
 | 공통 부품 | `src/components/ui.test.jsx` | 아이콘(자리 글자 없음, 그림이 서로 다름, 로고), 빈 안내, `Dialog` |
-| 흐름 | `features/flow/calc.test.js` · `screens.test.jsx` | 순수 계산, 네 화면 그리기와 카드 → 초안 → 승인 → 완료 → 처음부터 다시의 API 순서 |
+| 흐름 | `features/flow/calc.test.js` · `screens.test.jsx` | 순수 계산, 네 화면 그리기와 카드 → 초안 → 승인 → 완료 → 처음부터 다시의 API 순서, 리뷰 0건 홈의 [리뷰 넣기]·[상권 분석 보기](예시 가게 홈은 그대로), 브리핑을 못 받은 홈 |
+| 새 가게 등록 | `features/stores/StoreNew.test.jsx` · `StoreNew.map.test.jsx` | 업종 → 역 → 상권 후보(기본 inside) → 고르기 → 메뉴 → 저장 본문 → 가게 열기 → app 홈, 업종 먼저 안내, 업종·위치를 바꾸면 후보 다시(예전 선택 유지·비움), 상권 서비스 409 면 revision 다시 읽기, 후보 실패 [다시 시도], 주소 찾기(후보 고르기 · 하나면 바로 · 후보 없음·서울 밖·조회 불가 → 역으로 · 2자 미만 · 검사 오류 문장), 빈 폼·메뉴 줄 오류와 `aria-describedby`·포커스, `store_limit`·칸 이름이 든 서버 오류, 중복 누름·등록 뒤 열기 실패, [취소], 고치기(채우기 · 바뀐 칸만 PATCH · 위치를 안 바꾸면 상권 서비스 안 부름 · [위치 바꾸기]/[위치 바꾸지 않기] · 업종만 바꾸면 역은 다시 묻고 주소는 다시 찾게 · 예시 가게), 순수 계산. 지도 시험(가짜 지도): `list={false}`, 마커, 상권 `selected`·`nearby`·`disabled`, 다각형으로 고르기·고를 수 없는 이유 |
+| 로그인 헤더 | `src/lib/authFetch.test.js` | 따로 fetch 하는 곳(맞춤 마케팅·캡처·상권 분석·서랍·지도 설정)의 `X-IC26-Signed-In`과 401·409·403 단계 전환, 게스트는 헤더 없음 |
 | 리뷰 분석 | `features/analysis/calc.test.js` · `Analysis.test.jsx` | 탭·`navTo`, 붙여넣기 뒤 다시 읽기, 캡처 후보를 `source: "capture"`로 저장 |
 | 서랍 | `features/assistant/chat.test.js` · `Drawer.test.jsx` | 분기 표기 등 순수 계산, 선택지 위치, 기준 범위 칩과 안내 한 줄, 화면 이동 뒤 포커스, `drawerCovers` |
 | 계정 화면 | `features/account/account.test.jsx` | A1: 로그인 실패 때 비밀번호 유지(401 `bad_login`은 단계 유지)·`keep`·'비밀번호를 잊었어요' 한 줄·시연 버튼은 시험용 실행 + `demo_login`일 때만. A2: 입력 규칙·`stores: []`. A3: 마지막 본 가게 맨 앞·주 버튼·칩, '(가상)', 요약 `tone` 색, `unavailable`이면 숫자 줄 없음, 불러오는 동안 자리, 0곳. A5: 이름 저장(PATCH), 비밀번호 틀림은 그 자리에, 예시 가게·[정보 고치기], 빼기 확인 뒤 DELETE, 순서 PUT, 확인 창의 '되돌릴 수 없어요'·비밀번호 칸·Esc, 탈퇴 뒤 A1 |
@@ -2359,7 +2368,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 | 주소 | 메뉴 묶음 · 메뉴 글자 | 컴포넌트 | 화면 |
 |---|---|---|---|
-| `#/today` | (맨 위) 홈 | `features/flow/Home.jsx` | 대시보드 (11/20 Figma 06 B1 배치): 핵심 문제 한 줄(이름표 + 굵은 글), 숫자 타일 4개, 오늘 할 일(넓은 칸, 할 일마다 테두리 상자 + 오른쪽 버튼 모양 상태) · '담당 비서 현황'(320px 칸, AI 비서 네 명 + 첫 글자 동그라미, 11/20 패널 제목), 불만 시간대 · 주제 차트(주제는 '상위 n개'), AI에게 묻기 줄(오른쪽 '묻기'). 리뷰 0건이면 기간 줄을 빼고 핵심 문제·할 일·차트에 짧은 빈 안내 |
+| `#/today` | (맨 위) 홈 | `features/flow/Home.jsx` | 대시보드 (11/20 Figma 06 B1 배치): 핵심 문제 한 줄(이름표 + 굵은 글), 숫자 타일 4개, 오늘 할 일(넓은 칸, 할 일마다 테두리 상자 + 오른쪽 버튼 모양 상태) · '담당 비서 현황'(320px 칸, AI 비서 네 명 + 첫 글자 동그라미, 11/20 패널 제목), 불만 시간대 · 주제 차트(주제는 '상위 n개'), AI에게 묻기 줄(오른쪽 '묻기'). 리뷰 0건이면 기간 줄을 빼고 핵심 문제('아직 들어온 리뷰가 없어요', `heroProblem`)·할 일·차트에 짧은 빈 안내, '오늘 할 일' 아래 버튼은 다음에 할 일 두 개 [리뷰 넣기]·[상권 분석 보기] (11/20). 브리핑을 못 받으면 핵심 문제는 '리뷰를 불러오지 못했어요' |
 | `#/cards` | 오늘 처리 · 추천 카드 | `features/flow/Cards.jsx` | "무엇을 할까요?" 카드 최대 2장을 위아래로 한 장씩 (11/20 B2), 카드 ⓐ의 점검 수칙 고르기(회색 상자), 만들기 버튼 옆 '근거 보기'(`aria-expanded`, 근거는 버튼 줄 아래에 펼침) |
 | `#/draft` | 오늘 처리 · 승인할 글 | `features/flow/Draft.jsx` | 진행줄('승인 n / 전체 · 지금 글 이름' + 카드 전체 다시 만들기, 막대 없음), 손님 리뷰(근거 건수는 패널 오른쪽, 리뷰마다 회색 상자), 초안 상자(글 칸 → 점검 칩 줄 → 고칠 곳 상자 → 승인·복사·다시 만들기. 점검을 못 넘어 기본 문장으로 바꾼 글은 '기본 문장 (AI 글 아님)' 칩), 초안 목록 (11/20 B3) |
 | `#/done` | 오늘 처리 · 처리 완료 | `features/flow/Done.jsx` | 승인 결과 타일 → '승인한 글'(글마다 이름 · 시각 / 글 앞부분 한 줄 + 복사) → 고른 점검 수칙(✓) → 서버 처리 기록(패널 모양 접힌 칸) → '홈으로'·'처음부터 다시' (11/20 B4 순서) |
@@ -2385,6 +2394,7 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | 메인 화면에 들어갈 때 (가게 열기·새로고침) | `enterApp` → `storeChanged` | `GET /api/health` → `GET /api/briefing` → `GET /api/cards` → `GET /api/insight` → `GET /api/approvals`(기다리지 않음) → `GET /api/market/status`(기다리지 않음) | `health`: 시험용 안내 띠·알림 띠·바닥 줄. `briefing`: 홈·초안의 리뷰 원문 (상단 바 가게 칩은 `me.stores`의 지금 가게). `cards`: 추천 카드·홈 할 일. `insight`: 리뷰 분석. `approvals`: AI 비서의 맞춤 마케팅 승인 수 |
 | 위 호출이 실패하면 | | | 알림 띠에 문장, 홈의 주 버튼이 "불러오지 못했어요". `insight`만 실패하면 리뷰 분석 화면에만 안내 |
 | 홈 '무엇을 할까요?' | `go("cards")` | 없음 | `#/cards` |
+| 리뷰 0건 홈의 [리뷰 넣기] · [상권 분석 보기] (11/20, '무엇을 할까요?' 대신) | `navTo("analysis", "paste")` · `go("market")` | 없음 | 리뷰 분석의 리뷰 넣기 탭 · `#/market` |
 | 카드 버튼 | `choose` → `runCard` | `POST /api/cards/{id}/run`. 점검 수칙 상자가 있는 카드만 `{"measures": […]}` (그 밖에는 본문 없음) | `#/draft`. 이미 만든 카드면 API 없이 `#/draft` |
 | 홈 '오늘 할 일' 항목 | `runTodo` | 아직 안 만든 카드면 위와 같음 | 그 종류의 첫 미승인 글로 `#/draft` |
 | 초안 '승인' | `approve` | `POST /api/drafts/{id}/approve` `{text, original}` (+ 답글이면 `kind`·`review_id`) | 이 카드의 다음 미승인 글, 다 끝나면 `#/done` |
@@ -2484,6 +2494,25 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 
 - 확인 창(`#acct-dialog`)의 기본 포커스는 [취소]이고 Esc도 취소입니다. 닫히면 연 버튼으로 포커스가 돌아갑니다. '지우면 되돌릴 수 없어요.' · '탈퇴하면 되돌릴 수 없어요.' 경고는 지우지 않습니다.
 - 그림 A5의 '보관한 보고서' 구역은 만들지 않았습니다 (서버에 보고서 저장 기능이 없음).
+
+**새 가게 등록 · 가게 정보 고치기** (`features/stores/`, 11/20 Figma A4. 계정 API 는 1.16, 상권 API 는 1.14)
+
+화면: 위쪽 줄(로고 · '{이름} 사장님' · [가게 선택으로]) → '가게 등록 2 / 2'(가입 직후만) → 제목 '새 가게 등록'(고치기는 '가게 정보 고치기') → 설명 한 줄 → ① 가게 기본 정보(이름 1~30자 · 업종 셀렉트 · 운영 상태 셀렉트(기본 '운영 중') · 입점한 배달 채널 칩 `baemin`·`coupangeats`·`yogiyo`·`ddangyo`) → ② 가게 위치와 상권('주소로 찾기' · '가까운 역으로' 라디오 → 지도 → '이 위치가 속한 상권' 라디오) → ③ 메뉴와 가격(줄마다 이름 1~30자 · 가격 0~1,000,000원, 0~30줄, 빈 줄은 안 보냄) → '등록하면 이렇게 시작해요'(고치기에는 없음) → [취소] [가게 등록하고 시작](고치기는 [저장]).
+
+| 언제 | 부르는 API | 결과 |
+|---|---|---|
+| 화면 열기 | `GET /api/market/options`(업종 100 · 운영 상태 · 호선 · 역 403, 한 번 받으면 다시 안 받음) + 고치기면 `GET /api/account/stores/{id}` | 셀렉트 채우기. 고치기는 저장한 값으로 채우고 위치는 한 줄 + [위치 바꾸기], 상권은 저장한 상권 하나가 골라진 채. 실패하면 서버 문장 + [다시 시도]·[돌아가기] |
+| 주소 [찾기] (주소 칸 Enter 도 찾기) | `POST /api/market/locations/search` `{query}` (2~200자, 2자 미만은 안 보냄) | 서울 후보가 여럿이면 서버 `message`와 라디오, 하나로 확정(`address_candidate`)이면 바로 고름. 후보 없음·서울 밖 등은 `message` 그대로, `lookup_unavailable`이면 "주소를 찾지 못했어요. 가까운 역으로 골라 주세요." + [가까운 역으로] |
+| 역 고르기 | 없음 (호선 → 그 호선의 역. 역의 `lines`는 공식 이름이 달라 `selectable_line_codes`로 고름) | 고른 위치 한 줄, 지도 마커 |
+| 위치가 정해지고 업종이 있을 때 (업종·위치를 바꿀 때마다) | `GET /api/market/profile`(revision) → `POST /api/market/profile` `{location: {kind: "station", station_id} \| {kind: "address", search_id, candidate_id}, industry_code, business_status, expected_revision}` (409 면 revision 을 다시 읽어 한 번 더) → `GET /api/market/analysis-options` | 상권 라디오: 이름 / '종류 · 공식 상권 코드 · 위치 관계(안에 있어요·경계·n m 거리) · 업종 자료가 있는 최신 분기 자료 있음'. `selection_blocked_reason`이 있거나 업종 자료가 없으면 그 이유를 보이고 잠금. 기본 선택은 예전 선택(새 후보에서도 고를 수 있으면), 아니면 `relation` inside → boundary 중 고를 수 있는 첫 번째, 없으면 비움. 업종이 없으면 부르지 않고 "업종을 먼저 골라 주세요." 실패하면 그 칸에 서버 문장 + [다시 시도]. 요청은 하나씩 차례로(상권 서비스 세션의 조건이 하나라 겹치면 섞임), 지난 요청의 응답은 버림 |
+| 지도 | `GET /api/market/map-config` → 네이버 지도 SDK (2.3 (9), `list={false}`) | 마커 = 가게 위치, 상권 경계 = 후보(고른 것 `selected`·나머지 `nearby`·잠긴 것 `disabled`). 다각형을 누르면 그 상권을 고르고, 잠긴 상권이면 '이름: 이유' 한 줄. 지도가 안 떠도 라디오로 똑같이 고름(그때 범례는 숨김) |
+| [가게 등록하고 시작] | `POST /api/account/stores` `{name, industry_code, business_type_name, business_status, channels, location{kind, label, road_address, latitude, longitude, station_id, station_name, district_name}, area{area_code, name, period}, menus[{name, price}]}` → `POST /api/auth/store` `{store_id}` → `storeChanged()`(2.6 첫 표) | 메인 화면 홈. `location`은 상권 서비스가 돌려준 `profile.location`에서, `period`는 고른 상권의 업종 자료가 있는 최신 분기. 등록 뒤 열기만 실패하면 "가게는 등록했어요. 가게를 열지 못했어요: …" + 버튼이 [가게 열기](다시 눌러도 새로 등록하지 않음) |
+| 고치기 [저장] | 바뀐 칸만 `PATCH /api/account/stores/{id}` (없으면 안 부름) → `GET /api/auth/me` (+ 들어가 있던 가게면 `storeChanged()`, 기다리지 않음) | 프로필. 위치·상권은 다시 고른 때만 보내고, 그때만 상권 서비스에 묻는다. 역으로 등록한 가게의 업종만 바꾸면 저장한 역으로 상권 후보를 다시 받고, 주소로 등록한 가게는 주소를 다시 찾게 함(찾기 전에는 저장 안 됨) |
+| [취소] | 없음 | 온 곳(`storeNewFrom`): 프로필 또는 가게 선택 |
+
+- 오류는 칸 바로 아래 한 줄(`#sn-err-<칸>`, 칸의 `aria-describedby`·`aria-invalid`)이고 틀린 첫 칸으로 포커스가 갑니다. 서버의 `error.message`는 그대로 보이고, 문장에 칸 이름(가게 이름·업종·메뉴·상권·위치 …)이 있으면 그 칸 아래, 아니면 버튼 위(`#sn-form-err`). 422 `store_limit`은 "… 프로필에서 쓰지 않는 가게를 빼면 새로 등록할 수 있어요."를 덧붙입니다. 저장 중에는 버튼을 잠가 한 번만 보냅니다.
+- 상권 칸 아래 정직 고지 한 줄: "상권 자료는 우리 가게 매출이 아니라 상권·업종 전체의 추정치예요." + 상권 서비스의 `scope.boundary_notice`.
+- 입력은 화면에만 있습니다 (새로고침하면 사라짐, 임시 저장 없음). 상권 서비스 세션의 조건(위치·업종)은 이 화면이 바꾸며, `POST /api/auth/store`가 상권 쿠키를 지우므로 가게를 연 뒤의 상권 화면·서랍은 새 세션으로 시작합니다.
 
 ### 2.7 자유롭게 바꿔도 되는 것
 

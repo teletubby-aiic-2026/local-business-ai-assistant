@@ -33,7 +33,11 @@ export function staffOf(s) {
   const b = s.briefing, c = (b && b.counts) || {};
   const pasted = ((b && b.pasted) || []).length;
   const out = [];
-  out.push({ key: "data", name: "데이터 분석 비서", ok: !!b, text: b ? `리뷰 ${c.review_count ?? 0}건 정리 끝${pasted ? ` · 새로 붙인 리뷰 ${pasted}건` : ""}` : s.booted ? "리뷰를 불러오지 못했어요" : "리뷰 정리 중" });
+  // 리뷰 0건(새로 등록한 가게)은 '리뷰 0건 정리 끝' 대신 '아직 리뷰 없음'
+  const dataText = !b ? (s.booted ? "리뷰를 불러오지 못했어요" : "리뷰 정리 중")
+    : c.review_count === 0 && !pasted ? "아직 리뷰 없음"
+    : `리뷰 ${c.review_count ?? 0}건 정리 끝${pasted ? ` · 새로 붙인 리뷰 ${pasted}건` : ""}`;
+  out.push({ key: "data", name: "데이터 분석 비서", ok: !!b, text: dataText });
   const care = items.filter((t) => t.agent === "고객 응대 비서");
   const mktItems = items.filter((t) => t.agent === "마케팅 비서");
   const waitOf = (list) => list.flatMap((t) => draftsOf(s.results, t.cid).filter((d) => d.generator === t.gen && !s.approved.has(d.draft_id))).length;

@@ -50,8 +50,6 @@
 .store-pick .sp-text { display: grid; min-width: 0; line-height: 1.4; }
 .store-pick .sp-name { font-weight: 700; }
 .store-pick .sp-sub { font-size: var(--fs-small); color: var(--muted); }
-.store-pick label { flex: none; }
-.store-pick select { max-width: 150px; min-height: 36px; border: 0; background: transparent; font: 500 var(--fs-small)/1.4 var(--font); color: var(--accent-text); cursor: pointer; padding: 4px; }
 .wait-chip {
   display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 6px 4px 12px; border-radius: var(--r-full);
   border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink-2); font-size: var(--fs-small); font-weight: 500; text-decoration: none; white-space: nowrap;
@@ -153,8 +151,6 @@
   .store-pick .sp-text { min-width: 0; }
   .store-pick .sp-name, .store-pick .sp-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .store-pick .sp-sub { font-size: 12px; }
-  .store-pick label { flex: none; }
-  .store-pick select { max-width: 6.5em; }
   .top .icon-btn { width: 40px; min-height: 40px; }
   .menu-toggle { display: none; }
   .mode-band { order: 2; padding: 8px 16px; }

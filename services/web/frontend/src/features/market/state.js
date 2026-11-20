@@ -1,9 +1,11 @@
 // 상권 분석 화면의 모듈 상태와 동작 (예전 app.js 의 mkv·marketApi·mkvStart·mkvLoad·mkvApply·mkvHome·mkvCompare·mkvSync·mkvEvents).
 // - 이 서버의 /api/market/* 만 부른다. 공통 api()·맨 위 띠를 쓰지 않아 상권 서비스가 꺼져도 안내는 이 화면 안에만.
+//   로그인 표시 헤더(authHeaders)를 붙이고, 401 login_needed·409 no_store·403 not_your_store 는 handleAuthError 가 단계를 바꾼다 (lib/api.js).
 // - 분석 조건은 상권 서비스의 세션에 있고, 화면은 서버가 준 조건(conditions)을 그대로 보여 준다 (가게 기본 조건 여부도 서버가 판단: home).
 // - 화면을 떠났다 와도 조건·받은 자료·탭·비교 결과가 남도록 화면 밖(이 모듈)에 둔다. 가게가 바뀌면(epoch) 처음으로 (예전 mkvReset).
 import { useSyncExternalStore } from "react";
 import { getState, setState as setApp } from "../../state/store.js";
+import { authHeaders, handleAuthError } from "../../lib/api.js";
 import { locationPoint } from "../../components/NaverMap.jsx";
 import { condText, dataStatusText, syncText, withQuery } from "./format.js";
 
@@ -14,11 +16,13 @@ export const CMP_HINT = "우리 가게 상권과 비교할 상권을 골라 주�
 async function marketApi(path, options = {}, ms = MKV_WAIT_MS) {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
   try {
-    const res = await fetch("/api/market/" + path, { headers: { "Content-Type": "application/json" }, signal: ctl.signal, ...options });
+    const res = await fetch("/api/market/" + path, { ...options, signal: ctl.signal,
+      headers: { "Content-Type": "application/json", ...authHeaders(), ...(options.headers || {}) } });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       const err = new Error((body && body.error && body.error.message) || `상권 분석 요청 실패 (${res.status})`);
       err.state = body && body.error && body.error.state; err.status = res.status;
+      handleAuthError(err);
       throw err;
     }
     return body;

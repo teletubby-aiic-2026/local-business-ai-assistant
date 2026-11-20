@@ -2,10 +2,11 @@
 // 한 줄 흐름: 브리핑 기간 → 제목 → 오늘의 핵심 문제 → 숫자 타일 4 → 오늘 할 일(넓은 칸)·담당 비서 현황(좁은 칸) → 불만 시간대·주제 차트 → AI에게 묻기.
 // 차트는 브리핑(불만 리뷰 시각·주제)에서 바로 센다. 외부 라이브러리 없음.
 // 새로 등록한 가게는 리뷰가 0건일 수 있다: 기간이 비어도 'undefined' 를 찍지 않고, 차트·할 일은 짧은 빈 안내로.
+// 리뷰 0건이면 '오늘 할 일' 아래 버튼이 다음에 할 일 두 개 ([리뷰 넣기] → 리뷰 분석의 리뷰 넣기 탭, [상권 분석 보기])
 import { useStore, openDrawer } from "../../state/store.js";
 import { todosOf, staffOf } from "../../state/staff.js";
 import { heroProblem, homeSnap, snapValue, scopeNote } from "../../lib/domain.js";
-import { go } from "../../lib/router.js";
+import { go, navTo } from "../../lib/router.js";
 import { PageHead, Panel, StatTile, TopicBar, Button } from "../../components/ui.jsx";
 import { useFlow } from "./state.js";
 import { runTodo, staffGo } from "./actions.js";
@@ -24,6 +25,7 @@ export default function Home() {
   const left = items.filter((t) => t.st[0] !== "done").length;
   const title = !s.cards.length ? "사장님, 오늘 가게 현황이에요" : left ? `사장님, 오늘 처리할 일 ${left}가지` : "사장님, 오늘 할 일을 모두 끝냈어요";
   const failed = s.booted && !!s.bootError && !s.cards.length;
+  const noBriefing = s.booted && !!s.bootError && !b;   // 브리핑을 못 받음: '정리하고 있어요'·'불러오는 중'으로 남기지 않음
   const startLabel = !s.booted ? "불러오는 중…" : s.bootError ? "불러오지 못했어요" : "무엇을 할까요?";
   const staff = staffOf(s);
   const noReviews = b?.counts?.review_count === 0;   // 새 가게: 리뷰 0건
@@ -32,13 +34,13 @@ export default function Home() {
   return (
     <div className="col wide flow-home">
       <div className="stack-8">
-        <p className="small muted flow-eyebrow"><span>밤 11시 브리핑</span>{(!b || period) && <span>{b ? period : "불러오는 중…"}</span>}</p>
+        <p className="small muted flow-eyebrow"><span>밤 11시 브리핑</span>{((!b && !noBriefing) || period) && <span>{b ? period : "불러오는 중…"}</span>}</p>
         <PageHead title={title} />
       </div>
 
       {/* 오늘의 핵심 문제: 카드 ⓐ가 가리키는 묶음. 시간대는 불만이 몰린 구간만 (상권 지표의 17~24시와 섞지 않음) */}
       <p className="flow-hero"><span className="flow-hero-label">오늘의 핵심 문제</span>
-        <strong>{!b ? "오늘 들어온 리뷰를 정리하고 있어요" : noReviews ? "아직 들어온 리뷰가 없어요" : heroProblem(b)}</strong></p>
+        <strong>{noBriefing ? "리뷰를 불러오지 못했어요" : !b ? "오늘 들어온 리뷰를 정리하고 있어요" : heroProblem(b)}</strong></p>
 
       <div className="tiles">
         <StatTile tint="green" icon="리뷰" label="리뷰" value={<Unit n={stats?.reviews} />} sub={stats?.reviewsSub} />
@@ -76,7 +78,14 @@ export default function Home() {
               })}
           </ol>
           <div className="btn-row flow-todo-foot">
-            <Button variant="primary" disabled={!s.booted || !!s.bootError} onClick={() => go("cards")}>{startLabel}</Button>
+            {noReviews && !items.length ? (
+              <>
+                <Button variant="primary" onClick={() => navTo("analysis", "paste")}>리뷰 넣기</Button>
+                <Button onClick={() => go("market")}>상권 분석 보기</Button>
+              </>
+            ) : (
+              <Button variant="primary" disabled={!s.booted || !!s.bootError} onClick={() => go("cards")}>{startLabel}</Button>
+            )}
           </div>
         </Panel>
 

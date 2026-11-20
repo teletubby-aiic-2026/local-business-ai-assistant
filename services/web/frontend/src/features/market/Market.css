@@ -33,8 +33,7 @@
 /* 서울시 자료 최신화 · 문화행사: 맨 아래에 나란히 (좁으면 위아래) */
 .mk-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--s-16); align-items: start; min-width: 0; }
 
-/* 탭: 탭 칸이 좁으면 2×2 */
-.mk-tabbar .tabs { display: flex; }
+/* 탭: 넓으면 글자 폭만큼(base.css 의 inline-flex 그대로), 탭 칸이 좁으면 2×2 로 칸을 채움 */
 @container mk-main (max-width: 779px) {
   .mk-tabbar .tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mk-tabbar .tabs [role="tab"] { white-space: normal; line-height: 1.3; }

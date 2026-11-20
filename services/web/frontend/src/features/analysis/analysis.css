@@ -1,6 +1,5 @@
 /* 리뷰 분석 화면 (Figma 06 C1·C2). 공통 모양은 styles/base.css, 색·글자는 tokens.css 변수만 */
 .an-period { margin-top: calc(var(--s-16) * -1); }   /* 화면 머리 바로 아래 한 줄 */
-.an > .tabs { justify-self: start; }   /* 탭 줄은 글자 폭만큼 (본문 폭으로 늘이지 않음) */
 .an-tabpanel:focus-visible { outline-offset: 6px; border-radius: var(--r-sm); }
 
 /* 요약 */

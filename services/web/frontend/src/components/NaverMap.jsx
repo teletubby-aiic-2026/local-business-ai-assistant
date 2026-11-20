@@ -11,6 +11,7 @@
 // - 다각형은 키보드로 고를 수 없으니 onAreaClick 이 있으면 지도 아래에 같은 선택을 하는 버튼 목록을 둔다 (list={false} 면 뺌).
 // - 서버가 준 글(상권 이름 등)은 JSX 와 SDK 의 title 칸으로만 넣는다 (HTML 글자로 만들지 않음).
 import { useEffect, useRef, useState } from "react";
+import { authHeaders, handleAuthError } from "../lib/api.js";
 import { Button } from "./ui.jsx";
 import "./NaverMap.css";
 
@@ -49,8 +50,10 @@ async function startLoad() {
   if (window.naver?.maps && !sdk.force && !sdk.authFailed) return window.naver.maps;
   let config = null;
   try {
-    const res = await fetch(MAP_CONFIG, { headers: { Accept: "application/json" } });
-    config = res.ok ? await res.json() : null;
+    // 로그인 표시 헤더를 붙이고, 401 login_needed 등은 다른 호출처럼 단계를 바꾼다 (lib/api.js)
+    const res = await fetch(MAP_CONFIG, { headers: { Accept: "application/json", ...authHeaders() } });
+    config = await res.json().catch(() => null);
+    if (!res.ok) { handleAuthError({ status: res.status, state: config && config.error && config.error.state }); config = null; }
   } catch { config = null; }
   if (!config) throw new MapLoadError("error");
   const id = typeof config.client_id === "string" ? config.client_id.trim() : "";

@@ -30,8 +30,9 @@ export function marketScope(s) {
 export const SCOPE_NOT_ONE = "한 업종(예: 한식음식점)의 하루 전체 매출이 아니에요.";
 export const scopeNote = (s) => String(s?.metric_name || "").includes("공통 업종") ? SCOPE_NOT_ONE : "하루 전체 매출이 아니라 그 시간대의 매출이에요.";
 
-// 오늘의 핵심 문제 한 줄 (카드 ⓐ가 가리키는 묶음)
+// 오늘의 핵심 문제 한 줄 (카드 ⓐ가 가리키는 묶음). 리뷰가 0건이면 반복 불만이 없는 것과 구별해 '아직 들어온 리뷰가 없어요'
 export function heroProblem(b) {
+  if (b?.counts?.review_count === 0) return "아직 들어온 리뷰가 없어요";   // 새로 등록한 가게
   const top = (b?.groups || []).find((g) => g.issue_id === b.top_issue_id);
   return top
     ? `${top.topic_name} ${top.review_count}건${top.is_repeated ? " 반복" : ""}${top.main_time_band ? ` · ${top.main_time_band}에 몰림` : ""}`
