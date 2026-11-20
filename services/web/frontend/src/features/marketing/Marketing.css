@@ -16,6 +16,12 @@
 /* feature-grid(base.css)보다 늦게 읽히지 않으므로 두 클래스로 덮는다: 기능 카드 6개가 3 + 3 으로 */
 .feature-grid.mkt-modes { margin-top: var(--s-4); grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
 .mkt-modes .feature-card[aria-disabled="true"] { opacity: .6; cursor: progress; }
+/* 좁은 본문(휴대폰): 기능 카드 6개를 두 칸으로 촘촘하게 (한 칸이면 카드 6장이 화면 세 개 길이였음) */
+@container content (max-width: 559px) {
+  .feature-grid.mkt-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-12); }
+  .mkt-modes .feature-card { gap: var(--s-8); padding: var(--s-16) var(--s-12); }
+  .mkt-modes .feature-card .fc-desc { line-height: 1.45; }
+}
 
 /* 대화: 사장님 답 = 오른쪽 연한 말풍선, 비서 = 면 없이 글만 */
 .mkt-log { display: grid; gap: var(--s-12); }

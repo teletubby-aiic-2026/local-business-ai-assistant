@@ -58,13 +58,13 @@ describe("캡처", () => {
 });
 
 describe("분류 방식 배지", () => {
-  it("model·replay·rule 을 사람이 읽는 이름으로, 모르는 값은 숨김", async () => {
+  it("model·rule 은 사람이 읽는 이름으로, 그 밖 값은 저장된 AI 분류, 빈 값은 숨김", async () => {
     const { methodName } = await import("./calc.js");
     expect(methodName("model")).toBe("AI 분류");
-    expect(methodName("replay")).toBe("저장된 AI 분류");
+    expect(methodName("saved")).toBe("저장된 AI 분류");
     expect(methodName("rules")).toBe("규칙 분류 (AI 아님)");
     expect(methodName("rule")).toBe("규칙 분류 (AI 아님)");
     expect(methodName("")).toBe("");
-    expect(methodName("other")).toBe("");
+    expect(methodName(undefined)).toBe("");
   });
 });

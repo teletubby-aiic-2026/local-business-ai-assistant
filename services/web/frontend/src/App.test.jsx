@@ -177,3 +177,64 @@ describe("안내 문구", () => {
     expect(document.querySelector(".side .brand .logo svg")).toBeTruthy();
   });
 });
+
+describe("휴대폰 (760px 이하): 아래 탭 + 묶음 하위 탭 + 한 줄 상단 바", () => {
+  it("왼쪽 메뉴 대신 아래 탭 5칸, 현재 탭 표시, '오늘 처리'에 승인 대기 수", () => {
+    mockWidth("narrow");
+    setState({ results: waitingResults });
+    render(<App />);
+    expect(document.getElementById("side-menu")).toBeNull();
+    const bar = document.querySelector(".tabbar");
+    expect(bar.getAttribute("aria-label")).toBe("메뉴");
+    expect([...bar.querySelectorAll(".tab-label")].map((x) => x.textContent)).toEqual(["홈", "오늘 처리", "AI에게 묻기", "살펴보기", "마케팅"]);
+    expect(bar.querySelector('[aria-current="page"] .tab-label').textContent).toBe("홈");
+    const flow = [...bar.querySelectorAll("a.tab")].find((a) => a.textContent.includes("오늘 처리"));
+    expect(flow.getAttribute("href")).toBe("#/draft");               // 승인 대기가 있으면 승인할 글로
+    expect(flow.querySelector(".count").getAttribute("aria-label")).toBe("승인 대기 2개");
+    expect(document.getElementById("top-waiting")).toBeNull();       // 상단 바 칩은 넓은 화면에서만
+  });
+
+  it("가운데 'AI에게 묻기'가 서랍을 열고, 상단 바에는 같은 이름 버튼이 하나만", () => {
+    mockWidth("narrow");
+    render(<App />);
+    const asks = screen.getAllByRole("button", { name: "AI에게 묻기" });
+    expect(asks).toHaveLength(1);
+    expect(asks[0].closest(".tabbar")).toBeTruthy();
+    fireEvent.click(asks[0]);
+    expect(asks[0].getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("살펴보기 화면에서는 하위 탭(리뷰 분석·상권 분석·종합 리포트)과 현재 화면 표시, 홈에는 하위 탭 없음", async () => {
+    mockWidth("narrow");
+    await new Promise((r) => setTimeout(r, 0));   // 앞 시험의 링크 누르기가 남긴 늦은 주소 이동(#/cards)을 먼저 흘려보낸다
+    window.location.hash = "#/market";
+    render(<App />);
+    const nav = document.querySelector(".group-nav");
+    expect(nav.getAttribute("aria-label")).toBe("살펴보기");
+    expect([...nav.querySelectorAll("a")].map((a) => a.textContent)).toEqual(["리뷰 분석", "상권 분석", "종합 리포트"]);
+    expect(nav.querySelector('[aria-current="page"]').textContent).toBe("상권 분석");
+    expect(document.querySelector('.tabbar [aria-current="page"] .tab-label').textContent).toBe("살펴보기");
+    await act(async () => { window.location.hash = "#/today"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });   // jsdom 의 늦은 hashchange 까지 지나가게
+    expect(document.querySelector(".group-nav")).toBeNull();
+  });
+
+  it("상단 바 계정 단추는 그림 단추지만 이름(읽기 프로그램)과 id 는 그대로", () => {
+    mockWidth("narrow");
+    render(<App />);
+    const login = document.getElementById("acct-login");
+    expect(login.classList.contains("icon-btn")).toBe(true);
+    expect(login.querySelector(".sr").textContent).toBe("로그인");
+    expect(login.querySelector("svg")).toBeTruthy();
+    expect(document.querySelector(".top .top-logo")).toBeTruthy();
+  });
+
+  it("넓은 화면에서는 아래 탭·하위 탭을 그리지 않는다", () => {
+    mockWidth("wide");
+    window.location.hash = "#/market";
+    render(<App />);
+    expect(document.querySelector(".tabbar")).toBeNull();
+    expect(document.querySelector(".group-nav")).toBeNull();
+    expect(document.getElementById("side-menu")).toBeTruthy();
+  });
+});

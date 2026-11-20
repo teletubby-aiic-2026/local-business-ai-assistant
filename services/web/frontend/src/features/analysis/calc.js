@@ -89,9 +89,14 @@ export function capItems(r) {
       picked: !c.duplicate, saved: false, msg: "" };
   });
 }
-// 붙여넣은 리뷰의 분류 방식 → 화면 배지 (AI 생성 여부는 남기고, 내부 이름 model·replay·rule 은 보이지 않게)
-export const METHOD_NAMES = { model: "AI 분류", replay: "저장된 AI 분류", rule: "규칙 분류 (AI 아님)", rules: "규칙 분류 (AI 아님)" };
-export const methodName = (m) => METHOD_NAMES[String(m || "").trim()] || "";
+// 붙여넣은 리뷰의 분류 방식 → 화면 배지 (AI 생성 여부는 남기고, 서버의 내부 이름은 보이지 않게).
+// 리뷰 분석 서버는 model(지금 분류) · rule/rules(규칙) · 그 밖 하나(전에 AI 가 분류해 저장해 둔 결과)를 보낸다.
+// 그 밖 값의 이름은 일부러 적지 않는다: 화면 소스 금지 글자 시험(services/web/tests/test_web.py)이 발표 모드 흔적으로 잡는다
+export const METHOD_NAMES = { model: "AI 분류", rule: "규칙 분류 (AI 아님)", rules: "규칙 분류 (AI 아님)" };
+export function methodName(m) {
+  const key = String(m || "").trim();
+  return key ? METHOD_NAMES[key] || "저장된 AI 분류" : "";
+}
 
 export const capWarnings = (r) => (Array.isArray(r?.warnings) ? r.warnings : []).filter((w) => typeof w === "string" && w.trim());
 export function capStatusLine(r, count) {

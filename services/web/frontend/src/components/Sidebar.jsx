@@ -1,13 +1,14 @@
 // 왼쪽 메뉴: 서비스 이름 · 묶음 3개(오늘 처리·살펴보기·키우기) · 맨 아래 계정 줄 (Figma 02 공통 요소 '왼쪽 메뉴')
 // overlay: 761~1024px 에서 본문 위에 덮여 열린 상태. 이때만 [메뉴 닫기] 버튼을 그린다 (상단 바의 토글 버튼이 덮개 아래로 가려져서)
-// 760px 이하에서는 가로 한 줄 메뉴가 되고 계정 줄은 숨긴다 (계정은 상단 바의 [로그인]·이름 버튼 → 내 계정 창에서)
+// 760px 이하에서는 그리지 않는다: 아래 탭(MobileNav.jsx TabBar)이 대신하고, 계정은 상단 바 계정 버튼 → 내 계정 창에서
 import { useEffect, useRef } from "react";
 import { useStore, setState } from "../state/store.js";
 import { waitingCount } from "../state/staff.js";
 import { acctLogout, displayName } from "../state/account.js";
 import { Icon, Logo } from "./ui.jsx";
 
-const GROUPS = [
+// 휴대폰 아래 탭·하위 탭(MobileNav.jsx)도 이 묶음을 쓴다
+export const GROUPS = [
   { title: null, items: [["today", "홈"]] },
   { title: "오늘 처리", items: [["cards", "추천 카드"], ["draft", "승인할 글"], ["done", "처리 완료"]] },
   { title: "살펴보기", items: [["analysis", "리뷰 분석"], ["market", "상권 분석"], ["report", "종합 리포트"]] },

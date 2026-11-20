@@ -6,6 +6,7 @@ import { useStore, setAlert } from "./state/store.js";
 import { honestyItems, modeBandText } from "./lib/domain.js";
 import Sidebar from "./components/Sidebar.jsx";
 import Topbar from "./components/Topbar.jsx";
+import { TabBar, GroupNav } from "./components/MobileNav.jsx";
 import Home from "./features/flow/Home.jsx";
 import Cards from "./features/flow/Cards.jsx";
 import Draft from "./features/flow/Draft.jsx";
@@ -31,6 +32,7 @@ const focusables = (root) => [...root.querySelectorAll(FOCUSABLE)].filter((el) =
 export default function App() {
   const { name, key } = useRoute();
   const band = useBand();
+  const narrow = band === "narrow";   // 760px 이하: 왼쪽 메뉴 대신 아래 탭 + 하위 탭 (MobileNav.jsx)
   const health = useStore((s) => s.health);
   const alert = useStore((s) => s.alert);
   const drawerOpen = useStore((s) => s.drawerOpen);
@@ -93,9 +95,9 @@ export default function App() {
   const cls = ["app", !menuOpen && "menu-closed", over && "menu-over", drawerOpen && "drawer-open"].filter(Boolean).join(" ");
   return (
     <div className={cls} onClick={(e) => { if (over && !e.target.closest(".side, .menu-toggle")) setOver(false); }}>
-      <Sidebar route={name} onNavigate={() => setOver(false)} overlay={over} onClose={() => setOver(false)} />
+      {!narrow && <Sidebar route={name} onNavigate={() => setOver(false)} overlay={over} onClose={() => setOver(false)} />}
       <div className="main" ref={mainRef}>
-        <Topbar ref={toggleRef} menuOpen={band === "mid" ? over : menuOpen} onToggleMenu={toggleMenu} showWaiting={menuHidden} />
+        <Topbar ref={toggleRef} menuOpen={band === "mid" ? over : menuOpen} onToggleMenu={toggleMenu} showWaiting={menuHidden} narrow={narrow} />
         {bandText && <div className="mode-band" role="note">{bandText}</div>}
         <main className="content" id="main">
           {alert && (
@@ -103,12 +105,14 @@ export default function App() {
               <span>{alert}</span><button type="button" className="btn text" onClick={() => setAlert("")}>닫기</button>
             </div>
           )}
+          {narrow && <GroupNav route={name} />}
           <Screen key={`${name}-${key}-${epoch}`} />
           {honesty.length > 0 && (
             <footer className="honesty" aria-label="자료 출처">{honesty.map((t) => <span key={t}>{t}</span>)}</footer>
           )}
         </main>
       </div>
+      {narrow && <TabBar route={name} />}
       <Drawer />
       <AuthDialog />
       <AccountDialog />

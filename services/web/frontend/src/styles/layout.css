@@ -69,7 +69,7 @@
   flex: 1 0 auto; padding: 32px; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: start; gap: 24px;
   container-type: inline-size; container-name: content;
 }
-.col { width: min(100%, var(--col)); display: grid; gap: 24px; }
+.col { width: min(100%, var(--col)); display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }   /* minmax(0,1fr): 넓은 표가 화면 폭을 밀지 않게 */
 .col.wide { width: min(100%, var(--col-wide)); }
 .col.narrow { width: min(100%, var(--col-narrow)); }
 .app-alert { width: min(100%, var(--col-wide)); }
@@ -98,34 +98,80 @@
 }
 
 /* ── 760px 이하: 상단 바 → 가로 한 줄 메뉴 → 본문 순서. 서랍은 아래 시트 ── */
+/* 아래 탭 (760px 이하에서만 그림, MobileNav.jsx). Figma '메뉴 항목/현재' 처럼 현재 탭은 초록 */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: stretch;
+  min-height: var(--tabbar-h); padding: 6px max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(8px, env(safe-area-inset-left));
+  background: var(--panel); border-top: 1px solid var(--line);
+}
+.tabbar .tab {
+  position: relative; display: grid; justify-items: center; align-content: center; gap: 2px; min-height: 52px; padding: 2px 0;
+  border: 0; background: none; color: var(--muted); font: 500 12px/1.3 var(--font); text-decoration: none; cursor: pointer;
+}
+.tabbar .tab-icon { display: grid; place-items: center; width: 52px; height: 30px; border-radius: var(--r-full); }
+.tabbar .tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabbar .tab[aria-current="page"] { color: var(--accent-text); font-weight: 700; }
+.tabbar .tab[aria-current="page"] .tab-icon { background: var(--accent); color: var(--accent-ink); }
+/* 마우스가 있는 기기에서만 (휴대폰은 누른 뒤 hover 가 남아 가운데 AI 단추가 회색이 됐음) */
+@media (hover: hover) { .tabbar .tab:not(.tab-ai):not([aria-current="page"]):hover .tab-icon { background: var(--hover); } }
+.tabbar .tab-ai { color: var(--accent-text); }
+.tabbar .tab-ai .tab-icon { width: 44px; height: 44px; margin-top: -14px; background: var(--brand); color: var(--on-brand); box-shadow: var(--shadow-over); }
+.tabbar .tab-ai[aria-expanded="true"] .tab-icon { background: var(--accent-hover); }
+.tabbar .count {
+  position: absolute; top: 0; left: calc(50% + 6px); min-width: 20px; padding: 0 6px; border-radius: var(--r-full);
+  background: var(--bad); color: var(--panel); font-size: 12px; line-height: 20px; font-weight: 700; text-align: center;
+}
+
+/* 묶음 안 하위 탭 (오늘 처리 · 살펴보기, 760px 이하 본문 맨 위) */
+.group-nav { width: 100%; }
+.group-nav ul {
+  display: flex; gap: 4px; padding: 4px; overflow-x: auto; scrollbar-width: none;
+  border-radius: var(--r-full); background: var(--chip);
+}
+.group-nav ul::-webkit-scrollbar { display: none; }
+.group-nav li { flex: 1 0 auto; }
+.group-nav a {
+  display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 6px 14px; border-radius: var(--r-full);
+  color: var(--ink-2); font-size: var(--fs-small); font-weight: 500; text-decoration: none; white-space: nowrap;
+}
+.group-nav a[aria-current="page"] { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: var(--shadow-tab); }
+.group-nav .count { min-width: 20px; padding: 0 6px; border-radius: var(--r-full); background: var(--bad); color: var(--panel); font-size: 12px; line-height: 20px; font-weight: 700; text-align: center; }
+
+/* 760px 이하(휴대폰): 왼쪽 메뉴 대신 아래 탭. 상단 바는 한 줄(로고 · 가게 · 화면 모양 · 계정), 서랍은 아래에서 올라오는 시트 */
 @media (max-width: 760px) {
   .app { flex-direction: column; }
   .main { display: contents; }
-  .top { order: 1; position: static; padding: 10px 16px; gap: 8px; }
-  .app .side, .app.menu-closed .side {
-    order: 2; display: flex; position: sticky; top: 0; z-index: 30; flex: none; width: auto; height: auto;
-    flex-direction: row; gap: 4px; overflow-x: auto; overflow-y: hidden; padding: 8px 12px;
-    border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none;
+  .top {
+    order: 1; position: sticky; top: 0; z-index: 30; flex-wrap: nowrap; gap: 8px; min-height: 56px;
+    padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
   }
-  .side::-webkit-scrollbar { display: none; }
-  .mode-band { order: 3; padding: 8px 16px; }
-  .content { order: 4; padding: 20px 16px 24px; gap: 20px; }
-  .side .side-head, .side .group, .side .spacer, .side .account { display: none; }
-  .side > [role="group"] { display: contents; }   /* 묶음을 풀어 한 줄 가로 메뉴로 */
-  .side .menu-item { flex: none; white-space: nowrap; min-height: 40px; padding: 8px 12px; gap: 6px; border-radius: var(--r-full); }
-  .side .menu-item .icon { display: none; }
-  .side .menu-item .count { margin-left: 2px; }
-  .menu-toggle, .wait-chip { display: none; }
-  .top .top-right { gap: 6px; }
-  .drawer { top: auto; height: 85vh; height: 85dvh; width: 100%; border-left: 0; border-top: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .top .top-left { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; gap: 8px; }
+  .top .top-right { flex: none; gap: 4px; flex-wrap: nowrap; }
+  .top-logo { width: 30px; height: 30px; }
+  .store-pick { flex: 1 1 auto; min-width: 0; gap: 6px; padding: 4px 8px 4px 10px; }
+  .store-pick .sp-text { min-width: 0; }
+  .store-pick .sp-name, .store-pick .sp-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .store-pick .sp-sub { font-size: 12px; }
+  .store-pick label { flex: none; }
+  .store-pick select { max-width: 6.5em; }
+  .top .icon-btn { width: 40px; min-height: 40px; }
+  .menu-toggle { display: none; }
+  .mode-band { order: 2; padding: 8px 16px; }
+  .content { order: 3; padding: 16px 16px calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 24px); gap: 16px; }
+  .drawer {
+    top: auto; height: 85vh; height: 85dvh; width: 100%; border-left: 0; border-top: 1px solid var(--line);
+    border-radius: var(--r-lg) var(--r-lg) 0 0; padding-bottom: env(safe-area-inset-bottom);
+  }
 }
-@media (max-width: 400px) {
-  .store-pick { padding: 4px 10px; }
-  .ask-btn { padding-left: 14px; padding-right: 14px; }
+@media (max-width: 360px) {
+  .top .top-right { gap: 2px; }
+  .top .icon-btn { width: 36px; }
+  .tabbar .tab { font-size: 11px; }
 }
 
 @media print {
-  .side, .top, .drawer, .honesty, .mode-band { display: none !important; }
+  .side, .top, .drawer, .honesty, .mode-band, .tabbar, .group-nav { display: none !important; }
   .app { display: block; }
   .main { margin-right: 0 !important; }
   .content { container-type: normal; }   /* 인쇄에서는 본문 폭 규칙을 끄고 기본(넓은) 모양으로 */
