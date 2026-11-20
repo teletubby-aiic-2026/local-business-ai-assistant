@@ -1,0 +1,47 @@
+/* 네이버 지도 부품 (components/NaverMap.jsx, 11/20). 색은 토큰만 (밝게·어둡게 모두). 지도 타일은 밝은 색 그대로.
+   지도 높이는 둘러싼 본문 폭(cqi, layout.css 의 content 컨테이너)에 맞춘다: 휴대폰 240px ~ 넓은 화면 420px.
+   범례(.nmap-legend · .nmap-key)는 부르는 쪽이 children 으로 넣을 때 쓰는 모양 */
+.nmap { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-12); min-width: 0; }
+.nmap > * + * { margin-top: 0; }   /* .panel > * + * 의 위 여백 대신 gap */
+.nmap-box { position: relative; min-width: 0; border-radius: var(--r-md); overflow: hidden; background: var(--surface); border: 1px solid var(--line); }
+.nmap-canvas { width: 100%; height: clamp(240px, 38cqi, 420px); }
+.nmap-wait { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: var(--s-16); background: var(--surface); color: var(--muted); text-align: center; }
+.nmap-hover {
+  position: absolute; left: var(--s-12); top: var(--s-12); margin: 0; max-width: calc(100% - 80px);
+  padding: 4px 10px; border-radius: var(--r-full); background: var(--panel); color: var(--ink); box-shadow: var(--shadow-card);
+  font-size: var(--fs-small); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+.nmap-fail {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-8) var(--s-12);
+  padding: var(--s-12) var(--s-16); border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line);
+  color: var(--ink-2); font-size: var(--fs-small); line-height: var(--lh-small);
+}
+.nmap-fail > span { min-width: 0; flex: 1 1 220px; }
+
+/* 가게 위치 마커 (SDK 의 Marker icon.content). 지도 위라서 테두리로 바탕과 떼어 놓음 */
+.nmap-pin { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--bad); border: 3px solid var(--panel); box-shadow: var(--shadow-card); box-sizing: border-box; }
+
+/* 범례 */
+.nmap-legend { display: flex; flex-wrap: wrap; gap: var(--s-4) var(--s-16); margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: var(--fs-small); }
+.nmap-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.nmap-key { display: inline-block; flex: none; box-sizing: border-box; }
+.nmap-key.pin { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+.nmap-key.selected { width: 18px; height: 12px; border: 2px solid var(--accent); border-radius: 3px; background: var(--brand-soft); }
+.nmap-key.nearby { width: 18px; height: 12px; border: 2px dashed var(--muted); border-radius: 3px; }
+/* 지도에만 있는 것(가게 위치 마커)의 범례 칸은 지도가 안 뜨면 숨김: <li className="nmap-only"> */
+.nmap-box[hidden] ~ .nmap-legend .nmap-only { display: none; }
+
+/* 지도와 같은 선택을 하는 목록 (키보드·지도가 안 뜰 때) */
+.nmap-list { display: flex; flex-wrap: wrap; gap: var(--s-8); }
+.nmap-list li { min-width: 0; max-width: 100%; }
+.nmap-area {   /* inline-block: flex 로 두면 덧말 앞의 띄어쓰기(' · 180m')가 지워진다 */
+  display: inline-block; max-width: 100%; min-height: 36px; padding: 7px 12px; border-radius: var(--r-full);
+  font: 500 var(--fs-small)/1.4 var(--font); color: var(--ink); background: var(--panel); border: 1px dashed var(--field-line);
+  overflow-wrap: anywhere; text-align: left;
+}
+button.nmap-area { cursor: pointer; }
+button.nmap-area:hover { background: var(--hover); }
+.nmap-area.selected { border: 2px solid var(--accent); background: var(--brand-soft); color: var(--accent-text); font-weight: 700; }
+.nmap-area.off { color: var(--muted); border-style: dotted; }
+.nmap-note { color: var(--muted); font-weight: 400; }
+.nmap-area.selected .nmap-note { color: var(--accent-text); }

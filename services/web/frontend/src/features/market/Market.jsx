@@ -1,11 +1,13 @@
-// 상권 분석 (#/market, 5차 회의 11/18). Figma 화면 11.
-// ① 분석 조건(상권·업종·분기 + 우리 가게 기준으로 + AI에게 묻기) ② 핵심 지표 4칸 ③ 세부 탭 4개 ④ 옆 칸: 서울시 자료 최신화 · 우리 동네 문화행사.
+// 상권 분석 (#/market, 5차 회의 11/18 · 6차 회의 11/20 Figma '06 설계 기준 화면' F1).
+// 위에서부터 ① 머리(상권 분석 비서 · 제목 · 고지 한 줄 · AI에게 묻기) ② 분석 조건(상권·업종·분기 + 이 조건으로 보기, 아래 줄에 지금 조건 · 우리 가게 기준으로)
+// ③ 지도(고른 상권 · 주변 상권 경계 · 가게 위치, 주변 상권을 누르면 비교 탭) ④ 핵심 지표 4칸 ⑤ 세부 탭 4개 ⑥ 서울시 자료 최신화 · 우리 동네 문화행사.
 // 숫자는 서울시 상권분석서비스 추정치이고 우리 가게 매출이 아니다 (머리 한 줄로만 알린다). 서버 글은 JSX 로만 넣는다.
-import { useEffect } from "react";
-import { useStore, openDrawer } from "../../state/store.js";
+import { useEffect, useMemo } from "react";
+import { useStore, focusOrOpenDrawer } from "../../state/store.js";
 import { Button, Notice, PageHead, Panel, StatTile, Tabs } from "../../components/ui.jsx";
+import NaverMap from "../../components/NaverMap.jsx";
 import {
-  MKV_TABS, useMarket, getMarket, marketOpen, setTab, markNav, apply, home, sync, compare, periodsOf, compareAreasOf,
+  MKV_TABS, useMarket, getMarket, marketOpen, setTab, markNav, apply, home, sync, compare, compareWith, periodsOf, compareAreasOf,
   pickArea, pickIndustry, pickPeriod, pickCompareDistrict, pickCompareArea,
 } from "./state.js";
 import { barRows, metricValue, numKo, pctKo, qLabel, safeUrl, warningsOf, wonShort } from "./format.js";
@@ -18,8 +20,8 @@ const TABS = [
   { id: "compare", label: "타 상권 1:1 비교" },
 ];
 const STORE_KEYS = ["stores_total", "stores_general", "stores_franchise", "stores_opened", "stores_closed"];
-// 이 화면의 핵심 고지 (출처·추정치·우리 가게 매출 아님). 화면 머리에 이 한 줄만 둔다
-const MK_NOTICE = "서울시 상권분석서비스 추정치 기준 · 우리 가게 실제 매출이 아니에요";
+// 이 화면의 핵심 고지 (출처·추정치·우리 가게 매출 아님). 화면 머리에 이 한 줄만 둔다 (Figma F1 문구)
+const MK_NOTICE = "서울시 상권분석서비스 공식 자료로 우리 가게 주변 상권을 봐요. 상권·업종 전체의 추정치이고, 우리 가게 매출이 아니에요.";
 
 // 고른 값이 목록에 없으면 브라우저처럼 고를 수 있는 첫 보기
 const valueIn = (list, want, key, ok = () => true) => {
@@ -31,6 +33,7 @@ const valueIn = (list, want, key, ok = () => true) => {
 export default function Market() {
   const s = useMarket();
   const nav = useStore((st) => st.nav);
+  const drawerOpen = useStore((st) => st.drawerOpen);
 
   useEffect(() => { marketOpen(); }, []);   // 화면을 처음 열 때 시작 (예전 route() 의 mkvOpen)
 
@@ -54,10 +57,12 @@ export default function Market() {
 
   return (
     <div className="col wide mk">
-      <PageHead owner={owner} title="상권 분석" sub={MK_NOTICE} />
+      <PageHead owner={owner} title="상권 분석" sub={MK_NOTICE}
+        actions={<Button aria-controls="assistant" aria-expanded={drawerOpen} onClick={focusOrOpenDrawer}>AI에게 묻기</Button>} />
       <Notice tone={s.warn ? "warn" : undefined} className="mk-state">{s.status}</Notice>
 
-      <Panel title="분석 조건" titleId="mk-cond-title" sub={s.condLine} className="mk-cond">
+      <section className="panel mk-cond" aria-labelledby="mk-cond-title">
+        <h2 id="mk-cond-title" className="sr">분석 조건</h2>
         <div className="mk-cond-row">
           <label className="field mk-field"><span>상권</span>
             <select id="mk-area" value={area} disabled={locked} onChange={(e) => pickArea(e.target.value)}>
@@ -74,29 +79,74 @@ export default function Market() {
               {periods.map((p) => <option key={p} value={p}>{qLabel(p)}</option>)}
             </select>
           </label>
-          <div className="btn-row mk-cond-btns">
-            <Button variant="primary" disabled={locked} onClick={() => apply({ area, period, industry })}>이 조건으로 보기</Button>
-            <Button disabled={locked} onClick={home}>우리 가게 기준으로</Button>
-            <Button aria-controls="assistant" onClick={() => openDrawer(true)}>AI에게 묻기</Button>
-          </div>
+          <Button variant="primary" className="mk-apply" disabled={locked} onClick={() => apply({ area, period, industry })}>이 조건으로 보기</Button>
         </div>
-      </Panel>
+        <div className="mk-cond-now small">
+          {s.condLine && <span className="muted">지금 보는 조건: <span className="mk-cond-line">{s.condLine}</span></span>}
+          <Button variant="text" size="small" disabled={locked} onClick={home}>우리 가게 기준으로</Button>
+        </div>
+      </section>
 
-      <div className="mk-body">
-        <div className="mk-main">
-          <Tiles s={s} />
-          <div className="mk-tabbar"><Tabs tabs={TABS} active={s.tab} onChange={setTab} idPrefix="mk" label="상권 세부 지표" /></div>
-          <TabPanel id="sales" tab={s.tab}><SalesPanel s={s} /></TabPanel>
-          <TabPanel id="stores" tab={s.tab}><StoresPanel s={s} /></TabPanel>
-          <TabPanel id="pop" tab={s.tab}><PopPanel s={s} /></TabPanel>
-          <TabPanel id="compare" tab={s.tab}><ComparePanel s={s} /></TabPanel>
-        </div>
-        <aside className="mk-side" aria-label="서울시 자료와 문화행사">
-          <SeoulPanel s={s} />
-          <EventsPanel s={s} />
-        </aside>
+      {s.options && <MapPanel s={s} />}
+
+      <Tiles s={s} />
+
+      <div className="mk-main">
+        <div className="mk-tabbar"><Tabs tabs={TABS} active={s.tab} onChange={setTab} idPrefix="mk" label="상권 세부 지표" /></div>
+        <TabPanel id="sales" tab={s.tab}><SalesPanel s={s} /></TabPanel>
+        <TabPanel id="stores" tab={s.tab}><StoresPanel s={s} /></TabPanel>
+        <TabPanel id="pop" tab={s.tab}><PopPanel s={s} /></TabPanel>
+        <TabPanel id="compare" tab={s.tab}><ComparePanel s={s} /></TabPanel>
       </div>
+
+      <aside className="mk-side" aria-label="서울시 자료와 문화행사">
+        <SeoulPanel s={s} />
+        <EventsPanel s={s} />
+      </aside>
     </div>
+  );
+}
+
+// 지도 출처 한 줄 (analysis-options 의 scope): "네이버 지도 · 2023년 공개 상권 경계"
+export function mapSource(scope) {
+  const y = /^(\d{4})/.exec(String((scope && scope.boundary_publication_date) || ""));
+  return `네이버 지도 · ${y ? `${y[1]}년 ` : ""}공개 상권 경계`;
+}
+
+// 지도 목록의 짧은 덧말: 지금 보는 상권 · 가게 위치가 안에 있음 · 거리 · 비교할 수 없음
+function areaNote(a, selected) {
+  if (selected) return "지금 보는 상권";
+  if (a.selection_blocked_reason) return "비교할 수 없음";
+  if (a.relation === "inside" || a.relation === "boundary") return "가게 위치 포함";
+  return typeof a.distance_m === "number" ? `${numKo(a.distance_m)}m` : "";
+}
+
+// ③ 지도: 고른 상권 = 지금 분석 중인 상권, 주변 상권 = 나머지 후보, 마커 = 가게 위치. 주변 상권을 누르면 비교 탭에서 그 상권을 고름
+function MapPanel({ s }) {
+  const here = s.cond && s.cond.area_code;
+  const areas = useMemo(() => ((s.options && s.options.candidates) || []).map((a) => ({
+    id: a.area_code, name: a.name, geometry: a.geometry, kind: a.area_code === here ? "selected" : "nearby",
+    disabled: !!a.selection_blocked_reason, note: areaNote(a, a.area_code === here),
+  })), [s.options, here]);
+  const place = s.place;
+  const marker = useMemo(() => (place ? { lat: place.lat, lng: place.lng, title: `가게 위치${place.label ? ` · ${place.label}` : ""}` } : null), [place]);
+  const nearby = areas.some((a) => a.kind === "nearby");
+  const pick = (id) => {
+    if (!id || id === here) return;
+    compareWith(id);
+    document.getElementById("mk-tab-compare")?.focus();
+  };
+  return (
+    <Panel title="지도" titleId="mk-map-title" sub={mapSource(s.options && s.options.scope)} className="mk-map">
+      <NaverMap className="mk-nmap" marker={marker} areas={areas} onAreaClick={pick} fit="areas" zoom={16}
+        label="상권 경계 지도" listLabel={nearby ? "주변 상권 (누르면 비교)" : "지도의 상권"}>
+        <ul className="nmap-legend" aria-label="지도 범례">
+          {marker && <li className="nmap-only"><span className="nmap-key pin" aria-hidden="true" />가게 위치</li>}
+          <li><span className="nmap-key selected" aria-hidden="true" />고른 상권</li>
+          {nearby && <li><span className="nmap-key nearby" aria-hidden="true" />주변 상권 (누르면 비교)</li>}
+        </ul>
+      </NaverMap>
+    </Panel>
   );
 }
 

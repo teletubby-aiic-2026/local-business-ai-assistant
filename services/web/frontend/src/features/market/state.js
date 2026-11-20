@@ -4,6 +4,7 @@
 // - 화면을 떠났다 와도 조건·받은 자료·탭·비교 결과가 남도록 화면 밖(이 모듈)에 둔다. 가게가 바뀌면(epoch) 처음으로 (예전 mkvReset).
 import { useSyncExternalStore } from "react";
 import { getState, setState as setApp } from "../../state/store.js";
+import { locationPoint } from "../../components/NaverMap.jsx";
 import { condText, dataStatusText, syncText, withQuery } from "./format.js";
 
 export const MKV_TABS = ["sales", "stores", "pop", "compare"];
@@ -37,7 +38,9 @@ const blank = () => ({
   syncLine: "", syncWarn: false,      // 예전 #mk-sync-result
   eventsNote: "", eventsList: null, eventsMsg: "", eventsNotice: "",
   pick: { area: "", industry: "", period: "" },      // 고르는 중인 조건 (적용 전)
+  place: null,                        // 지도의 가게 위치 {lat, lng, label} (프로필 위치. 역이면 역 좌표, 동네면 참고 지점)
   cmpPick: { district: "", area: "" },
+  cmpWant: "",                        // 지도에서 누른 주변 상권 (비교 목록을 받은 뒤 고름)
   cmpResult: { kind: "hint", text: CMP_HINT },         // hint·loading·error·table
   cmpRunning: false,
 });
@@ -87,9 +90,12 @@ async function start() {
 async function load(cond, gen) {
   set({ cond, condLine: condText(cond) });
   state("");
-  const [opts, all] = await Promise.all([marketApi("analysis-options"), m.industries ? Promise.resolve(null) : marketApi("options")]);
+  // 가게 위치(지도 마커)는 프로필에서. 못 받아도 화면은 그대로 (마커만 빠짐)
+  const [opts, all, sel] = await Promise.all([marketApi("analysis-options"), m.industries ? Promise.resolve(null) : marketApi("options"),
+    marketApi("analysis-selection").catch(() => null)]);
   if (!live(gen)) return;
-  set({ options: opts, ...(all ? { industries: all.industries || [] } : {}), pick: { area: cond.area_code, industry: cond.industry_code, period: cond.period } });
+  set({ options: opts, ...(all ? { industries: all.industries || [] } : {}), place: placeOf(sel),
+    pick: { area: cond.area_code, industry: cond.industry_code, period: cond.period } });
   const rev = cond.revision != null ? `expected_revision=${encodeURIComponent(cond.revision)}` : "";
   const q = (path, extra = "") => marketApi(withQuery(path, extra, rev));
   const names = ["sales", "stores", "pop", "ctx", "yoy"];
@@ -104,6 +110,13 @@ async function load(cond, gen) {
   got.forEach((r, i) => { data[names[i]] = r.status === "fulfilled" ? r.value : { error: r.reason ? r.reason.message : "불러오지 못했어요" }; });
   set({ data, busy: false });
   if (m.tab === "compare" && !m.cmp) loadCompareOptions();
+}
+
+// analysis-selection 응답 → 지도의 가게 위치 (좌표가 없으면 null)
+function placeOf(sel) {
+  const loc = sel && sel.profile && sel.profile.location;
+  const p = locationPoint(loc);
+  return p ? { ...p, label: (loc && (loc.label || loc.name)) || "" } : null;
 }
 
 // 고를 수 있는 분기 (최신 먼저)
@@ -127,6 +140,16 @@ export async function apply({ area, period, industry }) {
     let sel = await marketApi("analysis-selection");
     const profile = sel.profile || {};
     if (industry && profile.industry && industry !== profile.industry.code) {
+      // 업종을 바꾸려면 위치도 같이 다시 보내야 한다. 여기서는 역 위치만 다시 보낼 수 있다
+      // (주소는 검색 결과 번호가, 동네는 참고 지점 검색이 필요해 이 화면에서 만들 수 없음). 그 밖이면 보내지 않고 안내만
+      const loc = profile.location || {};
+      if (loc.kind !== "station" || !loc.station_id) {
+        if (live(gen)) {
+          state(`${loc.kind === "area" ? "동네" : "주소"}로 등록한 가게는 아직 이 화면에서 업종을 바꿀 수 없어요. 상권과 분기는 바꿀 수 있어요.`, true);
+          set({ busy: false, pick: { ...m.pick, industry: profile.industry.code } });
+        }
+        return;
+      }
       sel = await marketApi("profile", { method: "POST", body: JSON.stringify({
         location: { kind: "station", station_id: profile.location && profile.location.station_id }, industry_code: industry,
         business_status: profile.business_status || "operating", expected_revision: sel.revision }) });
@@ -176,8 +199,35 @@ async function loadCompareOptions() {
     const here = ((m.options && m.options.candidates) || []).find((a) => a.area_code === cond.area_code);
     const district = (here && here.district_code) || ((o.districts || [])[0] || {}).code || "";
     set({ cmp: o, cmpPick: { district, area: "" }, cmpResult: { kind: "hint", text: CMP_HINT } });
-  } catch (e) { if (live(gen)) set({ cmpResult: { kind: "error", text: e.message } }); }
+    pickWanted();
+  } catch (e) { if (live(gen)) set({ cmpWant: "", cmpResult: { kind: "error", text: e.message } }); }
   finally { if (m.cmpLoading === gen) set({ cmpLoading: -1 }); }
+}
+
+// 지도·목록에서 주변 상권을 누름: 비교 탭을 열고 그 상권을 비교 대상으로 고른다.
+// 비교 목록을 아직 안 받았으면 받은 뒤에 고르고(pickWanted), 목록에 없거나 고를 수 없으면 비교 칸에 그 이유 한 줄
+export function compareWith(code) {
+  if (!code || !m.cond || code === m.cond.area_code) return;
+  set({ cmpWant: code });
+  setTab("compare");
+  pickWanted();
+}
+
+function pickWanted() {
+  const code = m.cmpWant;
+  if (!code || !m.cmp) return;
+  const a = (m.cmp.areas || []).find((x) => x.area_code === code);
+  const cand = ((m.options && m.options.candidates) || []).find((x) => x.area_code === code);
+  const name = (a && a.name) || (cand && cand.name) || "이";
+  if (!a) {
+    set({ cmpWant: "", cmpResult: { kind: "hint", text: `${name} 상권은 비교할 수 있는 상권 목록에 없어요.` } });
+  } else if (a.selectable === false) {
+    set({ cmpWant: "", cmpPick: { district: a.district_code, area: "" },
+      cmpResult: { kind: "hint", text: `${name} 상권은 공개 경계와 상권 자료의 이름이 달라 지금은 비교할 수 없어요.` } });
+  } else {
+    set({ cmpWant: "", cmpPick: { district: a.district_code, area: code },
+      cmpResult: { kind: "hint", text: `${name} 상권을 비교 대상으로 골랐어요. '비교하기'를 누르면 두 상권을 나란히 봐요.` } });
+  }
 }
 
 // 고른 구의 비교할 상권 (우리 상권 빼고)

@@ -1920,7 +1920,11 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | GET | `comparison` | 같은 이름 | `comparison_area_code`, `expected_revision` |
 | POST | `data-sync` | 서울 열린데이터광장 실시간 확인 (60초까지 기다림) | |
 | GET | `cultural-events` | 서울시 문화행사. 구를 안 주면 가게의 구(동작구) | `district` |
+| GET | `map-config` (11/20) | `/api/onboarding/map-config`. 네이버 지도 브라우저용 공개 ID. 늘 `{client_id, configured}` 두 칸만 | |
+| POST | `locations/search` (11/20) | `/api/onboarding/locations/search`. 주소 검색. 본문 `{query}` 그대로 넘김 | |
+| POST | `locations/area-preview` (11/20) | `/api/onboarding/locations/area-preview`. 동네 참고 위치. 본문(`{kind: "area", text, district_code, neighborhood_code}`) 그대로 넘김 | |
 
+- 지도·위치 경로 3개 (11/20, 6차 회의 ⑥ 상권 분석 지도 · 새 가게 등록): 응답을 아래 분기 표기 바꾸기에 넣지 않고 그대로 넘깁니다(`market_proxy.RAW_ROUTES`). 주소의 건물 번호(예: '상도로 20241')가 분기 코드처럼 보여 '2024년 1분기'로 바뀌기 때문입니다. `map-config`는 상권 서비스가 다른 칸을 더 실어 보내도 버리고, `client_id`가 영문·숫자·`_`·`-` 1~64자이고 `configured`가 `true`일 때만 `configured: true`입니다(그 밖은 `{client_id: "", configured: false}`). 주소 검색어는 쿼리(20자에서 잘림)가 아니라 본문으로 보냅니다. 상권 서비스가 바쁠 때(429 '주소 조회 중…')는 다른 경로처럼 422로 그 문장을 넘깁니다. 검색 결과(`search_id`·후보 `id`)는 상권 서비스의 세션에 남으므로 같은 `/api/market` 쿠키로 이어서 `profile`을 보내야 합니다.
 - `conditions`: `{area_code, area_name, industry_code, industry_name, period, period_label, location_label, revision, home}`. `home`은 지금 가게의 기본 조건인지(서버가 판단).
 - 세션 쿠키 `market_onboarding_session`의 경로는 `/api/market`이라 서랍(`/api/assistant`)과 따로입니다. 화면에서 조건을 바꿔도 서랍 대화가 흔들리지 않습니다.
 - 상권 서비스의 입력 오류는 그 상태 그대로(409: 다른 곳에서 조건이 바뀜 → 화면이 서버 조건으로 다시 불러옴, 422), 꺼짐·느림·5xx·이상한 응답은 503 `{"error": {"message", "state"}}`. 500 은 없고, 다른 화면은 영향이 없습니다.
@@ -2218,6 +2222,35 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 - 칸은 쪽 사이에서 잘리지 않고(`break-inside: avoid`), 두 칸 묶음(`.rp-pair`)은 한 줄기로 쌓이며, 색은 `print-color-adjust: exact`로 찍힙니다.
 - 인쇄 바탕은 `html.rp-view`·`body`를 흰색·검은 글자로 정하고, 다크 색 토큰은 `tokens.css`에서 `@media screen` 안에만 있어 인쇄에는 늘 밝은 토큰이 쓰입니다 (11/20 고침).
 
+**(9) 지도 부품 `src/components/NaverMap.jsx`** (11/20, 6차 회의 ⑥. 모양은 `components/NaverMap.css`)
+
+상권 서비스의 원래 화면(`services/market-analysis/app/static/onboarding/onboarding.js`의 `loadMapSDK`·`candidatePolygons`·`analysisBounds`·`renderAnalysisMap`)을 React로 옮긴 것입니다. 상권 분석 화면의 지도가 쓰고, 새 가게 등록 화면의 위치 지도도 같은 부품을 씁니다.
+
+```jsx
+<NaverMap className center={{lat, lng}} zoom={16} marker={{lat, lng, title}}
+          areas={[{id, name, geometry, kind: "selected" | "nearby", disabled, note}]}
+          onAreaClick={(id) => …} fit="areas" | "marker"
+          label="상권 경계 지도" listLabel="주변 상권 (누르면 비교)" list>{범례}</NaverMap>
+```
+
+| props | 뜻 |
+|---|---|
+| `center` · `zoom` | 처음 가운데(마커·상권이 없을 때)와 확대 단계(기본 16). 아무것도 없으면 서울시청 |
+| `marker` | 가게 위치 마커 하나. `title`은 마우스를 올리면 보이는 글 |
+| `areas` | 상권 경계. `geometry`는 GeoJSON `Polygon`·`MultiPolygon`(좌표 **[경도, 위도]**, analysis-options의 `candidates[].geometry` 그대로). `selected`는 초록 실선·옅은 초록 채움, `nearby`는 회색 점선, `disabled`는 더 옅은 점선. 좌표가 틀린 다각형은 그리지 않음 |
+| `onAreaClick(id)` | 다각형이나 아래 목록 버튼을 누름 (`disabled`여도 부름. 고를 수 없는 이유는 부르는 화면이 알림) |
+| `fit` | `areas`(기본): 모든 상권 + 마커가 보이게 범위를 맞춤 (여백 40px). `marker`: 마커로 가운데·`zoom` |
+| `list` | `onAreaClick`이 있으면 기본으로 지도 아래에 같은 선택을 하는 목록(`ul.nmap-list`)을 그림: `selected`는 표시만(`aria-current`), 나머지는 버튼(`disabled`면 `aria-disabled`). 다각형은 키보드로 고를 수 없고 지도가 안 뜰 때도 쓰기 위한 것. 자기 목록(라디오 등)이 있는 화면은 `list={false}` |
+| `label` · `listLabel` | 지도 칸(`role="region"`)과 목록의 읽기 이름 |
+| `children` | 지도(또는 실패 안내)와 목록 사이에 그림. 범례는 `ul.nmap-legend` + `span.nmap-key.pin`·`.selected`·`.nearby`, 지도에만 있는 칸은 `li.nmap-only`(지도가 안 뜨면 숨김) |
+
+- **SDK 불러오기** `loadNaverMaps()`: 모듈에 Promise 하나라 지도가 여럿 떠도, 화면을 떠났다 와도 한 번만 부릅니다. `GET /api/market/map-config` → `configured`가 `true`면 `<script src="…maps.js?ncpKeyId=…">`를 `head`에 붙임 → 15초(`MAP_TIMEOUT_MS`) 안에 `onload`. 네이버 SDK가 인증에 실패하면 전역 `window.navermap_authFailure`를 부르는데(스크립트를 읽은 뒤, 지도를 그린 뒤에도 옴) 이 이름을 이 부품이 정합니다. 실패는 `kind`가 있는 Error: `no_key`(`configured: false`) · `auth` · `timeout` · `error`(map-config 실패·스크립트 오류).
+- **상태**: 불러오는 중(지도 칸에 '지도를 불러오는 중…') → 준비됨 / 키 없음 · 인증 실패 · 시간 초과 · 연결 실패. 안 뜨는 상태에서는 지도 칸을 숨기고(`hidden`) 그 자리에 한 줄(`.nmap-fail`, `role="status"`)과 [다시 시도]만 둡니다: "지금은 지도를 볼 수 없어요." / "지도를 불러오지 못했어요." / "지도를 여는 데 시간이 너무 걸려요." + 목록이 있으면 "아래 목록에서 상권을 고를 수 있어요." 키 이름·콘솔 설정은 화면에 쓰지 않습니다. [다시 시도]는 `retryNaverMaps()`(받은 결과와 붙인 스크립트를 버림) 뒤 map-config부터 다시.
+- **그리기**: 다각형 하나마다 `naver.maps.Polygon`(MultiPolygon은 다각형 수만큼), `LatLng(위도, 경도)`로 순서를 뒤집음. 색은 그릴 때 `tokens.css`의 `--accent`(고른 상권 선)·`--brand`(채움)·`--muted`(주변 상권)를 읽음. 마우스를 올리면 지도 왼쪽 위에 상권 이름(`.nmap-hover`, JSX). 마커 그림은 `.nmap-pin`(`--bad`). props가 바뀌면 지우고 다시 그리되, 내용이 같은 새 배열이면 그대로 둡니다(사장님이 옮긴 지도를 되돌리지 않게). 언마운트하면 리스너·다각형·마커를 지우고 `map.destroy()`.
+- **높이**: 본문 폭에 맞춰 240~420px (`clamp(240px, 38cqi, 420px)`). 지도 타일은 밝은 색 그대로입니다(다크에서도).
+- **함께 내보내는 것**: `loadNaverMaps` · `retryNaverMaps` · `onNaverAuthFailure` · `geometryPaths(geometry)`(GeoJSON → 다각형마다 고리마다 `[{lat, lng}]`) · `areasBounds(areas, point)`(`{south, west, north, east}` 또는 `null`) · `locationPoint(location)`(프로필 위치 → `{lat, lng}`, 동네면 `reference_point`) · `MAP_FAIL_TEXT` · `MAP_TIMEOUT_MS` · `MAP_SDK_URL`, 시험용 `resetNaverMapsForTest`.
+- **실제 지도가 뜨는 조건** (코드 밖): 상권 서비스(`ic26-market`)의 환경 변수 `NAVER_MAPS_CLIENT_ID`에 NCP Maps(Dynamic Map) 애플리케이션의 Client ID, 그 애플리케이션의 Web 서비스 URL에 화면을 여는 주소(예: 서비스 도메인, 시험이면 `http://localhost:8000`)가 등록되어 있어야 합니다. 없으면 '지금은 지도를 볼 수 없어요', URL이 등록되지 않았으면 인증 실패 안내가 뜹니다.
+
 ### 2.4 시험이 지키는 것
 
 **(1) 서버 시험이 React 소스를 글자로 읽는 곳**
@@ -2263,7 +2296,8 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 리뷰 분석 | `features/analysis/calc.test.js` · `Analysis.test.jsx` | 탭·`navTo`, 붙여넣기 뒤 다시 읽기, 캡처 후보를 `source: "capture"`로 저장 |
 | 서랍 | `features/assistant/chat.test.js` · `Drawer.test.jsx` | 분기 표기 등 순수 계산, 선택지 위치, 기준 범위 칩과 안내 한 줄, 화면 이동 뒤 포커스, `drawerCovers` |
 | 계정 | `features/account/account.test.jsx` | 로그인 실패 때 비밀번호 유지, 로그아웃 뒤 `#acct-login` 포커스, 내 계정 창의 [로그아웃]·확인 단계·Esc |
-| 상권 | `features/market/format.test.js` · `Market.test.jsx` | 처음 불러오기 순서, 머리 고지 한 줄, 비교 탭, `epoch`, `navTo` 탭 |
+| 상권 | `features/market/format.test.js` · `Market.test.jsx` | 처음 불러오기 순서, 머리 고지 한 줄, 비교 탭, `epoch`, `navTo` 탭, 지도 구역(출처·범례·고른/주변 상권·마커), 주변 상권을 누르면 비교 탭에서 그 상권을 고름(지도·목록 둘 다), 고를 수 없는 이유 한 줄, 주소로 등록한 가게의 업종 바꾸기 안내 |
+| 지도 부품 | `src/components/NaverMap.test.jsx` | 가짜 `window.naver.maps`로: SDK·map-config 한 번만, 다각형 수와 좌표 순서(위도·경도), 누르기·올리기, 키 없음·인증 실패(그린 뒤 포함)·시간 초과·연결 실패 안내와 다시 시도, props 변경·언마운트 정리, `fit`, 좌표 도우미 |
 | 맞춤 마케팅 | `features/marketing/logic.test.js` · `Marketing.test.jsx` | health → meta → step → 시작 모드 → plan → 승인, 결과 칸 라이브 영역, 안내 띠가 겹치지 않음 |
 | 종합 리포트 | `features/report/format.test.js` · `Report.test.jsx` | 'AI 문장 아님' 고지는 머리 한 곳, 출처·우리 가게 매출 아님·점수 변동 근거는 남음 |
 
@@ -2280,7 +2314,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `#/draft` | 오늘 처리 · 승인할 글 | `features/flow/Draft.jsx` | 진행줄('승인 n / 전체 · 지금 글 이름' + 카드 전체 다시 만들기, 막대 없음), 손님 리뷰(근거 건수는 패널 오른쪽, 리뷰마다 회색 상자), 초안 상자(글 칸 → 점검 칩 줄 → 고칠 곳 상자 → 승인·복사·다시 만들기. 점검을 못 넘어 기본 문장으로 바꾼 글은 '기본 문장 (AI 글 아님)' 칩), 초안 목록 (11/20 B3) |
 | `#/done` | 오늘 처리 · 처리 완료 | `features/flow/Done.jsx` | 승인 결과 타일 → '승인한 글'(글마다 이름 · 시각 / 글 앞부분 한 줄 + 복사) → 고른 점검 수칙(✓) → 서버 처리 기록(패널 모양 접힌 칸) → '홈으로'·'처음부터 다시' (11/20 B4 순서) |
 | `#/analysis` | 살펴보기 · 리뷰 분석 | `features/analysis/Analysis.jsx` | 탭 3개: 요약(`summary`) · 불만 묶음(`issues`) · 리뷰 넣기(`paste`: 붙여넣기 + 캡처로 넣기) |
-| `#/market` | 살펴보기 · 상권 분석 | `features/market/Market.jsx` | 분석 조건, 핵심 지표 4칸, 세부 탭 4개(`sales` 매출 · `stores` 점포·개폐업 · `pop` 유동·배후인구·집객시설 · `compare` 타 상권 1:1 비교), 서울시 자료 최신화, 우리 동네 문화행사 |
+| `#/market` | 살펴보기 · 상권 분석 | `features/market/Market.jsx` | (11/20 Figma F1 배치) 분석 조건, 지도(고른 상권·주변 상권 경계·가게 위치, 2.3 (9)), 핵심 지표 4칸, 세부 탭 4개(`sales` 매출 · `stores` 점포·개폐업 · `pop` 유동·배후인구·집객시설 · `compare` 타 상권 1:1 비교), 서울시 자료 최신화, 우리 동네 문화행사 |
 | `#/report` | 살펴보기 · 종합 리포트 | `features/report/Report.jsx` | 오늘 요약 · 응대 점수 · 답글을 기다리는 불만 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약, 구역 바로가기, PDF 저장 |
 | `#/marketing` | 키우기 · 맞춤 마케팅 | `features/marketing/Marketing.jsx` | 안내 문구 "선택한 조건으로 손익을 계산하고 우리 가게 홍보 방법과 초안을 만들어요."(11/20). 탭 두 개: 맞춤 제안(시작 모드 다섯 개 → 질문 → 결과 카드 → 고쳐서 승인) · 마케팅 보고서(주간·월간). 첫 화면의 기능 카드는 흰 패널 없이 바탕 위에, 질문 칸의 비서 질문은 '마케팅 비서' 이름표가 붙은 테두리 상자 (11/20 Figma 06 M1) |
 
@@ -2355,11 +2389,13 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 
 | 언제 | 부르는 API | 결과가 가는 곳 |
 |---|---|---|
-| 화면을 처음 열 때 | `GET status` → (`ready`면) `POST setup` → `GET analysis-options` + `GET options`(업종, 한 번만) → `GET sales`·`stores`·`population`·`area-context`·`changes?comparison=yoy` (`expected_revision` 붙임) | 조건 줄·지표 4칸·탭. 한 요청이라도 `409`면 `POST setup`으로 서버 조건을 다시 받아 한 번 더. `ready`가 아니면 화면 안 안내만 |
+| 화면을 처음 열 때 | `GET status` → (`ready`면) `POST setup` → `GET analysis-options` + `GET options`(업종, 한 번만) + `GET analysis-selection`(지도의 가게 위치 `profile.location`, 실패해도 마커만 빠짐) → `GET sales`·`stores`·`population`·`area-context`·`changes?comparison=yoy` (`expected_revision` 붙임) | 조건 줄·지표 4칸·탭. 한 요청이라도 `409`면 `POST setup`으로 서버 조건을 다시 받아 한 번 더. `ready`가 아니면 화면 안 안내만 |
 | 화면을 열 때마다 (못 받았으면) | `GET cultural-events` | 우리 동네 문화행사 |
-| 조건 '적용' | `GET analysis-selection` → (업종이 바뀌면 `POST profile`) → `GET analysis-options` → `GET analysis-selection` → `POST analysis-selection` → `POST setup` → 위 자료 다시 | 새 조건으로 다시 그림 |
+| 조건 '적용' | `GET analysis-selection` → (업종이 바뀌면 `POST profile`. 역으로 등록한 가게만: 위치를 `{kind: "station", station_id}`로 다시 보냄. 주소·동네로 등록한 가게는 보내지 않고 "주소로 등록한 가게는 아직 이 화면에서 업종을 바꿀 수 없어요…" 안내) → `GET analysis-options` → `GET analysis-selection` → `POST analysis-selection` → `POST setup` → 위 자료 다시 | 새 조건으로 다시 그림 |
 | '우리 가게 기준으로' | `POST setup?force=1` → 자료 다시 | 가게 기본 조건 (기본 여부는 서버의 `conditions.home`) |
 | 비교 탭을 처음 열 때 · 비교 상권 고름 | `GET comparison-options` · `GET comparison?comparison_area_code=` | 비교 표 |
+| 지도가 처음 필요할 때 (11/20) | `GET map-config` (한 번만, 2.3 (9)) → 네이버 지도 SDK | 지도. 안 뜨면 지도 자리에 한 줄과 [다시 시도], 아래 목록은 그대로 |
+| 지도·목록에서 주변 상권을 누름 (11/20) | (비교 목록이 없으면) `GET comparison-options` | 비교 탭을 열고(탭에 포커스) 그 상권의 구·상권을 고름 + "○○ 상권을 비교 대상으로 골랐어요…". 목록에 없거나 `selectable: false`면 비교 칸에 그 이유 한 줄. 고른 상권(지금 분석 중)은 아무 일 없음. 비교는 사장님이 '비교하기'로 |
 | 서울시 자료 최신화 | `POST data-sync` (70초) → `GET status` | 결과 한 줄, 자료 상태, AI 비서의 상권 상태 |
 
 **AI에게 묻기 서랍** (`features/assistant/state.js`. 모두 `/api/assistant/` 뒤 경로, 1.10·1.15. 90초 넘으면 끊음)
@@ -2401,7 +2437,7 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | 컴포넌트 나누기·합치기, 파일 옮기기 | 자유. 다만 2.4 (1) 표의 파일과 이름은 옮기면 `tests/frontend_src.py`·서버 시험을 같이 고침. 모듈 상태(`state.js`)를 컴포넌트 안으로 옮기면 화면을 떠났다 오면 사라지니 주의 |
 | CSS 클래스 이름 | 자유. 다만 2.3 (6)의 이름, `.app`의 상태 클래스, `report.css` 인쇄 규칙이 보는 이름(`.rp`·`.rp-sec`·`.rp-pair`·`.rp-bar`·`.rp-print`·`.rp-screen`·`.rp-snap-t`·`.rp-mkt-st`·`.page-head`)은 같이 고침 |
 | 애니메이션, 호버, 포커스 모양 | 자유. 키보드 포커스가 보이게 두고, 움직임은 `prefers-reduced-motion: reduce`에서 끔 (지금 진행 점들이 그렇게 함) |
-| 새 그림·글꼴 | `src/` 안에 두고 import (2.1 (3)). 외부 CDN·`public/`은 쓰지 않음 |
+| 새 그림·글꼴 | `src/` 안에 두고 import (2.1 (3)). 외부 CDN·`public/`은 쓰지 않음. **예외 한 곳**: 네이버 지도 SDK(`https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=…`)는 npm 패키지가 없고 네이버가 그 주소로만 주므로 `components/NaverMap.jsx`의 `loadNaverMaps()`가 지도가 처음 필요할 때 한 번 붙입니다 (2.3 (9)). 다른 외부 스크립트는 더하지 않습니다 |
 | 새 npm 패키지 | `package.json`(버전 정확히 고정)과 `package-lock.json`을 같이 올림 (`run.sh`·`make_bundle.sh`가 `npm ci`를 씀). 상태 관리는 지금처럼 `store.js`와 모듈 상태로 |
 
 **바꾸면 안 되는 것** (요약): 화면 주소 8개, API 경로·요청·응답 칸 이름, 2.3 (6)의 이름, `[hidden]` 규칙, 2.4 (1) 표의 이름과 값, 정직 표시.

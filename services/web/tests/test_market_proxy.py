@@ -188,6 +188,80 @@ class Failures(unittest.TestCase):
         self.assertEqual((off.status_code, off.json()["error"]["state"]), (503, "off"))
 
 
+# 주소 글의 건물 번호 '20241' 은 분기 코드처럼 보여서 present() 를 거치면 '2024년 1분기'가 된다 (그래서 지도·주소 경로는 그대로 넘긴다)
+ADDRESS = "서울특별시 동작구 상도로 20241"
+SEARCH_REPLY = {"status": "address_candidate", "message": f"{ADDRESS} 이 맞나요?", "search_id": "s1", "candidates": [
+    {"id": "c1", "label": ADDRESS, "road_address": ADDRESS, "jibun_address": "서울특별시 동작구 상도동 20231",
+     "latitude": 37.5045, "longitude": 126.9393, "in_seoul": True}]}
+
+
+class MapAndLocations(unittest.TestCase):
+    """지도·위치 경로 3개 (11/20, 6차 회의 ⑥): map-config(GET) · locations/search(POST) · locations/area-preview(POST)."""
+
+    def test_present_would_change_the_address_so_these_paths_skip_it(self):
+        self.assertEqual(present({"label": ADDRESS})["label"], "서울특별시 동작구 상도로 2024년 1분기")
+
+    def test_map_config_passes_only_the_public_id_and_configured(self):
+        client, fake = build()
+        fake.reply["map-config"] = (200, {"client_id": " abc_DEF-123 ", "configured": True, "client_secret": "s3cret",
+                                          "env": {"NAVER_MAPS_CLIENT_SECRET": "x"}, "message": "20262"})
+        res = client.get("/api/market/map-config")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json(), {"client_id": "abc_DEF-123", "configured": True})
+        self.assertNotIn("s3cret", res.text)
+        req = fake.requests[-1]
+        self.assertEqual((req["method"], req["path"], req["host"]), ("GET", "/api/onboarding/map-config", "127.0.0.1:8766"))
+        self.assertEqual(res.headers["cache-control"], "no-store")
+        for upstream in ({"client_id": "", "configured": False}, {"client_id": "abc", "configured": False},
+                         {"client_id": "a b<script>", "configured": True}, {"configured": True}, ["abc"]):
+            fake.reply["map-config"] = (200, upstream)
+            self.assertEqual(client.get("/api/market/map-config").json(), {"client_id": "", "configured": False}, upstream)
+        self.assertEqual(client.post("/api/market/map-config", json={}).status_code, 405)
+
+    def test_location_search_forwards_the_body_and_keeps_the_address_text(self):
+        client, fake = build()
+        fake.reply["locations/search"] = (200, SEARCH_REPLY)
+        res = client.post("/api/market/locations/search", json={"query": "상도로 20241 장승배기역 근처 가게 주소 길게"})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json(), SEARCH_REPLY)                                      # 주소 글·좌표 그대로
+        req = fake.requests[-1]
+        self.assertEqual((req["method"], req["path"], req["params"]), ("POST", "/api/onboarding/locations/search", {}))
+        self.assertEqual(req["json"], {"query": "상도로 20241 장승배기역 근처 가게 주소 길게"})   # 20자를 넘어도 본문은 그대로
+        self.assertIn(COOKIE, " ".join(res.headers.get_list("set-cookie")))              # 상권 세션을 이어 받음 (검색 결과는 그 세션에 남음)
+        self.assertEqual(client.get("/api/market/locations/search?query=x").status_code, 405)
+        fake.reply["locations/search"] = (429, {"detail": "주소 조회 중입니다. 잠시 후 다시 시도해 주세요."})
+        busy = client.post("/api/market/locations/search", json={"query": "상도로"})
+        self.assertEqual((busy.status_code, busy.json()["error"]["message"]), (422, "주소 조회 중입니다. 잠시 후 다시 시도해 주세요."))
+
+    def test_area_preview_forwards_the_body_and_keeps_the_address_text(self):
+        client, fake = build()
+        reply = {**SEARCH_REPLY, "status": "area_candidate"}
+        fake.reply["locations/area-preview"] = (200, reply)
+        body = {"kind": "area", "text": "상도동", "district_code": "11590", "neighborhood_code": "1159051000"}
+        res = client.post("/api/market/locations/area-preview", json=body)
+        self.assertEqual((res.status_code, res.json()), (200, reply))
+        req = fake.requests[-1]
+        self.assertEqual((req["method"], req["path"], req["json"]), ("POST", "/api/onboarding/locations/area-preview", body))
+        fake.reply["locations/area-preview"] = (422, {"detail": "동네 이름을 입력해 주세요. 예: 연남동."})
+        bad = client.post("/api/market/locations/area-preview", json={"kind": "area", "text": "동"})
+        self.assertEqual((bad.status_code, bad.json()["error"]["message"]), (422, "동네 이름을 입력해 주세요. 예: 연남동."))
+
+    def test_outage_is_503_never_500_and_off_is_503(self):
+        calls = (("get", "/api/market/map-config", None), ("post", "/api/market/locations/search", {"query": "상도로"}),
+                 ("post", "/api/market/locations/area-preview", {"kind": "area", "text": "상도동"}))
+        for mode in ("down", "500"):
+            client, _ = build(FakeMarket(mode=mode))
+            for method, path, body in calls:
+                res = getattr(client, method)(path, **({"json": body} if body is not None else {}))
+                self.assertEqual(res.status_code, 503, (mode, path))
+                self.assertIn(res.json()["error"]["state"], ("down", "error"), (mode, path))
+            self.assertEqual(client.get("/api/health").status_code, 200)
+        off, _ = build(market=MarketProxy(None))
+        for method, path, body in calls:
+            res = getattr(off, method)(path, **({"json": body} if body is not None else {}))
+            self.assertEqual((res.status_code, res.json()["error"]["state"]), (503, "off"), path)
+
+
 class SetupPerStore(unittest.TestCase):
     def test_guest_gets_the_default_store_conditions(self):
         client, fake = build()
