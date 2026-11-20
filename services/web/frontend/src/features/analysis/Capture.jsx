@@ -127,14 +127,19 @@ export default function Capture() {
       onDragOver={(e) => { e.preventDefault(); setDrop(true); }}
       onDragLeave={() => setDrop(false)}
       onDrop={(e) => { e.preventDefault(); setDrop(false); if (!getMod().cap.busy) capPick(e.dataTransfer?.files?.[0]); }}>
-      {/* 업로드 전 설명은 한 줄. '바로 저장하지 않음'은 후보 목록 위 확인 경고가 말한다 */}
-      <p className="small muted">AI가 배달앱 리뷰 캡처에서 글과 별점을 읽어 와요.</p>
-      <div className="an-cap-pick">
-        {/* 파일 칸은 화면에서 숨기고(키보드 순서에서도 뺌) 옆 버튼이 click() 으로 연다. display:none 이면 일부 브라우저가 click() 을 막아서 sr 로 숨김 */}
-        <input ref={fileRef} id="cap-file" className="sr" type="file" accept="image/png,image/jpeg,image/webp" tabIndex={-1} aria-hidden="true"
-          onChange={(e) => { capPick(e.target.files[0]); e.target.value = ""; }} />
-        <Button onClick={() => fileRef.current?.click()} disabled={c.busy}>이미지 고르기</Button>
-        <span className="small muted an-cap-file">{c.fileName}</span>
+      {/* 점선 상자 (Figma 06 C2): 설명 한 줄 + 파일 고르기 + 고른 파일 이름. 끌어 놓기는 칸 전체가 받는다.
+          '바로 저장하지 않음'은 후보 목록 위 확인 경고가 말한다 */}
+      <div className="an-cap-drop">
+        <p className="small muted">AI가 배달앱 리뷰 캡처에서 글과 별점을 읽어 와요.</p>
+        <div className="an-cap-pick">
+          {/* 파일 칸은 화면에서 숨기고(키보드 순서에서도 뺌) 옆 버튼이 click() 으로 연다. display:none 이면 일부 브라우저가 click() 을 막아서 sr 로 숨김 */}
+          <input ref={fileRef} id="cap-file" className="sr" type="file" accept="image/png,image/jpeg,image/webp" tabIndex={-1} aria-hidden="true"
+            onChange={(e) => { capPick(e.target.files[0]); e.target.value = ""; }} />
+          <Button onClick={() => fileRef.current?.click()} disabled={c.busy}>파일 고르기</Button>
+          <span className="small muted an-cap-file">{c.fileName}</span>
+        </div>
+      </div>
+      <div className="btn-row">
         <Button variant="primary" onClick={capRead} disabled={c.busy || !c.file}>캡처 읽기</Button>
       </div>
       <p className={["an-cap-status", c.reading && "busy"].filter(Boolean).join(" ")} role="status">

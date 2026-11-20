@@ -1,4 +1,4 @@
-// 리뷰 분석 (#/analysis): 요약 · 불만 묶음 · 리뷰 넣기 (탭 3개). 예전 app.js 699~1022줄, index.html 155~253줄.
+// 리뷰 분석 (#/analysis): 요약 · 불만 묶음 · 리뷰 넣기 (탭 3개, Figma 06 C1·C2). 예전 app.js 699~1022줄, index.html 155~253줄.
 // 데이터: 처음 불러올 때 boot.js 가 읽은 GET /api/insight (store 의 insight·insightError).
 // 붙여넣기·캡처 저장·지우기는 PasteTab·Capture 가 하고, 성공하면 refresh() 로 브리핑·카드·분석을 다시 읽는다.
 import { useEffect } from "react";
@@ -31,7 +31,8 @@ export default function Analysis() {
   return (
     <div className="col an">
       <PageHead owner="데이터 분석 비서" title="리뷰 분석" />
-      {insight && <p className="an-period small muted">{periodLine(insight)}</p>}
+      {/* 새 가게는 리뷰가 0건이라 기간이 비어 있을 수 있다 */}
+      {insight && <p className="an-period small muted">{insight.period_start && insight.period_end ? periodLine(insight) : "아직 들어온 리뷰가 없어요."}</p>}
       <Notice tone="bad">{insightError}</Notice>
       {!insight && !insightError && <p className="small muted" role="status">불러오는 중…</p>}
       <Tabs tabs={TABS} active={tab} onChange={(id) => showTab(id)} idPrefix="an" label="리뷰 분석 화면" />

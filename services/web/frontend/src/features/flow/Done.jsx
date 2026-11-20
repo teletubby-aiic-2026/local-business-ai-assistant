@@ -1,10 +1,11 @@
-// 4 처리 완료 (예전 renderDone·loadApprovals·restart). 승인 결과 → '홈으로'(진행 그대로) 또는 '처음부터 다시'.
+// 4 처리 완료 (예전 renderDone·loadApprovals·restart. 배치는 Figma 06 B4).
+// 승인 타일 → 승인한 글(이름 · 글 앞부분 · 복사) → 점검 수칙 → 서버 처리 기록(접힘) → '홈으로'(진행 그대로) · '처음부터 다시'.
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../../state/store.js";
 import { api } from "../../lib/api.js";
 import { go } from "../../lib/router.js";
 import { GEN_NAMES, KIND_AGENT, allDrafts } from "../../lib/domain.js";
-import { PageHead, Panel, Badge, Button, Empty, StatTile } from "../../components/ui.jsx";
+import { PageHead, Panel, Button, Empty, StatTile } from "../../components/ui.jsx";
 import Steps from "./Steps.jsx";
 import { restart, copyText } from "./actions.js";
 import { RULES_TITLE } from "./calc.js";
@@ -51,35 +52,36 @@ export default function Done() {
       <PageHead owner={owners || undefined} title="처리 완료" sub="게시는 복사해서 직접 올려요." />
 
       <div className="tiles flow-done-tiles">
-        <StatTile tint="green" icon="승인" label="승인한 글" value={log.length} sub={[...kinds].map(([k, n]) => `${k} ${n}`).join(" · ")} />
-        <StatTile tint="mint" icon="고침" label="고쳐서 승인" value={edited} sub={`승인한 글 중 ${editedPct}%`} />
+        <StatTile tint="green" icon="승인" label="승인한 글" value={<Unit n={log.length} />} sub={[...kinds].map(([k, n]) => `${k} ${n}`).join(" · ")} />
+        <StatTile tint="mint" icon="고침" label="고쳐서 승인" value={<Unit n={edited} />} sub={`승인한 글 중 ${editedPct}%`} />
       </div>
 
-      <Panel title="승인한 글 목록" titleId="flow-log-title" sub={`만든 글 ${total}개 중 ${log.length}개 승인`}>
-        <span className="flow-track" aria-hidden="true"><i style={{ width: `${total ? Math.round((log.length / total) * 100) : 0}%` }} /></span>
+      <Panel title="승인한 글" titleId="flow-log-title" sub={`만든 글 ${total}개 중 ${log.length}개 승인`}>
         <ul className="plain flow-log">{log.map((a) => <LogItem key={a.id} a={a} />)}</ul>
       </Panel>
 
       {rules.length > 0 && (
         <Panel title={RULES_TITLE} titleId="flow-rules-title">
-          <ul className="flow-rules">{rules.map((m) => <li key={m.id}>{m.text}</li>)}</ul>
+          <ul className="plain flow-rules">{rules.map((m) => <li key={m.id}>{m.text}</li>)}</ul>
           <p className="small muted">{rulesNote}</p>
         </Panel>
       )}
 
+      <ServerLog log={log} />
+
       <div className="stack-8">
         <div className="btn-row">
-          <Button variant="primary" size="big" onClick={() => go("today")}>홈으로</Button>
+          <Button variant="primary" onClick={() => go("today")}>홈으로</Button>
           <RestartButton />
         </div>
         {/* 지우는 버튼의 경고만 남긴다 ('홈으로'는 이름 그대로라 설명하지 않음) */}
         <p id="flow-restart-note" className="small muted">‘처음부터 다시’는 만든 글과 승인 기록(맞춤 마케팅 포함)을 모두 지워요. 되돌릴 수 없어요.</p>
       </div>
-
-      <ServerLog />
     </div>
   );
 }
+
+const Unit = ({ n }) => <>{n}<span className="flow-unit">개</span></>;
 
 function LogItem({ a }) {
   const [copied, setCopied] = useState(false);
@@ -91,11 +93,12 @@ function LogItem({ a }) {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setCopied(false), 1500);
   };
+  // 글 이름 + 승인 시각·고침 한 줄, 그 아래 글 앞부분 한 줄 (카드 제목은 마우스를 올리면)
   return (
-    <li className="flow-log-item">
+    <li className="flow-log-item" title={cardOf(a) || undefined}>
       <div className="flow-log-text">
-        <span><Badge tone="ok">승인 완료</Badge> <span className="strong">{nameOf(a)}</span></span>
-        <span className="small muted">{[cardOf(a), String(a.at || "").slice(11, 19), a.edited && "사장님이 고침"].filter(Boolean).join(" · ")}</span>
+        <span><span className="strong">{nameOf(a)}</span> <span className="small muted">{[String(a.at || "").slice(11, 16), a.edited && "사장님이 고침"].filter(Boolean).join(" · ")}</span></span>
+        {a.text && <span className="small flow-log-excerpt">{a.text}</span>}
       </div>
       {a.text && <Button size="small" onClick={copy} aria-label={copied ? undefined : `${nameOf(a)} 복사`}>{copied ? "복사됨" : "복사"}</Button>}
     </li>
@@ -107,20 +110,23 @@ function RestartButton() {
   return <Button disabled={busy} aria-describedby="flow-restart-note" onClick={async () => { setBusy(true); await restart(); }}>{busy ? "지우는 중…" : "처음부터 다시"}</Button>;
 }
 
-// 서버 처리 기록 (GET /api/approvals, 화면을 열 때). 못 읽으면 비워 둔다
-function ServerLog() {
+// 서버 처리 기록 (GET /api/approvals, 화면을 열 때). 접힌 칸 하나. 글 이름은 이 화면의 승인 목록에서 찾는다 (못 찾으면 '글').
+// 못 읽으면 비워 둔다
+function ServerLog({ log }) {
   const [items, setItems] = useState(null);
   useEffect(() => {
     let live = true;
     api("/api/approvals").then((d) => { if (live) setItems(d.items || []); }).catch(() => {});
     return () => { live = false; };
   }, []);
+  const names = new Map(log.map((a) => [a.id, nameOf(a)]));
+  const nameFor = (id) => names.get(id) || (String(id).startsWith("mkt-") ? "맞춤 마케팅 글" : "글");
   return (
-    <details className="flow-more">
-      <summary className="small">서버 처리 기록</summary>
+    <details className="panel flow-server">
+      <summary><h2 className="flow-server-title">서버 처리 기록</h2></summary>
       <ul className="plain small flow-server-log">
         {items && (items.length
-          ? items.map((a, i) => <li key={`${a.draft_id}-${i}`}>{String(a.approved_at || "").slice(11, 19)} · {String(a.draft_id).startsWith("mkt-") ? "맞춤 마케팅 · " : ""}{a.draft_id} 승인{a.edited ? " (사장님이 고침)" : ""}</li>)
+          ? items.map((a, i) => <li key={`${a.draft_id}-${i}`}>{String(a.approved_at || "").slice(5, 16).replace("T", " ")} 승인 · {nameFor(a.draft_id)}{a.edited ? " (고침)" : ""}</li>)
           : <li>기록 없음</li>)}
       </ul>
     </details>

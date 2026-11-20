@@ -1,5 +1,7 @@
-// 2 추천 카드 (예전 renderCards·measureBox·evidenceChip). 카드마다 출처·시점 한 줄은 늘 보이고,
-// 근거 리뷰·상권 지표(기준·원본 링크)는 '근거 보기'로 접는다. 이유 문장을 AI 가 썼으면 거기에 한 줄로 밝힌다 (검사기 이야기는 보이지 않음).
+// 2 추천 카드 (예전 renderCards·measureBox·evidenceChip. 배치는 Figma 06 B2: 카드를 위아래로 한 장씩).
+// 카드마다 출처·시점 한 줄은 늘 보이고, 근거 리뷰·상권 지표(기준·원본 링크)는 만들기 버튼 옆 '근거 보기'로 펼친다.
+// 이유 문장을 AI 가 썼으면 그 안에 한 줄로 밝힌다 (검사기 이야기는 보이지 않음).
+import { useState } from "react";
 import { useStore } from "../../state/store.js";
 import { KIND_NAMES, KIND_AGENT, shortBasis, sourceUrl } from "../../lib/domain.js";
 import { PageHead, Panel, Badge, Button } from "../../components/ui.jsx";
@@ -16,6 +18,7 @@ export default function Cards() {
   const bootError = useStore((s) => s.bootError);
   const results = useStore((s) => s.results);
   const mock = useStore((s) => s.health?.mode === "mock");
+  const noReviews = useStore((s) => s.briefing?.counts?.review_count === 0);   // 새 가게: 리뷰 0건
   const busy = useFlow((f) => f.busy);
   const picks = useFlow((f) => f.picks);
   const owners = [...new Set(cards.map((p) => KIND_AGENT[p.card.kind]).filter(Boolean))].join(" · ");
@@ -25,8 +28,9 @@ export default function Cards() {
       <Steps at="cards" />
       <PageHead owner={owners || undefined} title="무엇을 할까요?" />
       {!cards.length
-        ? <Panel><p className="muted">{!booted ? "불러오는 중…" : bootError ? "카드를 불러오지 못했어요." : "오늘은 추천할 카드가 없어요."}</p></Panel>
-        : <div className="grid-2 flow-card-grid">
+        ? <Panel><p className="muted">{!booted ? "불러오는 중…" : bootError ? "카드를 불러오지 못했어요."
+            : noReviews ? "리뷰가 들어오면 추천 카드를 골라 드려요." : "오늘은 추천할 카드가 없어요."}</p></Panel>
+        : <div className="stack flow-card-grid">
             {cards.map((p, i) => <CardPanel key={p.card.card_id} p={p} index={i} made={!!results[p.card.card_id]} busy={busy[p.card.card_id]}
               picked={measureIds(p, results, picks)} mock={mock} />)}
           </div>}
@@ -37,6 +41,7 @@ export default function Cards() {
 
 function CardPanel({ p, index, made, busy, picked, mock }) {
   const c = p.card;
+  const [more, setMore] = useState(false);
   const label = busy === "card" ? "만드는 중…" : made ? "만든 글 보기" : c.kind === "complaint" ? "포장·주문 안내문·답글 만들기" : "홍보글 만들기";
   const titleId = `flow-card-${c.card_id}`;
   return (
@@ -49,12 +54,17 @@ function CardPanel({ p, index, made, busy, picked, mock }) {
       <p className="card-reason">{c.reason_text}</p>
       <p className="small muted">근거: {sourceLine(p)}</p>
       <Measures p={p} picked={picked} mock={mock} />
-      <details className="flow-more">
-        <summary className="small">근거 보기</summary>
+      {/* 만들기 버튼과 '근거 보기'는 한 줄, 펼친 근거는 그 아래 */}
+      <div className="flow-card-foot">
+        <Button variant="primary" className="flow-card-go" disabled={!!busy} onClick={() => choose(c.card_id)}>{label}</Button>
+        <Button variant="text" size="small" className="flow-more-toggle" aria-expanded={more} aria-controls={`${titleId}-ev`} onClick={() => setMore((x) => !x)}>
+          근거 보기<span aria-hidden="true">{more ? " ▴" : " ▾"}</span>
+        </Button>
+      </div>
+      <div id={`${titleId}-ev`} className="flow-more stack-8" hidden={!more}>
         <ul className="plain flow-ev">{(p.evidence || []).map((e, i) => <Evidence key={`${e.id}-${i}`} e={e} />)}</ul>
         {reasonByAI(p) && <p className="small muted">카드 설명 글은 AI가 썼어요.</p>}
-      </details>
-      <Button variant="primary" className="flow-card-go" disabled={!!busy} onClick={() => choose(c.card_id)}>{label}</Button>
+      </div>
     </article>
   );
 }

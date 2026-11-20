@@ -208,3 +208,116 @@ describe("카드 → 초안 → 승인 → 완료 → 처음부터 다시", () =
     expect(window.location.hash).toBe("#/today");
   });
 });
+
+// Figma 06 설계 기준 화면(B1~B4)에 맞춘 배치를 고정한다 (11/20). 글자보다 구역의 순서·자리를 본다
+describe("기준 화면 배치 (Figma 06 B1~B4)", () => {
+  const order = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it("홈: 오늘 할 일(넓은 칸) 다음 담당 비서 현황, 비서마다 첫 글자 동그라미, 할 일 줄은 상자 + 오른쪽 버튼 모양, 묻기 줄", () => {
+    const { container } = render(<Home />);
+    const dash = container.querySelector(".flow-dash");
+    expect([...dash.children].map((x) => x.querySelector("h2").textContent)).toEqual(["오늘 할 일", "담당 비서 현황"]);
+    expect([...container.querySelectorAll(".flow-staff-av")].map((x) => x.textContent)).toEqual(["데", "고", "마", "상"]);
+    const todo = container.querySelector(".flow-todo-item");
+    expect(todo.lastElementChild.className).toBe("flow-todo-st");
+    expect(todo.lastElementChild.textContent).toBe("만들기");
+    // 오늘 할 일 · 비서 → 차트 두 칸(시간 · 주제) → 묻기 줄 순서
+    const charts = container.querySelector(".flow-charts");
+    expect(order(dash, charts)).toBe(true);
+    expect([...charts.children].map((x) => x.querySelector("h2").textContent)).toEqual(["불만 리뷰가 몰린 시간", "주제별 불만"]);
+    expect(screen.getByText("상위 1개")).toBeTruthy();
+    const ask = screen.getByRole("button", { name: /AI에게 묻기 · 예\)/ });
+    expect(order(charts, ask)).toBe(true);
+    expect(ask.querySelector(".flow-ask-go").textContent).toBe("묻기");
+    // 오늘의 핵심 문제는 이름표 + 굵은 한 줄
+    expect(container.querySelector(".flow-hero .flow-hero-label").textContent).toBe("오늘의 핵심 문제");
+  });
+
+  it("홈: 리뷰 0건인 새 가게도 깨지지 않고 짧은 빈 안내 (로그인 정보가 없어도)", () => {
+    setState({ me: null, cards: [], briefing: { store: { name: "새 가게" }, period: { start: null, end: null },
+      counts: { review_count: 0, complaint_count: 0 }, top_issue_id: null, groups: [], single_complaints: [], pasted: [], snapshots: [] } });
+    const { container } = render(<Home />);
+    expect(container.textContent).not.toMatch(/undefined|null|NaN/);
+    expect(container.querySelector(".flow-eyebrow").textContent).toBe("밤 11시 브리핑");
+    expect(screen.getByText("아직 들어온 리뷰가 없어요", { selector: "strong" })).toBeTruthy();
+    expect(screen.queryByText("1일 동안")).toBeNull();
+    expect(screen.getByText("리뷰가 들어오면 할 일을 골라 드려요.")).toBeTruthy();
+    expect(container.querySelector(".flow-hours")).toBeNull();   // 빈 막대 대신 한 줄
+    expect(screen.getAllByText("불만 리뷰가 없어요.")).toHaveLength(2);   // 시간 · 주제 두 칸
+  });
+
+  it("추천 카드: 카드를 위아래로 한 장씩, 만들기 버튼 옆 '근거 보기'가 근거를 펼친다", () => {
+    const { container } = render(<Cards />);
+    const grid = container.querySelector(".flow-card-grid");
+    expect(grid.classList.contains("grid-2")).toBe(false);
+    const foot = container.querySelector(".flow-card .flow-card-foot");
+    expect([...foot.children].map((x) => x.textContent)).toEqual(["포장·주문 안내문·답글 만들기", "근거 보기 ▾"]);
+    const toggle = screen.getByRole("button", { name: "근거 보기" });
+    const ev = container.querySelector(".flow-more");
+    expect(toggle.getAttribute("aria-controls")).toBe(ev.id);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(ev.hidden).toBe(true);
+    expect(order(foot, ev)).toBe(true);   // 펼친 근거는 버튼 줄 아래
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(ev.hidden).toBe(false);
+    // 점검 수칙은 회색 상자 안, 버튼 줄보다 위
+    expect(order(container.querySelector(".flow-measures"), foot)).toBe(true);
+  });
+
+  it("추천 카드: 리뷰 0건인 새 가게는 짧은 빈 안내", () => {
+    setState({ cards: [], briefing: { ...briefing, counts: { review_count: 0, complaint_count: 0 }, groups: [] } });
+    render(<Cards />);
+    expect(screen.getByText("리뷰가 들어오면 추천 카드를 골라 드려요.")).toBeTruthy();
+  });
+
+  it("승인할 글: 진행줄은 글자 + 지금 글 이름 (막대 없음), 리뷰마다 회색 상자, 점검 칩 줄은 글 칸과 버튼 사이", () => {
+    const run = { ...runA, drafts: [runA.drafts[0], { ...runA.drafts[1], checks: { used_fallback: true } }] };
+    setState({ results: { card_a: run }, current: "card_a", draftId: "d2" });
+    const { container } = render(<Draft />);
+    const progress = container.querySelector(".flow-progress");
+    expect(progress.querySelector(".flow-track")).toBeNull();
+    expect(progress.querySelector(".flow-progress-text").textContent).toBe("승인 0 / 2 · 포장·주문 안내문");
+    // 손님 리뷰: 근거 건수는 패널 오른쪽, 리뷰마다 상자
+    const rv = screen.getByRole("region", { name: "손님 리뷰" });
+    expect(rv.querySelector(".panel-head .sub").textContent).toBe("근거 리뷰 2건");
+    expect(rv.querySelectorAll(".flow-rv-box")).toHaveLength(2);
+    // 초안 상자: 글 칸 → 칩 줄 → 고칠 곳 → 버튼 줄
+    const box = screen.getByLabelText(/AI 포장·주문 안내문 초안/);
+    const chips = container.querySelector(".flow-checks");
+    const issues = container.querySelector(".flow-issues");
+    const approveBtn = screen.getByRole("button", { name: "승인" });
+    expect(order(box, chips) && order(chips, issues) && order(issues, approveBtn)).toBe(true);
+    expect([...chips.querySelectorAll(".badge")].map((b) => b.textContent)).toEqual(["확인 필요 1", "기본 문장 (AI 글 아님)"]);
+    expect(container.querySelector(".flow-draft-box .panel-head .badge")).toBeNull();   // 머리 오른쪽에는 배지 없음
+  });
+
+  it("처리 완료: 타일 → 승인한 글 → 점검 수칙 → 서버 처리 기록 → 버튼, 기록은 글 이름으로", async () => {
+    mockFetch(() => ({ items: [
+      { draft_id: "d2", edited: true, approved_at: "2026-11-19T21:00:05+09:00" },
+      { draft_id: "mkt-x-promo", edited: false, approved_at: "2026-11-19T21:02:00+09:00" },
+    ] }));
+    setState({ results: { card_a: runA }, approved: new Set(["d2"]), approvedLog: [
+      { id: "d2", edited: true, kind: "prevention_notice", name: "포장·주문 안내문", card: "포장 누락을 막아요", at: "2026-11-19T21:00:05+09:00", text: "안내문 고침" },
+    ] });
+    let container;
+    await act(async () => { ({ container } = render(<Done />)); });
+    const col = container.querySelector(".flow-done");
+    const tiles = col.querySelector(".flow-done-tiles");
+    const list = screen.getByRole("region", { name: "승인한 글" });
+    const rules = screen.getByRole("region", { name: "오늘부터 실천할 주방 점검 수칙" });
+    const server = col.querySelector("details.flow-server");
+    const home = screen.getByRole("button", { name: "홈으로" });
+    expect(order(tiles, list) && order(list, rules) && order(rules, server) && order(server, home)).toBe(true);
+    expect(tiles.querySelector(".num").textContent).toBe("1개");
+    // 승인한 글: 이름 · 시각 / 글 앞부분, 승인 완료 배지는 없음 (모두 승인한 글이라)
+    const item = list.querySelector(".flow-log-item");
+    expect(item.querySelector(".strong").textContent).toBe("포장·주문 안내문");
+    expect(item.querySelector(".flow-log-excerpt").textContent).toBe("안내문 고침");
+    expect(list.querySelector(".badge")).toBeNull();
+    expect(server.querySelector("summary h2").textContent).toBe("서버 처리 기록");
+    expect([...server.querySelectorAll("li")].map((x) => x.textContent)).toEqual([
+      "11-19 21:00 승인 · 포장·주문 안내문 (고침)", "11-19 21:02 승인 · 맞춤 마케팅 글"]);
+    expect(server.textContent).not.toContain("d2");   // 내부 글 id 는 보이지 않음
+  });
+});
