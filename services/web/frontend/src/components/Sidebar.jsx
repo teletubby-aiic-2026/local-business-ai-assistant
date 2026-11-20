@@ -1,10 +1,11 @@
-// 왼쪽 메뉴: 서비스 이름 · 묶음 3개(오늘 처리·살펴보기·키우기) · 맨 아래 계정 줄 (Figma 02 공통 요소 '왼쪽 메뉴')
+// 왼쪽 메뉴: 서비스 이름 · 묶음 3개(오늘 처리·살펴보기·키우기) · 맨 아래 사장님 칸 (Figma '06 설계 기준 화면' B1 '왼쪽 메뉴')
 // overlay: 761~1024px 에서 본문 위에 덮여 열린 상태. 이때만 [메뉴 닫기] 버튼을 그린다 (상단 바의 토글 버튼이 덮개 아래로 가려져서)
-// 760px 이하에서는 그리지 않는다: 아래 탭(MobileNav.jsx TabBar)이 대신하고, 계정은 상단 바 계정 버튼 → 내 계정 창에서
+// 760px 이하에서는 그리지 않는다: 아래 탭(MobileNav.jsx TabBar)이 대신하고, 계정은 상단 바 이름(그림) 버튼 → 사장님 프로필에서
 import { useEffect, useRef } from "react";
-import { useStore, setState } from "../state/store.js";
+import { useStore } from "../state/store.js";
 import { waitingCount } from "../state/staff.js";
-import { acctLogout, displayName } from "../state/account.js";
+import { acctLogout, displayName, initialOf } from "../state/account.js";
+import { goProfile } from "../state/stage.js";
 import { Icon, Logo } from "./ui.jsx";
 
 // 휴대폰 아래 탭·하위 탭(MobileNav.jsx)도 이 묶음을 쓴다
@@ -19,7 +20,6 @@ export default function Sidebar({ route, onNavigate, overlay = false, onClose })
   const waiting = useStore(waitingCount);
   const me = useStore((s) => s.me);
   const busy = useStore((s) => s.acctBusy);
-  const on = !!(me && me.authenticated);
   const navRef = useRef(null);
 
   // 가로 한 줄 메뉴(760px 이하)에서 지금 화면 항목이 보이게 옆으로 민다
@@ -56,13 +56,14 @@ export default function Sidebar({ route, onNavigate, overlay = false, onClose })
       ))}
       <div className="spacer" />
       <div className="account">
-        <span className="face" aria-hidden="true">{on ? String(me.user.display_name || "사").slice(0, 1) : <Icon name="계정" size={20} />}</span>
+        <span className="face" aria-hidden="true">{initialOf(me?.user?.display_name)}</span>
         <div className="who">
-          <b>{on ? displayName(me) : "게스트"}</b>
-          {on
-            ? <span className="btn-row"><button type="button" className="btn text" disabled={busy} onClick={() => { onNavigate?.(); setState({ acctOpen: true }); }}>내 계정</button>
-                <button type="button" className="btn text" disabled={busy} onClick={() => { onNavigate?.(); acctLogout(); }}>로그아웃</button></span>
-            : <button type="button" className="btn text" disabled={busy} onClick={() => { onNavigate?.(); setState({ authOpen: true }); }}>로그인</button>}
+          <b>{displayName(me)}</b>
+          <span className="btn-row side-acct-links">
+            <button type="button" className="btn text" disabled={busy} onClick={() => { onNavigate?.(); goProfile(); }}>프로필</button>
+            <span className="side-acct-dot" aria-hidden="true">·</span>
+            <button type="button" className="btn text" disabled={busy} onClick={() => { onNavigate?.(); acctLogout(); }}>로그아웃</button>
+          </span>
         </div>
       </div>
     </nav>

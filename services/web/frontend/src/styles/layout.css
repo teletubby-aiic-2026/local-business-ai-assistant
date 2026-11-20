@@ -170,6 +170,11 @@
   .tabbar .tab { font-size: 11px; }
 }
 
+/* 11/20 단계 전환 (Figma '06 설계 기준 화면' B1): 가게 칩의 [바꾸기](#acct-store, 가게 선택으로)와 왼쪽 메뉴 맨 아래 '프로필 · 로그아웃' */
+.store-pick .sp-switch { flex: none; padding: 4px 6px; min-height: 32px; }
+.side .account .side-acct-links { gap: 0 6px; }
+.side .account .side-acct-dot { color: var(--muted); font-size: var(--fs-small); }
+
 @media print {
   .side, .top, .drawer, .honesty, .mode-band, .tabbar, .group-nav { display: none !important; }
   .app { display: block; }

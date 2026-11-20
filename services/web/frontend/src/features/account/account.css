@@ -1,30 +1,142 @@
-/* 로그인·회원가입 창과 내 계정 창 (Figma 화면 16·17). 공통 dialog.dialog 위에 덧붙인다 */
-dialog.acct-dlg { max-height: calc(100vh - 32px); overflow: auto; }
-dialog.auth-dlg { width: min(440px, calc(100vw - 32px)); }
-@media (max-width: 480px) { dialog.acct-dlg .dlg-body { padding: var(--s-24) var(--s-16); } }
+/* 계정 단계 화면 (Figma '06 설계 기준 화면' A1 로그인 · A2 회원가입 · A3 가게 선택 · A5 사장님 프로필 · X1·X2) + 기록 지우기·탈퇴 확인 창.
+   색·간격은 tokens.css 변수만. 메인 화면(app 단계) 밖의 전체 화면이라 창 폭 @media 를 쓰고,
+   위쪽 줄 아래 본문(.stage-main)은 메인 화면의 .content 처럼 크기 컨테이너 'content' 라서 공통 @container 규칙(.grid-2 등)이 그대로 먹는다 */
 
+/* ── 단계 화면 공통 틀 (Stage.jsx) ── */
+.stage-page { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; background: var(--page); }
+.stage-top {
+  position: sticky; top: 0; z-index: 20; min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: var(--s-12);
+  padding: 10px 32px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.stage-brand { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 18px; line-height: 1.35; font-weight: 700; color: var(--ink); }
+.stage-brand-name { white-space: nowrap; }
+.stage-top-right { display: flex; align-items: center; justify-content: flex-end; gap: var(--s-8); min-width: 0; }
+.stage-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: var(--fs-small); margin-right: var(--s-4); }
+.stage-main {
+  flex: 1 0 auto; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: start;
+  padding: var(--s-32) var(--s-24) var(--s-40); container-type: inline-size; container-name: content;
+}
+.stage-col { width: min(100%, var(--col-narrow)); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-24); }
+.stage-center { flex: 1 0 auto; display: grid; place-items: center; padding: var(--s-32) var(--s-16); }
+.stage-card { width: min(100%, 440px); }
+.stage-card.center { text-align: center; }
+.stage-card.center .btn-row { justify-content: center; }
+.stage-card-icon { display: inline-grid; place-items: center; width: 56px; height: 56px; border-radius: var(--r-full); background: var(--bad-bg); color: var(--bad); }
+.stage-page .mode-band { padding: 8px 32px; }
+
+/* 첫 글자 동그라미 (사장님·가게) */
+.face { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: var(--r-full); background: var(--brand-soft); color: var(--accent-text); font-weight: 700; }
+.face.big { width: 64px; height: 64px; font-size: 22px; }
+
+/* ── A1 로그인 · A2 회원가입: 왼쪽 소개 + 오른쪽 카드 ── */
+.auth-split { flex: 1 0 auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.auth-intro { display: grid; align-content: center; gap: var(--s-16); padding: var(--s-40) clamp(24px, 6vw, 88px); background: var(--brand-soft); }
+.auth-brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; color: var(--accent-text); }
+.auth-brand .logo { width: 28px; height: 28px; }
+.auth-hero { font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 700; color: var(--ink); }
+.auth-lead { max-width: 32em; color: var(--ink-2); }
+.auth-points { display: grid; gap: var(--s-20); margin-top: var(--s-8); }
+.auth-points li { position: relative; display: grid; gap: 2px; padding-left: 20px; }
+.auth-points li::before { content: ""; position: absolute; left: 0; top: .6em; width: 9px; height: 9px; border-radius: var(--r-full); background: var(--brand); }
+.auth-points span { font-size: var(--fs-small); line-height: var(--lh-small); color: var(--ink-2); }
+.auth-steps { display: grid; gap: var(--s-20); margin-top: var(--s-8); }
+.auth-steps li { display: flex; align-items: flex-start; gap: 14px; }
+.auth-step-n { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-full); background: var(--panel); color: var(--ink-2); font-weight: 700; box-shadow: var(--shadow-card); }
+.auth-steps li[aria-current="step"] .auth-step-n { background: var(--accent); color: var(--accent-ink); }
+.auth-step-t { display: grid; gap: 2px; padding-top: 2px; }
+.auth-step-t span { font-size: var(--fs-small); line-height: var(--lh-small); color: var(--muted); }
+.auth-side { display: grid; place-items: center; padding: var(--s-40) var(--s-24); }
+.auth-card { width: min(100%, 420px); padding: var(--s-32); }
+.auth-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-4) var(--s-12); }
+.auth-row .btn.text { padding: 4px 0; }
+.auth-check { display: inline-flex; align-items: center; gap: var(--s-8); min-height: 32px; font-size: var(--fs-small); color: var(--ink-2); cursor: pointer; }
+.auth-check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
+.auth-forgot { margin-top: calc(var(--s-8) * -1); }
+.auth-or { text-align: center; }
+.auth-switch { text-align: center; color: var(--muted); }
+.auth-switch .btn.text { padding: 4px 4px; min-height: 32px; vertical-align: baseline; }
+
+@media (max-width: 760px) {
+  .auth-split { grid-template-columns: minmax(0, 1fr); }
+  .auth-intro { align-content: start; gap: var(--s-12); padding: var(--s-24) var(--s-16); }
+  .auth-hero { font-size: 22px; }
+  .auth-points, .auth-steps { display: none; }   /* 휴대폰: 소개는 이름·한 줄만, 카드를 먼저 보이게 */
+  .auth-side { place-items: start center; padding: var(--s-16) var(--s-16) var(--s-32); }
+  .auth-card { padding: var(--s-24) var(--s-16); }
+  .stage-top { padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); min-height: 56px; }
+  .stage-page .mode-band { padding: 8px 16px; }
+  .stage-main { padding: var(--s-20) var(--s-16) var(--s-32); }
+}
+@media (max-width: 480px) { .stage-who { display: none; } }
+@media (max-width: 400px) { .stage-brand-name { display: none; } }
+
+/* ── A3 가게 선택: 왼쪽 사장님 칸 + 가게 카드 ── */
+.pick { width: min(100%, var(--col-wide)); display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--s-24); align-items: start; }
+@container content (max-width: 760px) { .pick { grid-template-columns: minmax(0, 1fr); } }
+.pick-owner-head { display: flex; align-items: center; gap: var(--s-12); }
+.pick-owner-name { display: grid; min-width: 0; }
+.pick-owner-name b { font-size: 18px; line-height: 1.4; }
+.pick-owner-facts { display: grid; gap: var(--s-8); margin: 0; font-size: var(--fs-small); }
+.pick-owner-facts > div { display: flex; justify-content: space-between; gap: var(--s-12); }
+.pick-owner-facts dt { color: var(--ink-2); }
+.pick-owner-facts dd { margin: 0; font-weight: 700; color: var(--ink); }
+.pick-stores { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-20); min-width: 0; }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: var(--s-16); }
+.pick-card {
+  display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: var(--s-20);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-card);
+}
+.pick-card.last { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, var(--shadow-card); }
+.pick-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-8); flex-wrap: wrap; }
+.pick-face { width: 36px; height: 36px; border-radius: var(--r-sm); }
+.pick-name { font-size: 18px; line-height: 1.4; }
+.pick-card-text { gap: 2px; }
+.pick-sum { display: grid; gap: 4px; min-height: 64px; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface); }
+.pick-sum.loading { align-content: center; gap: var(--s-8); }
+.pick-skel { display: block; height: 12px; border-radius: var(--r-full); background: var(--chip); }
+.pick-skel.short { width: 60%; }
+.pick-headline { font-size: var(--fs-small); line-height: var(--lh-small); font-weight: 700; }
+.tone-bad { color: var(--bad); }
+.tone-good { color: var(--ok); }
+.tone-muted { color: var(--muted); }
+.pick-open { margin-top: auto; }
+.pick-new-wrap { display: flex; min-width: 0; }
+.pick-new {
+  flex: 1 1 auto; min-height: 220px; display: grid; place-content: center; justify-items: center; gap: var(--s-8); padding: var(--s-24);
+  border: 1.5px dashed var(--line-strong); border-radius: var(--r-lg); background: transparent; color: var(--ink); font: inherit; text-align: center; cursor: pointer;
+}
+.pick-new:hover:not(:disabled) { background: var(--hover); }
+.pick-new:disabled { opacity: .55; cursor: not-allowed; }
+.pick-new-plus { width: 44px; height: 44px; display: grid; place-items: center; border-radius: var(--r-full); background: var(--brand-soft); color: var(--accent-text); }
+.pick-new-title { font-weight: 700; }
+.pick-empty { font-weight: 700; }
+
+/* ── A5 사장님 프로필 ── */
+.prof { width: min(100%, 760px); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-20); }
+.prof-head { display: flex; align-items: center; gap: var(--s-16); }
+.prof-head h1 { overflow-wrap: anywhere; }
+.prof-panel h2:focus { outline: none; }
+.prof-ok { color: var(--ok); }
+.prof-stores { display: grid; gap: var(--s-12); }
+.prof-store { display: grid; gap: var(--s-12); padding: var(--s-12) var(--s-16); border-radius: var(--r-md); background: var(--surface); }
+.prof-store-main { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-12); }
+.prof-move { display: flex; gap: 4px; flex: none; }
+.prof-move .icon-btn { width: 36px; min-height: 36px; }
+.prof-store-text { flex: 1 1 180px; min-width: 0; display: grid; }
+.prof-store-btns { flex: none; }
+.prof-confirm { display: grid; gap: var(--s-8); padding-top: var(--s-12); border-top: 1px solid var(--line); }
+
+/* ── 기록 지우기·탈퇴 확인 창 (AccountDialog.jsx, 공통 dialog.dialog 위에 덧붙임) ── */
+dialog.acct-dlg { max-height: calc(100vh - 32px); overflow: auto; }
+@media (max-width: 480px) { dialog.acct-dlg .dlg-body { padding: var(--s-24) var(--s-16); } }
 .acct-title { margin: 0; font-size: var(--fs-panel); line-height: var(--lh-panel); font-weight: 700; overflow-wrap: anywhere; }
+.acct-title:focus { outline: none; }
 .acct-tight { margin: 0; }
 .acct-full { width: 100%; }
 .acct-bad { color: var(--bad); }
 
 /* 오류: 폼 위 빨간 글 */
 .acct-error { margin: 0; padding: var(--s-8) var(--s-12); border-radius: var(--r-md); background: var(--bad-bg); color: var(--bad); font-size: var(--fs-small); line-height: var(--lh-small); }
-
-/* 가입의 가진 가게 */
-.acct-stores { display: flex; flex-wrap: wrap; gap: var(--s-8) var(--s-16); margin: 0; padding: var(--s-12) var(--s-16); border: 1px solid var(--line-strong); border-radius: var(--r-md); }
-.acct-stores legend { padding: 0 var(--s-4); font-size: var(--fs-small); font-weight: 500; color: var(--ink-2); }
-.acct-stores label { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: var(--fs-body); cursor: pointer; }
-.acct-stores input { width: 18px; height: 18px; accent-color: var(--accent); }
-
-/* 내 계정: 요약 상자 */
-.acct-info { display: grid; gap: var(--s-8); margin: 0; font-size: var(--fs-small); line-height: var(--lh-small); }
-.acct-info > div { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: var(--s-8); }
-.acct-info dt { color: var(--muted); }
-.acct-info dd { margin: 0; color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
-.acct-sub { margin: var(--s-8) 0 0; font-size: var(--fs-body); font-weight: 700; }
-.acct-actions { display: grid; gap: var(--s-8); }
-.acct-actions > .btn { justify-content: flex-start; width: 100%; text-align: left; white-space: normal; }
 
 /* 확인 단계 */
 .acct-lists { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-16); }
@@ -35,7 +147,7 @@ dialog.auth-dlg { width: min(440px, calc(100vw - 32px)); }
 .acct-irrev { margin: 0; color: var(--bad); font-size: var(--fs-small); font-weight: 700; }
 .acct-confirm-btns { justify-content: flex-end; }
 
-/* 결과 띠: 화면 오른쪽 아래 고정 */
+/* 결과 띠: 화면 오른쪽 아래 고정 (모든 단계) */
 .acct-toast {
   position: fixed; right: var(--s-24); bottom: var(--s-24); z-index: 60; max-width: min(480px, calc(100vw - 32px));
   display: flex; align-items: flex-start; gap: var(--s-12); padding: var(--s-12) var(--s-12) var(--s-12) var(--s-16);
