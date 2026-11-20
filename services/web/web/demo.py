@@ -197,6 +197,11 @@ class Demo:
         plans = self._plans(st)
         out = {"cards": [p.to_dict() for p in plans],
                "no_card_b": why_no_card_b(st["snapshots"], self.s.card_b_snapshot_id, self.s.card_b_threshold)}
+        # 불만 카드가 만들 답글 수 = 묶음 리뷰 + 묶음 밖의 붙여넣은 불만 리뷰 (11/21 실시간 확인 4번: 홈 '답글 3개'와 승인 화면 4개가 달랐다).
+        # 화면은 글을 만들기 전 '답글 n개 승인'에 이 값을 쓸 수 있다 (없으면 예전처럼 근거 리뷰 수).
+        for plan, card_out in zip(plans, out["cards"]):
+            if plan.card.kind == "complaint":
+                card_out["reply_count"] = len(plan.card.review_ids) + self._pasted_reply_count(st, plan.card)
         if self.registered:
             # 등록 가게는 상권 지표 파일이 아직 없다: 개발용 문장(C4 파일) 대신 사장님 말로. 불만 카드가 없으면 그 이유도
             if out["no_card_b"] and not st["snapshots"]:
@@ -237,11 +242,12 @@ class Demo:
                         if not plan.problems:   # 고정 문장이 검사기에 걸린 카드는 모델을 부르지 않는다 (plan_cards 와 같은 규칙)
                             self._write_reason(plan, writer)
                 if self.c6:   # 불만 카드에 재발 방지 조치 고르기 (C6 목록)
-                    catalog = measure_catalog()
                     for plan in plans:
-                        if plan.card.kind == "complaint" and catalog:
+                        catalog = measure_catalog(plan.topics)   # 묶음 주제에 맞는 조치만 (11/21). 맞는 게 없으면 빈 목록 → 화면이 칸을 안 그림
+                        if plan.card.kind == "complaint" and measure_catalog():
                             plan.measures = {"options": catalog,
-                                             "default": DEFAULT_MEASURES.get(st["insight"].get("top_issue_id"), [])}
+                                             "default": [i for i in DEFAULT_MEASURES.get(st["insight"].get("top_issue_id"), [])
+                                                         if any(o["id"] == i for o in catalog)]}
                 self._reason_memo[key] = plans
                 while len(self._reason_memo) > MEMO_MAX:
                     self._reason_memo.popitem(last=False)
@@ -259,7 +265,7 @@ class Demo:
         """이 이유 문장을 다시 써도 되는 조건. 근거 카드(숫자)·참조 문장·근거 id·프롬프트·모델·버전 중 하나라도 바뀌면 달라진다."""
         card = plan.card
         material = {"version": REASON_VERSION, "model": self.s.model, "kind": card.kind, "system": self.REASON_SYSTEM,
-                    "todo": self.REASON_TODO.get(card.kind, ""), "facts": plan.facts, "fixed": plan.checked_text,
+                    "todo": plan.todo or self.REASON_TODO.get(card.kind, ""), "facts": plan.facts, "fixed": plan.checked_text,
                     "review_ids": card.review_ids, "snapshot_ids": card.snapshot_ids}
         return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:32]
 
@@ -279,7 +285,10 @@ class Demo:
             plan.reason_source = REASON_OK
             plan.problems = []
             return
-        apply_writer(plan, writer)
+        if plan.todo:   # 포장 누락이 아닌 불만 카드: 이 카드의 할 일로 쓰게 한다 (포장 누락 카드는 예전 그대로)
+            apply_writer(plan, lambda kind, facts, fixed: writer(kind, facts, fixed, todo=plan.todo))
+        else:
+            apply_writer(plan, writer)
         if plan.reason_source == REASON_OK:
             try:
                 self.storage.card_reasons.put(self.s.store_id, plan.card.card_id, key, reason_text=plan.checked_text,
@@ -300,12 +309,13 @@ class Demo:
                      "근거 카드에 없는 숫자, 원인 단정('때문'), 보장, 앞날 예측('~할 수 있어요', '예상', '가능성', '높아질', '늘어날'), "
                      "좋아졌다/나빠졌다 같은 판단은 쓰지 않아요. 문장 앞에 '사실', '참고로' 같은 말을 붙이지 않아요.")
 
-    def _reason_writer(self, kind: str, facts: list[dict], fixed: str) -> str:
-        """live: HCX-005 가 이유 문장을 쓴다. 규칙 검사(reason_problems)에 걸리면 고칠 점을 붙여 다시 쓴다 (최대 REASON_TRIES번)."""
+    def _reason_writer(self, kind: str, facts: list[dict], fixed: str, todo: str | None = None) -> str:
+        """live: HCX-005 가 이유 문장을 쓴다. 규칙 검사(reason_problems)에 걸리면 고칠 점을 붙여 다시 쓴다 (최대 REASON_TRIES번).
+        todo: 이 카드의 할 일 (포장 누락이 아닌 불만 카드). 없으면 REASON_TODO."""
         model = self._reason_model or self._clova_reason
         system = self.REASON_SYSTEM
         keep = [k for f in facts for k in f.get("keep", []) if k]
-        user = (f"근거 카드: {json.dumps(facts, ensure_ascii=False)}\n할 일: {self.REASON_TODO.get(kind, '')}\n"
+        user = (f"근거 카드: {json.dumps(facts, ensure_ascii=False)}\n할 일: {todo or self.REASON_TODO.get(kind, '')}\n"
                 + (f"글자 그대로 쓸 표기: {', '.join(repr(k) for k in keep)}\n" if keep else "")
                 + f"참고 문장(이 정도 길이, 근거 카드에 있는 사실만): {fixed}")
         text, ask = "", user
@@ -466,6 +476,19 @@ class Demo:
         made["partial"] = True
         made["regenerated"] = {"generator": generator, "review_id": review_id, "pasted": pasted}
         return made
+
+    def _pasted_reply_count(self, st: dict, card) -> int:
+        """글을 만들 때 묶음 밖에서 같이 답글을 만드는 붙여넣은 불만 리뷰 수 (run 과 같은 조건).
+        live: 키가 있으면 pasted_reply_targets 전부. mock: 같은 글의 저장 예시가 있는 것만 (seed_pasted_replies)."""
+        if self.s.mode == "mock":
+            targets = self._pasted_targets(st, card)
+            return len(seed_pasted_replies(self.pasted_examples, card, targets)[0]) if targets else 0
+        if not self.s.clova_key:
+            return 0
+        try:
+            return len(pasted_reply_targets(card, self._contract_inputs(st)[1]))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return 0
 
     def _pasted_targets(self, st: dict, card) -> list:
         """mock: 카드 ⓐ 묶음 밖의 붙여넣은 불만 리뷰. 변환이 안 되는 리뷰가 있어도 mock 화면은 예전처럼 뜨게 한다."""

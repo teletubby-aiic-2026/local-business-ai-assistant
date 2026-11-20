@@ -445,3 +445,59 @@ def test_benchmark_v1_is_valid_and_separate():
     assert not (texts_dev | texts_test) & examples
     from app.classify import SHOT_REVIEWS
     assert not (texts_dev | texts_test) & {x[2] for x in SHOT_REVIEWS}   # 프롬프트 고정 예시도 시험 문제와 다르게
+
+
+# ── 붙여넣은 리뷰의 시간대 (11/21 실시간 확인 M6) ──
+def _soup_reviews(times, method):
+    from app.models import ReviewClassification, TopicHit
+    rows = [Review(f"p{i}", "s", None, 2, "떡볶이 국물이 다 새서 왔어요", t, input_method=m)
+            for i, (t, m) in enumerate(zip(times, method))]
+    cls = [ReviewClassification(r.review_id, "negative", [TopicHit("packaging", "negative", "새서")]) for r in rows]
+    return rows, cls
+
+
+def test_pasted_reviews_do_not_make_a_time_band():
+    """00:03 에 붙여넣은 리뷰 3건: created_at 은 붙여넣은 시각이라 '00~06시에 몰림'이 나오면 안 된다. 묶음·건수는 그대로."""
+    rows, cls = _soup_reviews(["2026-11-21T00:03:00+09:00", "2026-11-21T00:03:30+09:00", "2026-11-21T00:04:00+09:00"],
+                              ["paste"] * 3)
+    g = build_insight("s", rows, cls).groups[0]
+    assert (g.topics, g.review_count, g.is_repeated) == (["packaging"], 3, True)
+    assert g.main_time_band is None and g.time_bands == {}
+    assert g.recent_count + g.previous_count == 3          # 받은 날짜로 세는 건수는 그대로
+
+
+def test_time_band_counts_only_reviews_with_a_written_time():
+    """작성 시각이 있는 리뷰(합성 샘플)만 시간대에 센다. 샘플 2건 저녁 + 붙여넣기 1건 새벽 → 저녁 2건에 몰림."""
+    rows, cls = _soup_reviews(["2026-11-18T19:00:00+09:00", "2026-11-19T20:00:00+09:00", "2026-11-21T00:03:00+09:00"],
+                              ["sample", "sample", "paste"])
+    g = build_insight("s", rows, cls).groups[0]
+    assert g.review_count == 3
+    assert g.main_time_band == "17~21시" and g.time_bands["17~21시"] == 2 and g.time_bands["00~06시"] == 0
+
+
+def test_one_timed_review_is_not_a_time_band():
+    rows, cls = _soup_reviews(["2026-11-18T19:00:00+09:00", "2026-11-21T00:03:00+09:00", "2026-11-21T00:04:00+09:00"],
+                              ["sample", "paste", "paste"])
+    g = build_insight("s", rows, cls).groups[0]
+    assert g.main_time_band is None and g.time_bands["17~21시"] == 1
+
+
+def test_sample_store_time_bands_unchanged():
+    """예시 가게(합성 리뷰, 작성 시각 있음)의 시간대는 예전과 같다: 포장 누락 3건 모두 17~21시."""
+    ins = build_insight("store_ongi", service.sample_reviews("store_ongi"), label_classes("store_ongi"))
+    miss = ins.top_issue
+    assert miss.main_time_band == "17~21시" and miss.time_bands["17~21시"] == 3 and sum(miss.time_bands.values()) == 3
+
+
+# ── 월간 제안 (11/21 실시간 확인 13번) ──
+def test_monthly_suggestion_does_not_say_all_good_when_complaints_remain():
+    from app.report import _suggestions
+    base = {"issue_id": "iss_packaging", "topic_name": "포장 상태", "review_count": 3, "main_time_band": None,
+            "recurred_after_reply": 0}
+    replied = _suggestions([{**base, "is_repeated": True, "state": "replied_watching"}], 0)
+    assert "크게 고칠 응대" not in replied[0]["text"] and "포장 상태" in replied[0]["text"]
+    small = _suggestions([{**base, "issue_id": "iss_portion_taste", "topic_name": "양·맛", "review_count": 2,
+                           "is_repeated": False, "state": "no_reply"}], 0)
+    assert "크게 고칠 응대" not in small[0]["text"] and "답글이 없어요" in small[0]["text"]
+    done = _suggestions([{**base, "is_repeated": False, "state": "no_recurrence"}], 0)
+    assert "크게 고칠 응대가 보이지 않아요" in done[0]["text"]

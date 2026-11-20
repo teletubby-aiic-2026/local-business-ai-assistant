@@ -137,8 +137,16 @@ class TestRepairInReply(unittest.TestCase):
         d, _ = run_reply("공깃밥이 빠져 많이 불편하셨을 것 같습니다.", "hamnida")
         self.assert_kept_ai_text(d, "공깃밥이 빠져 많이 불편하셨을 것 같습니다. 정말 죄송합니다.")
 
-    def test_promise_in_ai_part_still_goes_to_template(self):
+    def test_promise_in_ai_part_is_dropped(self):
+        """11/21: AI 가 덧붙인 약속 문장은 빼고 공감 문장 + 짧은 사과로 살린다 (예전에는 템플릿으로 갔다)."""
         d, _ = run_reply("공깃밥이 빠졌다니 정말 속상하시겠어요. 다음에는 꼭 챙길게요.", "haeyo")
+        self.assertFalse(d.checks["used_fallback"])
+        self.assertTrue(d.checks["ai_part_repaired"])
+        self.assertIn("공깃밥이 빠졌다니 정말 속상하시겠어요. 진심으로 죄송해요.", d.text)
+        self.assertNotIn("챙길게요", d.text.split("앞으로")[0])
+
+    def test_promise_only_still_goes_to_template(self):
+        d, _ = run_reply("다음에는 꼭 챙길게요.", "haeyo")
         self.assertTrue(d.checks["used_fallback"])
         self.assertFalse(d.checks["ai_part_repaired"])
         self.assertNotIn("챙길게요", d.text.split("앞으로")[0])

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import json
+import random
 import re
 import sys
 import time
@@ -150,12 +151,17 @@ def adapt_seed(seed: dict, card: RecommendationCard) -> dict | None:
 DEFAULT_MEASURES = {"iss_missing_item": ["M1"]}   # 포장 누락 → 포장 마감 전 주문서 대조
 
 
-def measure_catalog() -> list[dict]:
+def measure_catalog(topics: list[str] | None = None) -> list[dict]:
+    """C6 조치 목록. topics(묶음 주제 id)를 주면 그 주제에 맞는 조치만 (c6.measures.TOPIC_MEASURES, 11/21):
+    포장 누락은 M1~M4, 음식 온도는 M5, 맞는 조치가 없는 주제(식감·대기·포장 상태 등)는 빈 목록."""
     try:
-        from c6.measures import MEASURES
+        from c6.measures import MEASURES, measures_for_topics
     except Exception:
         return []
-    return [dict(m) for m in MEASURES]
+    if topics is None:
+        return [dict(m) for m in MEASURES]
+    wanted = set(measures_for_topics(topics))
+    return [dict(m) for m in MEASURES if m["id"] in wanted]
 
 
 def pick_measures(ids: list[str] | None) -> list[dict]:
@@ -292,7 +298,8 @@ def reply_order(card: RecommendationCard, reviews: list[ReviewRecord], review_id
     return None
 
 
-def _one_reply(ctx, card: RecommendationCard, review: ReviewRecord, index: int, key: str, model: str) -> tuple[dict, float]:
+def _one_reply(ctx, card: RecommendationCard, review: ReviewRecord, index: int, key: str, model: str,
+               chosen_measures: list[dict] | None = None) -> tuple[dict, float]:
     """리뷰 한 건의 답글. c6.reply.generate_reply_draft(reply_style="auto") 가 리뷰마다 하는 일을 그대로 한다.
 
     generate_reply_draft 는 카드의 답글을 모두 다시 만들고 리뷰 순서(idx)를 밖에서 정할 수 없어서, 그 안에서 리뷰 한 건을
@@ -310,7 +317,9 @@ def _one_reply(ctx, card: RecommendationCard, review: ReviewRecord, index: int, 
         menu_names=list(store.menu), allowed_numbers=list(store.menu_prices.values()), policies=policies,
         forbidden_phrases=list(ctx.tone.forbidden_phrases) if ctx.tone.forbidden_phrases else [],
         valid_ids={f"F_{r.review_id}" for r in ctx.reviews} | {p["policy_id"] for p in policies} | {"M1"},
-        key=key, model=model, fixed_style=c6_reply.detect_register(ctx.tone))
+        key=key, model=model, fixed_style=c6_reply.detect_register(ctx.tone), chosen_measures=chosen_measures,
+        # 다시 만들기도 점검을 못 넘으면 기본 문장인데, 늘 같은 문장이면 바뀐 게 없어 보인다 → 틀을 돌려 쓴다 (11/21)
+        fallback_offset=random.randrange(1, 3))
     draft.elapsed_ms = round((time.perf_counter() - start) * 1000)
     return draft.to_dict(), float(won or 0)
 
@@ -335,7 +344,9 @@ def run_live_one(card: RecommendationCard, generator: str, *, store: StoreProfil
         result = generate_prevention_notice(ctx, card, key, model=model, chosen_measures=chosen_measures,
                                             reply_texts=list(reply_texts or [])).to_dict()
     elif generator == "reply_draft" and review is not None:
-        draft, won = _one_reply(ctx, card, review, index, key, model)
+        # 붙여넣은 리뷰의 답글은 카드 묶음의 조치를 쓰지 않는다 (run_live_pasted_replies 와 같다)
+        pasted = review.review_id not in card.review_ids
+        draft, won = _one_reply(ctx, card, review, index, key, model, None if pasted else chosen_measures)
         result = {"card_id": card.card_id, "kind": card.kind, "reason_text": card.reason_text, "basis_label": None,
                   "drafts": [draft], "chosen_measures": list(chosen_measures or []), "elapsed_ms": draft["elapsed_ms"],
                   "won": round(won, 4)}

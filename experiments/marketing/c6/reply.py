@@ -1,7 +1,10 @@
 """리뷰 답글 생성기 — 리뷰 1개당 LLM 1회 호출(ThreadPoolExecutor로 동시 실행) → 점검 → 다시 쓰기.
 
-구조: 시작 인사 + [AI 공감·사과 1~2문장] + [코드 조치 문장(M1)] + [코드 요청사항 문장(P1)] + 마무리.
-AI 는 리뷰에서 빠진 품목을 짚는 공감·사과만 쓴다 — 조치·요청사항·감사 인사는 전부 코드가 붙인다.
+구조: 시작 인사 + [AI 공감·사과 1~2문장] + [코드 조치 문장] + [코드 요청사항 문장] + 마무리.
+AI 는 리뷰의 불만을 짚는 공감·사과만 쓴다 — 조치·요청사항·감사 인사는 전부 코드가 붙인다.
+조치·요청사항 문장은 리뷰의 불만 주제(reply_topic)를 보고 고른다 (11/21, reply_measure_plan):
+포장 누락이면 예전처럼 M1(주문서 대조)·P1(요청사항 안내), 그 밖의 주제는 사장님이 고른 조치가 그 주제에 맞을 때만
+그 조치 문장, 아니면 약속 없는 '말씀해 주신 점은 매장에서 확인할게요' 문장만 붙인다. 기본 문장(템플릿)도 주제별이다.
 답글 말투는 reply_style 인자로 정한다(기본 "auto"):
 - "auto": ToneProfile(c6.style.detect_register)로 사장님 말투가 해요체/합니다체인지 봐서 haeyo 또는 hamnida
   하나로 전부 통일한다(판단 불가하면 haeyo).
@@ -29,7 +32,8 @@ from c6 import parsing
 from c6.measures import (
     MEASURES, REPLY_STYLES, REPLY_STYLE_REGISTER, REPLY_AI_REGISTER,
     REPLY_OPENING, REPLY_CLOSING, M1_SENTENCES, P1_SENTENCES, REPLY_FEWSHOT, REPLY_FALLBACK_TMPL,
-    COMPONENT_ITEMS,
+    COMPONENT_ITEMS, MISSING_TOPIC, OTHER_TOPIC, TOPIC_LABELS, TOPIC_MEASURES, TOPIC_PHRASES,
+    TOPIC_FALLBACK_FRAMES, OTHER_FALLBACK, NEUTRAL_LINES, REPLY_MEASURE_SENTENCES, topic_fewshot, topic_label,
 )
 from c6.style import assemble, detect_register
 from c6.output import CALL_FAILED_NOTE, DraftOutput, CardResult
@@ -155,13 +159,14 @@ JSON이 아니라 문장 그대로 답해도 됩니다.
 
 ## 규칙
 1. 사장님이 손님에게 직접 말하듯, {register}로만(다른 말투와 섞지 말 것), 1~2문장, 전체 40~70자
-2. 이 리뷰에서 빠진 품목을 구체적으로 짚어 공감·사과만 할 것
+2. {focus_rule}
 3. 메뉴판에 없는 가격·숫자를 넣지 말 것
 4. 금전 보상(쿠폰·할인·무료 제공·증정 등)을 약속하지 말 것
 5. 고객 개인정보(이름·전화번호·주소)를 쓰지 말 것
 6. "챙기"·"확인"·"대조"·"요청"·"다음에"·"다음부터"·"앞으로"·"감사" 같은 말은 절대 쓰지 말 것 —
    개선 조치·요청사항 안내·감사 인사는 이어서 코드가 붙입니다.
 7. "없을 거예요"·"절대"·"완벽" 같은 장담이나 "도입했으니"처럼 이미 끝난 일처럼 말하지 말 것
+   리뷰에 적히지 않은 원인("기사님이 늦어서"·"주방이 바빠서" 등)을 짐작해 쓰지 말 것
 8. "보내드렸어요"·"챙겨 드렸"·"환불해 드렸"·"다시 보내"·"재발송"처럼 아직 하지 않은 일을 이미 처리한 것처럼 말하지 말 것
 
 ## 사실
@@ -193,41 +198,102 @@ def _missing_items(review_text, menu_names):
     return [m.group(1)] if m else []
 
 
+_TOPIC_PRIORITY = ("missing_item", "packaging", "temperature", "texture", "taste", "portion", "delivery_time",
+                   "wait_time", "service", "hygiene", "menu", "price", "atmosphere")
+
+
+def reply_topic(review):
+    """리뷰의 불만 주제 하나 (리뷰 분석 주제 id). 답글에 붙일 조치 문장·기본 문장을 이걸로 고른다 (11/21).
+    - 분류(negative_topics)에 포장 누락이 있으면 missing_item (예전 답글과 같다).
+    - 다른 불만 주제만 있으면 그중 하나 (_TOPIC_PRIORITY 순).
+    - 분류가 없으면(시험용 합성 리뷰 등) 글에 빠짐 표현이 있을 때만 missing_item, 아니면 other(주제 모름)."""
+    negative = list(getattr(review, "negative_topics", None) or [])
+    if MISSING_TOPIC in negative:
+        return MISSING_TOPIC
+    if negative:   # 분류 결과는 이름 순이라, 답글이 짚기 좋은 구체적인 주제부터 고른다
+        return min(negative, key=lambda t: _TOPIC_PRIORITY.index(t) if t in _TOPIC_PRIORITY else len(_TOPIC_PRIORITY))
+    if getattr(review, "topics", None):
+        return OTHER_TOPIC            # 분류는 됐는데 불만 주제가 없다 (칭찬 위주 리뷰) → 단정하지 않는다
+    return MISSING_TOPIC if re.search(_MISSING_KW, review.text or "") else OTHER_TOPIC
+
+
+def _reply_items(review, menu_names, topic):
+    """답글에서 짚을 빠진 품목. 포장 누락 리뷰에서만 찾는다 — '맛이 없었어요'의 '맛'을 빠진 품목으로 읽지 않게."""
+    return _missing_items(review.text, menu_names) if topic == MISSING_TOPIC else []
+
+
 def fallback_apology(review, menu_names, register="해요체"):
     """AI 호출이 끝내 실패했을 때 쓰는 기본 사과 문장 (코드가 쓴다. 빠진 메뉴가 있으면 이름을 넣는다).
-    AI 가 쓰는 공감·사과 자리에 들어가고, 조치(M1)·요청사항(P1)·인사·끝인사는 코드가 그대로 붙인다.
+    AI 가 쓰는 공감·사과 자리에 들어가고, 조치·요청사항·인사·끝인사는 코드가 그대로 붙인다.
     register: 해요체 | 합니다체 (c6.measures.REPLY_AI_REGISTER)."""
-    items = _missing_items(review.text, menu_names)
+    items = _reply_items(review, menu_names, reply_topic(review))
     sorry = "죄송합니다." if register == "합니다체" else "죄송해요."
     return f"{join_item_groups([items])} 건으로 불편을 드려 정말 {sorry}" if items else f"불편을 드려 정말 {sorry}"
 
 
-def _fact_line(review, menu_names):
-    missing = _missing_items(review.text, menu_names)
-    parts = [f"F_{review.review_id}.missing={join_item_groups([missing]) if missing else '없음'}"]
+def _fact_line(review, menu_names, topic=None):
+    topic = topic or reply_topic(review)
+    if topic == MISSING_TOPIC:
+        missing = _missing_items(review.text, menu_names)
+        parts = [f"F_{review.review_id}.missing={join_item_groups([missing]) if missing else '없음'}"]
+    else:
+        parts = [f"F_{review.review_id}.불만={topic_label(topic) if topic != OTHER_TOPIC else '리뷰 글 그대로'}",
+                 "missing=없음"]
     parts.append(f"taste={'Y' if _TASTE.search(review.text) else 'N'}")
     parts.append(f"amount={'Y' if _AMOUNT.search(review.text) else 'N'}")
     return " / ".join(parts)
 
 
-# 답글은 늘 M1 조치 문장 + P1 요청사항 문장을 코드가 붙이므로, 점검도 이 기준으로 본다.
+def _focus_rule(topic):
+    if topic == MISSING_TOPIC:
+        return "이 리뷰에서 빠진 품목을 구체적으로 짚어 공감·사과만 할 것"
+    if topic == OTHER_TOPIC:
+        return "손님이 리뷰에 쓴 불편을 리뷰의 말로 짚어 공감·사과만 할 것 (빠진 품목 이야기는 하지 말 것)"
+    return (f"손님이 말한 '{topic_label(topic)}' 불편을 리뷰의 말로 구체적으로 짚어 공감·사과만 할 것 "
+            "(빠진 품목 이야기는 하지 말 것)")
+
+
+# 포장 누락 답글은 늘 M1 조치 문장 + P1 요청사항 문장을 코드가 붙이므로, 점검도 이 기준으로 본다.
 _EFFECTIVE_MEASURES = [MEASURES[0]]
+_MEASURE_BY_ID = {m["id"]: m for m in MEASURES}
 
 
-def _compute_evidence(review):
-    """코드가 항상 M1 조치·P1 요청사항 문장을 붙이므로 근거도 늘 F_리뷰id·M1·P1."""
-    return [f"F_{review.review_id}", "M1", "P1"]
+def reply_measure_plan(review, register, idx, chosen_measures=None, topic=None):
+    """이 답글에 코드가 붙일 (조치 문장, 요청사항 문장, 점검 기준 조치 목록, 근거 id 목록).
+    - 포장 누락: 예전 그대로 M1·P1 (말투별 3개 중 리뷰 순서로).
+    - 그 밖: 사장님이 고른 조치 가운데 이 주제에 맞는 것(c6.measures.TOPIC_MEASURES)이 있으면 그 조치 문장 하나,
+      없으면 무엇을 바꾸겠다는 약속 없이 '말씀해 주신 점은 매장에서 확인할게요' 수준의 문장 (요청사항 문장은 없음)."""
+    topic = topic or reply_topic(review)
+    if topic == MISSING_TOPIC:
+        m_variants, p_variants = M1_SENTENCES[register], P1_SENTENCES[register]
+        return (m_variants[idx % len(m_variants)], p_variants[idx % len(p_variants)], list(_EFFECTIVE_MEASURES),
+                ["M1", "P1"])
+    fits = [m for m in (chosen_measures or []) if m.get("id") in TOPIC_MEASURES.get(topic, [])
+            and m.get("id") in REPLY_MEASURE_SENTENCES]
+    if fits:
+        m = _MEASURE_BY_ID.get(fits[0]["id"], fits[0])
+        return REPLY_MEASURE_SENTENCES[m["id"]][register], "", [m], [m["id"]]
+    neutral = NEUTRAL_LINES[register]
+    return neutral[idx % len(neutral)], "", [], []
+
+
+def _compute_evidence(review, measure_ids=("M1", "P1")):
+    """근거: F_리뷰id + 코드가 붙인 조치·요청사항 id (포장 누락이면 M1·P1)."""
+    return [f"F_{review.review_id}", *measure_ids]
 
 
 def _run_checks(text, review, menu_names, allowed_numbers, policies,
-                 forbidden_phrases, evidence, valid_ids):
+                 forbidden_phrases, evidence, valid_ids, measures=None, topic=None):
     """전체 조립 글 기준 점검. no_stiff_words·style_match·ai_part_only_empathy·not_too_similar 는
-    코드가 붙이는 M1·P1·인사·마무리를 건드리지 않도록 AI 가 쓴 부분만 따로 본다(_check 참고)."""
-    missing = _missing_items(review.text, menu_names)
+    코드가 붙이는 M1·P1·인사·마무리를 건드리지 않도록 AI 가 쓴 부분만 따로 본다(_check 참고).
+    measures: 이 답글에 코드가 붙인 조치 (안 주면 예전처럼 M1). topic: 불만 주제 (빠진 품목 언급은 포장 누락에서만 본다)."""
+    measures = _EFFECTIVE_MEASURES if measures is None else measures
+    topic = topic or reply_topic(review)
+    missing = _reply_items(review, menu_names, topic)
     result = {
         "evidence_valid": bool(evidence) and all(e in valid_ids for e in evidence),
-        "no_invented_measure": not checks.has_invented_measure(text, _EFFECTIVE_MEASURES),
-        "chosen_measure_included": checks.chosen_measure_included(text, _EFFECTIVE_MEASURES),
+        "no_invented_measure": not checks.has_invented_measure(text, measures),
+        "chosen_measure_included": checks.chosen_measure_included(text, measures),
         "missing_mentioned": any(m in text for m in missing) if missing else True,
         "apology_expressed": checks.has_apology_anywhere(text),
         "no_bad_promise": not checks.promises_not_in_policy(text, policies),
@@ -245,20 +311,42 @@ def _run_checks(text, review, menu_names, allowed_numbers, policies,
     return result
 
 
-def _fallback_sentence(review, menu_names, register, idx):
-    """공감 부분을 2번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿. 품목은 리뷰에서 빠진 품목
-    전부를 common.korean.join_item_groups 로 연결(예: "수저와 젓가락"), 없으면 '주문하신 품목'.
-    조사(이/가)는 common.korean.josa 로 고른다. 말투별 템플릿이 3개씩 있어 리뷰 순서(idx)로
-    돌려 써서, 답글 여러 개가 한꺼번에 대체 문장을 써도 서로 겹치지 않게 한다."""
-    missing = _missing_items(review.text, menu_names)
-    item = join_item_groups([missing]) if missing else "주문하신 품목"
-    particle = josa(item, "이", "가")
-    variants = REPLY_FALLBACK_TMPL[register]
-    return variants[idx % len(variants)].format(item=item, particle=particle)
+def _fallback_sentence(review, menu_names, register, idx, topic=None):
+    """공감 부분을 2번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿. 말투별 템플릿이 3개씩 있어 리뷰 순서(idx)로
+    돌려 써서, 답글 여러 개가 한꺼번에 대체 문장을 써도 서로 겹치지 않게 한다.
+    - 포장 누락: 품목은 리뷰에서 빠진 품목 전부를 common.korean.join_item_groups 로 연결(예: "수저와 젓가락"),
+      없으면 '주문하신 품목'. 조사(이/가)는 common.korean.josa 로 고른다.
+    - 그 밖의 주제: 그 주제의 말(c6.measures.TOPIC_PHRASES)로 사과한다 ("기대하신 식감이 아니었다니 정말 죄송해요").
+    - 주제를 모르면 무슨 일이었는지 단정하지 않는 사과 ("불편을 드려 정말 죄송해요")."""
+    topic = topic or reply_topic(review)
+    if topic == MISSING_TOPIC:
+        missing = _missing_items(review.text, menu_names)
+        item = join_item_groups([missing]) if missing else "주문하신 품목"
+        particle = josa(item, "이", "가")
+        variants = REPLY_FALLBACK_TMPL[register]
+        return variants[idx % len(variants)].format(item=item, particle=particle)
+    what = TOPIC_PHRASES.get(topic, {}).get("reply")
+    if not what:
+        variants = OTHER_FALLBACK[register]
+        return variants[idx % len(variants)]
+    frames = TOPIC_FALLBACK_FRAMES[register]
+    return frames[idx % len(frames)].format(what=what)
 
 
 # 다시 쓰기를 다 써도 남은 실패가 이것뿐이면 템플릿으로 통째 덮지 않고 코드가 AI 글의 그 부분만 고친다 (_repair_ai_part).
-_REPAIRABLE = frozenset({"style_match", "apology_expressed"})
+# ai_part_only_empathy(11/21): AI 가 공감 뒤에 "다음에는 꼭 챙길게요" 같은 약속 문장을 덧붙인 경우 — 실시간 원문 기록에서
+# 기본 문장으로 떨어진 답글의 대부분이 이 꼴이었다. 약속 문장만 지우고(조치는 코드가 붙임) 남은 공감 문장을 살린다.
+_REPAIRABLE = frozenset({"style_match", "apology_expressed", "ai_part_only_empathy"})
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _drop_promise_sentences(ai_part):
+    """AI 글에서 약속·조치 문장(checks.ai_part_only_empathy 에 걸리는 문장)만 뺀다. 남는 문장이 없으면 원래 글."""
+    sentences = [s.strip() for s in _SENT_SPLIT.split((ai_part or "").strip()) if s.strip()]
+    kept = [s for s in sentences if checks.ai_part_only_empathy(s)]
+    if not kept or len(kept) == len(sentences):
+        return ai_part
+    return " ".join(kept)
 
 
 def _apology_addon(ai_part, register):
@@ -272,10 +360,27 @@ def _repair_ai_part(ai_part, failed, style, register):
     (a) style_match: 끝 사과 어미만 말투가 다르면 어미만 바꾼다('죄송합니다' → '죄송해요', 합니다체는 반대).
         사과가 아닌 문장의 말투가 다르면 고치지 않는다(원래 글을 그대로 돌려줘 템플릿으로 간다).
     (b) apology_expressed: 사과만 빠졌으면 말투에 맞는 짧은 사과 한 문장을 덧붙인다(_apology_addon).
+    (c) ai_part_only_empathy: 약속·조치 문장("다음에는 꼭 챙길게요")만 빼고 남은 공감 문장을 쓴다(_drop_promise_sentences).
+        뺀 뒤 남은 글의 말투·사과를 다시 보고 (a)·(b)를 한다. 남는 문장이 없으면 고치지 않는다.
     고칠 수 없으면 ai_part 를 그대로 돌려준다. 고친 글을 쓸지는 호출부가 점검을 다시 돌려 정한다."""
     if not ai_part or not failed or not set(failed) <= _REPAIRABLE:
         return ai_part
     fixed = ai_part
+    if "ai_part_only_empathy" in failed:
+        fixed = _drop_promise_sentences(fixed)
+        if fixed == ai_part or not checks.ai_part_only_empathy(fixed):
+            return ai_part
+        # 약속 문장을 빼면 말투가 맞을 수도, 사과가 빠질 수도 있다 → 남은 글로 다시 판단한다
+        failed = [f for f in failed if f != "ai_part_only_empathy"]
+        if not checks.style_match(fixed, style) and "style_match" not in failed:
+            failed.append("style_match")
+        if checks.style_match(fixed, style):
+            failed = [f for f in failed if f != "style_match"]
+        if not checks.has_apology_anywhere(fixed):
+            if "apology_expressed" not in failed:
+                failed.append("apology_expressed")
+        else:
+            failed = [f for f in failed if f != "apology_expressed"]
     if "style_match" in failed:
         fixed = checks.fix_apology_ending(fixed, style)
         if not checks.style_match(fixed, style):
@@ -286,18 +391,21 @@ def _repair_ai_part(ai_part, failed, style, register):
 
 
 def _process_review(review, *, idx, card_id, store, store_display, menu_names, allowed_numbers,
-                     policies, forbidden_phrases, valid_ids, key, model, fixed_style):
+                     policies, forbidden_phrases, valid_ids, key, model, fixed_style, chosen_measures=None,
+                     fallback_offset=0):
+    """chosen_measures: 사장님이 카드에서 고른 조치 — 포장 누락이 아닌 답글에서 그 주제에 맞는 조치일 때만 쓴다.
+    fallback_offset: 기본 문장 틀을 고를 때 리뷰 순서(idx)에 더하는 값 ('다시 만들기'가 매번 같은 기본 문장을 내지 않게)."""
     style = fixed_style if fixed_style else REPLY_STYLES[idx % len(REPLY_STYLES)]
     ai_register = REPLY_AI_REGISTER[style]
     measure_register = REPLY_STYLE_REGISTER[style]
     opening = REPLY_OPENING[style].format(store=store_display)
     closing = REPLY_CLOSING.format(store=store_display)
-    # 말투(해요체/합니다체)별로 3개씩 있는 M1·P1 고정 문장 중 리뷰 순서(idx)로 하나를 고른다 —
-    # reply_style="auto" 처럼 답글 3개의 말투가 전부 같아도 문장이 겹치지 않게 하기 위해서다.
-    measure_variants = M1_SENTENCES[measure_register]
-    request_variants = P1_SENTENCES[measure_register]
-    measure_line = measure_variants[idx % len(measure_variants)]
-    request_line = request_variants[idx % len(request_variants)]
+    # 불만 주제에 맞는 조치·요청사항 문장 (reply_measure_plan). 포장 누락이면 예전처럼 말투별 3개씩 있는 M1·P1 고정 문장 중
+    # 리뷰 순서(idx)로 하나를 고른다 — reply_style="auto" 처럼 답글 3개의 말투가 전부 같아도 문장이 겹치지 않게 하기 위해서다.
+    topic = reply_topic(review)
+    measure_line, request_line, check_measures, measure_ids = reply_measure_plan(
+        review, measure_register, idx, chosen_measures, topic)
+    valid_ids = set(valid_ids) | set(measure_ids)
 
     # 답글 태도 (c6.stance): 가게 과실이 아닌 '요청 거절' 리뷰로 확실할 때만 사과 없이 설명하는 답글(reply_explain)로 간다.
     # 그 밖에는 아래의 사과 답글 그대로. 설명 답글의 AI 부분·원칙 문장은 늘 해요체라, 합니다체 인사와 만나면 '섞어서'가 된다.
@@ -312,8 +420,9 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
         return draft, won, None, None, None, None
 
     system = SYSTEM_TMPL.format(
-        store_name=store_display, register=ai_register, fewshot=REPLY_FEWSHOT[ai_register],
-        fact_line=_fact_line(review, menu_names),
+        store_name=store_display, register=ai_register,
+        fewshot=REPLY_FEWSHOT[ai_register] if topic == MISSING_TOPIC else topic_fewshot(topic, ai_register),
+        focus_rule=_focus_rule(topic), fact_line=_fact_line(review, menu_names, topic),
     )
     user_line = f"[{review.review_id}] ★{review.rating if review.rating is not None else '?'} {review.text}"
 
@@ -338,9 +447,9 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
     def _check(ai_part):
         body_ = _build_body(ai_part)
         text_ = assemble(opening, body_, closing)
-        evidence_ = _compute_evidence(review)
+        evidence_ = _compute_evidence(review, measure_ids)
         chk_ = _run_checks(text_, review, menu_names, allowed_numbers, policies,
-                            forbidden_phrases, evidence_, valid_ids)
+                            forbidden_phrases, evidence_, valid_ids, measures=check_measures, topic=topic)
         # AI 가 쓴 공감·사과 부분만 본다 — 코드가 붙이는 M1·P1·인사·마무리는 대상이 아니다
         chk_["no_stiff_words"] = not checks.has_stiff_words(ai_part)
         chk_["ai_part_only_empathy"] = checks.ai_part_only_empathy(ai_part)
@@ -391,7 +500,7 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
     # 다시 쓰기 호출이 실패한 경우는 템플릿으로 덮지 않는다 — 사장님이 점검 실패를 보고 직접 고치게 한다
     used_fallback = bool(failed) and not rewrite_call_failed
     if used_fallback:
-        ai_body = _fallback_sentence(review, menu_names, ai_register, idx)
+        ai_body = _fallback_sentence(review, menu_names, ai_register, idx + fallback_offset, topic)
         text, evidence, chk, failed = _check(ai_body)
     chk["used_fallback"] = used_fallback
     chk["ai_part_repaired"] = ai_part_repaired
@@ -420,8 +529,8 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
 
 
 def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None, reply_style="auto"):
-    # chosen_measures 는 registry 호출 시그니처 호환용으로 받지만 쓰지 않는다 — 답글은
-    # 늘 M1 조치 문장 + P1 요청사항 문장을 코드가 고정으로 붙인다(구조 설명은 모듈 docstring 참고).
+    # chosen_measures: 포장 누락 답글은 예전처럼 쓰지 않는다(늘 M1 조치 + P1 요청사항). 다른 불만 주제의 답글은 고른 조치가
+    # 그 주제에 맞을 때만(c6.measures.TOPIC_MEASURES) 그 조치 문장을 붙이고, 아니면 약속 없는 문장을 붙인다 (11/21).
     if reply_style == "auto":
         fixed_style = detect_register(ctx.tone)
     elif reply_style == "rotate":
@@ -456,6 +565,7 @@ def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None, 
                 allowed_numbers=allowed_numbers, policies=policies,
                 forbidden_phrases=forbidden_phrases,
                 valid_ids=valid_ids, key=key, model=model, fixed_style=fixed_style,
+                chosen_measures=chosen_measures,
             ): i
             for i, rv in enumerate(target_reviews)
         }
@@ -479,7 +589,7 @@ def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None, 
     # 문제가 아니고, 템플릿도 말투별 3개를 돌려 쓰므로 실제로 겹칠 일이 드물다.
     # 비교 전에 리뷰 사실(F)에서 뽑은 품목 이름을 지운다 — "공깃밥이 빠져서 죄송해요"처럼 품목만
     # 다르고 틀이 같은 두 문장이 글자 수 차이만으로 서로 달라 보여 점검을 통과하는 걸 막기 위해서다.
-    item_sets = [_missing_items(rv.text, menu_names) for rv in target_reviews]
+    item_sets = [_reply_items(rv, menu_names, reply_topic(rv)) for rv in target_reviews]
 
     def _strip_items(text, items):
         for it in items:
