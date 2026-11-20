@@ -137,6 +137,8 @@ dialog.dialog .dlg-head { display: flex; justify-content: space-between; align-i
 .stack { display: grid; gap: var(--s-24); }
 .stack-16 { display: grid; gap: var(--s-16); }
 .stack-8 { display: grid; gap: var(--s-8); }
+/* 한 칸 격자는 칸이 부모 폭을 넘지 않게 (기본 auto 칸은 안의 넓은 표·한 줄 칩의 최소 폭만큼 커져 모바일에서 화면 전체가 넓어졌음, 11/20) */
+.stack, .stack-16, .stack-8 { grid-template-columns: minmax(0, 1fr); }
 .row { display: flex; gap: var(--s-16); flex-wrap: wrap; }
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-16); }
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-16); }
