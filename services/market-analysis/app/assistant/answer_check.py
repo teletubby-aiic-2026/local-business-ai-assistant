@@ -416,11 +416,163 @@ def comparison_problems(text: str, cards: list[dict]) -> list[dict]:
     return problems
 
 
+# 평일 against 주말, and items listed in an order ('토, 금, 일 순'). The comparison checks above leave both
+# alone: the 평일/주말 values are aggregates (kept out of single-day comparisons on purpose) and a list
+# has no '보다' or '가장'. HCX-005 live answers 2026-11-19: 14 of 29 wrong in one of these two ways, all published.
+_WEEKPARTS = ("평일", "주말")
+_WEEK_MORE = re.compile(_MORE.pattern + r"|좋|몰리|붐비|활발|강(?:해|하|세)")
+_BRACKETED = re.compile(r"\([^)]*\)")
+_AMOUNT = re.compile(r"[+-]?\d[\d,.]*\s*(?:원|%)")  # amounts only: 20대 and 11~14시 are labels
+_TOTAL_WORDS = re.compile(r"합계|총|합쳐|합친|합하|더해|더한")
+_AVERAGE_WORDS = re.compile(r"평균|하루")
+_ADVICE_WORDS = re.compile(r"도록|려면|하시면|해\s*보|보세요|좋겠|어떨까|볼까")
+_ORDER_MARK = re.compile(r"순서|순(?=이에요|이네요|이었|이고|이며|이라|입니다|으로|서로|\s*[.!,]|\s*$)")
+_DAY_TOKEN = re.compile(r"(?<![가-힣\d])([월화수목금토일])(?:요일)?"
+                        r"(?=(?:에는|에|이랑|랑|[은는이가과와도의])?(?:[\s,.·)]|$)|\s*(?:매출|순))")
+
+
+def _week_direction(after: str) -> int:
+    more, less = _WEEK_MORE.search(after), _LESS.search(after)
+    if not more and not less:
+        return 0
+    first = min((m for m in (more, less) if m), key=lambda m: m.start())
+    if _NEGATED.search(after[first.end():first.end() + 8]):
+        return 0
+    return 1 if first is more else -1
+
+
+def _weekpart_values(cards) -> dict | None:
+    """{'average': {'평일': n, '주말': n}, 'total': {...}} when exactly one market's weekday card has them."""
+    found = {}
+    for card in cards:
+        if card.get("topic") != "sales_weekday":
+            continue
+        for value in card.get("values", []):
+            label, number = value.get("label"), value.get("value")
+            if type(number) is not int or not isinstance(label, str):
+                continue
+            for part in _WEEKPARTS:
+                if label == f"{part} 합계":
+                    found.setdefault(value.get("market"), {}).setdefault("total", {})[part] = number
+                elif label == f"{part} 하루 평균" and value.get("average_basis") == "calendar_day":
+                    found.setdefault(value.get("market"), {}).setdefault("average", {})[part] = number
+    if len(found) != 1:
+        return None  # several markets in one answer: which one a sentence means is not settled here
+    values = next(iter(found.values()))
+    return values if len(values.get("average", {})) == 2 else None
+
+
+def _weekpart_claim(piece: str) -> str | None:
+    """The part a sentence says is larger: '평일보다 주말에 더 많아요' -> 주말, '평일에 더 잘 팔려요' -> 평일."""
+    clean = _AMOUNT.sub(" ", _BRACKETED.sub(" ", _CITATION.sub(" ", piece)))
+    tokens = [(m.start(), m.group(0)) for m in re.finditer("평일|주말", clean)]
+    if not tokens:
+        return None
+    other = {"평일": "주말", "주말": "평일"}
+    at = clean.find("보다")
+    if at >= 0:
+        before = [token for token in tokens if token[0] < at and at - token[0] <= 25]
+        if not before or len({word for _pos, word in tokens}) != 2:
+            return None  # '주말보다 금요일이 높아요': an aggregate against one day is not judged here
+        reference = before[-1][1]
+        direction = _week_direction(clean[at + 2:])
+        return (other[reference] if direction > 0 else reference) if direction else None
+    if _ADVICE_WORDS.search(clean):
+        return None  # '주말에 손님을 더 많이 받을 수 있도록': advice, not a statement about the figures
+    for index, (pos, word) in enumerate(tokens):
+        end = tokens[index + 1][0] if index + 1 < len(tokens) else len(clean)
+        match = re.match(r"[^,.]{0,16}?더\s*", clean[pos + len(word):end])
+        if match:
+            direction = _week_direction(clean[pos + len(word) + match.end():][:12])
+            if direction:
+                return word if direction > 0 else other[word]
+    return None
+
+
+def weekpart_problems(text: str, cards: list[dict]) -> list[dict]:
+    """'평일에 더 잘 팔려요' while the weekend day is the larger one, or totals compared the wrong way round.
+
+    A sentence that names totals ('합계는 평일이 더 커요') is held to the totals; every other one is held to the
+    calendar-day averages, the only like-for-like comparison of 65 weekdays with 26 weekend days.
+    """
+    values = _weekpart_values(cards)
+    if not values:
+        return []
+    problems = []
+    for line in text.splitlines():
+        for piece in _SENTENCES.split(line):
+            if not piece or piece.rstrip().endswith("?"):
+                continue
+            claimed = _weekpart_claim(piece)
+            if not claimed:
+                continue
+            by_total = bool(_TOTAL_WORDS.search(piece)) and not _AVERAGE_WORDS.search(piece) and "total" in values
+            basis = values["total"] if by_total and len(values["total"]) == 2 else values["average"]
+            if basis["평일"] == basis["주말"]:
+                continue
+            actual = "평일" if basis["평일"] > basis["주말"] else "주말"
+            if claimed != actual:
+                average = values["average"]
+                bigger = "평일" if average["평일"] > average["주말"] else "주말"
+                problems.append({"type": "wrong_weekpart_comparison", "sentence": line.strip(),
+                                 "detail": f"하루 평균은 {bigger}이 더 커요"})
+    return problems
+
+
+def _listed(sentence: str, aliases: list) -> list[tuple[int, int, str, str]]:
+    """Distribution members a sentence names, in order. Days are matched as whole tokens: the alias search
+    would find '일' inside 요일별 or 평일."""
+    found = [m for m in _mentions(sentence, aliases) if m[3] in ("time", "age")]
+    known = {member for _alias, member, kind in aliases if kind == "day"}
+    found += [(m.start(), m.end(), m.group(1), "day") for m in _DAY_TOKEN.finditer(sentence) if m.group(1) in known]
+    return sorted(found)
+
+
+def order_problems(text: str, cards: list[dict]) -> list[dict]:
+    """'토, 다음으로 금, 일 순이에요' while 일 is larger than 금: a listed order the card values contradict."""
+    groups, aliases = _comparables(cards)
+    if not groups:
+        return []
+    problems = []
+    for line in text.splitlines():
+        clean = _AMOUNT.sub(" ", _BRACKETED.sub(" ", _CITATION.sub(" ", line)))
+        for sentence in re.split(r"(?<=[.!?])\s+", clean):
+            mark = _ORDER_MARK.search(sentence)
+            if not mark or sentence.rstrip().endswith("?"):
+                continue
+            more, less = _MORE.search(sentence), _LESS.search(sentence)
+            if (more and less) or not (more or less or _SUPERLATIVE.search(sentence)):
+                # '월, 화, 수 순으로 볼게요' is an order of telling, not of size; with both directions
+                # named, which one the list follows is unclear.
+                continue
+            listed = _listed(sentence[:mark.start()], aliases)
+            members = list(dict.fromkeys(m[2] for m in listed))
+            kinds = {m[3] for m in listed}
+            if len(members) < 2 or len(kinds) != 1:
+                continue
+            group = _group_for(next(iter(kinds)), sentence, groups, _mentions(sentence, aliases))
+            values = groups.get(group) or {}
+            if not all(member in values for member in members):
+                continue
+            ascending = bool(less)
+            numbers = [values[member] for member in members]
+            pairs = zip(zip(members, numbers), zip(members[1:], numbers[1:]))
+            for (a, x), (b, y) in pairs:
+                if (x > y) if ascending else (x < y):
+                    problems.append({"type": "wrong_order", "sentence": line.strip(),
+                                     "detail": f"{b} {y:,} {'<' if ascending else '>'} {a} {x:,}"})
+                    break
+    return problems
+
+
 _ADVICE = {
     "number_not_on_card": "'{detail}'은 카드에 없는 숫자예요. 카드에 적힌 숫자만 그대로 쓰세요.",
     "uncited_number": "숫자가 있는 줄 끝에 그 숫자가 적힌 카드 번호를 붙이세요.",
     "wrong_comparison": "비교가 카드 값과 반대예요({detail}). 값이 큰 쪽을 크다고 쓰세요.",
     "wrong_superlative": "'가장'이라고 한 항목이 카드에서 가장 크거나 작은 값이 아니에요({detail}).",
+    "wrong_weekpart_comparison": "평일과 주말의 비교가 카드와 달라요({detail}). 카드의 '하루 평균'으로만 견주고, "
+                                 "합계끼리는 견주지 마세요.",
+    "wrong_order": "나열한 순서가 카드 값의 크기와 달라요({detail}). 카드에 적힌 '큰 순서'를 그대로 따르세요.",
     "forbidden_phrase": "'{detail}' 같은 표현은 쓰지 마세요.",
     "promised_card_left_out": "{detail} 카드의 내용도 꼭 함께 말하세요.",
     "opinion_without_numbers": "근거 줄마다 카드의 숫자를 넣으세요.",
@@ -743,7 +895,8 @@ def check_answer(text: str, cards: list[dict], *, opinion: bool = False) -> dict
     every number, citation, comparison and place is checked the same way."""
     by_id = {card["id"]: card for card in cards}
     names = _names(cards)
-    problems = comparison_problems(text, cards) + _context_period_problems(text, cards)
+    problems = (comparison_problems(text, cards) + weekpart_problems(text, cards) + order_problems(text, cards)
+                + _context_period_problems(text, cards))
     if opinion:
         problems += tier_problems(text, cards) + median_problems(text, cards) + verdict_problems(text, cards)
     known_periods = _card_periods(cards)
