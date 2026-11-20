@@ -167,11 +167,23 @@ describe("다각형·마커", () => {
     const map = sdk.made.maps[0];
     expect(map.el.className).toBe("nmap-canvas");
     const near = (got, lat, lng) => { expect(got.lat).toBeCloseTo(lat, 9); expect(got.lng).toBeCloseTo(lng, 9); };
+    // 고른 상권(A1)이 있으면 그 상권과 가게 위치에 맞춘다 (후보 전체가 아님: 원래 화면과 같은 규칙)
     near(map.fitted.sw, 37.504, 126.939);
-    near(map.fitted.ne, 37.515, 126.951);
+    near(map.fitted.ne, 37.506, 126.941);
     expect(map.pad).toBe(40);
     document.documentElement.style.removeProperty("--accent");
     document.documentElement.style.removeProperty("--muted");
+  });
+
+  it("고른 상권이 없으면 후보 전체에 맞춘다", async () => {
+    render(<NaverMap areas={AREAS.map((a) => ({ ...a, kind: "nearby" }))} marker={MARKER} onAreaClick={() => {}} />);
+    await loadScript();
+    await waitFor(() => expect(sdk.made.maps.length).toBe(1));
+    const map = sdk.made.maps[0];
+    expect(map.fitted.sw.lat).toBeCloseTo(37.504, 9);
+    expect(map.fitted.sw.lng).toBeCloseTo(126.939, 9);
+    expect(map.fitted.ne.lat).toBeCloseTo(37.515, 9);
+    expect(map.fitted.ne.lng).toBeCloseTo(126.951, 9);
   });
 
   it("다각형을 누르면 onAreaClick(id), 올리면 상권 이름", async () => {

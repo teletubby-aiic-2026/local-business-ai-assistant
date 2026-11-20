@@ -249,7 +249,10 @@ export default function NaverMap({
         if (maps.Point) opts.icon.anchor = new maps.Point(9, 9);
         made.push(new maps.Marker(opts));
       }
-      const b = how === "areas" ? areasBounds(list2, mk) : null;
+      // 고른 상권이 있으면 그 상권(과 가게 위치)에 맞춰 화면을 잡는다 (원래 화면 renderAnalysisMap 과 같은 규칙).
+      // 후보 전체에 맞추면 반경 1km 가 다 들어와 고른 상권이 작게 보인다. 고른 것이 없으면 후보 전체
+      const focus = list2.filter((a) => a && a.kind === "selected");
+      const b = how === "areas" ? areasBounds(focus.length ? focus : list2, mk) : null;
       if (b && (b.north > b.south || b.east > b.west)) {
         map.fitBounds(new maps.LatLngBounds(new maps.LatLng(b.south, b.west), new maps.LatLng(b.north, b.east)), FIT_PADDING);
       } else {
