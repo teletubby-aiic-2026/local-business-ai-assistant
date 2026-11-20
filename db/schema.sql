@@ -5,15 +5,24 @@
 -- visitor_id: 브라우저 쿠키의 임의 값. 'common' 은 방문자를 안 가린 호출(공용).
 -- 표 13개 (stores … auth_sessions, marketing_sessions, coupon_runs, review_records, review_status_events). 새 표가 생기는 코드를 올릴 때는 코드보다 먼저 init_db 를 한 번 돌린다.
 
--- 가게. 가게 정보는 지금 git 파일(services/review-insight/data/synthetic/*/store.json)이라 코드가 아직 쓰지 않는다.
--- 그래서 다른 표가 이 표를 참조(FK)하지 않는다.
+-- 가게. 예시 가게 세 곳(store_ongi·store_basak·store_mongle)은 git 파일(services/review-insight/data/synthetic/*/store.json,
+-- shared/store_profiles.py)이라 이 표에 없다. 이 표에는 사장님이 직접 등록한 가게(data_origin 'registered', 6차 회의 11/20)만 들어간다.
+-- 다른 표는 이 표를 참조(FK)하지 않는다 (기록 표의 store_id 는 예시 가게도 가리키므로).
 CREATE TABLE IF NOT EXISTS stores (
-    store_id            TEXT        PRIMARY KEY,
+    store_id            TEXT        PRIMARY KEY,           -- 등록 가게는 'store_' + 16진수 12자리 (서버가 만듦)
     name                TEXT        NOT NULL,
     business_type_name  TEXT,
     data_origin         TEXT        NOT NULL DEFAULT 'synthetic',
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 11/20: 직접 등록한 가게의 주인과 등록 내용. 이미 있는 표에 더한다 (init_db 를 다시 돌리면 붙음, 있던 줄은 NULL·'{}')
+-- owner_user_id 는 users 로 FK 를 두지 않는다: 탈퇴 때 앱이 그 사장님의 등록 가게 줄을 지운다 (registered_stores.delete_by_owner)
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS owner_user_id TEXT;
+-- {industry_code, business_status, channels[], location{kind, label, road_address, latitude, longitude, station_id, station_name,
+--  district_name}, area{area_code, name, period}, menus[{name, price}]}  (docs/api/contract.md 1.16)
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS profile    JSONB       NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+CREATE INDEX IF NOT EXISTS stores_by_owner ON stores (owner_user_id);
 
 -- 붙여넣은 리뷰. review_id(rv_<가게>_paste_NNN)는 (가게, 방문자) 안에서만 유일하다.
 CREATE TABLE IF NOT EXISTS reviews (

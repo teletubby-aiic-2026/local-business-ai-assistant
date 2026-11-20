@@ -42,8 +42,13 @@ class AccountData:
         try:
             reviews = demo.erase_pasted(visitor_id)
         except Exception as exc:
-            log.warning("초기화: 붙여넣은 리뷰를 지우지 못했어요 (%s, %s)", store_id, exc.__class__.__name__)
-            reviews = None
+            bundle = store_profiles.get(store_id)
+            if bundle is not None and bundle.registered and "오류 404" in str(exc):
+                # 직접 등록한 가게(11/20)는 리뷰 분석 서비스가 아직 모른다 (없는 가게 404) → 붙여넣은 리뷰가 있을 수 없다
+                reviews = 0
+            else:
+                log.warning("초기화: 붙여넣은 리뷰를 지우지 못했어요 (%s, %s)", store_id, exc.__class__.__name__)
+                reviews = None
         try:
             marketing = self.hub.marketing(store_id).clear_state(visitor_id)
         except Exception as exc:                      # clear_state 는 예외를 내지 않지만 한 번 더 막는다

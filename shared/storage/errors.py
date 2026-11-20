@@ -12,3 +12,11 @@ class StorageConfigError(ValueError):
 
 class DuplicateLogin(ValueError):
     """같은 로그인 아이디가 이미 있을 때 (회원가입). 두 구현이 같은 오류를 낸다."""
+
+
+class DuplicateStore(ValueError):
+    """같은 가게 id 가 이미 있을 때 (가게 등록, 11/20). 부르는 쪽이 새 id 로 다시 한다."""
+
+
+class StoreLimit(ValueError):
+    """한 계정의 가게 목록이 한도에 닿았을 때 (가게 등록, 11/20). 두 구현이 같은 오류를 낸다."""

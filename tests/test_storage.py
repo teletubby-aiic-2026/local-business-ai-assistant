@@ -327,6 +327,95 @@ def test_auth_sessions_create_get_switch_delete_and_expire(backend):
     assert backend.auth_sessions.delete(live) is False
 
 
+# ── 사장님 프로필·가게 목록·직접 등록한 가게 (6차 회의 11/20) ─────────────
+def test_users_rename_password_and_store_list_edits(backend):
+    me = uuid.uuid4().hex[:16]
+    backend.users.create(me, "r" + me[:10], "scrypt$x", "사장", [])
+    assert backend.users.stores(me) == []
+    assert backend.users.rename(me, "새 이름")["display_name"] == "새 이름"
+    assert backend.users.get(me)["display_name"] == "새 이름" and backend.users.rename("nobody", "x") is None
+    assert backend.users.set_password(me, "scrypt$y") is True and backend.users.set_password("nobody", "z") is False
+    assert backend.users.by_login("r" + me[:10])["password_hash"] == "scrypt$y"
+    assert backend.users.add_store(me, "store_ongi") == ["store_ongi"]
+    assert backend.users.add_store(me, "store_basak") == ["store_ongi", "store_basak"]
+    assert backend.users.add_store(me, "store_ongi") == ["store_ongi", "store_basak"]           # 이미 있으면 그대로
+    assert backend.users.reorder(me, ["store_basak", "store_ongi"]) is True
+    assert backend.users.stores(me) == ["store_basak", "store_ongi"]
+    for wrong in (["store_basak"], ["store_basak", "store_ongi", "store_mongle"], ["store_ongi", "store_ongi"]):
+        assert backend.users.reorder(me, wrong) is False
+    assert backend.users.stores(me) == ["store_basak", "store_ongi"]
+    assert backend.users.remove_store(me, "store_basak") is True and backend.users.remove_store(me, "store_basak") is False
+    assert backend.users.add_store(me, "store_mongle") == ["store_ongi", "store_mongle"]         # 맨 뒤에 붙음
+
+
+def _profile(name="떡볶이"):
+    return {"industry_code": "CS100002", "business_status": "operating", "channels": ["배달의민족"],
+            "location": {"kind": "address", "label": "서울 동작구", "latitude": 37.5},
+            "area": {"area_code": "3110836", "name": "상도역 5번", "period": "20262"}, "menus": [{"name": name, "price": 5000}]}
+
+
+def test_registered_stores_create_get_update_list_delete(backend):
+    from shared.storage.errors import DuplicateStore, StoreLimit
+    me, them = uuid.uuid4().hex[:16], uuid.uuid4().hex[:16]
+    backend.users.create(me, "g" + me[:10], "scrypt$x", "사장", ["store_ongi"])
+    backend.users.create(them, "g" + them[:10], "scrypt$x", "옆집", [])
+    a, b, c = (f"store_{uuid.uuid4().hex[:12]}" for _ in range(3))
+    row = backend.registered_stores.create(a, me, "우리분식", "분식전문점", _profile(), limit=3)
+    assert {k: row[k] for k in ("store_id", "owner_user_id", "name", "business_type_name")} == (
+        {"store_id": a, "owner_user_id": me, "name": "우리분식", "business_type_name": "분식전문점"})
+    assert row["profile"] == _profile() and row["created_at"].endswith("+09:00")
+    assert backend.users.stores(me) == ["store_ongi", a]                                           # 목록 맨 뒤
+    assert backend.registered_stores.get(a) == row
+    with pytest.raises(DuplicateStore):
+        backend.registered_stores.create(a, them, "뺏기", "분식", _profile(), limit=3)
+    assert backend.users.stores(them) == []                                                        # 실패하면 아무것도 남지 않음
+    backend.registered_stores.create(b, me, "둘째", "한식", _profile(), limit=3)
+    with pytest.raises(StoreLimit):
+        backend.registered_stores.create(c, me, "셋째", "한식", _profile(), limit=3)
+    assert backend.registered_stores.get(c) is None and len(backend.users.stores(me)) == 3
+    with pytest.raises(KeyError):
+        backend.registered_stores.create(c, "nobody", "주인 없음", "한식", _profile(), limit=3)
+    assert backend.registered_stores.get_many([a, b, c, "store_ongi"]).keys() == {a, b}
+    changed = backend.registered_stores.update(a, name="우리분식 본점", profile=_profile("김밥"))
+    assert (changed["name"], changed["business_type_name"], changed["profile"]["menus"]) == (
+        "우리분식 본점", "분식전문점", [{"name": "김밥", "price": 5000}])
+    assert backend.registered_stores.update(c, name="x") is None
+    assert [r["store_id"] for r in backend.registered_stores.list_by_owner(me)] == [a, b]
+    backend.users.remove_store(me, b)                                       # 목록에서 빼도 가게 줄은 남는다
+    assert [r["store_id"] for r in backend.registered_stores.list_by_owner(me)] == [a, b]
+    assert backend.registered_stores.delete(a) is True and backend.registered_stores.get(a) is None
+    assert backend.users.stores(me) == ["store_ongi"]
+    assert backend.registered_stores.delete_by_owner(me) == 1 and backend.registered_stores.list_by_owner(me) == []
+    assert backend.registered_stores.delete_by_owner(me) == 0
+    with pytest.raises(ValueError):
+        backend.registered_stores.create(c, me, "모양", "한식", ["not", "a", "dict"], limit=3)
+
+
+def test_pg_old_stores_table_gets_owner_and_profile_columns(db):
+    """실서버 DB 에는 칸 3개가 없는 stores 표가 이미 있다 (11/20 전). init_db 를 다시 돌리면 칸이 붙고 있던 줄은 남는다."""
+    from psycopg import sql
+    from shared.storage.init_db import create_tables
+    schema = uid("oldstores").lower()
+    db.run(lambda c: c.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema))))
+    scoped = _scoped_db(schema)
+    try:
+        scoped.run(lambda c: (c.execute("CREATE TABLE stores (store_id TEXT PRIMARY KEY, name TEXT NOT NULL, business_type_name TEXT, "
+                                        "data_origin TEXT NOT NULL DEFAULT 'synthetic', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"),
+                              c.execute("INSERT INTO stores (store_id, name) VALUES ('store_old', '옛 가게')")))
+        create_tables(scoped)
+        create_tables(scoped)
+        cols = scoped.run(lambda c: {r["column_name"]: r["data_type"] for r in c.execute(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'stores' AND table_schema = %s",
+            (schema,)).fetchall()})
+        assert (cols["owner_user_id"], cols["profile"], cols["updated_at"]) == ("text", "jsonb", "timestamp with time zone")
+        old = scoped.run(lambda c: c.execute("SELECT name, owner_user_id, profile FROM stores WHERE store_id = 'store_old'").fetchone())
+        assert (old["name"], old["owner_user_id"], old["profile"]) == ("옛 가게", None, {})
+        assert scoped.registered_stores.get("store_old") is None                      # 등록 가게만 본다
+    finally:
+        scoped.close()
+        db.run(lambda c: c.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))))
+
+
 def test_card_reasons_put_get_overwrite(backend):
     sid = uid("store")
     assert backend.card_reasons.get(sid, "card_a", "k1") is None

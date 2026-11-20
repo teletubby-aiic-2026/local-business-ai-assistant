@@ -2,14 +2,18 @@
 
 | 메서드 | 경로                   | 하는 일 |
 |--------|------------------------|---------|
-| GET    | /api/auth/me           | 지금 누구인지와 가게. 로그인 전이면 authenticated false, 가게는 기본 가게(온기한식) 하나 |
-| POST   | /api/auth/login        | 아이디·비밀번호 → 세션 쿠키 |
-| POST   | /api/auth/signup       | 새 계정(가진 가게를 고름) → 바로 로그인 |
+| GET    | /api/auth/me           | 지금 누구인지와 가게. 로그인 전이면 authenticated false, 가게는 기본 가게(온기한식) 하나.
+|        |                        | 로그인했는데 가게가 0곳이면 authenticated true, store_id null, stores [] (6차 회의 11/20) |
+| POST   | /api/auth/login        | 아이디·비밀번호 → 세션 쿠키. keep false 면 브라우저를 닫으면 지워지는 쿠키 (11/20) |
+| POST   | /api/auth/signup       | 새 계정(가진 가게를 고름, stores [] 면 가게 0곳) → 바로 로그인 |
 | POST   | /api/auth/logout       | 세션을 지우고 쿠키를 지움 → 게스트 |
 | POST   | /api/auth/store        | 지금 보는 가게 바꾸기 (가진 가게만) |
 | POST   | /api/auth/demo-login   | 시연용: 가게 세 곳을 가진 사장님으로 바로 로그인 (DEMO_ACCOUNT_ENABLED, 기본 켜짐) |
 | POST   | /api/auth/reset        | 계정 초기화: 지금 가게(scope=store) 또는 가진 가게 모두(scope=account)의 이 사장님 기록을 지움 (11/19, account.py) |
-| POST   | /api/auth/withdraw     | 회원 탈퇴: 비밀번호 확인(시연 계정은 없이) → 가게 세 곳의 기록을 다 지움 → 계정 삭제 → 게스트 (11/19) |
+| POST   | /api/auth/withdraw     | 회원 탈퇴: 비밀번호 확인(시연 계정은 없이) → 예시 세 곳·내 가게·내가 등록한 가게의 기록을 다 지움
+|        |                        | → 등록한 가게 줄·계정 삭제 → 게스트 (11/19, 등록 가게 11/20) |
+
+계정 안의 가게 등록·고치기·빼기·순서, 이름·비밀번호 바꾸기는 /api/account/* (account_api.py, 11/20).
 
 지키는 것
 - 로그인하지 않으면 예전과 똑같다: 가게는 DEMO_STORE_ID(store_ongi), 기록은 쿠키 visitor_id 로 나뉜다.
@@ -78,6 +82,8 @@ MESSAGES = {
     "down": "지금 로그인 정보를 불러오지 못했어요. 잠시 뒤 다시 해 주세요.",
     "invalid": "요청 모양이 맞지 않아요.",
     "bad_password": "비밀번호가 맞지 않아요.",
+    "no_store": "먼저 가게를 등록하거나 골라 주세요.",
+    "signed_out": "로그인이 끝났어요. 다시 로그인해 주세요.",
     "records_left": "기록을 다 지우지 못해 탈퇴를 멈췄어요. 계정은 그대로예요. 잠시 뒤 다시 해 주세요.",
 }
 LOGIN_NEEDED_FOR_RECORDS = "로그인한 사장님만 기록을 지울 수 있어요."
@@ -136,8 +142,8 @@ def visitor_for(user_id: str) -> str:
 # ── 요청마다의 신원 ────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class Who:
-    user: dict | None          # {user_id, login_id, display_name, demo} 또는 None(게스트)
-    store_id: str              # 지금 보는 가게
+    user: dict | None          # {user_id, login_id, display_name, demo, created_at} 또는 None(게스트)
+    store_id: str | None       # 지금 보는 가게. 로그인했는데 가게가 0곳이면 None (11/20)
     stores: tuple[str, ...]    # 고를 수 있는 가게
     visitor_id: str            # 아래 서비스에 넘기는 방문자 id (게스트는 쿠키 값, 사장님은 u-<user_id>)
     token_hash: str | None = None
@@ -146,6 +152,11 @@ class Who:
     @property
     def authenticated(self) -> bool:
         return self.user is not None
+
+    @property
+    def needs_store(self) -> bool:
+        """로그인했지만 볼 가게가 없음 → 가게가 있어야 하는 API 는 409 no_store (11/20)."""
+        return self.user is not None and self.store_id is None
 
 
 class AuthService:
@@ -172,8 +183,31 @@ class AuthService:
     def guest(self, visitor_id: str, unavailable: bool = False) -> Who:
         return Who(None, self.default_store, (self.default_store,), visitor_id, unavailable=unavailable)
 
+    @property
+    def registered(self):
+        """직접 등록한 가게 저장소 (shared.storage 의 registered_stores). 없는 저장소면 None (예시 가게만)."""
+        return getattr(self.storage, "registered_stores", None)
+
+    def owned_stores(self, user_id: str) -> list[str]:
+        """사장님 가게 목록 가운데 지금 있는 가게만 (순서 그대로): 예시 세 곳 + 직접 등록한 가게.
+        등록 가게는 한 번에 읽어 store_profiles 에 잠시 기억시킨다 (같은 요청에서 다시 DB 를 부르지 않게). StorageError 는 그대로 올린다."""
+        ids = self.storage.users.stores(user_id)
+        wanted = [s for s in ids if s not in store_profiles.BUNDLES and store_profiles.is_registered_id(s)]
+        rows = self.registered.get_many(wanted) if (wanted and self.registered is not None) else {}
+        for row in rows.values():
+            store_profiles.remember(row)
+        return [s for s in ids if s in store_profiles.BUNDLES or s in rows]
+
+    @staticmethod
+    def public_user(user: dict) -> dict:
+        created = user.get("created_at")
+        return {"user_id": user["user_id"], "login_id": user["login_id"], "display_name": user["display_name"],
+                "demo": user["user_id"].startswith(DEMO_PREFIX),
+                "created_at": created[:10] if isinstance(created, str) else None}
+
     def resolve(self, token: str | None, guest_visitor: str) -> Who:
-        """세션 쿠키 → 신원. 쿠키가 없거나 틀렸거나 지났으면 게스트. 저장소에 닿지 못하면 게스트로 보고 unavailable 을 켠다."""
+        """세션 쿠키 → 신원. 쿠키가 없거나 틀렸거나 지났으면 게스트. 저장소에 닿지 못하면 게스트로 보고 unavailable 을 켠다.
+        로그인했는데 가게가 0곳이면 store_id None (예전에는 게스트로 떨어졌다, 11/20)."""
         if not token or not TOKEN.fullmatch(token) or not self.enabled:
             return self.guest(guest_visitor)
         h = token_hash(token)
@@ -182,16 +216,14 @@ class AuthService:
             if session is None:
                 return self.guest(guest_visitor)
             user = self.storage.users.get(session["user_id"])
-            stores = tuple(s for s in self.storage.users.stores(session["user_id"]) if store_profiles.known(s))
+            stores = tuple(self.owned_stores(session["user_id"])) if user is not None else ()
         except StorageError as exc:
             log.warning("세션을 읽지 못해 게스트로 봄 (%s)", exc.__class__.__name__)
             return self.guest(guest_visitor, unavailable=True)
-        if user is None or not stores:
+        if user is None:
             return self.guest(guest_visitor)
-        store = session["active_store_id"] if session["active_store_id"] in stores else stores[0]
-        public = {"user_id": user["user_id"], "login_id": user["login_id"], "display_name": user["display_name"],
-                  "demo": user["user_id"].startswith(DEMO_PREFIX)}
-        return Who(public, store, stores, visitor_for(user["user_id"]), token_hash=h)
+        store = session["active_store_id"] if session["active_store_id"] in stores else (stores[0] if stores else None)
+        return Who(self.public_user(user), store, stores, visitor_for(user["user_id"]), token_hash=h)
 
     def view(self, who: Who) -> dict:
         """/api/auth/me 와 로그인 응답의 모양."""
@@ -240,8 +272,8 @@ class AuthService:
                     verify_password(password or "", hash_password("x", salt=b"0" * 16))
                 self._fail(keys)
                 raise AuthError("bad_login", 401)
-            stores = [s for s in self.storage.users.stores(user["user_id"]) if store_profiles.known(s)]
-            return self._new_session(user["user_id"], stores[0] if stores else self.default_store)
+            stores = self.owned_stores(user["user_id"])
+            return self._new_session(user["user_id"], stores[0] if stores else "")     # 가게 0곳이면 빈 값 (resolve 가 None 으로 봄)
         except StorageError:
             raise AuthError("down", 503) from None
 
@@ -256,13 +288,15 @@ class AuthService:
         name = re.sub(r"\s+", " ", display_name or "").strip()
         if not (1 <= len(name) <= 20) or any(ord(c) < 32 for c in name):
             raise AuthError("invalid", 422, "이름은 1~20자로 적어 주세요.")
-        picked = [self.default_store] if stores is None else list(dict.fromkeys(stores))   # 안 보내면 기본 가게, 빈 목록은 오류
-        if not picked or any(not store_profiles.known(s) for s in picked):
+        # 안 보내면 기본 가게 하나 (예전 그대로). 빈 목록이면 가게 0곳으로 가입하고 계정 안에서 가게를 등록한다 (6차 회의 11/20).
+        # 여기서 고를 수 있는 것은 예시 가게 세 곳뿐이다 (체험용 계정)
+        picked = [self.default_store] if stores is None else list(dict.fromkeys(stores))
+        if any(s not in store_profiles.BUNDLES for s in picked):
             raise AuthError("invalid", 422, "가게는 온기한식·바삭치킨·몽글카페 중에서 골라 주세요.")
         user_id = secrets.token_hex(8)
         try:
             self.storage.users.create(user_id, login, hash_password(password), name, picked)
-            return self._new_session(user_id, picked[0])
+            return self._new_session(user_id, picked[0] if picked else "")
         except DuplicateLogin:
             raise AuthError("taken", 409) from None
         except StorageError:
@@ -308,10 +342,24 @@ class AuthService:
             self._fail(keys)
             raise AuthError("bad_password", 401)
 
+    def withdraw_stores(self, who: Who) -> list[str]:
+        """탈퇴 때 기록을 지울 가게: 예시 세 곳 + 내 가게 목록 + 내가 등록한 가게(목록에서 뺀 것 포함)."""
+        owned = []
+        if self.registered is not None:
+            try:
+                owned = [r["store_id"] for r in self.registered.list_by_owner(who.user["user_id"])]
+            except StorageError:
+                raise AuthError("down", 503) from None
+        return list(dict.fromkeys([*store_profiles.STORE_IDS, *who.stores, *owned]))
+
     def delete_account(self, user_id: str) -> None:
         """계정 삭제 (11/19). PostgreSQL 은 가진 가게·세션이 CASCADE 로 같이 지워지고, 메모리는 세션을 따로 지운다.
-        어느 쪽이든 그 사장님의 다른 기기 세션도 끊긴다."""
+        어느 쪽이든 그 사장님의 다른 기기 세션도 끊긴다. 그 사장님이 등록한 가게 줄도 지운다 (11/20)."""
         try:
+            if self.registered is not None:
+                for row in self.registered.list_by_owner(user_id):
+                    store_profiles.forget(row["store_id"])
+                self.registered.delete_by_owner(user_id)
             self.storage.users.delete(user_id)
             self.storage.auth_sessions.delete_user(user_id)
         except StorageError:
@@ -328,11 +376,53 @@ class AuthService:
         except StorageError:
             raise AuthError("down", 503) from None
 
+    # 사장님 프로필 (11/20, /api/account/profile·password) -----------------------
+    @staticmethod
+    def clean_name(display_name) -> str:
+        name = re.sub(r"\s+", " ", display_name if isinstance(display_name, str) else "").strip()
+        if not (1 <= len(name) <= 20) or any(ord(c) < 32 or ord(c) == 127 for c in name):
+            raise AuthError("invalid", 422, "이름은 1~20자로 적어 주세요.")
+        return name
+
+    def rename(self, who: Who, display_name) -> None:
+        name = self.clean_name(display_name)
+        try:
+            if self.storage.users.rename(who.user["user_id"], name) is None:
+                raise AuthError("login_needed", 401, MESSAGES["signed_out"])
+        except StorageError:
+            raise AuthError("down", 503) from None
+
+    def change_password(self, who: Who, current: str, new: str, client: str) -> None:
+        """현재 비밀번호를 확인하고 바꾼다. 틀리면 로그인 실패와 같이 센다(아이디·주소 키, 10분에 10번이면 429).
+        시연 계정(비밀번호 로그인을 막은 '!')은 403 demo_account. 다른 기기의 세션은 그대로 둔다."""
+        if not (8 <= len(new or "") <= 128):
+            raise AuthError("invalid", 422, "새 비밀번호는 8~128자로 정해 주세요.")
+        login = who.user["login_id"]
+        try:
+            user = self.storage.users.by_login(login)
+        except StorageError:
+            raise AuthError("down", 503) from None
+        if user is None or user["user_id"] != who.user["user_id"]:
+            raise AuthError("login_needed", 401, MESSAGES["signed_out"])
+        if user.get("password_hash") == DISABLED_PASSWORD:
+            raise AuthError("demo_account", 403, "시연 계정은 비밀번호를 바꿀 수 없어요.")
+        keys = [f"id:{login}", f"ip:{client}"]
+        if self._blocked(keys):
+            raise AuthError("too_many", 429)
+        if not verify_password(current or "", user.get("password_hash")):
+            self._fail(keys)
+            raise AuthError("bad_password", 401, "지금 비밀번호가 맞지 않아요.")
+        try:
+            self.storage.users.set_password(user["user_id"], hash_password(new))
+        except StorageError:
+            raise AuthError("down", 503) from None
+
 
 # ── 라우터 ─────────────────────────────────────────────────────────────
 class LoginIn(BaseModel):
     login_id: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=256)
+    keep: bool = True       # false 면 브라우저를 닫으면 지워지는 쿠키 (max-age 없음, 11/20). 서버 세션은 7일 그대로
 
 
 class SignupIn(BaseModel):
@@ -433,11 +523,11 @@ def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who],
     안 주면 초기화·탈퇴는 503."""
     router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-    def signed_in(request: Request, token: str) -> JSONResponse:
+    def signed_in(request: Request, token: str, keep: bool = True) -> JSONResponse:
         who = auth.resolve(token, getattr(request.state, "guest_visitor_id", "") or "")
         secure = secure_request(request)
         out = _json(auth.view(who))
-        out.set_cookie(SESSION_COOKIE, token, max_age=auth.session_days * 86400, path="/", httponly=True,
+        out.set_cookie(SESSION_COOKIE, token, max_age=auth.session_days * 86400 if keep else None, path="/", httponly=True,
                        samesite="lax", secure=secure)
         _reset_market(out, secure)
         return out
@@ -452,7 +542,7 @@ def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who],
     @router.post("/login")
     def login(body: LoginIn, request: Request):
         try:
-            return signed_in(request, auth.login(body.login_id, body.password, _client(request)))
+            return signed_in(request, auth.login(body.login_id, body.password, _client(request)), keep=body.keep)
         except AuthError as exc:
             return failed(exc)
 
@@ -507,6 +597,8 @@ def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who],
         scope = body.get("scope") if body else None
         if scope not in RESET_SCOPES:
             return failed(AuthError("invalid", 422, "scope 는 store(지금 가게) 또는 account(가진 가게 모두)로 보내 주세요."))
+        if scope == "store" and who.store_id is None:
+            return failed(AuthError("no_store", 409))
         if erase is None:
             return failed(AuthError("down", 503))
         stores = [who.store_id] if scope == "store" else list(who.stores)
@@ -518,8 +610,8 @@ def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who],
     @router.post("/withdraw")
     async def withdraw(request: Request):
         """회원 탈퇴 (11/19). 본문 {"password": "…"} (시연 계정은 없어도 됨).
-        순서: 비밀번호 확인 → 가게 세 곳(store_profiles.STORE_IDS) 모두에서 그 사장님 기록을 지움 → 다 지웠을 때만 계정 삭제
-        → 세션 쿠키·상권 쿠키 만료. 기록이 남으면 계정을 지우지 않고 503 records_left (다시 하면 이어서 지움)."""
+        순서: 비밀번호 확인 → 예시 세 곳·내 가게·내가 등록한 가게 모두에서 그 사장님 기록을 지움 → 다 지웠을 때만
+        등록한 가게 줄과 계정 삭제 → 세션 쿠키·상권 쿠키 만료. 기록이 남으면 계정을 지우지 않고 503 records_left (다시 하면 이어서 지움)."""
         who = who_of(request)
         if not who.authenticated:
             return failed(AuthError("login_needed", 401, LOGIN_NEEDED_FOR_RECORDS))
@@ -533,7 +625,11 @@ def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who],
             return failed(exc)
         if erase is None:
             return failed(AuthError("down", 503))
-        result = await run_in_threadpool(erase, list(store_profiles.STORE_IDS), who.visitor_id)
+        try:
+            targets = await run_in_threadpool(auth.withdraw_stores, who)
+        except AuthError as exc:
+            return failed(exc)
+        result = await run_in_threadpool(erase, targets, who.visitor_id)
         if not result["complete"]:
             log.warning("탈퇴를 멈춤: 기록이 남음 (%s)", result["message"])
             return failed(AuthError("records_left", 503))

@@ -204,6 +204,50 @@ class MemoryUsers:
             self._stores.pop(user_id, None)
             return self._users.pop(user_id, None) is not None
 
+    # ── 사장님 프로필과 가게 목록 고치기 (6차 회의 11/20) ──
+    def rename(self, user_id: str, display_name: str) -> dict | None:
+        """이름을 바꾸고 바뀐 계정(get 과 같은 모양)을 돌려준다. 없는 계정이면 None."""
+        with self._lock:
+            row = self._users.get(user_id)
+            if row is None:
+                return None
+            row["display_name"] = display_name
+            return self._public(row)
+
+    def set_password(self, user_id: str, password_hash: str) -> bool:
+        with self._lock:
+            row = self._users.get(user_id)
+            if row is None:
+                return False
+            row["password_hash"] = password_hash
+            return True
+
+    def add_store(self, user_id: str, store_id: str) -> list[str]:
+        """목록 맨 뒤에 붙인다 (이미 있으면 그대로). 바뀐 목록."""
+        with self._lock:
+            have = self._stores.setdefault(user_id, [])
+            if store_id not in have:
+                have.append(store_id)
+            return list(have)
+
+    def remove_store(self, user_id: str, store_id: str) -> bool:
+        """목록에서만 뺀다 (가게 행·기록은 그대로). 있었으면 True."""
+        with self._lock:
+            have = self._stores.get(user_id, [])
+            if store_id not in have:
+                return False
+            have.remove(store_id)
+            return True
+
+    def reorder(self, user_id: str, store_ids: list[str]) -> bool:
+        """가진 가게 전부를 새 순서로. 겹치는 id 가 있거나 가진 가게 집합과 다르면 바꾸지 않고 False."""
+        with self._lock:
+            have = self._stores.get(user_id, [])
+            if len(set(store_ids)) != len(store_ids) or set(store_ids) != set(have):
+                return False
+            self._stores[user_id] = list(store_ids)
+            return True
+
 
 class MemoryAuthSessions:
     def __init__(self) -> None:
@@ -247,6 +291,101 @@ class MemoryAuthSessions:
     def delete(self, token_hash: str) -> bool:
         with self._lock:
             return self._rows.pop(token_hash, None) is not None
+
+
+# ── 사장님이 직접 등록한 가게 (6차 회의 11/20) ─────────────────────────
+REGISTERED = "registered"           # stores.data_origin 값
+
+
+def clean_store_profile(profile) -> dict:
+    """stores.profile (JSONB) 에 넣을 값. JSON 객체가 아니면 ValueError. 넣었다 꺼낸 것과 같은 복사본."""
+    return _json(profile, "profile")
+
+
+class MemoryRegisteredStores:
+    """stores 표의 직접 등록한 가게 (data_origin 'registered'). PgRegisteredStores 와 같은 이름·인자·돌려주는 모양.
+    한 줄: {store_id, owner_user_id, name, business_type_name, profile, created_at, updated_at}.
+    가게 목록(user_stores)과 같이 바꾸는 create 가 있어 MemoryUsers 의 잠금을 같이 쓴다."""
+
+    def __init__(self, users: MemoryUsers) -> None:
+        self._users = users
+        self._lock = users._lock
+        self._rows: dict[str, dict] = {}
+
+    @staticmethod
+    def _copy(row: dict) -> dict:
+        return {**row, "profile": json.loads(json.dumps(row["profile"], ensure_ascii=False))}
+
+    def create(self, store_id: str, owner_user_id: str, name: str, business_type_name: str, profile: dict, *,
+               limit: int) -> dict:
+        """가게 행을 만들고 그 사장님 가게 목록 맨 뒤에 붙인다 (한 번에). 목록이 이미 limit 곳이면 StoreLimit,
+        같은 id 가 있으면 DuplicateStore, 없는 사장님이면 KeyError. 실패하면 아무것도 남지 않는다."""
+        from .errors import DuplicateStore, StoreLimit
+        clean = clean_store_profile(profile)
+        with self._lock:
+            if owner_user_id not in self._users._users:
+                raise KeyError("없는 사장님이에요")
+            if store_id in self._rows:
+                raise DuplicateStore("이미 있는 가게 id 예요")
+            have = self._users._stores.setdefault(owner_user_id, [])
+            if len(have) >= limit:
+                raise StoreLimit("가게 목록이 가득 찼어요")
+            now = now_kst()
+            row = {"store_id": store_id, "owner_user_id": owner_user_id, "name": name,
+                   "business_type_name": business_type_name, "profile": clean, "created_at": now, "updated_at": now}
+            self._rows[store_id] = row
+            have.append(store_id)
+            return self._copy(row)
+
+    def get(self, store_id: str) -> dict | None:
+        with self._lock:
+            row = self._rows.get(store_id)
+            return self._copy(row) if row else None
+
+    def get_many(self, store_ids) -> dict[str, dict]:
+        with self._lock:
+            return {s: self._copy(self._rows[s]) for s in dict.fromkeys(store_ids) if s in self._rows}
+
+    def update(self, store_id: str, *, name: str | None = None, business_type_name: str | None = None,
+               profile: dict | None = None) -> dict | None:
+        """준 칸만 바꾼다 (profile 은 통째로). 없는 가게면 None."""
+        clean = clean_store_profile(profile) if profile is not None else None
+        with self._lock:
+            row = self._rows.get(store_id)
+            if row is None:
+                return None
+            if name is not None:
+                row["name"] = name
+            if business_type_name is not None:
+                row["business_type_name"] = business_type_name
+            if clean is not None:
+                row["profile"] = clean
+            row["updated_at"] = now_kst()
+            return self._copy(row)
+
+    def list_by_owner(self, owner_user_id: str) -> list[dict]:
+        """그 사장님이 등록한 가게 모두 (목록에서 뺀 것 포함). 만든 순서."""
+        with self._lock:
+            return [self._copy(r) for r in self._rows.values() if r["owner_user_id"] == owner_user_id]
+
+    def delete(self, store_id: str) -> bool:
+        """가게 행을 지우고 모든 가게 목록에서도 뺀다. 있었으면 True."""
+        with self._lock:
+            for have in self._users._stores.values():
+                if store_id in have:
+                    have.remove(store_id)
+            return self._rows.pop(store_id, None) is not None
+
+    def delete_by_owner(self, owner_user_id: str) -> int:
+        """그 사장님이 등록한 가게 행을 모두 지운다 (회원 탈퇴). 지운 수."""
+        with self._lock:
+            gone = [s for s, r in self._rows.items() if r["owner_user_id"] == owner_user_id]
+            for s in gone:
+                del self._rows[s]
+                for have in self._users._stores.values():
+                    if s in have:
+                        have.remove(s)
+            return len(gone)
 
 
 # ── 맞춤 마케팅 기록 (11/19, 이슈 #51 ERD §3.13) ───────────────────────
@@ -368,6 +507,7 @@ class MemoryStore:
         self.reports = MemoryReports()
         self.users = MemoryUsers()
         self.auth_sessions = MemoryAuthSessions()
+        self.registered_stores = MemoryRegisteredStores(self.users)
         self.marketing = MemoryMarketingRecords()
 
     def close(self) -> None:

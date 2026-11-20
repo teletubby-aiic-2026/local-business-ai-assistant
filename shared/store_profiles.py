@@ -7,13 +7,21 @@
   (한 업종, scripts/reproduce_store_snapshots.py 가 서울시 공식 원본으로 만듦).
 - 상권 분석 기본 조건(역·업종·상권·분기 코드)은 상권 서비스의 표(onboarding_stations.json·onboarding_industries.json)에 있는 값이다.
 - 메뉴 가격·사장님 말투·예전 답글은 이 프로젝트가 정한 가정값(합성)이다. 온기한식은 shared.sample_scenario 의 것을 그대로 쓴다.
+- 6차 회의(11/20): 사장님이 계정 안에서 직접 등록한 가게도 get·known·public_list 로 찾는다 (예시 세 곳 다음).
+  등록 가게는 stores 표의 한 줄에서 만든 StoreBundle(registered=True)이다. 찾기 함수는 화면 서버가 꽂는다 (set_registered_lookup).
+  BUNDLES·STORE_IDS 는 예시 세 곳 그대로다 (맞춤 마케팅·리뷰 분석의 합성 자료가 있는 가게).
 """
 from __future__ import annotations
 
 import json
+import logging
+import re
+import threading
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from typing import Callable
 
 from shared.contracts import AnalysisSnapshot, RecommendationCard, ReviewRecord, StoreProfile, ToneProfile
 from shared.sample_scenario import SAMPLE_STORE, SAMPLE_TONE
@@ -52,16 +60,24 @@ class StoreBundle:
     signature: str = ""
     district_name: str = "동작구"   # 자치구 (서울 문화행사 등 구 단위 자료를 고를 때). 세 가게 모두 동작구
     extras: dict = field(default_factory=dict)
+    # 사장님이 직접 등록한 가게 (6차 회의 11/20). 예시 세 곳은 기본값 그대로다
+    registered: bool = False
+    location: dict = field(default_factory=dict)      # 등록 때 받은 위치 {kind, label, road_address, latitude, ...}
+    channels: tuple[str, ...] = ()                    # 배달 채널
+    business_status: str = "operating"                # operating | planning | exploring
+    period: str = ""                                  # 상권 분석 분기 코드 ("20262"). 모르면 ""
 
     @property
     def label(self) -> str:
         """서랍·상권 화면의 기본 조건 이름 ("바삭치킨 · 상도역 · 치킨전문점")."""
-        return f"{self.short_name} · {self.station_name} · {self.business_type_name}"
+        place = self.station_name or self.location.get("label") or self.area_name
+        return f"{self.short_name} · {place} · {self.business_type_name}"
 
     def public(self) -> dict:
-        """화면에 보내도 되는 칸 (가게 고르기 목록)."""
+        """화면에 보내도 되는 칸 (가게 고르기 목록). sample: 예시 가게 세 곳이면 true, 직접 등록한 가게면 false."""
         return {"store_id": self.store_id, "name": self.short_name, "business_type_name": self.business_type_name,
-                "area_name": self.area_name, "station_name": self.station_name}
+                "area_name": self.area_name or None, "station_name": self.station_name or None,
+                "sample": not self.registered}
 
 
 _BASAK_TONE = ToneProfile(
@@ -123,12 +139,103 @@ BUNDLES: dict[str, StoreBundle] = {
 }
 
 
+# ── 사장님이 직접 등록한 가게 (6차 회의 11/20) ─────────────────────────
+# 예시 세 곳(BUNDLES) 다음으로 찾는다. 찾기 함수는 화면 서버가 켜질 때 저장소(stores 표)로 꽂는다 (set_registered_lookup).
+# WAS 가 두 대라 다른 서버에서 만들거나 고친 가게도 곧 보여야 한다: 찾은 결과는 REGISTERED_TTL 초만 기억하고,
+# 없다는 결과는 기억하지 않는다.
+REGISTERED_ID = re.compile(r"store_[0-9a-f]{12}")
+REGISTERED_TTL = 5.0
+REGISTERED_SNAPSHOTS = SCENARIO / "registered"      # 등록 가게의 상권 지표 파일 자리 (아직 없음 → 카드 ⓑ 가 뜨지 않음)
+REGISTERED_TONE_EXAMPLES = [
+    "불편을 드려 정말 죄송해요.",
+    "다음 주문부터는 포장 전에 한 번 더 확인할게요.",
+    "맛있게 드셔 주셔서 감사해요, 또 찾아 주세요.",
+]
+REGISTERED_FORBIDDEN = ["배달 기사님 탓", "플랫폼 문제", "원래 그렇습니다", "100% 보상", "규정상"]
+
+_lookup: Callable[[str], dict | None] | None = None
+_cache: dict[str, tuple[float, StoreBundle]] = {}
+_cache_lock = threading.Lock()
+log = logging.getLogger("shared.store_profiles")
+
+
+def is_registered_id(store_id: str | None) -> bool:
+    return bool(store_id) and REGISTERED_ID.fullmatch(store_id) is not None
+
+
+def set_registered_lookup(fn: Callable[[str], dict | None] | None) -> None:
+    """등록 가게 찾기 함수 (store_id → stores 표의 한 줄 또는 None). None 을 주면 등록 가게를 찾지 않는다."""
+    global _lookup
+    with _cache_lock:
+        _lookup = fn
+        _cache.clear()
+
+
+def registered_bundle(row: dict) -> StoreBundle:
+    """stores 표의 한 줄(registered_stores 의 모양) → StoreBundle. 모르는 칸은 비워 둔다."""
+    sid = row["store_id"]
+    profile = row.get("profile") or {}
+    location = profile.get("location") if isinstance(profile.get("location"), dict) else {}
+    area = profile.get("area") if isinstance(profile.get("area"), dict) else {}
+    menus = profile.get("menus") if isinstance(profile.get("menus"), list) else []
+    name = row.get("name") or sid
+    tone = ToneProfile(tone_id=f"tone_{sid}", store_id=sid,
+                       style_description="~해요체로 정중하고 짧게. 사과는 한 문장으로 분명히 하고, 다음 주문에 무엇을 확인하겠다고 말한다.",
+                       example_sentences=list(REGISTERED_TONE_EXAMPLES), forbidden_phrases=list(REGISTERED_FORBIDDEN))
+    return StoreBundle(
+        store_id=sid, name=name, short_name=name, business_type="",
+        business_type_name=row.get("business_type_name") or "", industry_code=profile.get("industry_code") or "",
+        station_id=location.get("station_id") or "", station_name=location.get("station_name") or "",
+        area_code=area.get("area_code") or "", area_name=area.get("name") or "",
+        snapshot_path=REGISTERED_SNAPSHOTS / f"{sid}.json",
+        menu_prices={m["name"]: m["price"] for m in menus if isinstance(m, dict) and "name" in m and "price" in m},
+        tone=tone, signature=f"{name} 드림", district_name=location.get("district_name") or "",
+        registered=True, location=dict(location), channels=tuple(profile.get("channels") or ()),
+        business_status=profile.get("business_status") or "operating", period=area.get("period") or "")
+
+
+def remember(row: dict) -> StoreBundle:
+    """방금 읽거나 만든 줄을 잠시 기억한다 (같은 요청 안에서 다시 DB 를 부르지 않게)."""
+    bundle = registered_bundle(row)
+    with _cache_lock:
+        _cache[bundle.store_id] = (time.monotonic() + REGISTERED_TTL, bundle)
+    return bundle
+
+
+def forget(store_id: str) -> None:
+    with _cache_lock:
+        _cache.pop(store_id, None)
+
+
+def _registered(store_id: str) -> StoreBundle | None:
+    if not is_registered_id(store_id):
+        return None
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get(store_id)
+        if hit and hit[0] > now:
+            return hit[1]
+        fn = _lookup
+    if fn is None:
+        return None
+    try:
+        row = fn(store_id)
+    except Exception as exc:              # 저장소에 닿지 못하면 모르는 가게로 본다 (예외를 화면까지 올리지 않음)
+        log.warning("등록 가게를 찾지 못했어요 (%s)", exc.__class__.__name__)
+        return None
+    if row is None:
+        forget(store_id)
+        return None
+    return remember(row)
+
+
 def get(store_id: str | None) -> StoreBundle | None:
-    return BUNDLES.get(store_id or "")
+    """예시 세 곳 → 직접 등록한 가게 순으로 찾는다."""
+    return BUNDLES.get(store_id or "") or _registered(store_id or "")
 
 
 def known(store_id: str | None) -> bool:
-    return (store_id or "") in BUNDLES
+    return get(store_id) is not None
 
 
 def menu_prices(store_id: str | None) -> dict[str, int]:
@@ -213,4 +320,4 @@ def sample_cards(store_id: str) -> list[RecommendationCard]:
 
 
 def public_list(store_ids: list[str] | tuple[str, ...] = STORE_IDS) -> list[dict]:
-    return [BUNDLES[s].public() for s in store_ids if s in BUNDLES]
+    return [b.public() for b in (get(s) for s in store_ids) if b is not None]

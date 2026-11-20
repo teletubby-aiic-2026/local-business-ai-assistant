@@ -262,6 +262,7 @@ DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여
    11/19 묶음부터 맞춤 마케팅 기록 표 2개(`marketing_sessions`, `coupon_runs`. 이슈 #51 ERD §3.13)가 더해져 11개입니다. 돌리기 전에 새 코드를 올리면 맞춤 마케팅의 기록 쓰기는 조용히 건너뛰고(화면 흐름은 그대로, `session_id`만 `null`, `journalctl -u ic26-marketing`에 경고), 마케팅 보고서와 '처음부터 다시'의 마케팅 기록 지우기는 실패합니다(보고서 `503`, 지우기 `500`).
    같은 11/19 묶음에 리뷰의 상태·답글 기록 표 2개(`review_records`, `review_status_events`. 리뷰 분석 서비스 `docs/handoff.md` 7절)도 있어 모두 13개입니다. 돌리기 전에 새 코드를 올리면 리뷰 목록·답글 승인 기록·종합 리포트가 503('저장소(DB)에 닿지 못했습니다')이 되므로, **이 묶음은 꼭 표 만들기를 먼저** 합니다. 예전 서버 파일(`/var/lib/ic26/…/records_*.json`)의 기록은 DB 로 옮기지 않습니다.
    11/18부터 `approvals`에 칸 4개(`draft_text`, `checks`, `used_fallback`, `style`. 이슈 #51 ERD)가 더해졌습니다. 이 명령은 이미 있는 표에도 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 칸을 더합니다(있던 기록은 그대로, 새 칸은 비움·`{}`·`false`).
+   11/20 6차 회의 묶음(계정 안의 가게 등록, `/api/account/*`)부터 `stores` 표에 칸 3개(`owner_user_id`, `profile`, `updated_at`)와 색인 `stores_by_owner`가 더해집니다(표 수는 13개 그대로). 돌리기 전에 새 코드를 올리면 로그인·예시 가게는 그대로이고, 가게 등록만 503 `down`('로그인 정보를 불러오지 못했어요')이 됩니다(`journalctl -u ic26-was`에 'init_db 를 다시 돌리세요' 경고).
 3. 서비스를 다시 시작하고 확인합니다.
 
    ```bash
@@ -320,7 +321,7 @@ bash ic26-<새 커밋>/deploy/smoke_test.sh
 - 코드만 바뀌었으면 `--skip-pip`으로 빠르게 할 수 있습니다. requirements가 바뀐 갱신(예: DB 코드가 처음 들어온 묶음은 `psycopg`가 더해짐)에는 붙이지 않습니다.
 - **PR #49(리뷰 캡처·응대 점수·보고서)와 비서 화면 연결(`feat/connect-care-ui`)이 처음 들어가는 갱신은 `--skip-pip` 없이 돌립니다.** 리뷰 분석 서비스가 `pillow`와 `python-multipart`를 새로 씁니다. `python-multipart`가 없으면 리뷰 분석 서비스(`ic26-review`)가 **아예 켜지지 않고**, 비서 화면의 브리핑·카드·리뷰 분석도 모두 `503`이 됩니다. 갱신 뒤 `curl -s http://127.0.0.1:8020/api/health`와 `curl -s http://127.0.0.1:8000/api/care/status`(`"state":"ready"`)를 봅니다.
 - **맞춤 마케팅(`ic26-marketing`)이 처음 들어가는 갱신**은 `install_was.sh`가 서비스 파일을 넣고 enable·시작하며 `/var/lib/ic26/marketing`을 만듭니다. 새 패키지는 없습니다. 갱신 뒤 `curl -s http://127.0.0.1:8030/health`를 봅니다(10-2절).
-- `db/schema.sql`에 새 표나 새 칸이 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다. **11/18 묶음(`approvals` 칸 4개)과 11/19 묶음(마케팅 표 2개)이 그렇습니다. 표 만들기를 먼저, 서버 갱신은 그 뒤에 합니다.** 돌리기 전에도 승인 기록은 저장됩니다(새 칸이 없으면 칸 없이 예전처럼 쓰고 `journalctl -u ic26-was`에 'init_db 를 다시 돌리세요' 경고). 표 만들기를 돌린 뒤부터 새 칸이 채워집니다.
+- `db/schema.sql`에 새 표나 새 칸이 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다. **11/18 묶음(`approvals` 칸 4개), 11/19 묶음(마케팅 표 2개), 11/20 묶음(`stores` 칸 3개)이 그렇습니다. 표 만들기를 먼저, 서버 갱신은 그 뒤에 합니다.** 돌리기 전에도 승인 기록은 저장됩니다(새 칸이 없으면 칸 없이 예전처럼 쓰고 `journalctl -u ic26-was`에 'init_db 를 다시 돌리세요' 경고). 표 만들기를 돌린 뒤부터 새 칸이 채워집니다.
 - 상권 자료(`/opt/ic26/services/market-analysis/data/`)는 갱신 때 그대로입니다. 자료가 깔려 있으면 `install_was.sh`가 `ic26-market`도 새 코드로 다시 시작합니다. 자료 묶음이 새로 나오면 4-1절(`--replace`).
 - 환경 파일 틀에 새 변수가 생기면 스크립트가 빠진 변수 이름을 알려 줍니다. 편집기로 줄을 추가합니다.
 - 단계 15(Auto Scaling) 뒤에는 그룹 서버를 직접 고치지 않습니다(체크리스트 단계 13-A).

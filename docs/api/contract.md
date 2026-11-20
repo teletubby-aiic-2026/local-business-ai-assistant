@@ -73,6 +73,7 @@ curl -s http://localhost:8000/api/health
   - 1.12 `/api/marketing-survey/*` (맞춤 마케팅 프록시. 김수현 님 설문형 마케팅 서비스를 중계, 11/16)
   - 1.13 `/api/auth/*` (로그인·가게 고르기, 5차 회의 11/18) · 1.14 `/api/market/*` (상권 분석 화면 프록시, 11/18)
   - 1.15 서랍의 전 파트 질문과 화면 이동 버튼 (11/18)
+  - 1.16 `/api/account/*` — 계정 안의 가게와 사장님 프로필 (6차 회의 11/20)
 - 2부. 화면을 다듬을 때 유지해야 하는 것
   - 2.1 폴더와 서빙 · 2.2 상태와 화면 전환 · 2.3 공통 부품과 디자인 토큰
   - 2.4 시험이 지키는 것 · 2.5 화면 주소 · 2.6 화면 흐름과 부르는 API
@@ -1815,34 +1816,50 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 ---
 
-### 1.13 `/api/auth/*` — 로그인과 사장님 가게 고르기 (5차 회의 11/18)
+### 1.13 `/api/auth/*` — 로그인과 사장님 가게 고르기 (5차 회의 11/18, 6차 회의 11/20 고침)
 
 `services/web/web/auth.py`. 저장은 `users`·`user_stores`·`auth_sessions` 표(DB_HOST 가 없으면 서버 메모리, 3.4절).
+11/20부터 로그인해야 쓰는 흐름(로그인 → 가게 선택 → 메인)입니다. 회원가입은 계정만 만들 수 있고(가게 0곳), 가게는 계정 안에서 직접 등록합니다(1.16).
 
 | 메서드 | 경로 | 본문 | 응답 |
 |---|---|---|---|
 | GET | `/api/auth/me` | | 아래 '신원' 모양. 늘 200 |
-| POST | `/api/auth/login` | `{login_id, password}` | 신원 + 세션 쿠키. 틀리면 401(아이디가 있는지 알려 주지 않는 한 문장), 아이디마다·주소마다 10분에 10번 넘게 틀리면 429 (주소를 정하는 법은 아래) |
-| POST | `/api/auth/signup` | `{login_id, password, display_name, stores?}` | 201 신원 + 세션 쿠키. 아이디 중복 409, 입력 오류 422(`demo-`로 시작하는 아이디는 시연 계정 몫이라 422). `stores`를 안 보내면 `["store_ongi"]`, 빈 목록은 422 |
+| POST | `/api/auth/login` | `{login_id, password, keep?}` | 신원 + 세션 쿠키. `keep`(기본 `true`)이 `true`면 7일 쿠키(`Max-Age=604800`), `false`면 브라우저를 닫으면 지워지는 쿠키(`Max-Age` 없음, 서버 세션은 7일 그대로). 틀리면 401(아이디가 있는지 알려 주지 않는 한 문장), 아이디마다·주소마다 10분에 10번 넘게 틀리면 429 (주소를 정하는 법은 아래) |
+| POST | `/api/auth/signup` | `{login_id, password, display_name, stores?}` | 201 신원 + 세션 쿠키. 아이디 중복 409, 입력 오류 422(`demo-`로 시작하는 아이디는 시연 계정 몫이라 422). `stores`를 안 보내면 `["store_ongi"]`(예전 그대로), **`[]`면 가게 0곳으로 가입**(11/20). 예시 가게 id 목록(`store_ongi`·`store_basak`·`store_mongle`)도 지금처럼 됩니다(체험용 계정). 그 밖의 id 는 422 |
 | POST | `/api/auth/logout` | | 게스트 신원. 세션 쿠키와 상권 세션 쿠키(`/api/assistant`·`/api/market`)를 지움 |
-| POST | `/api/auth/store` | `{store_id}` | 신원. 게스트 401, 가진 가게가 아니면 403. 상권 세션 쿠키를 지움(새 가게의 조건으로 다시 시작) |
+| POST | `/api/auth/store` | `{store_id}` | 신원. 직접 등록한 가게도 고를 수 있음(11/20). 게스트 401, 가진 가게가 아니면 403 `not_your_store`. 상권 세션 쿠키를 지움(새 가게의 조건으로 다시 시작) |
 | POST | `/api/auth/demo-login` | | 시연 사장님(가게 세 곳)으로 로그인. `DEMO_ACCOUNT_ENABLED=0` 이면 403. 브라우저(방문자 쿠키)마다 다른 시연 사장님이라 기록이 섞이지 않음. 그 아이디를 다른 계정이 이미 쓰면(예약 전 가입) 409 |
-| POST | `/api/auth/reset` | `{scope: "store" \| "account"}` | 계정 초기화(11/19). 아래 '초기화 응답'. 게스트 401 `login_needed`, scope 가 틀리면 422 `invalid`(이 절의 오류 모양). 못 지운 것이 있어도 200. 상권 세션 쿠키 두 개를 만료 |
-| POST | `/api/auth/withdraw` | `{password}` (시연 계정은 없어도 됨) | 회원 탈퇴(11/19). 200 은 게스트 신원 + `"withdrawn": true`, 세션 쿠키·상권 쿠키 만료. 게스트 401 `login_needed`, 비밀번호가 틀리면 401 `bad_password`, 너무 많이 틀리면 429 `too_many`, 기록이 남으면 503 `records_left`(계정은 그대로), 저장소에 닿지 못하면 503 `down` |
+| POST | `/api/auth/reset` | `{scope: "store" \| "account"}` | 계정 초기화(11/19). 아래 '초기화 응답'. 대상은 내 가게 목록 전부(직접 등록한 가게 포함, 11/20). 게스트 401 `login_needed`, scope 가 틀리면 422 `invalid`(이 절의 오류 모양), 가게가 없는데 `store` 면 409 `no_store`. 못 지운 것이 있어도 200. 상권 세션 쿠키 두 개를 만료 |
+| POST | `/api/auth/withdraw` | `{password}` (시연 계정은 없어도 됨) | 회원 탈퇴(11/19). 내가 등록한 가게 줄도 지움(11/20). 200 은 게스트 신원 + `"withdrawn": true`, 세션 쿠키·상권 쿠키 만료. 게스트 401 `login_needed`, 비밀번호가 틀리면 401 `bad_password`, 너무 많이 틀리면 429 `too_many`, 기록이 남으면 503 `records_left`(계정은 그대로), 저장소에 닿지 못하면 503 `down` |
 
 신원 모양:
 
 ```json
 {"authenticated": true,
- "user": {"user_id": "demo-0123456789ab", "login_id": "demo-0123456789ab", "display_name": "시연 사장님", "demo": true},
+ "user": {"user_id": "demo-0123456789ab", "login_id": "demo-0123456789ab", "display_name": "시연 사장님", "demo": true,
+          "created_at": "2026-11-20"},
  "store_id": "store_basak",
- "stores": [{"store_id": "store_ongi", "name": "온기한식", "business_type_name": "한식음식점", "area_name": "장승배기역 4번", "station_name": "장승배기역"},
-            {"store_id": "store_basak", "name": "바삭치킨", "business_type_name": "치킨전문점", "area_name": "상도역 5번", "station_name": "상도역"},
-            {"store_id": "store_mongle", "name": "몽글카페", "business_type_name": "커피-음료", "area_name": "장승배기역", "station_name": "장승배기역"}],
+ "stores": [{"store_id": "store_ongi", "name": "온기한식", "business_type_name": "한식음식점", "area_name": "장승배기역 4번", "station_name": "장승배기역", "sample": true},
+            {"store_id": "store_basak", "name": "바삭치킨", "business_type_name": "치킨전문점", "area_name": "상도역 5번", "station_name": "상도역", "sample": true},
+            {"store_id": "store_mongle", "name": "몽글카페", "business_type_name": "커피-음료", "area_name": "장승배기역", "station_name": "장승배기역", "sample": true}],
  "demo_login": true}
 ```
 
 로그인 전: `{"authenticated": false, "user": null, "store_id": "store_ongi", "stores": [온기한식 하나], "demo_login": true}`. 세션 저장소에 닿지 못하면 게스트로 보고 `notice`를 더합니다.
+
+- `user.created_at`(11/20): 가입일 `"YYYY-MM-DD"`(한국 시간).
+- `stores[].sample`(11/20): 예시 가게 세 곳이면 `true`, 직접 등록한 가게면 `false`. 등록 가게는 역을 안 정했으면 `station_name: null`.
+- **로그인했는데 가게가 0곳**이면 `{"authenticated": true, "user": {...}, "store_id": null, "stores": [], ...}` (11/20. 예전에는 게스트로 떨어졌음).
+  가게가 생기면 세션에 고른 가게가 없으므로 목록의 첫 가게를 지금 가게로 봅니다(예전 규칙 그대로). 이미 보던 가게가 있으면 가게를 등록해도 바뀌지 않습니다.
+  세션의 가게가 내 목록에 없으면(다른 기기에서 뺐을 때) 첫 가게를 봅니다.
+
+**로그인 상태 지키기 (11/20, `main.py` 미들웨어)**
+
+- 헤더 `X-IC26-Signed-In: 1`: 화면이 로그인 상태라고 믿을 때 모든 `/api/*` 요청에 붙입니다. 이 헤더가 있는데 세션이 없거나 끝났으면 `/api/auth/*` 를 뺀 `/api/*` 는 **401 `login_needed`**
+  (메시지 "로그인이 끝났어요. 다시 로그인해 주세요."). 세션 저장소에 닿지 못했으면 503 `down`. **헤더가 없으면 예전처럼 게스트로 처리**합니다(게스트 화면·예전 시험 그대로).
+- 로그인했지만 가게가 0곳이면 가게가 있어야 하는 API(`/api/briefing`·`/api/cards`·`/api/insight`·`/api/approvals`·`/api/cards/*/run`·`/api/drafts/*`·`/api/reviews*`·`/api/care/*`·`/api/marketing-survey/*`·`/api/assistant/*`)는 **409 `no_store`**("먼저 가게를 등록하거나 골라 주세요."). 아래 서비스는 부르지 않습니다.
+  가게 없이도 되는 것: `/api/auth/*`·`/api/account/*`·`/api/health`(`store_id: null`)·`/api/market/*`(가게 등록 화면이 지도·주소 검색·상권 고르기에 씀. `status` 의 `store` 는 `null`, `setup` 은 기본 가게 조건으로 맞추지 않고 `already`). 로그인한 사장님에게 기본 가게(온기한식) 자료를 말없이 보여 주지 않습니다.
+- 오류 모양은 이 절과 같습니다: `{"error": {"message", "state"}}`, `Cache-Control: no-store`.
 
 - 아이디: 영문 소문자·숫자로 시작하는 3~32자(`. _ -` 가능, 대문자는 소문자로 저장). 비밀번호 8~128자. 이름 1~20자.
 - 비밀번호는 `hashlib.scrypt`(N=2^14, r=8, p=1, 소금 16바이트, 32바이트)로 저장합니다. 세션 쿠키 `ic26_session` 의 값은 저장하지 않고 SHA-256 만 둡니다(7일).
@@ -1881,8 +1898,9 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 - 일반 계정은 비밀번호를 다시 확인합니다. 틀리면 로그인 실패처럼 셉니다(아이디 키 `id:<아이디>`와 주소 키). 그래서 탈퇴에서 10분에 10번 틀리면 같은 아이디의 로그인도 429 가 됩니다.
   시연 계정(비밀번호 로그인을 막은 계정)은 비밀번호 없이 됩니다.
-- 순서: ① 가게 세 곳(`store_profiles.STORE_IDS`) 모두에서 그 사장님 기록을 초기화와 같은 방식으로 지움(가지지 않은 가게 포함) → ② 다 지웠을 때만 계정 삭제
+- 순서: ① 예시 가게 세 곳(`store_profiles.STORE_IDS`, 가지지 않은 가게 포함)·내 가게 목록·내가 등록한 가게(목록에서 뺀 것 포함, 11/20) 모두에서 그 사장님 기록을 초기화와 같은 방식으로 지움 → ② 다 지웠을 때만 내가 등록한 가게 줄(`stores`)과 계정 삭제
   (`users`. `user_stores`·`auth_sessions` 는 CASCADE, 메모리 방식은 세션을 따로 지움. 그 사장님의 다른 기기 로그인도 끊김) → ③ 세션 쿠키와 상권 쿠키 만료.
+- 직접 등록한 가게는 리뷰 분석 서비스가 아직 모르므로(없는 가게 404) 붙여넣은 리뷰는 0건으로 봅니다(초기화도 같음).
 - ①에서 하나라도 못 지우면 계정을 지우지 않고 503 `records_left` 입니다. 지운 것은 지운 채로 두고, 다시 하면 남은 것을 이어서 지웁니다.
 - 상권 대화는 초기화와 같이 화면이 먼저 `DELETE /api/assistant/conversation` 을 부릅니다.
 - 탈퇴한 아이디로는 로그인되지 않고(401 `bad_login`), 같은 아이디로 새로 가입할 수 있습니다(빈 계정). 시연 계정은 '시연으로 시작'을 다시 누르면 빈 계정으로 새로 만들어집니다.
@@ -1930,6 +1948,65 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 - 맞춤 마케팅의 `sub`: `promo` 맞춤 홍보 제안 · `leftover` 남은 재료 팔기 · `ad` 광고비 점검 · `story` 가게 이야기 글 · `repeat` 쿠폰 결과 확인 (`assistant_proxy.MKT_SUBS` = `src/features/marketing/logic.js`의 `MKT_SUB`, 시험이 같은지 확인).
 - 가게 기본 질문 중 화면 위치(`store_guide`)는 11/20부터 첫 문장을 고르는 분기와 같은 순서로 이동 버튼을 답니다: 답글·댓글·공지·안내문·초안·승인·추천 카드·처리 완료 → 추천 카드 `cards`·승인할 글 `draft`·처리 완료 `done` / 홍보·쿠폰·마케팅·광고 → 맞춤 마케팅 `{marketing, promo}`·추천 카드 / 리포트·보고서·응대 점수 → 종합 리포트 `report` / 그 밖(리뷰·불만) → 리뷰 분석 `{analysis, summary}`·추천 카드. 가게 정보 답(`store_profile`)은 여전히 버튼이 없습니다(시험이 고정). 안내 목록 끝에 '상권 분석'(`assistant_proxy.MARKET_SCREEN`, 메뉴 글자와 같은지 시험)을 더했습니다. 맺음말은 '동네 상권·업종 매출 상담은 이 채팅에서 바로 답하고, 불만 리뷰·쿠폰·리포트를 물으면 지금 가게 현황과 그 화면으로 가는 버튼을 드려요'입니다 (예전 '리뷰 내용은 여기서 답하지 않아요'는 지움). 그래서 '리포트 보여줘'·'리뷰 보여줘'처럼 '보여줘'로 끝나는 말은 화면 위치 안내로 답합니다.
 - 화면(`src/features/assistant/state.js`의 `chatChoose`, 버튼 고르기는 `chat.js`의 `chatNavTarget`)은 `navigate`(그리고 `handoff`의 `domain` marketing → `#/marketing`, customer → `#/cards`) 버튼을 `/api/assistant/actions`로 보내지 않고 `navTo`로 그 화면·탭·시작 모드로 바로 갑니다. 창 폭 숫자로 정하지 않고, `drawerCovers()`가 서랍(`#assistant`)과 본문(`#main`)의 실제 위치가 겹치는지 봐서 **덮고 있을 때만** 서랍을 닫고 포커스를 이동한 화면 제목(`#main h1`)으로 보냅니다. 서랍이 본문을 밀어 둔 넓은 화면이면 서랍은 그대로 둡니다 (2.9 (5)).
+
+### 1.16 `/api/account/*` — 계정 안의 가게와 사장님 프로필 (6차 회의 11/20)
+
+`services/web/web/account_api.py`. **전부 로그인 필요**(아니면 401 `login_needed`). 오류 모양은 1.13 과 같습니다: `{"error": {"message": "쉬운 한국어", "state": "<키>"}}`, 응답은 모두 `Cache-Control: no-store`.
+저장은 `stores` 표(`data_origin = 'registered'`, 칸 `owner_user_id`·`profile`(JSONB)·`updated_at`)와 `user_stores`(순서). DB_HOST 가 없으면 서버 메모리입니다.
+
+| 메서드 | 경로 | 본문 | 응답 |
+|---|---|---|---|
+| GET | `/api/account/stores` | | `{stores: [가게 줄]}` 내 가게, 순서대로 |
+| GET | `/api/account/stores/{store_id}/summary` | | `{state, reviews, complaints, headline, tone}` 아래. 내 가게가 아니면 403 `not_your_store`. 분석을 못 불러와도 200 |
+| POST | `/api/account/stores` | 아래 '가게 칸' 전부 | 201 `{store: 가게 전체}`. 내 목록 **맨 뒤**에 붙음. 세션의 지금 가게는 바꾸지 않음(화면이 이어서 `POST /api/auth/store`). 한 계정 10곳(예시 가게 포함)을 넘으면 422 `store_limit`, 입력 오류 422 `invalid` |
+| GET | `/api/account/stores/{store_id}` | | `{store: 가게 전체}`. 직접 등록한 내 가게만. 예시 가게 403 `sample_store`, 남의 가게·없는 가게 403 `not_your_store` |
+| PATCH | `/api/account/stores/{store_id}` | 가게 칸 중 바꿀 것만 (`location`·`area`·`menus`·`channels` 는 통째로 바뀜) | `{store: 가게 전체}`. 403 은 GET 과 같음 |
+| DELETE | `/api/account/stores/{store_id}` | | `{stores: [가게 줄], store_id}`. **내 목록에서만 뺍니다**(가게 줄과 기록은 지우지 않음). 예시 가게도 뺄 수 있음. 지금 보던 가게였으면 세션의 가게를 남은 첫 가게로(없으면 `null`), 응답의 `store_id` 가 새 값. 목록에 없으면 403 `not_your_store` |
+| PUT | `/api/account/stores/order` | `{store_ids: [...]}` | `{stores: [가게 줄]}`. 내 가게 전부를 한 번씩(집합이 다르거나 겹치면 422 `invalid`) |
+| PATCH | `/api/account/profile` | `{display_name}` (1~20자, 공백은 하나로) | `/api/auth/me` 와 같은 모양. 틀리면 422 `invalid` |
+| POST | `/api/account/password` | `{current_password, new_password}` (8~128자) | `{ok: true}`. 지금 비밀번호가 틀리면 401 `bad_password`(로그인 실패와 같이 셈: 10분에 10번이면 429 `too_many`), 시연 계정 403 `demo_account`, 새 비밀번호 길이 422 `invalid`. 다른 기기의 로그인은 그대로 둡니다 |
+
+저장소에 닿지 못하면 모두 503 `down`. 500 은 없습니다.
+
+가게 줄 (목록·`me.stores` 와 같은 칸 + 두 칸):
+
+```json
+{"store_id": "store_3f9a0c1d2e4b", "name": "우리분식", "business_type_name": "분식전문점", "area_name": "상도역 5번",
+ "station_name": null, "sample": false, "menu_count": 2, "last_opened": true}
+```
+
+- `last_opened`: 세션의 지금 가게인지. `menu_count`: 메뉴 가격 수(예시 가게는 가정 가격 수).
+
+가게 칸 (등록 본문, 가게 전체 응답에도 같은 이름으로 들어감):
+
+| 칸 | 모양 |
+|---|---|
+| `name` | 1~30자 |
+| `industry_code` | 상권 서비스 업종 코드 (영문·숫자 1~20자, 예 `CS100001`) |
+| `business_type_name` | 1~30자 (업종 이름) |
+| `business_status` | `operating` · `planning` · `exploring` |
+| `channels` | 문자열(1~30자) 0~6개. 겹치면 하나로. 안 보내면 `[]` |
+| `location` | `{kind: "address" \| "station", label(1~120자), road_address?(~200자), latitude?(-90~90), longitude?(-180~180), station_id?, station_name?(~40자), district_name?(~20자, 예 "동작구")}`. 없는 칸은 `null` 로 저장 |
+| `area` | `{area_code(숫자 7자리), name(1~60자), period?("YYYYQ", 예 "20262")}` |
+| `menus` | `[{name(1~30자), price(0~1,000,000 정수)}]` 0~30개. 같은 이름은 뒤엣것으로. 안 보내면 `[]` |
+
+- 글자는 앞뒤 공백을 정리하고 제어 문자는 거절합니다. 모르는 칸은 버립니다. 본문은 16KB까지.
+- 가게 ID 는 서버가 `store_` + 16진수 12자리로 만듭니다(리뷰 ID·파일 이름 규칙 `[A-Za-z0-9_-]`, `POST /api/auth/store` 의 40자 제한에 맞음).
+- 가게 전체 응답 = 가게 줄 + `industry_code`, `business_status`, `channels`, `location`, `area`, `menus`, `created_at`, `updated_at`(한국 시간 ISO).
+
+`summary` (가게 고르기 카드의 한 줄. 홈 브리핑과 같은 리뷰 분석 값(`GET /api/insight` 의 `review_count`·`complaint_count`·`groups`)을 조합하고 새 모델 호출은 없음):
+
+| `state` | 뜻 | `headline` · `tone` |
+|---|---|---|
+| `ready` | 리뷰·불만 수 있음 | 반복 불만 묶음이 있으면 "포장 누락 3건 반복"·`bad`(`top_issue_id` 묶음, 없으면 건수가 가장 많은 반복 묶음), 없으면 "반복된 불만이 없어요"·`good` |
+| `empty` | 리뷰 0건 | "리뷰를 넣으면 분석을 시작해요"·`muted`, 숫자 0 |
+| `unavailable` | 분석을 불러오지 못함 | "분석을 불러오지 못했어요"·`muted`, `reviews`·`complaints` 는 `null` |
+
+**등록한 가게로 아직 안 되는 것 (다음 단계)**
+
+- 리뷰 분석·맞춤 마케팅 서비스는 아직 등록한 가게를 모릅니다(404). 그래서 등록 가게를 고른 상태의 `/api/briefing`·`/api/cards`·`/api/insight`·붙여넣기는 503(리뷰 분석 서비스 오류 문장), `summary` 는 `empty` 입니다. 승인 기록(`/api/approvals`)은 됩니다.
+- 상권 지표 파일이 없어 카드 ⓑ 가 뜨지 않습니다(`/api/health` 의 막힘 띠에는 넣지 않음). 상권 서랍·상권 화면의 '우리 가게 기본 조건' 자동 맞춤(`POST /api/market/setup`)은 아직 등록한 역·업종·상권을 쓰지 않고 `already` 로 답합니다(조건은 사장님이 화면에서 고름).
+- 등록 가게는 `shared/store_profiles.py` 가 예시 세 곳 다음으로 찾습니다(`set_registered_lookup`, 찾은 값은 5초만 기억하고 없다는 결과는 기억하지 않음 → 다른 WAS 에서 고친 이름도 5초 안에 보임). 말투는 기본 해요체, 메뉴 가격은 등록한 메뉴, 문화행사 구는 `location.district_name`(없으면 서울 전체).
 
 ---
 
@@ -2491,7 +2568,7 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
 
 | 임시 표 이름 | 담을 것 | 지금 코드에서 비슷한 것 |
 |---|---|---|
-| `stores` | 가게 | `StoreProfile`(`shared/contracts.py`: `store_id`, `name`, `business_type`, `business_type_name`, `channels`, `menu`, `data_origin`, `city`, `area_name`, `menu_prices`), `store.json` |
+| `stores` | 가게 | 11/20부터 실제 표: 사장님이 직접 등록한 가게만(`data_origin = 'registered'`, `owner_user_id`, `profile` JSONB, 1.16). 예시 세 곳은 `StoreProfile`(`shared/contracts.py`)·`store.json`·`shared/store_profiles.py` 그대로 |
 | `reviews` | 리뷰 (합성, 붙여넣은 것) | `ReviewRecord`의 앞 11칸(`review_id`, `store_id`, `text`, `created_at`, `channel`, `rating`, `input_method`, `pii_masked`, `order_ref`, `status`, `data_origin`), `reviews.json`, `pasted_(가게).json` |
 | `review_labels` | 리뷰별 분류 결과 | `ReviewRecord`의 뒤 4칸(`sentiment`, `topics`, `negative_topics`, `urgency`)과 리뷰 분석 서버의 `classification`(`method`, `model`, `warnings`). 합성 정답표 `labels.json`과는 다른 것입니다. 무엇을 담을지는 설계 담당이 정합니다 |
 | `reports` | 가게 주간·월간 보고서 | 없음 (새로 만듦) |
