@@ -284,6 +284,22 @@ class WithPostgres(unittest.TestCase):
         self.assertEqual(other.get("/api/reports/counts").json()["weekly"], 1)
         self.app.state.reports.erase(["store_ongi"], you)
 
+    def test_account_reset_and_withdraw_erase_saved_reports(self):
+        """계정 초기화·탈퇴는 그 사장님이 저장한 보고서도 지운다 (다른 사장님 것은 그대로)."""
+        client, me = login(self.app)
+        other, you = login(self.app)
+        client.get("/api/reports/weekly", params={"period": "2026-11-09"})
+        client.get("/api/reports/monthly", params={"period": "2026-10"})
+        other.get("/api/reports/weekly", params={"period": "2026-11-09"})
+        self.assertEqual(client.get("/api/reports/counts").json()["weekly"], 1)
+        res = client.post("/api/auth/reset", json={"scope": "store"})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(client.get("/api/reports/counts").json(), {"storage": "saved", "weekly": 0, "monthly": 0})
+        self.assertEqual(other.get("/api/reports/counts").json()["weekly"], 1)
+        res = other.post("/api/auth/withdraw", json={})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(self.app.state.reports.storage.reports.list("store_ongi", visitor_id=you), [])
+
 
 class Guests(unittest.TestCase):
     def test_a_guest_gets_a_computed_report_that_is_not_saved(self):

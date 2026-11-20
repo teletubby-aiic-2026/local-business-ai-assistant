@@ -3,7 +3,8 @@
 // - 내 가게: 목록(GET /api/account/stores), 정보 고치기(직접 등록한 가게만 → 새 가게 등록 화면 mode "edit"), 빼기(확인 뒤 DELETE),
 //   순서 바꾸기([위로]·[아래로] → PUT /api/account/stores/order), + 새 가게 등록
 // - 기록과 탈퇴: 예전 '내 계정' 창의 기록 지우기(이 가게·모든 가게)와 회원 탈퇴 (확인 창 AccountDialog.jsx)
-// 그림의 '보관한 보고서' 구역은 만들지 않았다 (서버에 보고서 저장 기능이 없음)
+// - 보관한 보고서: 내 가게 전체의 저장된 주간·월간 보고서 수 (features/report/SavedReportCounts.jsx, GET /api/reports/counts).
+//   일일은 저장하지 않는다 (11/20 박건영 결정: 일일은 홈에서 확인)
 import { useEffect, useRef, useState } from "react";
 import { useStore, getState, setState } from "../../state/store.js";
 import { backToStore, goStoreNew, writeEntered } from "../../state/stage.js";
@@ -13,6 +14,7 @@ import { later } from "../../lib/focus.js";
 import { Button, Icon, Panel } from "../../components/ui.jsx";
 import { Face, StageFrame, StageTitle, WhoText } from "./Stage.jsx";
 import AccountDialog from "./AccountDialog.jsx";
+import SavedReportCounts from "../report/SavedReportCounts.jsx";
 import { changePassword, isDemo, listStores, orderStores, removeStore, saveProfile, storeName } from "./acctApi.js";
 import "./account.css";
 
@@ -224,7 +226,7 @@ function Records({ me }) {
   return (
     <section className="panel prof-panel" aria-labelledby="prof-rec-title">
       <div className="panel-head"><h2 id="prof-rec-title">기록과 탈퇴</h2></div>
-      <p className="small muted">기록 지우기: 승인 기록·붙여넣은 리뷰·맞춤 마케팅 기록·AI 대화를 지워요. 계정과 가게 정보는 남아요.</p>
+      <p className="small muted">기록 지우기: 승인 기록·붙여넣은 리뷰·저장된 보고서·맞춤 마케팅 기록·AI 대화를 지워요. 계정과 가게 정보는 남아요.</p>
       <div className="btn-row">
         {hasStore && <Button onClick={(e) => pick("store", e)}>{`${storeName(me)} 기록 지우기`}</Button>}
         <Button onClick={(e) => pick("account", e)}>모든 가게 기록 지우기</Button>
@@ -252,6 +254,11 @@ export default function Profile() {
         </header>
         <MyInfo me={me} />
         <MyStores />
+        <section className="panel prof-panel" aria-labelledby="prof-reports-title">
+          <div className="panel-head"><h2 id="prof-reports-title">보관한 보고서</h2></div>
+          <p className="small muted">주간·월간 보고서는 가게마다 이 계정에 저장돼요.</p>
+          <SavedReportCounts />
+        </section>
         <Records me={me} />
       </div>
     </StageFrame>

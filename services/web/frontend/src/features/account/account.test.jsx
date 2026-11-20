@@ -203,7 +203,8 @@ describe("A3 가게 선택", () => {
 
 describe("A5 사장님 프로필", () => {
   function profileServer(extra = {}) {
-    server({ "/api/account/stores": { stores: STORES }, "/api/auth/me": ME, ...extra });
+    server({ "/api/account/stores": { stores: STORES }, "/api/auth/me": ME,
+      "/api/reports/counts": { storage: "saved", weekly: 4, monthly: 1 }, ...extra });
     setState({ stage: "profile", me: ME, entered: "store_basak" });
     return render(<Profile />);
   }
@@ -272,7 +273,11 @@ describe("A5 사장님 프로필", () => {
 
   it("기록과 탈퇴: 확인 창에 '되돌릴 수 없어요'가 남고, 탈퇴는 비밀번호를 한 번 더, Esc 는 취소", async () => {
     profileServer();
-    expect(screen.queryByText(/보관한 보고서/)).toBeNull();   // 서버에 보고서 저장 기능이 없어 만들지 않음
+    // 보관한 보고서: 저장된 주간·월간 수만 (일일은 저장하지 않음, 11/20)
+    expect(screen.getByRole("heading", { name: "보관한 보고서" })).toBeTruthy();
+    expect((await screen.findByText("4개")).closest("#saved-report-counts")).toBeTruthy();
+    expect(screen.getByText("1개")).toBeTruthy();
+    expect(screen.queryByText("일일")).toBeNull();
     const dlg = document.getElementById("acct-dialog");
     expect(dlg.hasAttribute("open")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "회원 탈퇴" }));

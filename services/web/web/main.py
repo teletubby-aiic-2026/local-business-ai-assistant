@@ -298,6 +298,7 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     app.include_router(create_marketing_router(marketing, proxy_of=lambda request: hub.marketing(sid(request)),
                                                record_store=record_marketing))
     app.state.reports = ReportBook(hub, demo.storage)         # 주간·월간 보고서 저장 (reports.py, 11/20)
+    app.state.account.reports = app.state.reports             # 계정 초기화·탈퇴가 저장된 보고서도 지우게
     app.include_router(create_reports_router(app.state.reports))
     # 손님용 문의 페이지는 CARE_PUBLIC=1 일 때만 들어 있다 (기본 가게 하나)
     for router in create_care_routers(care, proxy_of=lambda request: hub.care(sid(request))):
