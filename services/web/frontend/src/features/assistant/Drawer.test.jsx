@@ -114,6 +114,16 @@ describe("상단 'AI에게 묻기' 버튼 (실제 상단 바)", () => {
     expect(document.activeElement.id).toBe("assistant-q");
   });
 
+  it("처음 열면 준비되는 동안 닫기 버튼에 있다가, 준비가 끝나면 입력칸으로 간다", async () => {
+    globalThis.fetch = fakeFetch([]);
+    render(<><Topbar /><Drawer /></>);
+    ask().focus();
+    act(() => { fireEvent.click(ask()); });
+    expect(document.activeElement.id).toBe("assistant-close");   // 입력칸이 아직 막혀 있음
+    await waitFor(() => expect(document.getElementById("assistant-q").disabled).toBe(false));
+    await waitFor(() => expect(document.activeElement.id).toBe("assistant-q"));
+  });
+
   it("입력칸이 아직 막혀 있으면(준비 전) 다시 눌렀을 때 닫기 버튼으로 간다", async () => {
     globalThis.fetch = vi.fn(() => new Promise(() => {}));   // 상태 확인이 끝나지 않음
     render(<><Topbar /><Drawer /></>);

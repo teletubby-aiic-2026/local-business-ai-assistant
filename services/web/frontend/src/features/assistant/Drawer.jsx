@@ -179,9 +179,11 @@ export default function Drawer() {
     if (back && !back.hidden) back.focus();
   }, [open]);
 
-  // 준비가 끝나면 (닫기 버튼에 머물러 있을 때만) 입력칸으로
+  // 준비가 끝나면 (닫기 버튼에 머물러 있을 때만) 입력칸으로.
+  // 여는 순간에는 위 효과가 방금 chatStart 를 불렀어도 이 렌더의 c.loading 은 아직 false 라, 지금 상태(getChat)로 본다
+  // (c.loading 으로 보면 기다림이 바로 풀려서 처음 열 때 포커스가 닫기 버튼에 남았다, 11/20)
   useEffect(() => {
-    if (!wantQ.current || c.loading) return;
+    if (!wantQ.current || getChat().loading) return;
     wantQ.current = false;
     const a = document.activeElement;
     if (c.ready && open && (a === document.body || a?.id === "assistant-close")) qRef.current?.focus({ preventScroll: true });
