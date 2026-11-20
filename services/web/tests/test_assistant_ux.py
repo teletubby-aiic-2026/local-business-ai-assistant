@@ -36,6 +36,7 @@ MARKET_FLOW = (REPO_ROOT / "services" / "market-analysis" / "app" / "assistant" 
 CHAT_JS = "features/assistant/chat.js"          # 서랍의 순수 계산 (CHAT_QUARTER · chatQuarter · chatPeriod · CHAT_STARTERS)
 CHAT_STATE = "features/assistant/state.js"      # 서랍 상태 (첫 추천 질문 칩을 CHAT_STARTERS 로 채움)
 STORE = fixture("store_ongi.json")
+AN_TABS = fs.strings(fs.const_value(fs.read("features/analysis/calc.js"), "AN_TABS", "frontend/src/features/analysis/calc.js"))
 
 # 가게 자체를 묻는 질문 → 프록시가 답한다 (질문, 종류)
 STORE_QUESTIONS = [
@@ -54,6 +55,10 @@ STORE_QUESTIONS = [
     ("리뷰 답글은 어디서 봐?", "where"), ("리뷰 분석은 어디서 봐?", "where"), ("우리 가게 리뷰 어디서 봐?", "where"),
     ("공지 어디서 써?", "where"), ("홍보글 어디서 확인해?", "where"), ("종합 리포트 어디 있어?", "where"),
     ("승인한 글 어디서 확인해?", "where"), ("리뷰 보여줘", "where"),
+    # 어순이 뒤바뀐 가게 질문 (11/20): '우리 가게'가 뒤에 오거나 속성 낱말 하나 + 가게
+    ("메뉴 우리 가게", "menu"), ("이름 우리 가게", "name"), ("업종 우리 가게", "industry"), ("위치 우리 가게", "area"),
+    ("김치찌개 얼마야 우리 가게", "price"), ("가격 우리 가게", "price"), ("우리 가게 가격 알려줘", "price"), ("이름 가게", "name"),
+    ("메뉴 뭐야 저희 매장은", "menu"),
 ]
 
 # 상권 질문·그 밖의 말 → 반드시 상권 서비스로 간다
@@ -79,6 +84,8 @@ MARKET_QUESTIONS = [
     "우리 가게 어디로 옮길까?", "우리 가게 메뉴 중에 뭐가 제일 남아?", "월세 300만 원, 권리금 5천만 원이야", "우리 가게 리뷰 어때?",
     "메뉴 뭐 넣을까?", "우리 가게 메뉴 뭘 뺄까요?", "우리 가게 이름 뭐로 지을까?",
     "안녕", "고마워",
+    # 어순을 옮겨도 상권 낱말이 섞이면 상권 서비스 (11/20)
+    "메뉴 추천해줘 우리 가게", "매출 어때 우리 가게", "이름 합정역 가게",
 ]
 
 
@@ -484,9 +491,21 @@ class TestStoreAnswers(Base):
                 self.assertEqual(sorted(data["classification"]), sorted(class_keys))
                 self.assertEqual(data["schema_version"], ap.REPLY_SCHEMA)
                 self.assertEqual((data["cards"], data["topics"], data["pending"], data["model_used"]), ([], [], None, False))
-                self.assertEqual((data["reply"]["cited"], data["reply"]["actions"]), ([], []))
+                self.assertEqual(data["reply"]["cited"], [])
                 self.assertTrue(data["reply"]["text"].strip())
                 self.assertIn(data["reply"]["kind"], ("store_profile", "store_guide"))
+                actions = data["reply"]["actions"]
+                if data["reply"]["kind"] == "store_profile":
+                    self.assertEqual(actions, [])                                         # 가게 정보 답에는 버튼이 없다
+                else:                                                                     # 화면 위치 답: 그 화면으로 가는 버튼 1~3개 (11/20)
+                    self.assertTrue(1 <= len(actions) <= 3, actions)
+                    for action in actions:
+                        payload = action["payload"]
+                        self.assertTrue(action["label"].strip())
+                        self.assertEqual(payload["type"], "navigate")
+                        self.assertIn(payload["route"], fs.ROUTES)
+                        if payload["route"] == "analysis":
+                            self.assertIn(payload.get("sub"), AN_TABS)
                 self.assertEqual(data["reply"]["suggestions"], ap.BACK_TO_MARKET)
                 self.assertTrue(all(isinstance(n, str) for n in data["reply"]["notes"]))
                 self.assertEqual(data["classification"]["domain"], "store")

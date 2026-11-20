@@ -331,6 +331,31 @@ _MENU_SALES = re.compile(r"메뉴(별|마다|당)[가-힣]{0,6}(매출|판매|�
 _SCOPE_WORDS = ("상권", "동네", "주변", "근처", "업종", "평균", "다른", "서울", "전체", "지역")
 
 
+# 어순이 뒤바뀐 가게 질문 (11/20): "메뉴 우리 가게", "이름 가게"처럼 '우리 가게'가 뒤에 오면 앞으로 옮겨 한 번 더 본다
+_OURS_LAST = re.compile(r"(우리|저희|내|제|울)(가게|매장|식당|집|상호)(은|는|이|가|의|요|야|예요|에요)?$")
+_ATTR_SHOP = re.compile(r"(메뉴|메뉴판|이름|상호|상호명|업종|가격표|기본정보|프로필)(은|는|이|가|의)?(가게|매장|식당)(은|는|이|가|요|야|예요|에요)?")
+# 메뉴 이름 없이 우리 가게 가격만 묻는 말 ("우리 가게 가격 알려줘", "가격 우리 가게") → 메뉴 가격표
+_PLAIN_PRICE = re.compile(r"((우리|저희|내|제|울)?(가게|매장|식당|집)(의|은|는)?)?가격(표)?(이|가|은|는|좀)?(뭐|얼마|알려|보여|말해)?[가-힣]{0,3}")
+
+
+def _squash(text: str) -> str:
+    """공백·기호를 빼고 소문자로 (질문을 고를 때 쓰는 글자)."""
+    return re.sub(r"[^0-9a-z가-힣]", "", (text or "").lower())
+
+
+def _reordered(c: str) -> str | None:
+    """'우리 가게'가 뒤에 온 글자를 '우리 가게…' 순서로 옮긴 것. 옮길 모양이 아니면 None.
+      · '메뉴 우리 가게' → '우리가게메뉴' (소유격이 뒤에 옴)
+      · '이름 가게'      → '우리가게이름' (속성 낱말 하나 + 가게. '우리이름가게'는 _OURS 를 지나지 못해 '우리'+가게+속성 순서로)"""
+    m = _OURS_LAST.search(c)
+    if m and m.start() > 0:
+        return m.group(1) + m.group(2) + c[:m.start()]
+    m = _ATTR_SHOP.fullmatch(c)
+    if m:
+        return "우리" + m.group(3) + m.group(1)
+    return None
+
+
 def store_question(text: str) -> str | None:
     """가게 자체를 묻는 질문이면 그 종류를, 아니면(상권 질문·모르는 말) None 을 돌려준다. None 이면 상권 서비스로 보낸다.
 
@@ -340,12 +365,23 @@ def store_question(text: str) -> str | None:
       ② 상권 낱말(_MARKET_WORDS)이 하나라도 있으면 상권 서비스. 하나뿐인 낱말이 '상권'이고 가게의 상권 이름을 묻는 모양일 때만 area
       ③ 화면 위치: 화면에 있는 것(리뷰·답글·공지…) + 어디서 보는지
       ④ 가게 정보: '우리 가게…'·'가게…'로 시작하고, 낱말 바로 뒤에 묻는 말이 올 때만. 일을 시키는 말(써줘·바꿔…)과 고민을 묻는 말(…할까?)은 뺀다
+    ①~④에 걸리지 않으면 '우리 가게'가 뒤에 온 글자를 앞으로 옮겨(_reordered) 딱 한 번 더 본다 (11/20, "메뉴 우리 가게").
+    옮긴 글자도 같은 규칙을 지나야 하므로 상권 낱말이 섞이면 그대로 상권 서비스다. 다시 옮기지는 않는다 (같은 글자가 되는 입력도 끝난다).
     공백·기호를 뺀 글자가 40자를 넘는 글은 여기서 답하지 않는다.
     """
-    c = re.sub(r"[^0-9a-z가-힣]", "", (text or "").lower())
+    c = _squash(text)
     if not c or len(c) > MAX_STORE_QUESTION:
         return None
+    found = _store_kind(c)
+    if found is None:
+        moved = _reordered(c)
+        if moved is not None and moved != c:
+            found = _store_kind(moved)
+    return found
 
+
+def _store_kind(c: str) -> str | None:
+    """store_question 의 ①~④ (c 는 _squash 한 글자)."""
     def has(words: tuple[str, ...]) -> bool:
         return any(word in c for word in words)
 
@@ -366,6 +402,13 @@ def store_question(text: str) -> str | None:
     return None
 
 
+def _plain_price(text: str) -> bool:
+    """메뉴 이름 없이 우리 가게 가격(표)만 묻는 말인지. 어순이 뒤바뀐 것('가격 우리 가게')도 옮겨서 본다."""
+    c = _squash(text)
+    moved = _reordered(c)
+    return bool(_PLAIN_PRICE.fullmatch(c) or (moved is not None and _PLAIN_PRICE.fullmatch(moved)))
+
+
 # ── 전 파트 질문 (5차 회의 11/18) ──────────────────────────────────────────────
 # 상권 질문은 지금처럼 상권 서비스가 8분기 자료로 답한다. 입력·설정이 필요한 고객응대·마케팅·리포트 질문은 여기서
 # 지금 가게의 현황 1~2줄과 그 기능 화면으로 바로 가는 버튼(payload.type "navigate")을 준다. 상권 서비스는 부르지 않는다.
@@ -375,9 +418,18 @@ _STRONG_MARKET = ("상권", "유동", "인구", "점포", "경쟁", "개업", "�
                   "연령", "나이대", "배후", "집객", "직장인", "동네", "주변", "근처")
 _REPORT_Q = ("리포트", "보고서", "응대점수", "성적", "pdf", "결산")
 _MKT_Q = ("쿠폰", "본전", "할인", "남은재료", "남는재료", "재고", "떨이", "광고비", "광고", "홍보", "가게이야기", "소개글", "스토리",
-          "마케팅", "이벤트", "단골", "재주문", "사용률", "전단", "프로모션")
+          "마케팅", "이벤트", "단골", "재주문", "사용률", "전단", "프로모션",
+          "인스타", "sns", "블로그", "플레이스", "배민공지", "신메뉴홍보", "손님늘", "단골늘")      # 11/20 더함
 _CARE_Q = ("리뷰", "후기", "불만", "답글", "댓글", "캡처", "캡쳐", "별점", "진상", "테러", "억울", "악플", "응대", "컴플레인", "클레임",
            "블랙컨슈머")
+# 오늘 추천 카드·할 일·초안을 묻는 말 (11/20). 단독 '추천'·'카드'는 상권 질문("메뉴 추천해줘")과 겹쳐 넣지 않는다
+_CARDS_Q = ("추천카드", "오늘추천", "카드있", "오늘할일", "할일", "브리핑", "승인할글", "승인대기", "초안", "처리완료")
+# 무엇을 물을지 모르는 말 ("우리 가게", "뭐 물어볼 수 있어?") → 상권 숫자를 꺼내지 않고 물을 수 있는 것을 알려 준다 (11/20)
+_HELP_EXACT = re.compile(r"^((우리|저희|내|제|울)?(가게|매장|식당|집)|도와줘|도움말|뭐물어볼수있어|뭘물어볼수있어|무엇을물어볼수있어"
+                         r"|뭐할수있어|무슨기능있어|어떤기능있어|기능알려줘)(요|야|예요|에요)?$")
+HELP_TEXT = "어떤 것을 도와드릴까요? 상권 매출·점포 수, 우리 가게 메뉴·정보, 불만 리뷰 답글, 쿠폰·홍보 제안을 물어보실 수 있어요."
+HELP_SUGGESTIONS = [BACK_TO_MARKET[0], "우리 가게 메뉴 뭐야?", "불만 리뷰 제일 많은 게 뭐야?"]     # 상권·가게·리뷰에서 하나씩
+CARDS_SUGGESTIONS = ["불만 리뷰 제일 많은 게 뭐야?", "쿠폰 2천원 할인하면 몇 개 팔아야 본전이야?", BACK_TO_MARKET[0]]
 # 맞춤 마케팅 화면의 시작 모드 (frontend/src/features/marketing 의 MKT_SUB 와 같은 값, 시험이 확인)
 MKT_SUBS = {"promo": "맞춤 홍보 제안", "leftover": "남은 재료 팔기", "ad": "광고비 점검", "story": "가게 이야기 글",
             "repeat": "쿠폰 결과 확인"}
@@ -391,9 +443,18 @@ def nav(label: str, route: str, sub: str | None = None) -> dict:
 
 
 def domain_question(text: str) -> str | None:
-    """'care' · 'marketing' · 'report' 또는 None(상권 서비스로). 상권 자료 낱말(_STRONG_MARKET)이 있으면 상권 서비스."""
-    c = re.sub(r"[^0-9a-z가-힣]", "", (text or "").lower())
-    if not c or any(w in c for w in _STRONG_MARKET):
+    """'help' · 'cards' · 'care' · 'marketing' · 'report' 또는 None(상권 서비스로).
+    순서: ① 무엇을 물을지 모르는 말 그대로(_HELP_EXACT) → help ② 추천 카드·할 일·초안 낱말(_CARDS_Q)이 있고 상권 자료 낱말이 없으면 cards
+    ③ 상권 자료 낱말(_STRONG_MARKET)이 있으면 상권 서비스 ④ 리포트 → 마케팅 → 고객응대 낱말."""
+    c = _squash(text)
+    if not c:
+        return None
+    if _HELP_EXACT.match(c):
+        return "help"
+    strong = any(w in c for w in _STRONG_MARKET)
+    if any(w in c for w in _CARDS_Q) and not strong:
+        return "cards"
+    if strong:
         return None
     if any(w in c for w in _REPORT_Q):
         return "report"
@@ -430,11 +491,12 @@ def _ieyo(word: str) -> str:
     return "예요" if last is not None and (ord(last) - 0xAC00) % 28 == 0 else "이에요"
 
 
-def _store_reply(lines: list[str], kind: str, turn: str, *, notes: tuple[str, ...] = ()) -> dict:
+def _store_reply(lines: list[str], kind: str, turn: str, *, notes: tuple[str, ...] = (), actions: list[dict] | None = None) -> dict:
     """상권 서비스가 messages 에 주는 것과 같은 칸 (assistant/flow.py 의 _finish. debug 는 원래 화면에 오지 않는다).
-    conditions 는 싣지 않는다: 가게 질문은 분석 조건을 바꾸지 않으니 화면의 조건 줄이 그대로 남는다."""
+    conditions 는 싣지 않는다: 가게 질문은 분석 조건을 바꾸지 않으니 화면의 조건 줄이 그대로 남는다.
+    actions: 화면 이동 버튼 (화면 위치 답만 싣는다. 가게 정보 답은 빈 목록)."""
     return {"schema_version": REPLY_SCHEMA,
-            "reply": {"text": "\n".join(lines), "kind": kind, "cited": [], "actions": [], "notes": list(notes),
+            "reply": {"text": "\n".join(lines), "kind": kind, "cited": [], "actions": list(actions or []), "notes": list(notes),
                       "suggestions": list(BACK_TO_MARKET)},
             "model_used": False, "cards": [], "topics": [],
             "classification": {"domain": "store", "turn_type": turn, "topics": [], "needs_user_choice": False,
@@ -446,20 +508,25 @@ def _where_answer(text: str) -> dict:
     c = re.sub(r"\s", "", text)
     drafts = (f"초안은 화면 메뉴 '{SCREENS['cards']}'에서 카드를 고르면 '{SCREENS['drafts']}'에 나와요. "
               f"승인한 글은 '{SCREENS['done']}'에 모여요.")
+    # 첫 문장과 이동 버튼은 같은 분기에서 고른다 (문장이 말하는 화면과 버튼이 어긋나지 않게, 11/20)
+    flow = [nav("추천 카드 보기", "cards"), nav("승인할 글 보기", "draft"), nav("처리 완료 보기", "done")]
     if "답글" in c or "댓글" in c:
-        first = "리뷰 답글 " + drafts
+        first, actions = "리뷰 답글 " + drafts, flow
     elif "공지" in c or "안내문" in c:
-        first = "포장·주문 안내문 " + drafts
+        first, actions = "포장·주문 안내문 " + drafts, flow
     elif "홍보" in c or "쿠폰" in c or "마케팅" in c or "광고" in c:
         # 맞춤 마케팅(설문으로 홍보 제안·쿠폰 손익·광고비 점검)이 먼저, 오늘 추천된 쿠폰 홍보글은 추천 카드에서
         first = (f"홍보·쿠폰·광고비는 화면 메뉴 '{SCREENS['marketing']}'에서 몇 가지 질문에 답하면 제안과 글을 만들어 드려요. "
                  f"오늘 추천된 쿠폰 홍보글은 '{SCREENS['cards']}'에서 카드를 고르면 '{SCREENS['drafts']}'에 나와요.")
+        actions = [nav("맞춤 마케팅 열기", "marketing", "promo"), nav("추천 카드 보기", "cards")]
     elif "초안" in c or "승인" in c or "추천카드" in c or "처리완료" in c:
-        first = "글 " + drafts
+        first, actions = "글 " + drafts, flow
     elif "리포트" in c or "보고서" in c or "응대점수" in c:
         first = f"응대 점수와 월간 보고서는 화면 메뉴 '{SCREENS['report']}'에 있어요."
+        actions = [nav("종합 리포트 열기", "report")]
     else:
         first = f"리뷰와 불만 묶음은 화면 메뉴 '{SCREENS['reviews']}'에서 볼 수 있어요."
+        actions = [nav("리뷰 분석 열기", "analysis", "summary"), nav("추천 카드 보기", "cards")]
     return _store_reply([first,
                          f"- 리뷰·불만 묶음: '{SCREENS['reviews']}'",
                          f"- 답글·안내문·홍보 글 초안: '{SCREENS['cards']}' → '{SCREENS['drafts']}'",
@@ -469,7 +536,7 @@ def _where_answer(text: str) -> dict:
                          f"- 상권 매출·점포·유동인구 표와 차트: '{MARKET_SCREEN}'",
                          # 11/18부터 서랍이 리뷰·마케팅·리포트 질문에도 현황과 화면 이동 버튼으로 답한다 (예전 '리뷰는 여기서 답하지 않아요'는 맞지 않음)
                          "참고: 동네 상권·업종 매출 상담은 이 채팅에서 바로 답하고, 불만 리뷰·쿠폰·리포트를 물으면 지금 가게 현황과 그 화면으로 가는 버튼을 드려요."],
-                        "store_guide", "where")
+                        "store_guide", "where", actions=actions)
 
 
 def store_answer(kind: str, text: str, store: StoreProfile | None) -> dict:
@@ -482,8 +549,10 @@ def store_answer(kind: str, text: str, store: StoreProfile | None) -> dict:
     prices = store.menu_prices or {}
     if kind == "price":
         # "우리 가게 김치찌개 얼마야?"처럼 메뉴 값을 물을 때만 가격표로 답한다. 메뉴가 아닌 것의 값은 프로필에 없다
+        # 메뉴 이름 없이 가게 가격만 묻는 말("우리 가게 가격 알려줘", "가격 우리 가게")도 메뉴 가격표 (11/20)
         c = re.sub(r"\s", "", text)
-        if not ("메뉴" in c or "가격표" in c or any(name.replace(" ", "") in c or name.split()[0] in c for name in menu)):
+        if not ("메뉴" in c or "가격표" in c or any(name.replace(" ", "") in c or name.split()[0] in c for name in menu)
+                or _plain_price(text)):
             kind = "unknown"
     facts = {"name": f"- 이름: {store.name}", "industry": f"- 업종: {store.business_type_name}",
              "area": f"- 상권: {store.area_name}" if store.area_name else None,
@@ -747,6 +816,16 @@ class AssistantProxy:
 
     def domain_answer(self, domain: str, text: str, visitor: str | None = None) -> dict:
         shop = self._shop()
+        if domain == "help":            # 아무것도 조회하지 않는다 (상권 숫자·리뷰 현황을 먼저 꺼내지 않음)
+            return _domain_reply([HELP_TEXT], "help_guide", "general",
+                                 [nav("추천 카드 보기", "cards"), nav("맞춤 마케팅 열기", "marketing", "promo"),
+                                  nav("리뷰 분석 열기", "analysis", "summary"), nav("상권 분석 표·차트 보기", "market")],
+                                 list(HELP_SUGGESTIONS))
+        if domain == "cards":
+            return _domain_reply(self._cards_status(visitor, shop), "cards_guide", "customer",
+                                 [nav("추천 카드 보기", "cards"), nav("승인할 글 보기", "draft"),
+                                  nav("맞춤 마케팅 열기", "marketing", "promo")],
+                                 list(CARDS_SUGGESTIONS))
         c = re.sub(r"[^0-9a-z가-힣]", "", (text or "").lower())
         b = self._briefing(visitor)
         counts = (b or {}).get("counts") or {}
@@ -808,7 +887,54 @@ class AssistantProxy:
                 parts.append(f"{short_metric(s.metric_name)}은 전년 같은 분기보다 {abs(s.value):.2f}% {way} ({s.area_name}).")
         except Exception as exc:
             log.warning("서랍 현황: 마케팅 현황을 읽지 못함 (%s)", exc.__class__.__name__)
-        return " ".join(parts) or f"{shop}의 칭찬 메뉴·상권 지표를 지금 불러오지 못했어요."
+        line = " ".join(parts) or f"{shop}의 칭찬 메뉴·상권 지표를 지금 불러오지 못했어요."
+        approved = self._marketing_approved(visitor)
+        return f"{line} {approved}" if approved else line
+
+    def _marketing_approved(self, visitor: str | None) -> str | None:
+        """맞춤 마케팅에서 승인한 글 건수 한 줄 (11/20). 없거나 못 읽으면 None.
+        승인 목록(list_approvals)에는 card_id·kind 가 없어 draft_id 가 'mkt-' 로 시작하는 것으로 센다 (marketing_proxy.take_approvals,
+        화면 state/boot.js 의 staffApprovals 와 같은 규칙). 가장 최근 글의 종류는 저장소의 details 에서 읽고, 못 읽으면 괄호를 뺀다."""
+        if self.demo is None:
+            return None
+        try:
+            rows = [r for r in self.demo.list_approvals(visitor)
+                    if r.get("card_id") == "marketing" or str(r.get("draft_id") or "").startswith("mkt-")]
+        except Exception as exc:
+            log.warning("서랍 현황: 승인 기록을 읽지 못함 (%s)", exc.__class__.__name__)
+            return None
+        if not rows:
+            return None
+        kind = None
+        try:
+            from shared.storage import clean_visitor_id
+            mine = {r["draft_id"] for r in rows}
+            details = self.demo.storage.approvals.details(self.demo.s.store_id, clean_visitor_id(visitor))
+            last = [d for d in details if d.get("draft_id") in mine and (d.get("card_id") == "marketing" or d["draft_id"].startswith("mkt-"))]
+            if last and isinstance(last[-1].get("kind"), str) and last[-1]["kind"].strip():
+                kind = last[-1]["kind"].strip()
+        except Exception as exc:
+            log.warning("서랍 현황: 승인한 글 종류를 읽지 못함 (%s)", exc.__class__.__name__)
+        return f"맞춤 마케팅에서 승인한 글 {len(rows)}건" + (f"({kind})" if kind else "") + "이 있어요."
+
+    def _cards_status(self, visitor: str | None, shop: str) -> list[str]:
+        """오늘 추천 카드 개수·제목 (11/20). 규칙만으로 계획을 세운다(plan_cards 에 writer 를 주지 않음): live 에서도 HCX 를 부르지 않는다.
+        만든 초안·승인 대기 수는 브라우저에만 있어 이 서버가 모른다 → 숫자를 지어내지 않고 화면으로 안내한다."""
+        guide = f"추천 카드에서 카드를 고르면 글 초안이 '{SCREENS['drafts']}'에 나오고, 승인한 글은 '{SCREENS['done']}'에 모여요."
+        if self.demo is None:
+            return [f"{shop}의 오늘 추천 카드를 지금 불러오지 못했어요.", guide]
+        try:
+            from .cards import plan_cards
+            st = self.demo._state(visitor)
+            store, reviews = self.demo._contract_inputs(st)
+            plans = plan_cards(st["insight"], st["snapshots"], self.demo.s.store_id, preferred_id=self.demo.s.card_b_snapshot_id,
+                               threshold=self.demo.s.card_b_threshold, store=store, reviews=reviews)
+        except Exception as exc:
+            log.warning("서랍 현황: 추천 카드를 읽지 못함 (%s)", exc.__class__.__name__)
+            return [f"{shop}의 오늘 추천 카드를 지금 불러오지 못했어요.", guide]
+        if not plans:
+            return [f"{shop}: 오늘은 추천 카드가 없어요. 리뷰 분석과 맞춤 마케팅에서 할 일을 찾아볼 수 있어요."]
+        return [f"{shop}: 오늘 추천 카드는 {len(plans)}장이에요.", *[f"- {p.title}" for p in plans], guide]
 
 
 def _pick_area(candidates: list[dict], wanted: SetupDefaults) -> dict | None:
