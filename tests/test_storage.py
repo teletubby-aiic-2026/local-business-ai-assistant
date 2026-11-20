@@ -462,6 +462,46 @@ def test_reports_list_is_newest_period_first_and_can_filter(backend):
     assert len(backend.reports.list(sid, limit=2)) == 2
 
 
+def test_reports_are_kept_per_visitor(backend):
+    """같은 가게·같은 기간이어도 방문자(사장님)마다 따로 저장된다 (11/20). 방문자를 안 주면 공용 자리."""
+    sid = uid("store")
+    a, b = "u-" + uid("a"), "u-" + uid("b")
+    backend.reports.save(sid, "weekly", "2026-11-09", "2026-11-15", numbers={"n": 1}, body_text="a", evidence_ids=[],
+                         prompt_version="p1", visitor_id=a)
+    backend.reports.save(sid, "weekly", "2026-11-09", "2026-11-15", numbers={"n": 2}, body_text="b", evidence_ids=[],
+                         prompt_version="p1", visitor_id=b)
+    got_a = backend.reports.get(sid, "weekly", "2026-11-09", "2026-11-15", visitor_id=a)
+    assert got_a["numbers"] == {"n": 1} and got_a["visitor_id"] == a
+    assert backend.reports.get(sid, "weekly", "2026-11-09", "2026-11-15", visitor_id=b)["numbers"] == {"n": 2}
+    assert backend.reports.get(sid, "weekly", "2026-11-09", "2026-11-15") is None            # 공용 자리에는 없음
+    assert [r["body_text"] for r in backend.reports.list(sid, visitor_id=a)] == ["a"]
+    assert backend.reports.list(sid) == []
+    # 다시 만들기 = 같은 방문자·같은 기간 덮어쓰기 (다른 방문자는 그대로)
+    backend.reports.save(sid, "weekly", "2026-11-09", "2026-11-15", numbers={"n": 3}, body_text="a2", evidence_ids=[],
+                         prompt_version="p1", visitor_id=a)
+    assert [r["numbers"] for r in backend.reports.list(sid, visitor_id=a)] == [{"n": 3}]
+    assert backend.reports.get(sid, "weekly", "2026-11-09", "2026-11-15", visitor_id=b)["numbers"] == {"n": 2}
+
+
+def test_reports_count_across_stores_and_delete_one_store(backend):
+    s1, s2, other = uid("store"), uid("store"), uid("store")
+    me, you = "u-" + uid("me"), "u-" + uid("you")
+    for sid, kind, start, end in [(s1, "weekly", "2026-11-02", "2026-11-08"), (s1, "weekly", "2026-11-09", "2026-11-15"),
+                                  (s2, "weekly", "2026-11-09", "2026-11-15"), (s2, "monthly", "2026-10-01", "2026-10-31"),
+                                  (other, "monthly", "2026-11-01", "2026-11-30")]:
+        backend.reports.save(sid, kind, start, end, numbers={}, body_text="", evidence_ids=[], prompt_version="p1", visitor_id=me)
+    backend.reports.save(s1, "weekly", "2026-11-02", "2026-11-08", numbers={}, body_text="", evidence_ids=[], prompt_version="p2",
+                         visitor_id=me)                                  # 같은 기간의 다른 판은 하나로 센다
+    backend.reports.save(s1, "monthly", "2026-11-01", "2026-11-30", numbers={}, body_text="", evidence_ids=[], prompt_version="p1",
+                         visitor_id=you)
+    assert backend.reports.count([s1, s2], me) == {"weekly": 3, "monthly": 1}
+    assert backend.reports.count([s1, s2], you) == {"weekly": 0, "monthly": 1}
+    assert backend.reports.count([], me) == {"weekly": 0, "monthly": 0}
+    assert backend.reports.delete(s1, me) == 3
+    assert backend.reports.count([s1, s2], me) == {"weekly": 1, "monthly": 1}
+    assert backend.reports.list(s1, visitor_id=you) and backend.reports.delete(s1, me) == 0
+
+
 def test_reports_reject_bad_period_the_same_way(backend):
     sid = uid("store")
     with pytest.raises(ValueError):
@@ -588,6 +628,43 @@ def test_pg_old_approvals_table_gets_the_new_columns_and_keeps_rows(db):
         rows = {r["draft_id"]: r for r in scoped.approvals.details("s", "v")}
         assert rows["d_old"]["text"] == "옛 글" and rows["d_old"]["checks"] == {} and rows["d_old"]["used_fallback"] is False
         assert rows["d_after"]["draft_text"] == "AI 원문" and rows["d_after"]["style"] == "haeyo"
+    finally:
+        scoped.close()
+        db.run(lambda c: c.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))))
+
+
+def test_pg_old_reports_table_gets_visitor_column_and_per_visitor_key(db):
+    """11/20 전에 만든 reports 표 (방문자 칸 없음, 유일 조건이 (가게, 종류, 기간, 판)): init_db 를 다시 돌리면 visitor_id 칸이 생기고,
+    옛 유일 조건이 빠져 같은 기간을 사장님마다 따로 저장할 수 있다. 있던 행은 공용('common') 자리로 남는다. 두 번째도 안전."""
+    from psycopg import sql
+    from shared.storage.init_db import create_tables
+    schema = uid("oldrep").replace("-", "_").lower()
+    db.run(lambda c: c.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema))))
+    scoped = _scoped_db(schema)
+    try:
+        def make_old(c):
+            c.execute("CREATE TABLE reports (id BIGSERIAL PRIMARY KEY, store_id TEXT NOT NULL, "
+                      "period_kind TEXT NOT NULL CHECK (period_kind IN ('weekly', 'monthly')), period_start DATE NOT NULL, "
+                      "period_end DATE NOT NULL, numbers JSONB NOT NULL DEFAULT '{}'::jsonb, body_text TEXT NOT NULL DEFAULT '', "
+                      "evidence_ids TEXT[] NOT NULL DEFAULT '{}', prompt_version TEXT NOT NULL, "
+                      "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), CHECK (period_end >= period_start), "
+                      "UNIQUE (store_id, period_kind, period_start, period_end, prompt_version))")
+            c.execute("CREATE INDEX reports_by_period ON reports (store_id, period_kind, period_start DESC)")
+            c.execute("INSERT INTO reports (store_id, period_kind, period_start, period_end, prompt_version) "
+                      "VALUES ('s', 'weekly', '2026-11-02', '2026-11-08', 'p1')")
+        scoped.run(make_old)
+        create_tables(scoped)
+        create_tables(scoped)                       # 두 번째도 안전 (DO 블록은 지울 것이 없음)
+        uniques = scoped.run(lambda c: [r["n"] for r in c.execute(
+            "SELECT pg_get_constraintdef(oid) AS n FROM pg_constraint WHERE conrelid = 'reports'::regclass AND contype = 'u'").fetchall()])
+        assert uniques == []                        # 옛 유일 조건은 빠지고, 유일 색인 reports_one_per_period 가 대신한다
+        assert scoped.reports.get("s", "weekly", "2026-11-02", "2026-11-08")["visitor_id"] == "common"   # 있던 행
+        for v, n in (("u-a", 1), ("u-b", 2), ("u-a", 3)):
+            scoped.reports.save("s", "weekly", "2026-11-02", "2026-11-08", numbers={"n": n}, body_text="", evidence_ids=[],
+                                prompt_version="p1", visitor_id=v)
+        assert scoped.reports.get("s", "weekly", "2026-11-02", "2026-11-08", visitor_id="u-a")["numbers"] == {"n": 3}
+        assert scoped.reports.get("s", "weekly", "2026-11-02", "2026-11-08", visitor_id="u-b")["numbers"] == {"n": 2}
+        assert scoped.run(lambda c: c.execute("SELECT count(*) AS n FROM reports").fetchone()["n"]) == 3
     finally:
         scoped.close()
         db.run(lambda c: c.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))))

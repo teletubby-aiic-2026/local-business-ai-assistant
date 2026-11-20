@@ -8,6 +8,8 @@
 >
 > **11/16 덧붙임 (`feat/uxp-e-report`)**: 일일·월간 보고서 응답에 `praise` 칸(손님 칭찬 요약, 코드 집계)이 생겼고(1.11절), 종합 리포트에 '손님 칭찬 요약' 칸과 '전체 리포트 PDF 저장' 버튼, 인쇄 전용 CSS가 생겼습니다 (2.2·2.3·2.4·2.6절).
 >
+> **11/20 덧붙임 (`feat/f6-report`, 6차 회의)**: 종합 리포트를 Figma 06 'D1' 구성(주간·월간 탭, 계정별 저장)으로 바꿨습니다. 새 경로 `/api/reports/*`(1.17), 리뷰 분석 서비스의 주간 보고서 `report/weekly`와 월간 `compare=true`(1.11), DB `reports` 표의 `visitor_id`(3.4). 2.2·2.3·2.4·2.5·2.6·2.9의 종합 리포트 줄을 고쳤습니다.
+>
 > **11/20 덧붙임 (`feat/react-cutover-ux`)**: 화면을 React 18 + Vite 5(`services/web/frontend/`) 하나로 바꿨습니다 (PR #69 병합 뒤 예전 `services/web/web/static/` 삭제, 박건영 결정). 1부 API는 그대로이고, **2부는 React 화면 기준으로 새로 썼습니다.** 예전 화면의 id 목록·`app.js` 규칙은 git 이력(`d3113b0` 이전)에만 있습니다.
 
 ## 요약
@@ -74,6 +76,7 @@ curl -s http://localhost:8000/api/health
   - 1.13 `/api/auth/*` (로그인·가게 고르기, 5차 회의 11/18) · 1.14 `/api/market/*` (상권 분석 화면 프록시, 11/18)
   - 1.15 서랍의 전 파트 질문과 화면 이동 버튼 (11/18)
   - 1.16 `/api/account/*` — 계정 안의 가게와 사장님 프로필 (6차 회의 11/20)
+  - 1.17 `/api/reports/*` (종합 리포트의 주간·월간 보고서 저장, 11/20)
 - 2부. 화면을 다듬을 때 유지해야 하는 것
   - 2.1 폴더와 서빙 · 2.2 상태와 화면 전환 · 2.3 공통 부품과 디자인 토큰
   - 2.4 시험이 지키는 것 · 2.5 화면 주소 · 2.6 화면 흐름과 부르는 API
@@ -176,7 +179,7 @@ curl -s http://localhost:8000/api/health
 ### 1.0 한눈에 보기
 
 경로 9개는 `services/web/web/main.py`와 같습니다. **11/16 덧붙임**: 승인 기록을 지우는 `DELETE /api/approvals`(7-1, 1.7.1절)가 생겨 지금은 10개입니다. 5번은 본문에 `generator`를 보내면 글 한 건만 다시 만듭니다(1.5절 '개별 다시 만들기').
-이 표 밖에 다른 서비스를 대신 불러 주는 프록시가 넷 있습니다: 상권 채팅 `/api/assistant/*`(1.10), 고객응대 `/api/care/*`(1.11), **맞춤 마케팅 `/api/marketing-survey/*`(1.12, 11/16)**, **상권 분석 화면 `/api/market/*`(1.14, 11/18)**. 로그인·가게 고르기는 `/api/auth/*`(1.13, 11/18)입니다.
+이 표 밖에 다른 서비스를 대신 불러 주는 프록시가 넷 있습니다: 상권 채팅 `/api/assistant/*`(1.10), 고객응대 `/api/care/*`(1.11), **맞춤 마케팅 `/api/marketing-survey/*`(1.12, 11/16)**, **상권 분석 화면 `/api/market/*`(1.14, 11/18)**. 로그인·가게 고르기는 `/api/auth/*`(1.13, 11/18), 종합 리포트의 주간·월간 보고서 저장은 `/api/reports/*`(1.17, 11/20)입니다.
 
 **11/18 5차 회의 뒤 모든 경로에 해당하는 것**: 로그인하지 않으면 예전과 같습니다(가게 `store_ongi`, 방문자는 쿠키 `visitor_id`). 로그인하면 이 서버가 요청마다 가게를 세션의 '고른 가게'로, 방문자 id 를 `u-<user_id>`로 바꿔서 위 표와 네 프록시의 아래 서비스에 똑같이 넘깁니다. 응답 모양은 같고, 담긴 가게만 다릅니다(브리핑의 `store`, 카드, 승인 기록 등). 화면은 가게 id 를 보내지 않습니다.
 
@@ -1644,7 +1647,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 ### 1.11 `/api/care/*` — 캡처 입력·응대 점수·보고서 (리뷰 분석 서비스의 고객응대 프록시)
 
-**쓰는 화면**: 리뷰 분석 '리뷰 넣기' 탭의 '캡처로 넣기'(`features/analysis/Capture.jsx`)와 왼쪽 메뉴 '종합 리포트'(`#/report`). 비서 화면 서버가 리뷰 분석 서비스(`127.0.0.1:8020`, `/api/review-insight/*`)의 고객응대 API를 **대신 불러 주는** 길입니다 (`services/web/web/care_proxy.py`). 브라우저는 8020에 가지 않고, 화면 파일에는 `/api/care`만 씁니다 (2.4 시험 2).
+**쓰는 화면**: 리뷰 분석 '리뷰 넣기' 탭의 '캡처로 넣기'(`features/analysis/Capture.jsx`)와 왼쪽 메뉴 '종합 리포트'(`#/report`)의 오늘 요약·응대 점수·월간 A4 인쇄용 링크. **11/20부터 종합 리포트의 주간·월간 보고서는 이 프록시가 아니라 1.17 `/api/reports/*`(계정별 저장)로 엽니다** (그 서버가 아래 `report/weekly`·`report/monthly?compare=true`를 직접 부름). 비서 화면 서버가 리뷰 분석 서비스(`127.0.0.1:8020`, `/api/review-insight/*`)의 고객응대 API를 **대신 불러 주는** 길입니다 (`services/web/web/care_proxy.py`). 브라우저는 8020에 가지 않고, 화면 파일에는 `/api/care`만 씁니다 (2.4 시험 2).
 
 | 메서드 · 경로 | 서비스 경로 | 하는 일 | 실패하면 |
 |---|---|---|---|
@@ -1653,13 +1656,14 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `POST /api/care/reviews/{review_id}/status` | `…/reviews/{id}/status` | 리뷰 상태·답글 기록 (`{"status", "reply_text", "at"}`) | `400`·`404`·`503` |
 | `GET /api/care/response` | `…/response` | 응대 점수(0~100)·이유·답글 기다리는 불만의 기한 | `503` |
 | `GET /api/care/report/daily?date=` | `…/report/daily` | 일일 요약 (비우면 오늘, 한국 날짜) | `400`·`503` |
+| `GET /api/care/report/weekly?week=` | `…/report/weekly` | 주간 보고서 (그 날이 든 월~일, 비우면 이번 주. 11/20) | `400`·`503` |
 | `GET /api/care/report/monthly?month=` | `…/report/monthly` | 월간 보고서 (비우면 이번 달) | `400`·`503` |
-| `GET /api/care/report/monthly/print?month=` | `…/report/monthly/print` | 월간 보고서 인쇄용 A4 **HTML** (화면의 '인쇄용 보기'가 새 탭으로 엶) | `400`·`503` |
+| `GET /api/care/report/monthly/print?month=` | `…/report/monthly/print` | 월간 보고서 인쇄용 A4 **HTML** (화면 월간 탭의 'A4 인쇄용'이 새 탭으로 엶) | `400`·`503` |
 
 - **이 표 밖은 모두 `404`** (`{"error": {"state": "not_found"}}`, 서비스에 보내지 않음). 가게 정보(`/profile*`)는 가게 공용이라 아무 방문자나 고치거나 지울 수 있어서(임시 공지 101개면 저장본이 깨지는 알려진 버그도 있음) 열지 않았고, 문의(`/inquiries*`)·받은함(`/inbox`)·약속 장부(`/promises`)·다국어 메뉴판(`/menu/foreign*`)은 이 화면이 아직 쓰지 않습니다. 리뷰 목록·`insight`·붙여넣기 지우기는 1.3·1.8·1.9가 맡습니다.
 - **손님용 문의 페이지 `/s/{가게}`와 `/api/care/public/*`는 기본으로 없습니다.** `CARE_PUBLIC=1`일 때만 붙고(우리 가게 하나만), 손님 주소는 Nginx가 넣는 `X-Real-IP`(없으면 접속한 쪽)를 씁니다. 보안 검토 전까지 켜지 않습니다.
 - **캡처 후보의 저장은 1.8 `POST /api/reviews`에 `"source": "capture"`** 를 붙여 한 건씩 합니다. 그래서 붙여넣은 리뷰와 똑같이 이 방문자의 요약·불만 묶음·홈 숫자·추천 카드에 들어갑니다.
-- 서버가 `store_id`는 `DEMO_STORE_ID`, `visitor_id`는 방문자 쿠키로 **덮어씁니다** (쿼리·JSON 본문. 캡처 업로드는 쿼리). 쿼리는 `date`·`month`·`now`만 넘기고, 리뷰 분석 서비스의 토큰(`REVIEW_INSIGHT_TOKEN`)은 서버가 붙입니다.
+- 서버가 `store_id`는 `DEMO_STORE_ID`, `visitor_id`는 방문자 쿠키로 **덮어씁니다** (쿼리·JSON 본문. 캡처 업로드는 쿼리). 쿼리는 `date`·`week`·`month`·`now`만 넘기고(그래서 브라우저가 `compare`를 붙여도 넘어가지 않음), 리뷰 분석 서비스의 토큰(`REVIEW_INSIGHT_TOKEN`)은 서버가 붙입니다.
 - 본문 상한: JSON 64KB, 캡처 업로드 12MB → 넘으면 `413` (`state: "too_big"`). 리뷰 분석 서비스 자체 상한은 10MB(넘으면 `400`). Nginx는 캡처 경로만 12MB(배포 README 9절).
 - 서비스 호출은 서버 스레드에서 돌아서 캡처가 20초 걸려도 다른 API는 기다리지 않습니다 (시험으로 확인). 캡처는 100초(`CARE_TIMEOUT_SEC`), 그 밖은 15초까지 기다립니다.
 
@@ -1685,7 +1689,17 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 **`report/daily`** 화면이 쓰는 칸: `summary`, `review_count`, `complaint_count`, `replied_on_time`, `replied_late`, `score_start`→`score_end`, `score_change`, `changes[]`(`delta`, `message`), `todo.text`, `by_source`, `pending_count`, `overdue_count`. **`report/monthly`**: `month`, `review_count`, `complaint_count`, `score_start`→`score_end`, `late_count`, `score_trend[]`(`date`, `score`, 화면이 SVG 선 그래프로), `repeated_issues[]`(`topic_name`, `review_count`, `count_this_month`, `replied_count`, `recurred_after_reply`, `state`, `main_time_band`, `is_repeated`), `suggestions[].text`, `changes[]`. 숫자는 리뷰 분석 서비스가 규칙으로 계산하고 문장은 틀 문장입니다 (`summary_method: "template"`, AI 문장 아님).
 
-**`praise` 칸 (11/16, 손님 칭찬 요약)**: `report/daily`와 `report/monthly` 응답에 둘 다 들어 있습니다. 그 보고서 기간(그날·그 달)에 들어온 리뷰만 **코드로** 센 값이고 모델을 부르지 않습니다 (`method: "code"`). 프록시는 이 칸을 그대로 넘깁니다. 화면의 '손님 칭찬 요약' 칸은 **월간 응답의 `praise`** 로만 그립니다 (요청을 더하지 않음).
+**`report/weekly` (11/20, 주간)**: 월요일 0시 ~ 일요일 23:59:59(한국 시간). 아무 날짜(`week=YYYY-MM-DD`)를 주면 그 날이 든 주로 보고, 아직 시작하지 않은 주는 `400`(`"아직 오지 않은 주입니다"`). 계산은 월간과 같은 함수(`report._span`)라 **칸도 월간과 같고**, 다른 점은 이것뿐입니다.
+- 머리 칸: `week`(그 주 월요일) · `week_start` · `week_end` · `until`(진행 중이면 지금, 끝났으면 일요일 23:59:59).
+- `repeated_issues[]`의 '이 기간 건수'는 `count_this_week` (월간은 `count_this_month`).
+- 비교 칸(늘 들어 있음): `complaint_rate`(불만 리뷰 비율 %, 정수·0.5 올림, 리뷰 0건이면 `null`) · `previous`(`{week, review_count, complaint_count, complaint_rate}`, 바로 앞 주 전체) · `topics[]`(`{topic, topic_name, polarity: "negative"|"positive", count, previous}`, 이번 주나 지난주에 한 번이라도 나온 주제, 불만 먼저·많은 순. 한 리뷰는 주제·극성마다 한 번 = 리뷰 분석 화면의 `topic_counts` 셈법).
+- `suggestions[]`는 '이번 주에 고칠 것' 최대 3개, 칸마다 `kind`·`title`(한 줄)·`evidence`(근거 숫자)·`text`(확인할 일) (+`issue_id`·`topic`). 차례: 답글 뒤 재발(`recurred`) → 이번 주에도 들어온 답글 없는 반복 불만(`no_reply`, 이번 주 건수 많은 순) → 지난주보다 는 불만(`rising`, 2건 이상) → 기한 넘긴 답글(`late`) → 이번 주엔 없던 답글 없는 반복 불만 → 칭찬이 가장 많은 메뉴(`praise_menu`, 2건 이상, 자리가 남을 때). 하나도 없으면 `none`(리뷰가 있을 때) 또는 `empty`(리뷰 0건). 문장 속 숫자는 모두 옆 칸 값과 같고(시험), 원인을 단정하지 않습니다.
+- 리뷰가 0건인 주도 같은 모양입니다 (`review_count: 0`, `complaint_rate: null`, `topics: []`, 고칠 것 한 줄).
+- 합성 리뷰는 받은 시각이 없어 묶음(`insight_at`) 계산에 늘 들어갑니다 (월간과 같은 기준). 그래서 지난 주에도 '전체 n건'은 지금까지의 묶음 크기입니다.
+
+**`report/monthly?compare=true` (11/20)**: 월간 응답 **뒤에** 비교 칸 `complaint_rate` · `previous`(`{month, review_count, complaint_count, complaint_rate}`, 바로 앞 달 전체) · `topics[]`만 더합니다. `compare`를 안 주면(기본 `false`) 응답은 예전과 글자 하나 다르지 않습니다 (시험: 칸 순서까지, 그리고 바꾸기 전·후 20가지 경우의 JSON 을 견줘 같음을 확인). 이 프록시는 `compare`를 넘기지 않으므로 화면이 `/api/care/report/monthly`로 부르면 예전 모양 그대로입니다.
+
+**`praise` 칸 (11/16, 손님 칭찬 요약)**: `report/daily`·`report/weekly`·`report/monthly` 응답에 모두 들어 있습니다. 그 보고서 기간(그날·그 주·그 달)에 들어온 리뷰만 **코드로** 센 값이고 모델을 부르지 않습니다 (`method: "code"`). 프록시는 이 칸을 그대로 넘깁니다. 화면의 '손님 칭찬 요약' 칸은 **지금 탭(주간·월간) 보고서의 `praise`** 로 그립니다 (11/20, 요청을 더하지 않음. 칭찬 주제는 '주제별 흐름'에).
 
 ```json
 "praise": {
@@ -1892,7 +1906,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
     분류 결과는 글에서 만든 공용 키라, 그 가게의 합성 리뷰가 같이 쓰는 키는 남깁니다. 리뷰 분석 서비스가 분류 결과를 지웠다고 답하지 않으면 `reviews` 는 `null`.
   - 맞춤 마케팅 기록. `marketing`: `cleared`(지웠거나 지울 것이 없음) · `off`(이 서버에서 맞춤 마케팅을 꺼 둠 = 기록이 없음) · `failed`(연결 못 함·거절·주소 설정이 틀림).
   - 못 지운 칸은 `approvals`·`reviews` 가 `null`, `marketing` 이 `failed`. 하나라도 있으면 `complete: false` 와 `message`(어느 가게의 무엇이 남았는지). 그래도 200 이고, 지울 수 있는 것은 지웁니다. 여러 번 해도 안전합니다(이미 지운 것은 0).
-- 카드 추천 이유(`card_reasons`)·보고서(`reports`)는 가게 공용이라 지우지 않습니다.
+- 카드 추천 이유(`card_reasons`)는 가게 공용이라 지우지 않습니다. 보고서(`reports`)는 11/20부터 계정별 저장이지만(1.17) 지우는 연결은 아직 없습니다 (통합 때 `ReportBook.erase`를 부를 것).
 - 상권 대화·조건: 상권 세션 쿠키(`market_onboarding_session`)의 경로가 `/api/assistant`·`/api/market` 이라 이 요청에는 오지 않습니다. 화면이 먼저 `DELETE /api/assistant/conversation` 을 부르고(대화), 이 응답이 두 쿠키를 만료시킵니다. 상권 서비스에 남은 분석 조건(업종·위치)은 세션이 끊겨 다시 쓰이지 않고 상권 서비스가 30일 뒤 치웁니다.
 - 시연 계정도 같습니다(브라우저마다 다른 시연 사장님이라 그 브라우저 몫만 지워짐).
 - 게스트의 `DELETE /api/approvals`('처음부터 다시', `marketing_cleared` true·false·null)와 `DELETE /api/reviews/pasted`(분류 결과는 남김)는 예전 그대로입니다.
@@ -2049,6 +2063,62 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 - 화면 서버는 등록 가게의 Demo·프록시를 64곳까지만 들고 있습니다(가장 오래 안 쓴 것부터 버림, DB 에 못 쓴 승인 기록이 있으면 남김).
 - 등록 가게는 `shared/store_profiles.py` 가 예시 세 곳 다음으로 찾습니다(`set_registered_lookup`, 찾은 값은 5초만 기억하고 없다는 결과는 기억하지 않음 → 다른 WAS 에서 고친 이름도 5초 안에 보임). 말투는 기본 해요체, 메뉴 가격은 등록한 메뉴.
 
+### 1.17 `/api/reports/*` — 종합 리포트의 주간·월간 보고서 저장 (6차 회의 11/20)
+
+**쓰는 화면**: 종합 리포트(`#/report`)의 주간·월간 탭과 '저장된 보고서' 목록(`features/report/state.js`), 사장님 프로필의 '보관한 보고서'(`features/report/SavedReportCounts.jsx`, 통합 때 끼움). 서버 코드는 `services/web/web/reports.py`. **일일 보고서는 저장하지 않습니다** (홈과 종합 리포트 위 요약 줄이 `/api/care/report/daily`로 그때그때).
+
+| 메서드 · 경로 | 하는 일 | 성공 |
+|---|---|---|
+| `GET /api/reports/weekly?period=YYYY-MM-DD` | 주간 보고서 열기. 그 날이 든 월~일, 비우면 이번 주 | 200 |
+| `GET /api/reports/monthly?period=YYYY-MM` | 월간 보고서 열기. 비우면 이번 달 | 200 |
+| `POST /api/reports/weekly/regenerate?period=` · `POST /api/reports/monthly/regenerate?period=` | 다시 만들기: 새로 계산해 저장본을 덮어씀 (본문 없음) | 200 |
+| `GET /api/reports/saved` | 지금 가게 · 이 계정의 저장된 보고서 목록 (기간이 늦은 것부터, 60개까지) | 200 |
+| `GET /api/reports/counts` | 내 가게 전체(가진 가게 모두)의 저장된 주간·월간 수 | 200 |
+
+**저장 규칙**
+- **로그인한 사장님만 저장합니다.** 자리는 (지금 가게, 방문자 `u-<user_id>`, 종류, 기간). 같은 예시 가게를 여러 계정이 써도 보고서가 섞이지 않습니다 (붙여넣은 리뷰·답글 기록이 계정마다 달라서 보고서도 다름).
+- 열기: 저장본이 있으면 **저장본 그대로**(숫자를 새로 계산하지 않음), 없으면 계산해서 저장하고 돌려줍니다. 다시 만들기는 늘 새로 계산해 덮어씁니다(만든 시각도 바뀜).
+- 게스트(로그인 안 함)는 계산만 하고 저장하지 않습니다 (`storage: "guest"`, 목록은 빈 것, 수는 0). 저장소(DB)에 닿지 못하면 계산한 보고서를 그대로 주고 `storage: "unavailable"`.
+- 표는 `reports`(3.4, `db/schema.sql`). `numbers` 칸에 아래 응답의 `report`·`approvals`·`marketing`을 묶어(`version: 1`) 넣고, `body_text`에 고칠 것 문장, `evidence_ids`에 반복 불만 묶음 id, `prompt_version`은 `rules-1`(문장 틀 판, 모델 호출 없음).
+
+**계산** (모두 규칙, AI 를 부르지 않음): 본문(`report`)은 리뷰 분석 서비스의 `report/weekly` · `report/monthly?compare=true`(1.11) 그대로입니다. 이 서버가 가게·방문자·`now`(이 서버 시각)를 붙여 부릅니다. `approvals`는 이 서버의 승인 기록(1.7과 같은 목록) 가운데 **승인 시각이 그 기간 안**인 것을 저장소의 글 종류로 나눈 수: `reply`(답글 `reply_draft`) · `notice`(안내문 `prevention_notice`·공지) · `promo`(맞춤 마케팅 글·`mkt-`·쿠폰 홍보 `coupon_promo`) · `other`. `marketing`은 `promo_approved`(= `approvals.promo`)만 채우고, **`coupon_usage_rate`·`ad_cost_per_order`·`notice_recurrence`는 `null`** 입니다 (이 보고서가 읽는 자료에 없음. 화면은 '–'). 마케팅 서비스의 보고서(1.12 `report`)는 지금 기간만 세고 기록이 없으면 데모 기록을 주어서 쓰지 않았습니다.
+
+**낡음 판정 (`stale`)**: 저장본을 **기간이 끝나기 전에** 만들었으면(`report.until` < 기간 끝날 23:59:59) 열 때 지금 값을 한 번 더 계산해 견줍니다 (규칙 계산이라 0.1초 안팎). 기간이 끝난 뒤에 만든 저장본은 다시 계산하지 않고 `stale: null`.
+
+```json
+"stale": {"checked": true, "is_stale": true, "new_reviews": 3, "reviews_now": 17,
+          "responses_changed": false, "approvals_changed": false, "period_closed": false}
+```
+`new_reviews` = 지금 리뷰 수 − 저장본 리뷰 수, `responses_changed` = 점수 끝값·기한 넘김·묶음 답글 수 중 하나라도 다름, `approvals_changed` = 그 기간 승인한 글 수가 다름, `period_closed` = 저장 뒤에 기간이 끝남. 하나라도 참이면 `is_stale: true` → 화면 안내 띠 "11-17 09:00에 만들어 저장한 보고서예요. 그 뒤 새 리뷰 3건이 들어왔어요 → 다시 만들면 반영돼요." 지금 값을 계산하지 못하면(리뷰 분석 서비스 꺼짐) `{"checked": false}`이고 저장본은 그대로 보입니다. 알려진 빈틈: 기간이 끝난 뒤 만든 저장본은 그 뒤 붙여넣은 리뷰를 지워도(데모 다시 하기) 낡았다고 하지 않습니다.
+
+**열기·다시 만들기 응답 `200`** (줄임)
+
+```json
+{"kind": "weekly",
+ "period": {"key": "2026-11-16", "start": "2026-11-16", "end": "2026-11-22", "label": "11월 3주", "range": "11/16 ~ 11/22", "in_progress": true},
+ "nav": {"prev": "2026-11-09", "next": null},
+ "storage": "saved", "saved": true, "created_at": "2026-11-20T23:30:00+09:00", "made_now": false, "stale": {…},
+ "report": {"week": "2026-11-16", "review_count": 1, "complaint_rate": 100, "previous": {…}, "topics": […], "suggestions": […], …},
+ "approvals": {"total": 0, "reply": 0, "notice": 0, "promo": 0, "other": 0},
+ "marketing": {"promo_approved": 0, "coupon_usage_rate": null, "ad_cost_per_order": null, "notice_recurrence": null}}
+```
+
+| 칸 | 뜻 | 화면 |
+|---|---|---|
+| `period.key` | 주간은 그 주 월요일, 월간은 `YYYY-MM`. 다시 부를 때 `period`로 그대로 | 기간 이동·다시 만들기 |
+| `period.label` · `range` | 주간 '11월 3주'(그 주 목요일이 든 달의 몇째 주, ISO 주와 같은 셈) · '11/16 ~ 11/22' | 기간 이름 `#rp-period-label` |
+| `period.in_progress` | 기간 끝날이 오늘이거나 뒤 | 안내 띠 '아직 진행 중이라…' |
+| `nav.prev` · `nav.next` | 앞·뒤 기간 key. 다음이 미래면 `null`, 앞은 1년 전까지 | '‹ 지난주'·'다음 주 ›' 잠금 |
+| `storage` · `saved` · `created_at` · `made_now` | 저장 상태 · 만든 시각(한국 시간) · 이 요청이 새로 만들었는지 | 저장 안내 띠 |
+| `report` | 1.11 `report/weekly`·`report/monthly?compare=true` 응답 | 타일·고칠 것·주제별 흐름·칭찬·응대 기록 |
+| `approvals` · `marketing` | 위 '계산' | '승인한 글' 타일·'마케팅 숫자' |
+
+**목록 `GET /api/reports/saved`**: `{"storage": "saved", "items": [{"kind", "key", "start", "end", "label", "range", "created_at"}]}` (게스트 `{"storage": "guest", "items": []}`). 같은 기간은 하나만(가장 늦게 만든 것). **수 `GET /api/reports/counts`**: `{"storage": "saved", "weekly": 4, "monthly": 1}` (게스트 0·0, 저장소에 닿지 못하면 `null`).
+
+**오류**: `{"error": {"message", "state"}}` (1.11과 같은 모양, `Cache-Control: no-store`, 500 없음). 기간 형식이 틀리거나(`"주간 기간은 YYYY-MM-DD 형식이어야 해요."`) 아직 오지 않은 기간(`"아직 오지 않은 기간이에요."`)은 `400 invalid`. 종류가 `weekly`·`monthly`가 아니면 `422`(FastAPI 기본, 일일은 없음). 리뷰 분석 서비스 문제는 1.11의 `state`(`off`·`down`·`slow`·`busy`·`error`, 503)와 문장 그대로.
+
+**계정 기록 지우기와의 관계**: 저장소에 `reports.delete(가게, 방문자)`와 `ReportBook.erase(가게들, 방문자)`(`app.state.reports`)가 있습니다. 계정 초기화·탈퇴(1.13, `account.py`)에서 부르는 연결은 **아직 없습니다** (통합 때 더할 일). 그 전까지는 초기화해도 저장된 보고서가 남습니다.
+
 ---
 
 ## 2부. 화면을 다듬을 때 유지해야 하는 것
@@ -2146,7 +2216,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 |---|---|---|
 | `features/flow/state.js` | `busy`(만드는 중인 카드와 누른 곳), `regen`(다시 만드는 중인 글), `note`, `armed`('카드 전체 다시 만들기'를 한 번 누름), `picks`(사장님이 바꾼 점검 수칙) | `useFlow` 안의 `syncEpoch`, `resetFlow` |
 | `features/analysis/state.js` | 고른 탭, 붙여넣기 칸·결과, 캡처 진행 | `syncEpoch(epoch)` (탭은 남김) |
-| `features/report/state.js` | 고른 달, 칸마다 받은 값·상태 | `resetIfStoreChanged()` |
+| `features/report/state.js` | 고른 탭(주간·월간, 해시가 아님), 탭마다 연 보고서(`/api/reports/*` 응답)·기간, 저장 목록, 위 요약 줄·응대 점수 값 | `resetIfStoreChanged()` |
 | `features/marketing/state.js` | 대화·결과 카드·보고서 | `sync()` (`epoch`와 `mktResetSeq` 둘 다 봄) |
 | `features/market/state.js` | 분석 조건·받은 자료·탭·비교 결과 | `resetIfStoreChanged()` |
 | `features/assistant/state.js` | 서랍 대화·조건·setup 시도 여부 | `chatReset(epoch, open)` |
@@ -2282,7 +2352,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `#paste-text` | `analysis/PasteTab.jsx` | 예시 문장·빈 글일 때 포커스 |
 | `#an-tab-<탭>` · `#mk-tab-<탭>` · `#mkt-tab-chat` · `#mkt-tab-report` | `Tabs`·`analysis/state.js`·`Market.jsx`·`marketing/*` | 탭 키보드 이동, `navTo`로 연 탭에 포커스 |
 | `#mkt-options` · `#mkt-retry` · `#mkt-card-<n>`(`-title`) · `#mkt-idea-<n>`(`-title`·`-q`) · `#mkt-text-<n>-<열쇠>` | `marketing/state.js`·`ResultCard.jsx` | 맞춤 마케팅의 포커스·스크롤 |
-| `#rp-*-sec`(구역) · 리포트 안의 `details` · `details[data-rp-opened]` | `Report.jsx` | 구역 바로가기, 인쇄 직전에 펼쳤다가 인쇄 뒤 다시 접기 |
+| `#rp-tab-weekly`·`#rp-tab-monthly`(탭, `Tabs` idPrefix `rp`)·`#rp-panel-*` · `#rp-period-label` · 리포트 안의 `details` · `details[data-rp-opened]` | `Report.jsx` | 저장된 보고서 [열기] 뒤 그 탭으로 포커스·기간 이름으로 스크롤, 인쇄 직전에 펼쳤다가 인쇄 뒤 다시 접기 |
 | `aria-controls`의 대상 `side-menu` · `assistant` · `auth-forgot`(로그인의 '비밀번호를 잊었어요') · `prof-pw`(비밀번호 바꾸기 폼) | `Topbar.jsx`·`Login.jsx`·`Profile.jsx` | 연결이 실제 id를 가리켜야 함. 상단 바 이름 버튼은 창이 아니라 화면(프로필)으로 가므로 11/20부터 `aria-controls`가 없음 |
 | `.mode-band` | `account/account.css` | 단계 화면에서는 `.stage-page .mode-band { order: 0 }` (760px 이하 `layout.css`의 `order: 2`는 메인 화면 틀 순서용) |
 
@@ -2301,10 +2371,10 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 **(8) 종합 리포트 인쇄 ('전체 리포트 PDF 저장')**
 
-- `#rp-pdf`를 누르면 `window.print()`로 브라우저 인쇄 창이 열립니다. 서버에 새로 묻지 않고 지금 그려진 칸이 그대로 나옵니다. 아직 불러오는 칸이 있으면 버튼을 잠그고 최대 20초(`RP_PDF_WAIT_MS`) 기다립니다. 그사이 다른 화면으로 가면 인쇄하지 않습니다.
+- `#rp-pdf`('PDF 저장', 11/20 이름 바꿈)를 누르면 `window.print()`로 브라우저 인쇄 창이 열립니다. 서버에 새로 묻지 않고 **지금 탭의 보고서(저장본)** 와 아래 칸이 그대로 나옵니다 (주간·월간 모두. 숨은 탭은 나오지 않음). 월간 탭에는 리뷰 분석 서비스의 A4 인쇄용 페이지 링크 `#rp-print`('A4 인쇄용')도 있습니다 (그 페이지는 저장본이 아니라 그때 계산한 값). 아직 불러오는 칸이 있으면 버튼을 잠그고 최대 20초(`RP_PDF_WAIT_MS`) 기다립니다. 그사이 다른 화면으로 가면 인쇄하지 않습니다.
 - 인쇄 규칙은 `report/report.css`의 `@media print` 한 덩어리이고, `@page`(A4 세로, 여백 12mm)만 빼면 모든 선택자가 `html.rp-view`로 시작합니다. 그래서 다른 화면에서 인쇄하면 리포트 규칙이 먹지 않습니다. 틀(왼쪽 메뉴·상단 바·서랍·바닥 줄·안내 띠)은 `layout.css`의 `@media print`가 늘 숨깁니다.
-- 리포트 안에서 숨기는 것: 제목 줄(`.page-head`), 바로가기 줄(`.rp-bar`), 모든 버튼, `.rp-print`(인쇄용 보기 링크), `.rp-screen`, 화면 안 이동 링크(`a[href^="#"]`), `href` 없는 링크, `role="button"`. 그래서 링크·버튼을 더해도 인쇄 CSS를 고칠 필요가 없고, 감싼 줄까지 종이에서 빼려면 `class="rp-screen"`을 답니다. 상권 '원본' 링크는 주소를 글자로 덧붙입니다.
-- 인쇄 직전(`beforeprint`, 또는 버튼): 머리글 `#rp-print-head`(가게 이름 · 출력한 날 · 기간 · 'AI 문장 아님' 한 줄 · 시험용이면 `health.mode_notice`)를 채우고, 접힌 `details`를 펼치고, 점수 추이 그래프를 종이 폭(`RP_PRINT_W` 680)·낮은 높이(`RP_PRINT_H` 112)로 다시 그립니다. 인쇄 뒤(`afterprint`) 되돌립니다.
+- 리포트 안에서 숨기는 것: 제목 줄(`.page-head`), 탭·기간 이동 줄(`.rp-bar`), 저장 안내 띠(`.rp-saved`, 만든 시각은 머리글에), 모든 버튼, `.rp-print`(A4 인쇄용 링크), `.rp-screen`(저장된 보고서 목록·PDF 안내 포함), 화면 안 이동 링크(`a[href^="#"]`), `href` 없는 링크, `role="button"`. 그래서 링크·버튼을 더해도 인쇄 CSS를 고칠 필요가 없고, 감싼 줄까지 종이에서 빼려면 `class="rp-screen"`을 답니다. 상권 '원본' 링크는 주소를 글자로 덧붙입니다.
+- 인쇄 직전(`beforeprint`, 또는 버튼): 머리글 `#rp-print-head`(가게 이름 · 출력한 날 · 오늘 요약 날짜 · '주간 보고서 11월 3주 (11/16 ~ 11/22)' · 'MM-DD HH:MM에 만든 보고서' · 'AI 문장 아님' 한 줄 · 시험용이면 `health.mode_notice`)를 채우고, 접힌 `details`를 펼치고, 점수 추이 그래프를 종이 폭(`RP_PRINT_W` 680)·낮은 높이(`RP_PRINT_H` 112)로 다시 그립니다. 인쇄 뒤(`afterprint`) 되돌립니다.
 - 칸은 쪽 사이에서 잘리지 않고(`break-inside: avoid`), 두 칸 묶음(`.rp-pair`)은 한 줄기로 쌓이며, 색은 `print-color-adjust: exact`로 찍힙니다.
 - 인쇄 바탕은 `html.rp-view`·`body`를 흰색·검은 글자로 정하고, 다크 색 토큰은 `tokens.css`에서 `@media screen` 안에만 있어 인쇄에는 늘 밝은 토큰이 쓰입니다 (11/20 고침).
 
@@ -2348,7 +2418,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 1 | `index.html` + `src/` 모든 글 파일 (**시험 파일·주석 포함**) | 금지 글자 없음: `replay`(대소문자 무시), `c9`(도형 속성 `d=`·`points=`·`viewBox=`·`transform=`의 값과 `#rrggbb` 색 코드는 뺌), `id="record"`, `/api/review-insight`, `analysis-link`, `리뷰 분석 화면에서`, `review_service.url}/`, `rs.url`. 파일을 20개 넘게 읽어야 함 | `test_web.py` `FrontendSource.test_forbidden_strings_are_nowhere_in_the_screen` |
 | 2 | `src/` (시험 파일 뺌) 어딘가 | `mode_notice` 글자가 있음 (지금 `lib/domain.js` `modeBandText`, `Marketing.jsx`, `Report.jsx`) | `…test_the_mock_notice_comes_from_health` |
 | 3 | `src/`(시험 파일 뺌)의 따옴표로 시작하는 `'/api/…'` 글자 전부 (주석 안도 셈) | 이 서버(프록시 포함)에 있는 경로. 뒤를 이어 붙이는 앞부분(`'/api/cards/'`, `'/api/market/'`)은 그것으로 시작하는 경로가 있으면 됨. `/api/health`·`/api/briefing`·`/api/cards`·`/api/insight`·`/api/approvals`·`/api/reviews`가 꼭 있어야 함 | `…test_screen_calls_only_paths_this_server_has` |
-| 4 | `mktApi("…")`·`mktPost("…")`의 첫 글자, `'/api/care/…'` 글자 | `marketing_proxy.ROUTES`(+ `health`), `care_proxy.ALLOWED` 안. `/api/care/report/monthly`가 있어야 함 | `…test_proxy_paths_the_screen_uses_are_forwarded` |
+| 4 | `mktApi("…")`·`mktPost("…")`의 첫 글자, `'/api/care/…'` 글자 | `marketing_proxy.ROUTES`(+ `health`), `care_proxy.ALLOWED` 안. `/api/care/report/daily`·`/api/care/response`·`/api/care/report/monthly/print`가 있어야 함 (11/20: 주간·월간 보고서는 `/api/reports/*`로 옮김) | `…test_proxy_paths_the_screen_uses_are_forwarded` |
 | 5 | `lib/router.js` `ROUTES` · `App.jsx` `SCREENS`의 키 · `components/Sidebar.jsx` 메뉴 칸(`["주소", "글자"]`) | 셋 다 8개 주소로 같고 겹치지 않음 (= `tests/frontend_src.py` `ROUTES`) | `…test_eight_routes_match_between_router_app_and_menu` |
 | 6 | `src/`(시험 파일 뺌)의 `#/이름`(주석 포함) · `go("…")` · `navTo("…")` | 8개 주소 안. 서버 `assistant_proxy.py`의 `nav(…)` 버튼 주소도 8개 안이고, 리뷰 분석 탭은 `features/analysis/calc.js` `AN_TABS` 안 | `…test_every_route_the_screen_or_the_server_points_to_exists` |
 | 7 | `features/flow/calc.js`의 `failedOf`·`checksOf`·`statusOf`·`measureIds`, `features/flow/actions.js`의 `runCard`, `lib/domain.js`의 `GEN_NAMES` | 점검 상태 규칙(점검 실패 → 확인 필요 → 점검 통과)과 카드 만들기 본문(`measures`)이 `scripts/measure_live.py`의 `draft_status`·`card_run_body`와 같음. `GEN_NAMES`의 키가 `GENERATOR_NAMES`와 같고 `reply_draft`·`prevention_notice` 이름도 같음. node가 있으면 `statusOf`·`measureIds`를 실제로 돌려 견줌 | `test_measure_live.py` `StatusRule.test_rules_are_still_the_ones_on_the_screen`, `StatusRuleRunsLikeTheScreen` |
@@ -2386,7 +2456,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 상권 | `features/market/format.test.js` · `Market.test.jsx` | 처음 불러오기 순서, 머리 고지 한 줄, 비교 탭, `epoch`, `navTo` 탭, 지도 구역(출처·범례·고른/주변 상권·마커), 주변 상권을 누르면 비교 탭에서 그 상권을 고름(지도·목록 둘 다), 고를 수 없는 이유 한 줄, 주소로 등록한 가게의 업종 바꾸기 안내 |
 | 지도 부품 | `src/components/NaverMap.test.jsx` | 가짜 `window.naver.maps`로: SDK·map-config 한 번만, 다각형 수와 좌표 순서(위도·경도), 누르기·올리기, 키 없음·인증 실패(그린 뒤 포함)·시간 초과·연결 실패 안내와 다시 시도, props 변경·언마운트 정리, `fit`, 좌표 도우미 |
 | 맞춤 마케팅 | `features/marketing/logic.test.js` · `Marketing.test.jsx` | health → meta → step → 시작 모드 → plan → 승인, 결과 칸 라이브 영역, 안내 띠가 겹치지 않음 |
-| 종합 리포트 | `features/report/format.test.js` · `Report.test.jsx` | 'AI 문장 아님' 고지는 머리 한 곳, 출처·우리 가게 매출 아님·점수 변동 근거는 남음 |
+| 종합 리포트 | `features/report/format.test.js` · `Report.test.jsx` | 'AI 문장 아님' 고지는 머리 한 곳, 출처·우리 가게 매출 아님·점수 변동 근거는 남음. 11/20: Figma D1 차례(머리 → 오늘·점수 줄 → 탭·기간 → 저장 띠 → 타일 4 → 고칠 것·주제별 흐름 → 마케팅 숫자 → … → 저장된 보고서), 탭은 해시를 바꾸지 않음, 기간 이동·다음 잠금, 저장 안내 띠 문장(저장·저장본·낡음·게스트), [다시 만들기] = POST regenerate, 목록 [열기], 리뷰 0건·'–', `SavedReportCounts` |
 
 - 문구를 바꾸면 그 문구를 찾는 vitest가 깨질 수 있습니다. 문구가 맞으면 시험을 같이 고칩니다.
 
@@ -2402,7 +2472,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `#/done` | 오늘 처리 · 처리 완료 | `features/flow/Done.jsx` | 승인 결과 타일 → '승인한 글'(글마다 이름 · 시각 / 글 앞부분 한 줄 + 복사) → 고른 점검 수칙(✓) → 서버 처리 기록(패널 모양 접힌 칸) → '홈으로'·'처음부터 다시' (11/20 B4 순서) |
 | `#/analysis` | 살펴보기 · 리뷰 분석 | `features/analysis/Analysis.jsx` | 탭 3개: 요약(`summary`) · 불만 묶음(`issues`) · 리뷰 넣기(`paste`: 붙여넣기 + 캡처로 넣기) |
 | `#/market` | 살펴보기 · 상권 분석 | `features/market/Market.jsx` | (11/20 Figma F1 배치) 분석 조건, 지도(고른 상권·주변 상권 경계·가게 위치, 2.3 (9)), 핵심 지표 4칸, 세부 탭 4개(`sales` 매출 · `stores` 점포·개폐업 · `pop` 유동·배후인구·집객시설 · `compare` 타 상권 1:1 비교), 서울시 자료 최신화, 우리 동네 문화행사 |
-| `#/report` | 살펴보기 · 종합 리포트 | `features/report/Report.jsx` | 오늘 요약 · 응대 점수 · 답글을 기다리는 불만 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약, 구역 바로가기, PDF 저장 |
+| `#/report` | 살펴보기 · 종합 리포트 | `features/report/Report.jsx` | (11/20 Figma D1) 다시 만들기·PDF 저장 · 오늘 요약·응대 점수 한 줄 · 주간·월간 탭과 기간 이동 · 저장 안내 띠 · 타일 4(리뷰·불만 비율·응대 점수·승인한 글) · 이번 주/다음 달에 고칠 것 · 주제별 흐름 · 마케팅 숫자 · 손님 칭찬 요약 · 응대 기록(점수 추이·반복 불만) · 응대 점수 · 답글을 기다리는 불만 · 상권 요약 · 마케팅 요약 · 저장된 보고서 |
 | `#/marketing` | 키우기 · 맞춤 마케팅 | `features/marketing/Marketing.jsx` | 안내 문구 "선택한 조건으로 손익을 계산하고 우리 가게 홍보 방법과 초안을 만들어요."(11/20). 탭 두 개: 맞춤 제안(시작 모드 다섯 개 → 질문 → 결과 카드 → 고쳐서 승인) · 마케팅 보고서(주간·월간). 첫 화면의 기능 카드는 흰 패널 없이 바탕 위에, 질문 칸의 비서 질문은 '마케팅 비서' 이름표가 붙은 테두리 상자 (11/20 Figma 06 M1) |
 
 - 메뉴 묶음과 순서는 `Sidebar.jsx`의 `GROUPS`입니다 (홈 / 오늘 처리 / 살펴보기 / 키우기). 760px 이하의 아래 탭·하위 탭(`components/MobileNav.jsx`)도 이 묶음을 씁니다 (11/20).
@@ -2447,11 +2517,14 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 
 | 언제 | 부르는 API | 결과가 가는 곳 |
 |---|---|---|
-| 화면 열기 (3초 안에 다시 열면 한 번만) · '다시 불러오기' | `GET /api/care/report/daily`, `GET /api/care/response`, `GET /api/care/report/monthly` (따로따로) + 처음 불러오기가 끝났거나 카드가 있으면 `GET /api/approvals` | 칸마다 그림. 한 칸이 실패해도 다른 칸은 그대로. 손님 칭찬 요약은 월간 응답의 `praise`로. 상권 요약·마케팅 요약은 이미 받은 `briefing`·`cards`·`approvedLog`로만 |
+| 화면 열기 (3초 안에 다시 열면 한 번만) | `GET /api/care/report/daily`, `GET /api/care/response`, 지금 탭의 `GET /api/reports/weekly`(처음은 주간·이번 주), `GET /api/reports/saved` (따로따로) + 처음 불러오기가 끝났거나 카드가 있으면 `GET /api/approvals` | 칸마다 그림. 한 칸이 실패해도 다른 칸은 그대로. 보고서는 서버가 저장본이 있으면 저장본을, 없으면 만들어 저장해 줌 (1.17, 게스트는 저장 안 함). 손님 칭찬 요약·응대 기록은 지금 탭 보고서의 `report`로. 상권 요약·마케팅 요약은 이미 받은 `briefing`·`cards`·`approvedLog`로만 |
 | 화면에 있는 동안 1분마다 (창이 보일 때만) | `GET /api/care/response` | 응대 점수·남은 시간. 실패하면 보이던 값 그대로 |
-| 월간 '이전 달'·'다음 달' | `GET /api/care/report/monthly?month=YYYY-MM` | 월간 칸과 손님 칭찬 칸, '인쇄용 보기' 주소도 그 달로 (1년 전까지, 이번 달이면 다음 달 잠금) |
-| '인쇄용 보기' | `GET /api/care/report/monthly/print?month=` (새 탭 링크) | 서버가 만드는 A4 HTML |
-| '전체 리포트 PDF 저장' | 없음 | 2.3 (8) |
+| 탭 '주간'·'월간' (해시는 그대로 `#/report`) | 그 탭을 처음 열 때만 `GET /api/reports/{weekly\|monthly}` | 탭마다 보던 기간·값이 남음 |
+| '‹ 지난주'·'다음 주 ›' (월간은 지난달·다음 달) | `GET /api/reports/{종류}?period=<nav.prev·nav.next>` | 서버가 준 `nav` 값으로만 이동 (1년 전까지, 다음이 미래면 잠금). 여는 동안 보던 보고서는 흐리게 두고 안내 띠에 '불러오는 중…' |
+| '다시 만들기' | `POST /api/reports/{종류}/regenerate?period=<지금 key>` + 위 요약 줄·응대 점수·승인 기록 다시 (조용히) | 저장본을 바꾸고 안내 띠 'MM-DD HH:MM에 만들어 저장했어요.', 목록 다시 |
+| 저장된 보고서 '열기' | `GET /api/reports/{종류}?period=<key>` | 그 탭으로 바꾸고 그 기간을 엶 (포커스는 그 탭) |
+| 월간 탭 'A4 인쇄용' | `GET /api/care/report/monthly/print?month=` (새 탭 링크) | 서버가 만드는 A4 HTML (그때 계산한 값) |
+| 'PDF 저장' | 없음 | 2.3 (8) |
 | 상권 요약 'AI에게 묻기로 상권 더 보기' | 없음 | 서랍 열기 |
 
 **맞춤 마케팅** (`features/marketing/state.js`. 모두 `/api/marketing-survey/` 뒤 경로. 페이지를 열 때는 부르지 않고 이 화면을 처음 열 때 시작)
@@ -2531,7 +2604,7 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | 아이콘 | `ICONS`에 선 그림으로. 키는 메뉴 글자·시작 모드 글자와 같게 (2.3 (2)). `c9`·`replay`가 들어가면 시험이 깨짐 |
 | 문구 (버튼 글자, 제목, 안내문) | 자유. 다만 정직 표시는 남기고 한 화면에 한 곳으로 (규칙 7), 서버 시험이 보는 글자(메뉴 글자, `MKT_MODES`의 시작 모드 키, `PASTE_SAMPLES`, `GEN_NAMES`의 답글·안내문 이름, `CHAT_STARTERS`의 갈래)는 2.4대로, 문구를 찾는 vitest는 같이 고침 |
 | 컴포넌트 나누기·합치기, 파일 옮기기 | 자유. 다만 2.4 (1) 표의 파일과 이름은 옮기면 `tests/frontend_src.py`·서버 시험을 같이 고침. 모듈 상태(`state.js`)를 컴포넌트 안으로 옮기면 화면을 떠났다 오면 사라지니 주의 |
-| CSS 클래스 이름 | 자유. 다만 2.3 (6)의 이름, `.app`의 상태 클래스, `report.css` 인쇄 규칙이 보는 이름(`.rp`·`.rp-sec`·`.rp-pair`·`.rp-bar`·`.rp-print`·`.rp-screen`·`.rp-snap-t`·`.rp-mkt-st`·`.page-head`)은 같이 고침 |
+| CSS 클래스 이름 | 자유. 다만 2.3 (6)의 이름, `.app`의 상태 클래스, `report.css` 인쇄 규칙이 보는 이름(`.rp`·`.rp-sec`·`.rp-pair`·`.rp-bar`·`.rp-saved`·`.rp-tabpanel`·`.rp-body`·`.rp-today`·`.rp-print`·`.rp-screen`·`.rp-snap-t`·`.rp-mkt-st`·`.page-head`)은 같이 고침 |
 | 애니메이션, 호버, 포커스 모양 | 자유. 키보드 포커스가 보이게 두고, 움직임은 `prefers-reduced-motion: reduce`에서 끔 (지금 진행 점들이 그렇게 함) |
 | 새 그림·글꼴 | `src/` 안에 두고 import (2.1 (3)). 외부 CDN·`public/`은 쓰지 않음. **예외 한 곳**: 네이버 지도 SDK(`https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=…`)는 npm 패키지가 없고 네이버가 그 주소로만 주므로 `components/NaverMap.jsx`의 `loadNaverMaps()`가 지도가 처음 필요할 때 한 번 붙입니다 (2.3 (9)). 다른 외부 스크립트는 더하지 않습니다 |
 | 새 npm 패키지 | `package.json`(버전 정확히 고정)과 `package-lock.json`을 같이 올림 (`run.sh`·`make_bundle.sh`가 `npm ci`를 씀). 상태 관리는 지금처럼 `store.js`와 모듈 상태로 |
@@ -2631,9 +2704,9 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
 | 리뷰 분석 `.an-paste-grid` | 759px 이하 | 붙여넣기 · 캡처로 넣기 한 칸 |
 | 리뷰 분석 | 639px 이하 | 흐름 숫자·시간대 줄·키워드 간격 좁게 |
 | 리뷰 분석 `.an-paste-opts` (채널 · 별점) | 419px 이하 | 한 칸 (그 위에서는 공통 639px 규칙보다 우선해 두 칸) |
-| 종합 리포트 `.rp-praise-body` | 759px 이하 | 세 칸 → 한 칸씩 |
-| 종합 리포트 `.rp-tiles`·`.rp-nums` | 639px 이하 | 두 칸 |
-| 종합 리포트 | 479px 이하 | 큰 점수 44px 등 |
+| 종합 리포트 `.rp-praise-body` | 759px 이하 | 두 칸(인기 메뉴·대표 한 줄) → 한 칸씩 |
+| 종합 리포트 `.rp-tiles`·`.rp-nums` | 639px 이하 | 두 칸. 탭·기간 이동 줄(`.rp-bar`)은 두 줄, 오늘 요약·응대 점수 줄(`.rp-today`)은 위아래로 |
+| 종합 리포트 | 479px 이하 | 큰 점수 44px 등, 기간 이름이 이동 버튼 위 한 줄로 |
 | 상권 분석 `.mk-cond-btns` | 1000px 이상 | 조건 버튼이 고르기와 한 줄 |
 | 상권 분석 `.mk-body` | 979px 이하 | 오른쪽 옆 칸(280px)을 아래로 |
 | 상권 분석 지표 칸 (자체 컨테이너 `mk-main`) | 1100px 이상 | 핵심 지표 4칸 한 줄 (그 아래는 2×2) |
@@ -2684,7 +2757,7 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
 |---|---|---|
 | **DB(PostgreSQL)에 저장**: 승인 기록, 붙여넣은 리뷰, 가게별 주간·월간 보고서, 카드 추천 이유 | 위 3.1 표대로 메모리·파일 | 서버 안의 일이라 화면은 그대로여야 합니다. 예를 들어 서버를 다시 켜도 승인 목록(`GET /api/approvals`)이 남게 될 수 있습니다 (정해지지 않음) |
 | **방문자를 구분하는 값** | 없음 | 방식(로그인·쿠키·토큰)은 정해지지 않았습니다. 정해지면 요청에 값을 싣는 방법이 바뀔 수 있습니다 |
-| **보고서 API** (가게 주간·월간 보고서) | **연결됨 (11/15)**: 리뷰 분석 서비스의 일일·월간 응대 보고서를 `/api/care/report/*`로 (1.11절). 종합 리포트(`#/report`)에 보임. 주간 보고서·DB `reports` 표 저장은 아직 없음 | `#rp-*` |
+| **보고서 API** (가게 주간·월간 보고서) | **연결됨 (11/15)**: 리뷰 분석 서비스의 일일·월간 응대 보고서를 `/api/care/report/*`로 (1.11절). **11/20**: 주간 보고서와 계정별 저장(`reports` 표)이 생김 (`/api/reports/*`, 1.17). 남은 것: 계정 초기화·탈퇴 때 보고서 지우기 연결, 마케팅 숫자 중 쿠폰 사용률·광고 건당 비용·공지 전후 재발(지금 '–') | `#rp-*` |
 | **상권 채팅** (`AI에게 묻기` 서랍) | **연결됨 (`feat/assistant-proxy`)**: 비서 화면 서버가 상권 서비스를 대신 불러 줌(1.10절). 서랍이 질문·선택지·근거 카드·대화 지우기를 함. 공식 상권 자료가 아직 없어 실제 숫자는 자료가 들어온 뒤에 나옴 | 서랍 안(`#assistant-*`)만 바뀜 |
 | **캡처(OCR) 입력** | **연결됨 (11/15)**: 리뷰 분석 '리뷰 넣기' 탭의 '캡처로 넣기' (1.11절, HCX-005가 옮겨 적고 사장님이 확인해 저장) | `features/analysis/Capture.jsx` |
 
@@ -2705,7 +2778,7 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
 | `stores` | 가게 | 11/20부터 실제 표: 사장님이 직접 등록한 가게만(`data_origin = 'registered'`, `owner_user_id`, `profile` JSONB, 1.16). 예시 세 곳은 `StoreProfile`(`shared/contracts.py`)·`store.json`·`shared/store_profiles.py` 그대로 |
 | `reviews` | 리뷰 (합성, 붙여넣은 것) | `ReviewRecord`의 앞 11칸(`review_id`, `store_id`, `text`, `created_at`, `channel`, `rating`, `input_method`, `pii_masked`, `order_ref`, `status`, `data_origin`), `reviews.json`, `pasted_(가게).json` |
 | `review_labels` | 리뷰별 분류 결과 | `ReviewRecord`의 뒤 4칸(`sentiment`, `topics`, `negative_topics`, `urgency`)과 리뷰 분석 서버의 `classification`(`method`, `model`, `warnings`). 합성 정답표 `labels.json`과는 다른 것입니다. 무엇을 담을지는 설계 담당이 정합니다 |
-| `reports` | 가게 주간·월간 보고서 | 없음 (새로 만듦) |
+| `reports` (11/20, 실제로 씀) | 가게 주간·월간 보고서 (계정별) | `db/schema.sql`. (`store_id`, `visitor_id`, `period_kind` weekly·monthly, `period_start`, `period_end`, `numbers` JSONB, `body_text`, `evidence_ids`, `prompt_version`, `created_at`), 유일 색인 (`store_id`, `visitor_id`, `period_kind`, `period_start`, `period_end`, `prompt_version`). 11/20 전 표에는 init_db 가 `visitor_id` 칸을 더하고 옛 유일 조건을 바꿈. `services/web/web/reports.py` 가 씀 (1.16) |
 | `approvals` | 승인 기록 | `approvals.jsonl` 한 줄(`draft_id`, `status`, `edited`, `text`, `approved_at`, `mode`) |
 | `card_reasons` | 카드 추천 이유 | `GET /api/cards`의 `card.reason_text`, `reason_source`, `checked_text`, `facts`, `evidence`, `problems`. 지금은 서버 메모리(`_reason_memo`)에만 있음 |
 | `users` · `user_stores` · `auth_sessions` (11/18, 실제 표) | 사장님 계정·가진 가게·로그인 세션 | `db/schema.sql`. `users(user_id PK, login_id UNIQUE, password_hash, display_name, created_at)`, `user_stores(user_id, store_id, position, PK(user_id, store_id))`, `auth_sessions(token_hash PK, user_id, active_store_id, created_at, expires_at)`. 로그인한 사장님의 승인 기록 등은 다른 표의 `visitor_id` 칸에 `u-<user_id>`로 남음 (1.13) |

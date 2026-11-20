@@ -136,6 +136,8 @@ GET /api/review-insight/reviews?store_id=store_ongi&since=2026-11-14T19:00:00%2B
 - 일일: `review_count`, `complaint_count`, `by_source`, `replied_on_time`, `replied_late`, `pending_count`, `score_start`→`score_end`, `changes`(점수가 바뀐 이유, 합이 변동과 같음), `todo`(내일 먼저 할 일 1개), `summary`.
 - 월간 인쇄: `GET /report/monthly/print?month=` → A4 HTML (숫자 카드 4개, 점수 그래프, 점수가 바뀐 이유, 반복 불만 표, **체크 칸이 있는 개선 할 일**). 프록시 허용 목록에 들어 있음.
 - 월간: `score_trend`(날마다 점수), `repeated_issues`(묶음별 전체·이번 달 건수, 답글 수, 상태 `recurred_after_reply`·`no_recurrence`·`replied_watching`·`no_reply`), `suggestions`(최대 3개, 원인을 단정하지 않음).
+- **주간 `GET /report/weekly?week=YYYY-MM-DD` (11/20)**: 그 날이 든 월~일. 월간과 같은 계산(`report._span`)·같은 칸이고, 반복 불만의 이 기간 건수만 `count_this_week`. 더해서 `complaint_rate`(불만 비율 %, 0건이면 `null`)·`previous`(바로 앞 주)·`topics`(주제·극성별 이번 주·지난주 건수)와, `suggestions`가 '이번 주에 고칠 것'(`kind`·`title`·`evidence`·`text`, 최대 3개). 오지 않은 주는 400. 비서 화면의 종합 리포트가 계정별로 저장해 씀 (`docs/api/contract.md` 1.11·1.16).
+- **월간 `compare=true` (11/20)**: 월간 응답 뒤에 `complaint_rate`·`previous`(바로 앞 달)·`topics`만 더함. 안 주면 예전 응답 그대로.
 - **손님 칭찬 요약 `praise` (11/16, 일일·월간 둘 다)**: 그 기간 리뷰만 코드로 센 값입니다 (`method: "code"`, 모델 호출 없음. 분류는 `Timeline`이 이미 읽어 둔 것).
   `review_count`, `high_rating_count`(별점 4~5점), `positive_count`(긍정 분류), `praise_count`·`praise_basis`(칭찬 리뷰 수와 기준 `sentiment`·`rating`·`null`),
   `top_topics`(칭찬 주제 상위 5개: `topic`, `topic_name`, `count`), `top_menus`(인기 메뉴 TOP 3: `menu`, `count`), `quote`(대표 칭찬 한 줄: `text`, `review_id`, `rating` 또는 `null`).

@@ -94,23 +94,42 @@ CREATE TABLE IF NOT EXISTS card_reasons (
     PRIMARY KEY (store_id, card_id, evidence_key)
 );
 
--- 가게 주간·월간 보고서 (기능은 아직 없음. 저장·조회 자리만 만들어 둠).
--- 같은 (가게, 종류, 기간, 프롬프트 버전)은 덮어쓰고, 프롬프트 버전이 다르면 따로 남는다.
+-- 가게 주간·월간 보고서 (11/20 종합 리포트가 씀: services/web/web/reports.py).
+-- 보고서는 사장님(방문자)마다 다르다 (붙여넣은 리뷰·답글 기록이 다름). 예시 가게는 여러 계정이 같이 쓰므로 visitor_id 로 나눈다
+-- (로그인한 사장님 'u-<user_id>'. 게스트는 저장하지 않는다. 'common' 은 방문자를 안 가린 호출).
+-- 같은 (가게, 방문자, 종류, 기간, 프롬프트 버전)은 덮어쓰고(다시 만들기), 프롬프트 버전이 다르면 따로 남는다.
+-- 일일 보고서는 저장하지 않는다 (홈에서 확인).
 CREATE TABLE IF NOT EXISTS reports (
     id              BIGSERIAL   PRIMARY KEY,
     store_id        TEXT        NOT NULL,
+    visitor_id      TEXT        NOT NULL DEFAULT 'common',
     period_kind     TEXT        NOT NULL CHECK (period_kind IN ('weekly', 'monthly')),
     period_start    DATE        NOT NULL,
     period_end      DATE        NOT NULL,
-    numbers         JSONB       NOT NULL DEFAULT '{}'::jsonb,   -- 숫자 묶음 (리뷰 수, 불만 비율, 주제별 건수 ...)
-    body_text       TEXT        NOT NULL DEFAULT '',            -- 보고서 문장
-    evidence_ids    TEXT[]      NOT NULL DEFAULT '{}',          -- 근거 id (rv_..., snap_...)
-    prompt_version  TEXT        NOT NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CHECK (period_end >= period_start),
-    UNIQUE (store_id, period_kind, period_start, period_end, prompt_version)
+    numbers         JSONB       NOT NULL DEFAULT '{}'::jsonb,   -- 보고서 묶음 {version, report, approvals, marketing, basis} (reports.py)
+    body_text       TEXT        NOT NULL DEFAULT '',            -- 보고서 문장 (고칠 것·제안 틀 문장을 줄마다)
+    evidence_ids    TEXT[]      NOT NULL DEFAULT '{}',          -- 근거 id (반복 불만 묶음 iss_...)
+    prompt_version  TEXT        NOT NULL,                       -- 문장 틀 판 (모델을 부르지 않음, 예: rules-1)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),         -- 만든 시각 (다시 만들면 바뀜)
+    CHECK (period_end >= period_start)
 );
-CREATE INDEX IF NOT EXISTS reports_by_period ON reports (store_id, period_kind, period_start DESC);
+-- 11/20 전에 만든 reports 표 (행 없음, 쓰는 코드가 없었음): 방문자 칸을 더하고, 방문자가 없는 유일 조건·색인을 방문자가 든 것으로 바꾼다
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS visitor_id TEXT NOT NULL DEFAULT 'common';
+DO $$
+DECLARE old_name TEXT;
+BEGIN
+    FOR old_name IN
+        SELECT c.conname FROM pg_constraint c
+        WHERE c.conrelid = 'reports'::regclass AND c.contype = 'u'
+          AND NOT EXISTS (SELECT 1 FROM pg_attribute a
+                          WHERE a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey) AND a.attname = 'visitor_id')
+    LOOP
+        EXECUTE format('ALTER TABLE reports DROP CONSTRAINT %I', old_name);
+    END LOOP;
+END $$;
+DROP INDEX IF EXISTS reports_by_period;
+CREATE UNIQUE INDEX IF NOT EXISTS reports_one_per_period
+    ON reports (store_id, visitor_id, period_kind, period_start, period_end, prompt_version);
 
 -- ── 로그인과 사장님 가게 (5차 회의 11/18) ─────────────────────────────────
 -- 로그인하지 않은 방문자는 지금처럼 쿠키 visitor_id 로만 나뉜다 (이 표들을 쓰지 않음).

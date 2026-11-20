@@ -1,39 +1,32 @@
-// 종합 리포트 (#/report). 칸 여섯 개를 따로 그린다: 오늘 요약 · 응대 점수(+답글을 기다리는 불만) · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약.
-// 응대 칸은 /api/care/* (리뷰 분석 서비스가 규칙으로 계산, AI 문장 아님). 상권·마케팅 요약은 처음 화면을 열 때 이미 받은
-// 브리핑·추천 카드(store)와 /api/approvals 로만 만든다. 이 화면을 열어도 AI(HCX)를 새로 부르지 않는다.
-// '전체 리포트 PDF 저장'은 이 여섯 칸을 브라우저 인쇄로 내보낸다 (인쇄 모양은 report.css, <html class="rp-view"> 일 때만).
+// 종합 리포트 (#/report). 6차 회의(11/20) Figma 06 'D1 종합 리포트' 구성:
+// 머리([다시 만들기] [PDF 저장]) → 오늘 요약·응대 점수 한 줄 → 탭(주간·월간)과 기간 이동 → 저장 안내 띠 → 타일 4개
+// → '이번 주에 고칠 것'/'다음 달에 고칠 것' + '주제별 흐름' → '마케팅 숫자' → 손님 칭찬 요약 · 응대 기록(점수 추이·반복 불만)
+// → 응대 점수 · 답글을 기다리는 불만 · 상권 요약 · 마케팅 요약 → '저장된 보고서' 목록.
+// 주간·월간 보고서는 /api/reports/* (서버가 계정별로 저장. 숫자는 리뷰 분석 서비스의 규칙 계산, AI 문장 아님).
+// 오늘 요약·응대 점수는 /api/care/* 로 그때그때. 상권·마케팅 요약은 처음 화면을 열 때 이미 받은 브리핑·추천 카드와 /api/approvals 로만.
+// [PDF 저장]은 지금 보이는 보고서를 브라우저 인쇄로 내보낸다 (인쇄 모양은 report.css, <html class="rp-view"> 일 때만).
+// 월간 탭에는 리뷰 분석 서비스의 A4 인쇄용 페이지 링크(#rp-print)도 둔다.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Badge, Button, PageHead, Panel, StatTile, TopicBar } from "../../components/ui.jsx";
+import { Badge, Button, PageHead, Panel, StatTile, Tabs, TopicBar } from "../../components/ui.jsx";
 import { getState, openDrawer, useStore } from "../../state/store.js";
 import { currentRoute } from "../../lib/router.js";
 import { draftsOf, marketScope, shortBasis, snapValue, sourceUrl } from "../../lib/domain.js";
-import { getReport, loadApprovals, loadMonth, loadReport, loadScore, reportReady, resetIfStoreChanged, useReport } from "./state.js";
 import {
-  RP_ISSUE_STATE, RP_NOTE, SOURCE_KO, clip, clockView, dateKo, deltaTone, monthKo, peakText, printMeta, shiftMonth, signed, sourceLine, trendGeometry,
+  KINDS, getReport, loadApprovals, loadReport, loadScore, openReport, openSaved, remakeReport, reportReady, resetIfStoreChanged, setTab, useReport,
+} from "./state.js";
+import {
+  KIND_KO, NONE, PERIOD_WORDS, RP_ISSUE_STATE, RP_NOTE, SOURCE_KO, clip, clockView, dateKo, deltaTone, marketingNumbers, peakText, periodText,
+  printMeta, savedNote, signed, sourceLine, stamp, tilesOf, topicRows, trendGeometry,
 } from "./format.js";
 import "./report.css";
 
 const RP_PDF_WAIT_MS = 20000;   // 아직 불러오는 칸이 있으면 여기까지 기다렸다가 인쇄 창을 연다
 const RP_PDF_HINT = "인쇄 창이 열리면 ‘PDF로 저장’을 골라 주세요.";
-// 인쇄할 때 점수 추이 그래프의 폭·높이. 창이 좁아도(휴대전화) 종이에서는 같은 모양·같은 쪽 수로 나오게.
-// 폭은 종이에서 그래프 칸의 폭(A4 − 좌우 여백 − 칸 안 여백 ≈ 675px)에 가까운 값, 높이는 두 쪽 안에 들게 낮춤
+// 인쇄할 때 점수 추이 그래프의 폭·높이. 창이 좁아도(휴대전화) 종이에서는 같은 모양·같은 쪽 수로 나오게
 const RP_PRINT_W = 680;
 const RP_PRINT_H = 112;
-
-const JUMPS = [
-  ["rp-daily-sec", "오늘 요약"], ["rp-score-sec", "응대 점수"], ["rp-praise-sec", "손님 칭찬"],
-  ["rp-month-sec", "월간 보고서"], ["rp-market-sec", "상권 요약"], ["rp-mkt-sec", "마케팅 요약"],
-];
-
-// 구역 바로가기: 그 패널로 스크롤하고 포커스도 옮긴다 (키보드 사용자가 거기서 이어 읽게)
-function jump(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
-  el.focus({ preventScroll: true });
-}
+const TAB_LIST = [{ id: "weekly", label: "주간" }, { id: "monthly", label: "월간" }];
 
 // 칸 위 상태 글 (불러오는 중 · 오류). 비면 안 보이지만 알림 영역은 남겨 둔다
 function StateLine({ id, st, live = true }) {
@@ -53,44 +46,298 @@ function Reasons({ list, empty }) {
   );
 }
 
-// ── 오늘 요약 ──
-function DailyPanel({ daily }) {
-  const d = daily.data;
+// ── 오늘 요약 · 응대 점수 한 줄 (저장하지 않음, 그때그때) ──
+function TodayStrip({ daily, score }) {
+  const d = daily.data, r = score.data;
   const src = d ? Object.entries(d.by_source || {}).map(([k, n]) => `${SOURCE_KO[k] || k} ${n}`).join(" · ") : "";
-  const date = d?.date ? `${d.date}${d.until ? ` · ${String(d.until).slice(11, 16)}까지` : ""}` : "";
+  const when = d?.date ? `${dateKo(d.date)}${d.until ? ` · ${String(d.until).slice(11, 16)}까지` : ""}` : "";
   return (
-    <Panel title="오늘 요약" titleId="rp-daily-title" sub={date || undefined} id="rp-daily-sec" tabIndex={-1} className="rp-sec rp-daily">
-      <StateLine id="rp-daily-state" st={daily} />
-      {d && (
-        <div id="rp-daily" className="stack-16">
-          <p className="rp-summary">{d.summary}</p>
-          <div className="tiles rp-tiles">
-            <StatTile label="리뷰" value={`${d.review_count ?? 0}건`} />
-            <StatTile label="불만" value={`${d.complaint_count ?? 0}건`} />
-            <StatTile label="기한 안 답글" value={`${d.replied_on_time ?? 0}건`} />
-            <StatTile label="늦은 답글" value={`${d.replied_late ?? 0}건`} />
+    <section className="rp-today" id="rp-today" aria-label="오늘 요약과 응대 점수">
+      <div className="rp-today-cell" id="rp-daily-sec">
+        <p className="rp-today-head"><b>오늘 요약</b>{when && <span className="small muted">{when}</span>}</p>
+        <StateLine id="rp-daily-state" st={daily} />
+        {d && (
+          <div id="rp-daily" className="stack-8">
+            <p className="rp-today-nums">
+              리뷰 <b>{d.review_count ?? 0}건</b> · 불만 <b>{d.complaint_count ?? 0}건</b> · 기한 안 답글 <b>{d.replied_on_time ?? 0}건</b> · 늦은 답글 <b>{d.replied_late ?? 0}건</b>
+            </p>
+            <p className="rp-todo"><span className="rp-todo-label">내일 먼저 할 일</span><strong>{d.todo?.text || "밀린 응대가 없어요"}</strong></p>
+            <details className="rp-more">
+              <summary className="small">오늘 점수 {d.score_start} → {d.score_end} <Delta n={d.score_change ?? (d.score_end - d.score_start)} /></summary>
+              <Reasons list={d.changes} empty="오늘은 점수가 바뀐 일이 없어요." />
+              <p className="small muted">{src ? `들어온 곳: ${src} · ` : ""}답글 기다림 {d.pending_count ?? 0}건{d.overdue_count ? ` (기한 넘김 ${d.overdue_count}건)` : ""}</p>
+              <p className="small muted">합성 리뷰는 지난 날짜라서 오늘 숫자에는 오늘 붙여넣기·캡처로 넣은 리뷰만 들어가요.</p>
+            </details>
           </div>
-          <div>
-            <p className="rp-line">응대 점수 <b>{d.score_start} → {d.score_end}</b> <Delta n={d.score_change ?? (d.score_end - d.score_start)} /></p>
-            <Reasons list={d.changes} empty="오늘은 점수가 바뀐 일이 없어요." />
+        )}
+      </div>
+      <div className="rp-today-cell rp-today-score" id="rp-score-line">
+        <p className="rp-today-head"><b>응대 점수</b><span className="small muted">최근 28일</span></p>
+        <StateLine id="rp-score-line-state" st={score} live={false} />
+        {r && (
+          <>
+            <p className="rp-big"><span className="rp-big-n">{r.score}</span><span className="rp-big-unit">/ 100점</span></p>
+            <p className="small muted">답글 기다림 {score.pending.length}건{r.overdue_count ? ` · 기한 넘김 ${r.overdue_count}건` : ""}</p>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ── 탭과 기간 이동 ──
+function PeriodBar({ rp }) {
+  const kind = rp.tab, view = rp[kind].data, w = PERIOD_WORDS[kind];
+  const nav = view?.nav || {};
+  const prevRef = useRef(null), nextRef = useRef(null);
+  const move = async (key, step) => {
+    await openReport(kind, key);
+    // 끝에 닿아 막힌 버튼의 포커스를 옆으로 (그려진 뒤에 본다)
+    setTimeout(() => {
+      const btn = step < 0 ? prevRef.current : nextRef.current, other = step < 0 ? nextRef.current : prevRef.current;
+      if (btn?.disabled && (document.activeElement === btn || document.activeElement === document.body)) other?.focus();
+    }, 0);
+  };
+  const busy = !!rp.busy;
+  return (
+    <div className="rp-bar">
+      <Tabs tabs={TAB_LIST} active={kind} onChange={setTab} idPrefix="rp" label="보고서 종류" />
+      <div className="rp-period-nav" role="group" aria-label="기간 고르기">
+        <Button ref={prevRef} size="small" id="rp-prev" disabled={!nav.prev || busy} onClick={() => move(nav.prev, -1)}>
+          <span aria-hidden="true">‹</span> {w.prev}
+        </Button>
+        <strong id="rp-period-label" aria-live="polite">{periodText(view?.period) || w.now}</strong>
+        <Button ref={nextRef} size="small" id="rp-next" disabled={!nav.next || busy} onClick={() => move(nav.next, 1)}>
+          {w.next} <span aria-hidden="true">›</span>
+        </Button>
+        {kind === "monthly" && view?.period?.key && (
+          <a id="rp-print" className="btn small rp-print" href={`/api/care/report/monthly/print?month=${encodeURIComponent(view.period.key)}`} target="_blank" rel="noopener">
+            A4 인쇄용<span className="sr"> (새 탭)</span>
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── 고칠 것 (근거와 함께 최대 3개) ──
+function FixPanel({ view }) {
+  const w = PERIOD_WORDS[view.kind];
+  const sugg = Array.isArray(view.report?.suggestions) ? view.report.suggestions : [];
+  return (
+    <Panel title={w.fix} titleId="rp-fix-title" id="rp-fix-sec" className="rp-sec rp-fix">
+      <ol className="plain rp-fixes" id="rp-fixes">
+        {sugg.length ? sugg.map((s, i) => (
+          <li key={i}>
+            <span className="rp-num" aria-hidden="true">{i + 1}</span>
+            <div className="rp-fix-body">
+              <p className="rp-fix-title">{s.title || s.text}</p>
+              {s.evidence && <p className="small muted">근거: {s.evidence}</p>}
+              {s.title && s.text && <p className="small">{s.text}</p>}
+            </div>
+          </li>
+        )) : <li className="muted">제안이 없어요.</li>}
+      </ol>
+      {sugg.length > 0 && <p className="small muted rp-sugg-note">원인을 단정하지 않은 제안이에요. 매장에서 확인해 주세요.</p>}
+    </Panel>
+  );
+}
+
+// ── 주제별 흐름: 불만(빨강)·칭찬(초록) 주제별 리뷰 수와 지난 기간 ──
+function TopicPanel({ view }) {
+  const w = PERIOD_WORDS[view.kind];
+  const { complaints, praises, most } = topicRows(view.report?.topics, 3);
+  const none = !Number(view.report?.review_count);
+  const group = (title, list, kind) => list.length > 0 && (
+    <div className="stack-8">
+      <h3 className="rp-h3">{title}</h3>
+      <ul className="plain stack-16">
+        {list.map((t) => (
+          <li key={t.topic}><TopicBar kind={kind} name={t.topic_name} value={`${t.count}건 · ${w.prev} ${t.previous ?? 0}건`} ratio={(Number(t.count) || 0) / most} /></li>
+        ))}
+      </ul>
+    </div>
+  );
+  return (
+    <Panel title="주제별 흐름" titleId="rp-topics-title" id="rp-topics-sec" className="rp-sec rp-topics">
+      <div className="stack-16" id="rp-topics">
+        {complaints.length || praises.length ? <>{group("불만", complaints, "complaint")}{group("칭찬", praises, "praise")}</>
+          : <p className="small muted">{none ? "아직 리뷰가 없어요." : "이 기간 리뷰에서 나눈 주제가 아직 없어요."}</p>}
+      </div>
+    </Panel>
+  );
+}
+
+// ── 마케팅 숫자: 승인한 홍보 글은 승인 기록으로, 자료가 없는 칸은 '–' ──
+function MarketingNumbers({ view }) {
+  const nums = marketingNumbers(view);
+  return (
+    <Panel title="마케팅 숫자" titleId="rp-mn-title" sub="맞춤 마케팅 기록 · 승인 기록" id="rp-mn-sec" className="rp-sec rp-mn">
+      <dl className="rp-nums" id="rp-mn">
+        {nums.map((x) => <div key={x.label}><dt>{x.label}</dt><dd>{x.value}</dd></div>)}
+      </dl>
+      {nums.some((x) => x.value === NONE) && (
+        <p className="small muted">‘{NONE}’ 칸은 이 보고서에 넣을 기록이 아직 없어요.<span className="rp-screen"> 쿠폰 결과·광고비는 <a href="#/marketing">맞춤 마케팅</a>에서 볼 수 있어요.</span></p>
+      )}
+    </Panel>
+  );
+}
+
+// ── 손님 칭찬 요약: 그 보고서 기간의 praise 칸 (칭찬 주제는 '주제별 흐름'에) ──
+function PraisePanel({ view }) {
+  const p = view.report?.praise;
+  const menus = Array.isArray(p?.top_menus) ? p.top_menus : [];
+  return (
+    <Panel title="손님 칭찬 요약" titleId="rp-praise-title" sub={periodText(view.period) || undefined} id="rp-praise-sec" className="rp-sec rp-praise">
+      {!p ? <p className="small muted">이 서버의 리뷰 분석 서비스는 아직 손님 칭찬 요약을 보내지 않아요.</p> : (
+        <div id="rp-praise" className="stack-16">
+          <dl className="rp-counts">
+            <div><dt>별점 4~5점</dt><dd>{p.high_rating_count ?? 0}건</dd></div>
+            <div><dt>긍정 리뷰</dt><dd>{p.positive_count ?? 0}건</dd></div>
+          </dl>
+          <div className="rp-praise-body">
+            <div>
+              <h3 className="rp-h3">인기 메뉴 TOP 3 <span className="small muted">· 칭찬 리뷰에 이름이 나온 수</span></h3>
+              <ol className="plain rp-menus">
+                {menus.length
+                  ? menus.map((x, i) => <li key={x.menu}><span className="rp-rank">{i + 1}</span><b>{x.menu}</b><span className="rp-menu-n">{x.count}건</span></li>)
+                  : <li className="small muted">칭찬 리뷰에 나온 메뉴가 아직 없어요.</li>}
+              </ol>
+            </div>
+            <div>
+              <h3 className="rp-h3">대표 칭찬 한 줄</h3>
+              {p.quote
+                ? <blockquote className="rp-quote"><p>“{p.quote.text}”</p><footer className="small muted">{p.quote.rating ? `별점 ${p.quote.rating}점 리뷰` : "별점 없는 리뷰"} · 개인정보를 가린 글</footer></blockquote>
+                : <p className="small muted">아직 칭찬 리뷰가 없어요.</p>}
+            </div>
           </div>
-          <div className="rp-todo"><span className="rp-todo-label">내일 먼저 할 일</span><strong>{d.todo?.text || "밀린 응대가 없어요"}</strong></div>
-          <div className="stack-8">
-            <p className="small muted">{src ? `들어온 곳: ${src} · ` : ""}답글 기다림 {d.pending_count ?? 0}건{d.overdue_count ? ` (기한 넘김 ${d.overdue_count}건)` : ""}</p>
-            <p className="small muted">합성 리뷰는 지난 날짜라서 오늘 숫자에는 오늘 붙여넣기·캡처로 넣은 리뷰만 들어가요.</p>
-          </div>
+          <p className="small muted">
+            인기 메뉴와 대표 한 줄은 이 기간 리뷰 {p.review_count ?? 0}건 중 칭찬 리뷰 {p.praise_count ?? 0}건에서 골랐어요.
+            {p.praise_basis === "rating" ? " 긍정으로 분류된 리뷰가 없어서 별점 4점 이상이고 불만이 없는 리뷰를 칭찬 리뷰로 봤어요." : ""}
+          </p>
         </div>
       )}
     </Panel>
   );
 }
 
-// ── 응대 점수 ──
+// 날마다 점수 선 그래프 (외부 라이브러리 없이 SVG). 색은 report.css 가 정한다
+function Trend({ trend, printing }) {
+  const box = useRef(null);
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return undefined;
+    const measure = () => setW(el.clientWidth || 0);
+    measure();
+    if (typeof ResizeObserver !== "function") return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const g = trendGeometry(trend, printing ? RP_PRINT_W : w, printing ? RP_PRINT_H : undefined);
+  return (
+    <div ref={box}>
+      {!g ? <p className="small muted">점수 기록이 없어요.</p> : (
+        <svg className="rp-trend" viewBox={`0 0 ${g.W} ${g.H}`} role="img" aria-label={g.label}>
+          <line className="rp-gl" x1={g.L} x2={g.W - g.R} y1={g.y(100)} y2={g.y(100)} />
+          <line className="rp-gl" x1={g.L} x2={g.W - g.R} y1={g.y(g.lo).toFixed(1)} y2={g.y(g.lo).toFixed(1)} />
+          <text className="rp-ax" x={g.L - 8} y={g.y(100) + 4} textAnchor="end">100</text>
+          <text className="rp-ax" x={g.L - 8} y={(g.y(g.lo) + 4).toFixed(1)} textAnchor="end">{g.lo}</text>
+          <polyline className="rp-tl" points={g.pts.map((t, i) => `${g.x(i).toFixed(1)},${g.y(g.v[i]).toFixed(1)}`).join(" ")} />
+          {g.pts.map((t, i) => <circle key={i} className="rp-pt" cx={g.x(i).toFixed(1)} cy={g.y(g.v[i]).toFixed(1)} r={i === g.last ? 4.5 : 2.5} />)}
+          <text className="rp-ax rp-now" x={g.x(g.last).toFixed(1)} y={(g.y(g.v[g.last]) - 10).toFixed(1)} textAnchor={g.pts.length === 1 ? "middle" : "end"}>{g.v[g.last]}점</text>
+          <text className="rp-ax" x={g.L} y={g.H - 6}>{dateKo(g.pts[0].date)}</text>
+          <text className="rp-ax" x={g.W - g.R} y={g.H - 6} textAnchor="end">{dateKo(g.pts[g.last].date)}</text>
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// ── 응대 기록: 그 기간의 숫자 · 날마다 점수 · 반복 불만과 재발 여부 · 점수가 바뀐 이유 (예전 '월간 보고서' 칸) ──
+function RecordPanel({ view, printing }) {
+  const m = view.report || {}, w = PERIOD_WORDS[view.kind];
+  const issues = Array.isArray(m.repeated_issues) ? m.repeated_issues : [];
+  const changes = Array.isArray(m.changes) ? m.changes : [];
+  return (
+    <Panel title="응대 기록" titleId="rp-record-title" sub={periodText(view.period) || undefined} id="rp-record-sec" className="rp-sec rp-record">
+      <div id="rp-record" className="stack-16">
+        <dl className="rp-nums">
+          <div><dt>리뷰</dt><dd>{m.review_count ?? 0}건</dd></div>
+          <div><dt>불만</dt><dd>{m.complaint_count ?? 0}건</dd></div>
+          <div><dt>응대 점수</dt><dd>{m.score_start} → {m.score_end} <Delta n={m.score_change} /></dd></div>
+          <div><dt>기한 넘긴 답글</dt><dd>{m.late_count ?? 0}건</dd></div>
+        </dl>
+        <figure className="rp-chart">
+          <Trend trend={m.score_trend} printing={printing} />
+          <figcaption className="small muted">날마다 응대 점수 (그날 끝 기준{m.until ? ` · ${String(m.until).slice(0, 10)}까지` : ""})</figcaption>
+        </figure>
+        <div>
+          <h3 className="rp-h3">반복 불만과 재발 여부</h3>
+          <div className="rp-table-wrap">
+            <table className="rp-table">
+              <thead><tr>
+                <th scope="col">불만</th><th scope="col" className="n">전체</th><th scope="col" className="n">{w.now}</th><th scope="col" className="n">답글</th>
+                <th scope="col" className="n">답글 뒤 재발</th><th scope="col">상태</th><th scope="col">많은 시간대</th>
+              </tr></thead>
+              <tbody>
+                {issues.length ? issues.map((i, k) => (
+                  <tr key={i.issue_id || i.topic_name || k}>
+                    <th scope="row">{i.topic_name}{i.is_repeated && <> <Badge tone="warn">반복</Badge></>}</th>
+                    <td className="n">{i.review_count}</td><td className="n">{i[w.key] ?? 0}</td><td className="n">{i.replied_count}</td>
+                    <td className="n">{i.recurred_after_reply}</td><td>{RP_ISSUE_STATE[i.state] || i.state}</td><td>{i.main_time_band || NONE}</td>
+                  </tr>
+                )) : <tr><td colSpan={7} className="muted">이 기간에 묶인 불만이 없어요.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {changes.length > 0 && (
+          <details className="rp-more">
+            <summary className="small">이 기간에 점수가 바뀐 이유 {changes.length}개</summary>
+            <Reasons list={changes} empty="" />
+          </details>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+// ── 탭 하나의 보고서 (저장 안내 띠부터 응대 기록까지) ──
+function ReportBody({ sheet, busy, printing }) {
+  const view = sheet.data;
+  const note = savedNote(view);
+  // 보던 보고서가 있으면 다른 기간을 여는 동안 그대로 두고(흐리게) 안내 띠에 진행 글을 보인다 (칸이 위아래로 튀지 않게)
+  const loading = !!view && !!busy && !sheet.bad;
+  return (
+    <div className={["stack-16 rp-body", loading && "rp-busy"].filter(Boolean).join(" ")} aria-busy={loading || undefined}>
+      <StateLine id="rp-report-state" st={view && !sheet.bad ? { msg: "" } : sheet} />
+      {view && (
+        <>
+          <p id="rp-saved" className={["rp-saved", !loading && note.tone].filter(Boolean).join(" ")} role="status">{loading ? sheet.msg : note.text}</p>
+          <div className="tiles rp-tiles" id="rp-tiles">
+            {tilesOf(view).map((t) => <StatTile key={t.id} id={t.id} label={t.label} value={t.value} sub={t.sub || undefined} tint={t.tint} title={t.title} />)}
+          </div>
+          <div className="grid-2 rp-pair">
+            <FixPanel view={view} />
+            <TopicPanel view={view} />
+          </div>
+          <MarketingNumbers view={view} />
+          <PraisePanel view={view} />
+          <RecordPanel view={view} printing={printing} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── 응대 점수 (최근 28일, 그때그때) ──
 function ScorePanel({ score }) {
   const r = score.data;
   const peaks = peakText(r?.policy);
   return (
-    <Panel title="응대 점수" titleId="rp-score-title" sub="최근 28일 · 100점에서 시작" id="rp-score-sec" tabIndex={-1} className="rp-sec rp-score">
+    <Panel title="응대 점수" titleId="rp-score-title" sub="최근 28일 · 100점에서 시작" id="rp-score-sec" className="rp-sec rp-score">
       <StateLine id="rp-score-state" st={score} />
       {r && (
         <div id="rp-score" className="stack-16">
@@ -143,175 +390,6 @@ function PendingPanel({ score }) {
   );
 }
 
-// ── 손님 칭찬 요약: 월간 보고서 응답의 praise 칸으로만 (요청을 더하지 않음). 집계 기간 = 월간 보고서에서 고른 달.
-// 숫자·주제·메뉴·대표 한 줄은 리뷰 분석 서비스가 코드로 센 값 그대로다 (모델 호출 없음). 대표 한 줄은 서비스가 개인정보를 가린 글만 보낸다
-function PraisePanel({ monthly, praise }) {
-  const m = monthly.data, p = m?.praise;
-  const period = m ? `${monthKo(m.month)}${m.until ? ` · ${dateKo(m.until)}까지` : ""}` : "";
-  const topics = Array.isArray(p?.top_topics) ? p.top_topics : [], menus = Array.isArray(p?.top_menus) ? p.top_menus : [];
-  const most = Math.max(1, ...topics.map((t) => Number(t.count) || 0));
-  return (
-    <Panel title="손님 칭찬 요약" titleId="rp-praise-title" sub={period || undefined} id="rp-praise-sec" tabIndex={-1} className="rp-sec rp-praise">
-      <StateLine id="rp-praise-state" st={praise} />
-      {p && (
-        <div id="rp-praise" className="stack-16">
-          <dl className="rp-counts">
-            <div><dt>별점 4~5점</dt><dd>{p.high_rating_count ?? 0}건</dd></div>
-            <div><dt>긍정 리뷰</dt><dd>{p.positive_count ?? 0}건</dd></div>
-          </dl>
-          <div className="rp-praise-body">
-            <div>
-              <h3 className="rp-h3">칭찬 주제 상위</h3>
-              {topics.length
-                ? <ul className="plain stack-16">{topics.map((t) => <li key={t.topic || t.topic_name}><TopicBar kind="praise" name={t.topic_name} value={`${t.count}건`} ratio={(Number(t.count) || 0) / most} /></li>)}</ul>
-                : <p className="small muted">칭찬으로 분류된 주제가 아직 없어요.</p>}
-            </div>
-            <div>
-              <h3 className="rp-h3">인기 메뉴 TOP 3 <span className="small muted">· 칭찬 리뷰에 이름이 나온 수</span></h3>
-              <ol className="plain rp-menus">
-                {menus.length
-                  ? menus.map((x, i) => <li key={x.menu}><span className="rp-rank">{i + 1}</span><b>{x.menu}</b><span className="rp-menu-n">{x.count}건</span></li>)
-                  : <li className="small muted">칭찬 리뷰에 나온 메뉴가 아직 없어요.</li>}
-              </ol>
-            </div>
-            <div>
-              <h3 className="rp-h3">대표 칭찬 한 줄</h3>
-              {p.quote
-                ? <blockquote className="rp-quote"><p>“{p.quote.text}”</p><footer className="small muted">{p.quote.rating ? `별점 ${p.quote.rating}점 리뷰` : "별점 없는 리뷰"} · 개인정보를 가린 글</footer></blockquote>
-                : <p className="small muted">아직 칭찬 리뷰가 없어요.</p>}
-            </div>
-          </div>
-          <p className="small muted">
-            인기 메뉴와 대표 한 줄은 이 달 리뷰 {p.review_count ?? 0}건 중 칭찬 리뷰 {p.praise_count ?? 0}건에서 골랐어요.
-            {p.praise_basis === "rating" ? " 긍정으로 분류된 리뷰가 없어서 별점 4점 이상이고 불만이 없는 리뷰를 칭찬 리뷰로 봤어요." : ""}
-            <span className="rp-screen"> 달은 월간 보고서에서 바꿔요.</span>
-          </p>
-        </div>
-      )}
-    </Panel>
-  );
-}
-
-// 날마다 점수 선 그래프 (외부 라이브러리 없이 SVG). 색은 report.css 가 정한다
-function Trend({ trend, printing }) {
-  const box = useRef(null);
-  const [w, setW] = useState(0);
-  useEffect(() => {
-    const el = box.current;
-    if (!el) return undefined;
-    const measure = () => setW(el.clientWidth || 0);
-    measure();
-    if (typeof ResizeObserver !== "function") return undefined;
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const g = trendGeometry(trend, printing ? RP_PRINT_W : w, printing ? RP_PRINT_H : undefined);
-  return (
-    <div ref={box}>
-      {!g ? <p className="small muted">점수 기록이 없어요.</p> : (
-        <svg className="rp-trend" viewBox={`0 0 ${g.W} ${g.H}`} role="img" aria-label={g.label}>
-          <line className="rp-gl" x1={g.L} x2={g.W - g.R} y1={g.y(100)} y2={g.y(100)} />
-          <line className="rp-gl" x1={g.L} x2={g.W - g.R} y1={g.y(g.lo).toFixed(1)} y2={g.y(g.lo).toFixed(1)} />
-          <text className="rp-ax" x={g.L - 8} y={g.y(100) + 4} textAnchor="end">100</text>
-          <text className="rp-ax" x={g.L - 8} y={(g.y(g.lo) + 4).toFixed(1)} textAnchor="end">{g.lo}</text>
-          <polyline className="rp-tl" points={g.pts.map((t, i) => `${g.x(i).toFixed(1)},${g.y(g.v[i]).toFixed(1)}`).join(" ")} />
-          {g.pts.map((t, i) => <circle key={i} className="rp-pt" cx={g.x(i).toFixed(1)} cy={g.y(g.v[i]).toFixed(1)} r={i === g.last ? 4.5 : 2.5} />)}
-          <text className="rp-ax rp-now" x={g.x(g.last).toFixed(1)} y={(g.y(g.v[g.last]) - 10).toFixed(1)} textAnchor={g.pts.length === 1 ? "middle" : "end"}>{g.v[g.last]}점</text>
-          <text className="rp-ax" x={g.L} y={g.H - 6}>{dateKo(g.pts[0].date)}</text>
-          <text className="rp-ax" x={g.W - g.R} y={g.H - 6} textAnchor="end">{dateKo(g.pts[g.last].date)}</text>
-        </svg>
-      )}
-    </div>
-  );
-}
-
-// ── 월간 보고서 ──
-function MonthPanel({ rp, printing }) {
-  const m = rp.monthly.data;
-  const prevOff = !rp.month || !!(rp.maxMonth && rp.month <= shiftMonth(rp.maxMonth, -11));   // 1년 전까지
-  const nextOff = !rp.month || !rp.maxMonth || rp.month >= rp.maxMonth;
-  const prevRef = useRef(null), nextRef = useRef(null);
-  const move = async (step) => {
-    const cur = getReport().month;
-    if (!cur) return;
-    await loadMonth(shiftMonth(cur, step));
-    // 끝에 닿아 막힌 버튼의 포커스를 옆으로 (그려진 뒤에 본다)
-    setTimeout(() => {
-      const prev = prevRef.current, next = nextRef.current;
-      const btn = step < 0 ? prev : next, other = step < 0 ? next : prev;
-      if (btn?.disabled && (document.activeElement === btn || document.activeElement === document.body)) other?.focus();
-    }, 0);
-  };
-  const issues = Array.isArray(m?.repeated_issues) ? m.repeated_issues : [];
-  const sugg = Array.isArray(m?.suggestions) ? m.suggestions : [];
-  const changes = Array.isArray(m?.changes) ? m.changes : [];
-  const nav = (
-    <div className="rp-month-nav" role="group" aria-label="달 고르기">
-      <Button ref={prevRef} size="small" id="rp-month-prev" disabled={prevOff} onClick={() => move(-1)}><span aria-hidden="true">‹</span> 이전 달</Button>
-      <strong id="rp-month-label" aria-live="polite">{monthKo(rp.month)}</strong>
-      <Button ref={nextRef} size="small" id="rp-month-next" disabled={nextOff} onClick={() => move(1)}>다음 달 <span aria-hidden="true">›</span></Button>
-      <a id="rp-print" className="btn small rp-print" href={"/api/care/report/monthly/print" + (rp.month ? `?month=${encodeURIComponent(rp.month)}` : "")} target="_blank" rel="noopener">
-        인쇄용 보기<span className="sr"> (새 탭)</span>
-      </a>
-    </div>
-  );
-  return (
-    <Panel title="월간 보고서" titleId="rp-month-title" actions={nav} id="rp-month-sec" tabIndex={-1} className="rp-sec rp-month">
-      <StateLine id="rp-month-state" st={rp.monthly} />
-      {m && (
-        <div id="rp-month" className="stack-16">
-          <dl className="rp-nums">
-            <div><dt>리뷰</dt><dd>{m.review_count ?? 0}건</dd></div>
-            <div><dt>불만</dt><dd>{m.complaint_count ?? 0}건</dd></div>
-            <div><dt>응대 점수</dt><dd>{m.score_start} → {m.score_end} <Delta n={m.score_change} /></dd></div>
-            <div><dt>기한 넘긴 답글</dt><dd>{m.late_count ?? 0}건</dd></div>
-          </dl>
-          <figure className="rp-chart">
-            <Trend trend={m.score_trend} printing={printing} />
-            <figcaption className="small muted">날마다 응대 점수 (그날 끝 기준{m.until ? ` · ${String(m.until).slice(0, 10)}까지` : ""})</figcaption>
-          </figure>
-          <div>
-            <h3 className="rp-h3">반복 불만과 재발 여부</h3>
-            <div className="rp-table-wrap">
-              <table className="rp-table">
-                <thead><tr>
-                  <th scope="col">불만</th><th scope="col" className="n">전체</th><th scope="col" className="n">이번 달</th><th scope="col" className="n">답글</th>
-                  <th scope="col" className="n">답글 뒤 재발</th><th scope="col">상태</th><th scope="col">많은 시간대</th>
-                </tr></thead>
-                <tbody>
-                  {issues.length ? issues.map((i, k) => (
-                    <tr key={i.topic_name || k}>
-                      <th scope="row">{i.topic_name}{i.is_repeated && <> <Badge tone="warn">반복</Badge></>}</th>
-                      <td className="n">{i.review_count}</td><td className="n">{i.count_this_month}</td><td className="n">{i.replied_count}</td>
-                      <td className="n">{i.recurred_after_reply}</td><td>{RP_ISSUE_STATE[i.state] || i.state}</td><td>{i.main_time_band || "–"}</td>
-                    </tr>
-                  )) : <tr><td colSpan={7} className="muted">이 달에 묶인 불만이 없어요.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div>
-            <h3 className="rp-h3">다음 달 개선 제안</h3>
-            <ol className="plain rp-sugg">
-              {sugg.length
-                ? sugg.map((s, i) => <li key={i}><span className="rp-check" aria-hidden="true" /><span>{s.text}</span></li>)
-                : <li className="muted">제안이 없어요.</li>}
-            </ol>
-            {sugg.length > 0 && <p className="small muted rp-sugg-note">원인을 단정하지 않은 제안이에요. 매장에서 확인해 주세요.</p>}
-          </div>
-          {changes.length > 0 && (
-            <details className="rp-more">
-              <summary className="small">이 달에 점수가 바뀐 이유 {changes.length}개</summary>
-              <Reasons list={changes} empty="" />
-            </details>
-          )}
-        </div>
-      )}
-    </Panel>
-  );
-}
-
 // ── 상권 요약: 브리핑의 상권 지표 (홈 '상권 저녁 매출' 칸과 같은 자료). 서버를 다시 부르지 않는다 ──
 function MarketPanel() {
   const b = useStore((s) => s.briefing);
@@ -323,7 +401,7 @@ function MarketPanel() {
   const snaps = b ? (b.snapshots || []).filter((s) => s && typeof s.value === "number") : [];
   const scoped = snaps.some((s) => marketScope(s));
   return (
-    <Panel title="상권 요약" titleId="rp-market-title" sub="서울시 공개 상권 자료" id="rp-market-sec" tabIndex={-1} className="rp-sec rp-market">
+    <Panel title="상권 요약" titleId="rp-market-title" sub="서울시 공개 상권 자료" id="rp-market-sec" className="rp-sec rp-market">
       <StateLine id="rp-market-state" st={st} />
       {b && (
         <div id="rp-market" className="stack-16">
@@ -389,7 +467,7 @@ function MktPanel({ appr }) {
   } else st = { msg: "추천 카드를 불러오지 못해 마케팅 요약을 만들 수 없어요. 홈에서 다시 불러와 주세요.", bad: true };
   const mktDone = approvedLog.filter((x) => x.mkt).length;
   return (
-    <Panel title="마케팅 요약" titleId="rp-mkt-title" id="rp-mkt-sec" tabIndex={-1} className="rp-sec rp-mkt">
+    <Panel title="마케팅 요약" titleId="rp-mkt-title" id="rp-mkt-sec" className="rp-sec rp-mkt">
       <StateLine id="rp-mkt-state" st={st} />
       {!waiting && (
         <div id="rp-mkt" className="stack-8">
@@ -404,8 +482,46 @@ function MktPanel({ appr }) {
   );
 }
 
+// ── 저장된 보고서 목록 (지금 가게 · 이 계정, 기간이 늦은 것부터). 인쇄에서는 빠진다 ──
+function SavedList({ rp }) {
+  const s = rp.saved;
+  const storeName = useStore((st) => st.briefing?.store?.name || "");
+  const cur = rp[rp.tab].data;
+  const open = async (item) => {
+    await openSaved(item);
+    document.getElementById(`rp-tab-${item.kind}`)?.focus({ preventScroll: true });
+    document.getElementById("rp-period-label")?.scrollIntoView?.({ block: "center" });
+  };
+  let body;
+  if (s.storage === "guest") body = <p className="small muted">로그인하면 만든 보고서가 여기에 쌓여요.</p>;
+  else if (s.storage === "unavailable") body = <p className="small muted">지금은 저장된 보고서를 불러오지 못했어요.</p>;
+  else if (s.items.length) {
+    body = (
+      <ul className="plain rp-saved-list" id="rp-saved-list">
+        {s.items.map((i) => {
+          const on = cur && cur.kind === i.kind && cur.period?.key === i.key;
+          return (
+            <li key={`${i.kind}:${i.key}`} className={on ? "on" : undefined} aria-current={on ? "true" : undefined}>
+              <Badge>{KIND_KO[i.kind] || i.kind}</Badge>
+              <span className="rp-saved-name"><b>{i.label}</b> <span className="small muted">{i.range}</span></span>
+              <span className="small muted rp-made">만든 시각 {stamp(i.created_at)}</span>
+              <Button size="small" onClick={() => open(i)} aria-label={`${KIND_KO[i.kind] || ""} ${i.label} 보고서 열기`}>열기</Button>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  } else if (!s.msg) body = <p className="small muted">아직 저장된 보고서가 없어요.</p>;
+  return (
+    <Panel title="저장된 보고서" titleId="rp-list-title" sub={`이 계정${storeName ? ` · ${storeName}` : ""}`} id="rp-list-sec" className="rp-sec rp-list rp-screen">
+      <StateLine id="rp-list-state" st={s} live={false} />
+      {body}
+    </Panel>
+  );
+}
+
 export default function Report() {
-  resetIfStoreChanged();   // 가게가 바뀌었으면 고른 달·받은 값을 처음으로 (예전 rp.loadedAt = 0; rp.month = null)
+  resetIfStoreChanged();   // 가게가 바뀌었으면 고른 탭·기간·받은 값을 처음으로
   const rp = useReport();
   const booted = useStore((s) => s.booted);
   const hasCards = useStore((s) => s.cards.length > 0);
@@ -417,7 +533,7 @@ export default function Report() {
   const [pdfWait, setPdfWait] = useState(false);
   const [pdfMsg, setPdfMsg] = useState(RP_PDF_HINT);
 
-  // 화면을 열면 세 응대 칸을 부르고, 리포트 화면인 동안 <html class="rp-view"> (인쇄 모양이 이때만 먹음, 예전 rpMark)
+  // 화면을 열면 위 요약 줄·지금 탭 보고서·목록을 부르고, 리포트 화면인 동안 <html class="rp-view"> (인쇄 모양이 이때만 먹음)
   useEffect(() => {
     alive.current = true;
     document.documentElement.classList.add("rp-view");
@@ -426,22 +542,22 @@ export default function Report() {
   }, []);
   // 마케팅 요약의 승인 기록: 처음 불러오기가 끝났거나 카드가 있으면
   useEffect(() => { if (apprReady) loadApprovals(); }, [apprReady]);
-  // 1분마다 점수만 다시 (화면을 보고 있을 때만). 새로 받을 때마다 다시 맞춘다. 화면을 떠나면 멈춤 (예전 rpStop)
+  // 1분마다 점수만 다시 (화면을 보고 있을 때만). 화면을 떠나면 멈춤
   useEffect(() => {
     if (!rp.score.fetchedAt) return undefined;
     const id = setInterval(() => { if (!document.hidden && currentRoute() === "report") loadScore(true); }, 60000);
     return () => clearInterval(id);
   }, [rp.score.fetchedAt]);
 
-  // 인쇄 직전: 머리글(가게 이름 · 출력한 날 · 기간)을 채우고 접힌 칸(details)을 펼친다. 인쇄가 끝나면 done 이 다시 접는다.
+  // 인쇄 직전: 머리글(가게 이름 · 출력한 날 · 기간 · 만든 시각)을 채우고 접힌 칸(details)을 펼친다. 인쇄가 끝나면 done 이 다시 접는다.
   // 시험용 실행이면 화면 위 띠의 안내(실제 AI 결과 아님)를 머리글에도 적는다 (인쇄에서는 그 띠가 빠지므로)
   const prep = useCallback(() => {
-    const s = getState(), r = getReport();
+    const s = getState(), r = getReport(), view = r[r.tab].data;
     flushSync(() => {
       setPrinting(true);
       setHead({
         store: s.briefing?.store?.name || "",
-        meta: printMeta(new Date(), { day: r.daily.data?.date, month: r.month, until: r.monthly.data?.until }),
+        meta: printMeta(new Date(), { day: r.daily.data?.date, kind: r.tab, period: view?.period, created: view?.created_at }),
         note: s.health?.mode_notice || "",
       });
     });
@@ -458,7 +574,7 @@ export default function Report() {
     return () => { window.removeEventListener("beforeprint", prep); window.removeEventListener("afterprint", done); };
   }, [prep, done]);
 
-  // 전체 리포트 PDF 저장: 브라우저 인쇄 창을 연다 (거기서 'PDF로 저장'). 서버에 새로 묻지 않고, 지금 그려진 여섯 칸이 그대로 나온다
+  // PDF 저장: 브라우저 인쇄 창을 연다 (거기서 'PDF로 저장'). 서버에 새로 묻지 않고, 지금 보이는 보고서가 그대로 나온다
   const onPdf = async () => {
     if (!reportReady()) {   // 아직 불러오는 칸이 있으면 끝날 때까지 기다린다 (그동안 버튼을 잠근다)
       setPdfWait(true);
@@ -473,7 +589,6 @@ export default function Report() {
     prep();
     window.print();
   };
-  const reload = () => { loadReport(true); if (apprReady) loadApprovals(); };
 
   return (
     <div className="col wide rp" ref={root} data-view="report">
@@ -490,29 +605,27 @@ export default function Report() {
         title="종합 리포트"
         sub={RP_NOTE}
         actions={<>
-          <Button id="rp-reload" onClick={reload}>다시 불러오기</Button>
-          <Button id="rp-pdf" variant="primary" disabled={pdfWait} onClick={onPdf}>전체 리포트 PDF 저장</Button>
+          <Button id="rp-remake" disabled={!!rp.busy} onClick={() => remakeReport()}>{rp.busy === "remake" ? "다시 만드는 중…" : "다시 만들기"}</Button>
+          <Button id="rp-pdf" variant="primary" disabled={pdfWait} onClick={onPdf}>PDF 저장</Button>
         </>}
       />
-      <div className="rp-bar">
-        <nav className="rp-jump" aria-label="구역 바로가기">
-          <ul className="plain">
-            {JUMPS.map(([id, label]) => <li key={id}><button type="button" className="rp-chip" onClick={() => jump(id)}>{label}</button></li>)}
-          </ul>
-        </nav>
-        <p id="rp-pdf-msg" className="small muted" role="status">{pdfMsg}</p>
-      </div>
-      <DailyPanel daily={rp.daily} />
+      <p id="rp-pdf-msg" className="small muted rp-pdf-msg rp-screen" role="status">{pdfMsg}</p>
+      <TodayStrip daily={rp.daily} score={rp.score} />
+      <PeriodBar rp={rp} />
+      {KINDS.map((k) => (
+        <div key={k} role="tabpanel" id={`rp-panel-${k}`} aria-labelledby={`rp-tab-${k}`} hidden={k !== rp.tab} className="rp-tabpanel">
+          {k === rp.tab && <ReportBody sheet={rp[k]} busy={rp.busy} printing={printing} />}
+        </div>
+      ))}
       <div className="grid-2 rp-pair">
         <ScorePanel score={rp.score} />
         <PendingPanel score={rp.score} />
       </div>
-      <PraisePanel monthly={rp.monthly} praise={rp.praise} />
-      <MonthPanel rp={rp} printing={printing} />
       <div className="grid-2 rp-pair">
         <MarketPanel />
         <MktPanel appr={rp.appr} />
       </div>
+      <SavedList rp={rp} />
     </div>
   );
 }

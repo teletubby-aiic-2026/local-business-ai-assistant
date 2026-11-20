@@ -200,12 +200,26 @@ def print_monthly(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
 
 @router.get("/report/monthly")
 def get_monthly(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
-                month: Optional[str] = Query(None, description="YYYY-MM. 비우면 이번 달"), now: Optional[str] = NowQ):
+                month: Optional[str] = Query(None, description="YYYY-MM. 비우면 이번 달"), now: Optional[str] = NowQ,
+                compare: bool = Query(False, description="true 면 비교 칸(complaint_rate·previous·topics)을 더함 (종합 리포트 저장용, 11/20)")):
     """월간 보고서: 날마다 점수 추이, 반복 불만별 건수와 답글 뒤 재발 여부, 다음 달 개선 제안 (최대 3개)."""
     try:
         at = _now(now)
         y, m = report.parse_month(month, at)
-        return report.monthly(service.Timeline(classifier(), store_id, visitor_id), y, m, at)
+        build = report.monthly_compare if compare else report.monthly
+        return build(service.Timeline(classifier(), store_id, visitor_id), y, m, at)
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
+
+
+@router.get("/report/weekly")
+def get_weekly(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
+               week: Optional[str] = Query(None, description="YYYY-MM-DD. 그 날이 든 주(월~일). 비우면 이번 주"),
+               now: Optional[str] = NowQ):
+    """주간 보고서 (11/20): 월간과 같은 칸 + 불만 비율·지난주 숫자·주제별 건수, 이번 주에 고칠 것 (최대 3개, 근거 숫자와 함께)."""
+    try:
+        at = _now(now)
+        return report.weekly(service.Timeline(classifier(), store_id, visitor_id), report.parse_week(week, at), at)
     except ValueError as e:
         return error(400, "VALIDATION_ERROR", str(e))
 

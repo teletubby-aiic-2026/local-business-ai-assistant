@@ -599,7 +599,8 @@ class FrontendSource(unittest.TestCase):
         self.assertEqual(sorted(mkt - set(marketing_proxy.ROUTES) - {"health"}), [],
                          "맞춤 마케팅 화면이 부르는데 marketing_proxy.ROUTES 에 없는 경로")
         care = {m for t in texts for m in re.findall(r"""[`"']/api/care(/[^`"'\s$?#]*)""", t)}
-        self.assertIn("/report/monthly", care)
+        # 종합 리포트(11/20)의 주간·월간 보고서는 /api/reports/* (저장). /api/care 로는 오늘 요약·응대 점수·월간 A4 인쇄용 페이지만
+        self.assertTrue({"/report/daily", "/response", "/report/monthly/print"} <= care, sorted(care))
         blocked = sorted(p for p in care if not p.endswith("/") and not any(rx.fullmatch(p) for _, rx in care_proxy.ALLOWED))
         self.assertEqual(blocked, [], "고객응대 화면이 부르는데 care_proxy.ALLOWED 에 없는 경로")
 

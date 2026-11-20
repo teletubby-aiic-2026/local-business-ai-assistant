@@ -18,6 +18,7 @@
 | *      | /api/auth/*                   | 로그인·회원가입·로그아웃·가게 바꾸기·시연 로그인 (auth.py, 5차 회의 11/18), 계정 초기화 (11/19, account.py) |
 | *      | /api/account/*                | 계정 안의 가게 등록·고치기·빼기·순서, 이름·비밀번호 바꾸기 (account_api.py, 6차 회의 11/20) |
 | *      | /api/market/*                 | 상권 분석 화면(#/market). 상권 서비스의 분석·서울시 자료 확인·문화행사를 대신 불러 줌 (market_proxy.py) |
+| *      | /api/reports/*                | 종합 리포트의 주간·월간 보고서: 열면 저장·다시 열면 저장본·다시 만들기·목록·수 (reports.py, 11/20) |
 
 리뷰 답글을 승인하면(④) 리뷰 분석 서비스에 '답글 달았음'을 따로 기록한다 (care_proxy.mark_replied_later, 승인 응답은 기다리지 않음).
 캡처 후보 저장은 붙여넣기와 같은 POST /api/reviews 에 source="capture" 를 붙여 보낸다.
@@ -66,6 +67,7 @@ from .care_proxy import CareProxy, create_care_routers
 from .demo import Demo, DemoError
 from .market_proxy import MarketProxy, create_market_router
 from .marketing_proxy import MARKETING_CARD_ID, MarketingProxy, create_marketing_router
+from .reports import ReportBook, create_reports_router
 from .settings import Settings
 from .stores import StoreHub
 
@@ -295,6 +297,8 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
 
     app.include_router(create_marketing_router(marketing, proxy_of=lambda request: hub.marketing(sid(request)),
                                                record_store=record_marketing))
+    app.state.reports = ReportBook(hub, demo.storage)         # 주간·월간 보고서 저장 (reports.py, 11/20)
+    app.include_router(create_reports_router(app.state.reports))
     # 손님용 문의 페이지는 CARE_PUBLIC=1 일 때만 들어 있다 (기본 가게 하나)
     for router in create_care_routers(care, proxy_of=lambda request: hub.care(sid(request))):
         app.include_router(router)
