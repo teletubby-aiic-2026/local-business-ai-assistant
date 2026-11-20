@@ -1945,10 +1945,10 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 |---|---|
 | `index.html` | 빌드의 뼈대. `<div id="root">`와 `/src/main.jsx`만 부릅니다. 첫 그리기 전에 화면 모양(`data-theme`)을 정하는 작은 스크립트(`src/lib/theme.js`와 같은 규칙)와 탭 아이콘(글자로 넣은 SVG)이 있습니다 |
 | `src/main.jsx` | 공통 CSS를 `tokens.css` → `base.css` → `layout.css` 순서로 먼저 읽고, `applyTheme()`, `<App />` 그리기, `boot()` (처음 불러오기) |
-| `src/App.jsx` | 화면 틀. 왼쪽 메뉴 · 상단 바 · 시험용 안내 띠 · 알림 띠 · 지금 화면 · 바닥 줄 · 서랍 · 대화상자 둘. 주소 → 화면 표(`SCREENS`), 메뉴 접기와 덮는 메뉴 (2.9) |
-| `src/lib/` | `api.js`(`api`·`serviceApi`), `router.js`(`ROUTES`·`useRoute`·`go`·`navTo`), `media.js`(폭 구간 `useBand`), `theme.js`(화면 모양), `focus.js`(`later`·`focusFirst`), `domain.js`(여러 화면이 쓰는 이름·계산: `GEN_NAMES`·`GEN_ORDER`·`SOURCE_NAMES`·`homeSnap`·`marketScope`·`heroProblem`·`healthProblems`·`modeBandText`·`honestyItems` 등) |
-| `src/state/` | `store.js`(화면 전체 상태), `boot.js`(`boot`·`refresh`·`storeChanged`·`loadInsight`), `account.js`(`acctLogout`·`acctSwitch`·`authDo`), `staff.js`(오늘 할 일 `todosOf`, AI 비서 네 명 `staffOf`: 고객 응대·마케팅 상태 '오늘 할 일 없음'·'초안 만들기 전'·'승인 대기 n개'·'오늘 승인 완료'(11/20), 승인 대기 수 `waitingCount`) |
-| `src/components/` | `ui.jsx`(공통 부품, 2.3), `Sidebar.jsx`(왼쪽 메뉴), `Topbar.jsx`(상단 바) |
+| `src/App.jsx` | 단계(`state.stage`, 2.2 (5))에 따라 전체 화면을 고른다. `app` 단계면 화면 틀(`Shell`: 왼쪽 메뉴 · 상단 바 · 시험용 안내 띠 · 알림 띠 · 지금 화면 · 바닥 줄 · 서랍), 아니면 로그인·가게 선택·프로필 같은 단계 화면(`STAGE_VIEWS`, 새 가게 등록은 `StoreNew`). 결과 띠(`AcctToast`)는 모든 단계에. 주소 → 화면 표(`SCREENS`), 메뉴 접기와 덮는 메뉴 (2.9) |
+| `src/lib/` | `api.js`(`api`·`serviceApi`·`authHeaders`·`authStageOf`·`handleAuthError`, 2.2 (5)), `router.js`(`ROUTES`·`useRoute`·`go`·`navTo`), `media.js`(폭 구간 `useBand`), `theme.js`(화면 모양), `focus.js`(`later`·`focusFirst`), `domain.js`(여러 화면이 쓰는 이름·계산: `GEN_NAMES`·`GEN_ORDER`·`SOURCE_NAMES`·`homeSnap`·`marketScope`·`heroProblem`·`healthProblems`·`modeBandText`·`isTestRun`·`honestyItems` 등) |
+| `src/state/` | `store.js`(화면 전체 상태), `stage.js`(단계·`ic26.entered`·`authFail`, 서버를 부르지 않음), `boot.js`(`boot`·`enterApp`·`refresh`·`storeChanged`·`clearStoreData`·`loadHealth`·`loadInsight`), `account.js`(`authDo`·`openStore`·`acctLogout`·`signedOut`, 이름·가게 한 줄 `displayName`·`storeLabel`), `staff.js`(오늘 할 일 `todosOf`, AI 비서 네 명 `staffOf`: 고객 응대·마케팅 상태 '오늘 할 일 없음'·'초안 만들기 전'·'승인 대기 n개'·'오늘 승인 완료'(11/20), 승인 대기 수 `waitingCount`) |
+| `src/components/` | `ui.jsx`(공통 부품, 2.3), `Sidebar.jsx`(왼쪽 메뉴), `Topbar.jsx`(상단 바, 화면 모양 버튼 `ThemeButton`), `MobileNav.jsx`(760px 이하 아래 탭·하위 탭) |
 | `src/styles/` | `tokens.css`(색·글자·간격 변수와 다크 값), `base.css`(바탕 규칙·공통 부품 모양·공통 `@container` 단계), `layout.css`(화면 틀·폭 구간·서랍·인쇄 때 틀 숨기기) |
 | `src/features/<화면>/` | 화면마다 컴포넌트(`*.jsx`), 화면 밖에 남는 모듈 상태(`state.js`), 순수 계산(`calc.js`·`logic.js`·`format.js`·`chat.js`), 모양(`*.css`), 시험(`*.test.js(x)`) |
 
@@ -1960,7 +1960,8 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `marketing` | 맞춤 마케팅 | `Marketing.jsx` (`Ask` · `ResultCard` · `MarketingReport`) | `mktApi` · `mktPost` (`marketing/api.js`) |
 | `market` | 상권 분석 | `Market.jsx` | `marketApi` (`market/state.js` 안) |
 | `assistant` | AI에게 묻기 서랍 | `Drawer.jsx` | `drawerApi` (`assistant/chat.js`) |
-| `account` | 로그인 창 · 내 계정 창 | `AuthDialog.jsx` · `AccountDialog.jsx` | `api()` (`state/account.js`), `acctPost` · `clearChat` (`account/acctApi.js`) |
+| `account` | 단계 화면 (11/20): A1 로그인 · A2 회원가입 · A3 가게 선택 · A5 사장님 프로필 · X1 오류 · X2 다시 로그인·권한 없음, 기록 지우기·탈퇴 확인 창 | `Login.jsx` · `Signup.jsx` · `PickStore.jsx` · `Profile.jsx` · `StageCards.jsx` · `AccountDialog.jsx`(확인 창 + `AcctToast`), 공통 틀 `Stage.jsx`(`StageFrame`·`StageCenter`·`StageTitle`·`ModeBand`·`Face`) | `api()` (`state/account.js`, `acctApi.js`의 `listStores`·`storeSummary`·`removeStore`·`orderStores`·`saveProfile`·`changePassword`), `acctPost` · `clearChat` (`acctApi.js`) |
+| `stores` | A4 새 가게 등록 (11/20 자리만, 다음 단계에서 바뀜) | `StoreNew.jsx` (`{mode: "signup"\|"add"\|"edit", storeId?}`) | 없음 |
 
 - `analysis/careApi.js`와 `report/careApi.js`는 같은 함수가 두 벌 있습니다 (분석 쪽에만 캡처용 `CAP_WAIT_MS`).
 
@@ -2003,17 +2004,21 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 | 묶음 | 칸 |
 |---|---|
-| 서버에서 받은 것 | `health`, `briefing`, `reviewsById`(브리핑의 리뷰 원문), `cards`, `noCardB`, `insight`, `insightError`, `me`(`GET /api/auth/me`, `null`이면 게스트) |
+| 서버에서 받은 것 | `health`, `briefing`, `reviewsById`(브리핑의 리뷰 원문), `cards`, `noCardB`, `insight`, `insightError`, `me`(`GET /api/auth/me`, `null`이면 아직 모름) |
+| 단계 (11/20, 아래 (5)) | `stage`, `stageError`(X1 에 보일 한 줄), `storeNew`(새 가게 등록의 `{mode, storeId?}`), `entered`(자료를 불러온 가게 id), `resume`(로그인이 끝났을 때 `{userId, storeId, loginId}`) |
 | 오늘 할 일 진행 (브라우저 메모리에만) | `results`(카드 id → `POST …/run` 응답), `approved`(승인한 글 id `Set`), `approvedLog`(처리 완료 목록, 맞춤 마케팅 것은 `mkt: true`), `pending`(고치는 중인 글), `current`·`draftId`(초안 화면에 보이는 카드·글), `joined`(방금 붙여넣은 리뷰가 들어간 묶음) |
-| 화면 공통 | `booted`·`bootError`, `alert`(맨 위 알림 띠), `acctBusy`·`acctNotice`, `authOpen`·`acctOpen`(대화상자), `drawerOpen`(서랍), `staffMarket`(`/api/market/status`), `mktServer`(서버에 남은 맞춤 마케팅 승인 수), `nav`(`navTo` 요청), `mktResetSeq`·`mktCleared`('처음부터 다시'), `epoch` |
+| 화면 공통 | `booted`(들어간 가게의 자료를 한 번 다 불러옴)·`bootError`, `alert`(맨 위 알림 띠), `acctBusy`·`acctNotice`(결과 띠), `drawerOpen`(서랍), `staffMarket`(`/api/market/status`), `mktServer`(서버에 남은 맞춤 마케팅 승인 수), `nav`(`navTo` 요청), `mktResetSeq`·`mktCleared`('처음부터 다시'), `epoch` |
 
-- 진행 상태는 새로고침하면 사라집니다 (`localStorage`·쿠키에 두지 않음, 3.1).
+- 진행 상태는 새로고침하면 사라집니다 (`localStorage`·쿠키에 두지 않음, 3.1). 들어간 가게 id 만 `sessionStorage`의 `ic26.entered`에 둡니다 (아래 (5)).
+- 예전 `authOpen`·`acctOpen`(로그인 창·내 계정 창)은 11/20에 없앴습니다. 켜도 아무 일도 없습니다.
 
 **(2) 불러오기: `src/state/boot.js`**
 
-- `boot()`: `GET /api/auth/me` → (기다리지 않고) `GET /api/market/status` → `GET /api/health` → `refresh()`. 실패하면 알림 띠에 문장을 띄우고 `bootError`를 채웁니다.
+- `boot()`: `GET /api/health`(기다리지 않음, 모든 단계의 시험용 안내 띠) + `GET /api/auth/me` → 단계를 정합니다 (아래 (5)). 가게 자료는 부르지 않습니다.
+- `enterApp()`: 지금 가게(`me.store_id`)를 `entered`·`ic26.entered`에 적고 `app` 단계로 가서 `storeChanged()`.
+- `storeChanged()`: 가게 자료를 비우고(`briefing`·`cards`·진행, `booted: false`) `epoch`를 1 올린 뒤 `GET /api/health` → `refresh()` → (기다리지 않고) `GET /api/market/status`. 끝나면 `booted: true`. 실패하면 알림 띠에 문장을 띄우고 `bootError`를 채웁니다 (401·409·403 으로 단계가 바뀐 것이면 알림 띠는 띄우지 않음). 가게 열기와 기록 지우기 뒤에 부릅니다.
 - `refresh()`: `GET /api/briefing` → `GET /api/cards` → `GET /api/insight` → (기다리지 않고) `GET /api/approvals`. 카드의 id·근거(`card_id`·`review_ids`·`snapshot_ids`)가 이전과 다르면 만든 글·승인 표시·고친 내용을 버립니다 (`emptyFlow`).
-- `storeChanged()`: 가게가 바뀌었을 때(로그인·로그아웃·가게 바꾸기·기록 지우기·탈퇴) 진행을 비우고 `epoch`를 1 올린 뒤 모두 다시 읽습니다.
+- `clearStoreData()`: 다시 읽지 않고 가게 자료·진행만 비우고 `epoch`를 1 올립니다 (로그아웃·탈퇴·새 로그인).
 
 **(3) 화면마다의 모듈 상태와 `epoch`**
 
@@ -2037,7 +2042,50 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 - `useRoute()`는 `{name, key}`를 줍니다. `go(name)`은 같은 화면이면 해시를 그대로 두고 `key`만 올려 다시 그립니다.
 - `navTo(name, sub)`: 상태의 `nav`에 `{name, sub, seq}`를 넣고 `go(name)`. 각 화면은 `nav.seq`가 바뀔 때 한 번 자기 화면 요청인지 보고 그 탭·모드로 갑니다. 리뷰 분석 탭(`AN_TABS`: `summary`·`issues`·`paste`), 상권 분석 탭(`MKV_TABS`: `sales`·`stores`·`pop`·`compare`), 맞춤 마케팅 시작 모드(`MKT_SUB`: `promo`·`leftover`·`ad`·`story`·`repeat`). `ROUTES`에 없는 이름은 조용히 무시합니다.
 - 화면이 바뀌면 `App.jsx`가 맨 위로 스크롤하고 덮는 메뉴를 닫습니다. 그 화면의 `PageHead`가 마운트될 때 제목 `h1`(`tabIndex={-1}`)에 포커스를 줍니다. **화면마다 `PageHead`(= `h1` 하나)를 둡니다.** 서랍의 화면 이동도 `#main h1`으로 포커스를 보냅니다 (2.9).
-- **화면을 새로 더하려면** 네 곳을 같이 고칩니다: `lib/router.js`의 `ROUTES`, `App.jsx`의 `SCREENS`, `components/Sidebar.jsx`의 `GROUPS`, `services/web/tests/frontend_src.py`의 `ROUTES` (시험이 넷이 같은지 봄, 2.4). 그리고 이 문서 2.5.
+- **화면을 새로 더하려면** 네 곳을 같이 고칩니다: `lib/router.js`의 `ROUTES`, `App.jsx`의 `SCREENS`, `components/Sidebar.jsx`의 `GROUPS`, `services/web/tests/frontend_src.py`의 `ROUTES` (시험이 넷이 같은지 봄, 2.4). 그리고 이 문서 2.5. 메인 화면 밖의 전체 화면(로그인·가게 선택 같은 것)은 해시 주소가 아니라 단계로 더합니다 (아래 (5)).
+
+**(5) 단계: `src/state/stage.js` (11/20, Figma '06 설계 기준 화면' 여정 F)**
+
+로그인해야 쓰는 서비스입니다 (게스트 체험 없음, 6차 회의). 해시 주소 8개는 그대로 두고, 그 바깥의 전체 화면은 상태의 `stage`로 고릅니다 (`App.jsx`). 해시 주소는 `app` 단계에서만 화면을 바꾸고, 다른 단계에 있는 동안에도 주소는 그대로 남습니다.
+
+| `stage` | 화면 (Figma) | 컴포넌트 |
+|---|---|---|
+| `boot` | 빈 바탕 (`/api/auth/me`를 기다리는 동안. 대시보드가 스쳐 보이지 않게) | `account/Stage.jsx` `StageBoot` |
+| `login` · `signup` | A1 로그인 · A2 회원가입 (왼쪽 소개 + 오른쪽 카드, 760px 이하 1단) | `account/Login.jsx` · `Signup.jsx` |
+| `pick` | A3 가게 선택 | `account/PickStore.jsx` |
+| `store-new` | A4 새 가게 등록 (`storeNew.mode`: `signup` 가입 직후 · `add` 가게 더하기 · `edit` 정보 고치기) | `stores/StoreNew.jsx` (11/20 자리만) |
+| `profile` | A5 사장님 프로필 | `account/Profile.jsx` |
+| `app` | 메인 화면 (해시 주소 8개 + 서랍) | `App.jsx` `Shell` |
+| `error` · `expired` · `forbidden` | X1 오류 · X2 다시 로그인(401) · X2 권한 없음(403) | `account/StageCards.jsx` |
+
+전환 규칙:
+
+| 언제 | 어디로 |
+|---|---|
+| 부팅: `GET /api/auth/me`가 실패(네트워크·5xx)하거나 응답에 `notice`가 있음 | `error` ([다시 시도] = `boot()` 다시) |
+| 부팅: `authenticated: false` | `login` |
+| 부팅: 로그인 상태이고 `sessionStorage["ic26.entered"]`가 `me.store_id`와 같고 `me.stores` 안에 있음 | `app` (`enterApp`, 새로고침해도 보던 화면) |
+| 부팅: 그 밖의 로그인 상태 | `pick` |
+| 로그인·시연 시작 성공 | `pick` (새 로그인은 가게 선택부터: `ic26.entered`를 지움). 단 `expired`에서 다시 로그인했고 같은 사장님(`user_id`)·같은 가게(`me.store_id` = `entered`)면 `app`으로 바로 (해시 화면·진행 그대로) |
+| 회원가입 성공 | `store-new` (`mode: "signup"`) |
+| A3 [이 가게 열기] | `POST /api/auth/store {store_id}` → `ic26.entered` 저장 → `storeChanged()` → `app`, 홈(`today`). 이미 자료를 받아 둔 가게면 서버를 부르지 않고 `app` 홈으로만 |
+| 상단 바 [바꾸기] · A5 [가게로 돌아가기] | `pick` · (들어가 있던 가게가 지금 가게이고 내 가게면) `app`, 아니면 `pick` |
+| 상단 바·왼쪽 메뉴의 이름·'프로필', A3 [사장님 프로필] | `profile` |
+| A3·A5 '+ 새 가게 등록', A5 [정보 고치기] | `store-new` (`add` · `edit` + `storeId`) |
+| 로그아웃·탈퇴 | `ic26.entered`를 지우고 서랍을 닫고 가게 자료를 비운 뒤 `login` |
+| 로그인한 단계(`pick`·`store-new`·`profile`·`app`·`expired`·`forbidden`)에서 받은 401 `login_needed` | `expired` ([로그인] → `login`, 아이디 칸을 채워 둠) |
+| 같은 때의 409 `no_store` · 403 `not_your_store` | `pick` (`ic26.entered` 지움) · `forbidden` ([가게 선택으로]·[로그아웃]) |
+
+- `app`을 떠나면 서랍을 닫습니다 (`setStage`). 단계가 바뀌면 그 화면의 제목 `h1`(`#stage-title`, `tabIndex={-1}`)이 포커스를 받습니다 (메인 화면의 `PageHead`와 같은 방식).
+- 로그인 전 단계(`boot`·`login`·`signup`·`error`)에 늦게 온 401·409·403 은 무시합니다.
+- `sessionStorage` 접근은 늘 `try { … } catch` 안에서 합니다 (못 쓰면 새로고침 때 가게 선택부터).
+
+**(6) 로그인 표시와 상태 코드: `src/lib/api.js`**
+
+- 로그인한 동안(`me.authenticated`)은 모든 요청에 헤더 `X-IC26-Signed-In: 1`을 붙입니다 (`authHeaders()`). 서버는 이 표시가 있는데 세션이 끝났으면 게스트로 답하지 않고 401 `login_needed`를 줍니다 (1.13).
+- 공통 `api()`·`serviceApi()`는 실패한 응답의 `status`·`error.state`를 `handleAuthError()`에 넘겨 위 표대로 단계를 바꾸고, 오류에 `authHandled: true`를 답니다 (부른 쪽이 알림 띠를 또 띄우지 않게). `authStageOf(status, state)`는 그 대응표 (401 `login_needed` → `expired`, 409 `no_store` → `pick`, 403 `not_your_store` → `forbidden`, 그 밖은 `null`).
+- 로그인 실패(401 `bad_login`)·비밀번호 틀림(401 `bad_password`)·시연 계정(403 `demo_account`) 같은 것은 단계를 바꾸지 않고 부른 화면이 그대로 보여 줍니다.
+- 공통 `api()` 없이 따로 `fetch`하는 곳(`features/market/state.js`, `features/marketing/api.js`, `features/analysis/careApi.js`, `features/report/careApi.js`, `features/assistant/chat.js`)은 헤더에 `...authHeaders()`를 펼쳐 넣고, 실패한 응답에서 `handleAuthError({status, state})`를 불러야 같은 규칙이 됩니다 (11/20 이 브랜치에서는 아직 고치지 않음). `features/account/acctApi.js`의 `acctPost`·`clearChat`은 고쳤습니다.
 
 ### 2.3 공통 부품과 디자인 토큰
 
@@ -2112,12 +2160,13 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `#main`(`<main class="content">`)과 그 안의 `h1` · `.app.menu-closed` | `assistant/state.js`의 `drawerCovers`·`focusTitle` | 서랍이 본문을 덮는지, 화면 이동 뒤 제목 포커스 |
 | `#assistant` · `#assistant-q` · `#assistant-retry` · `#assistant-home` · `#assistant-scroll` · `#assistant-log` 안의 `[data-msg]`·`.chat-msg.user` · `#assistant-close` | `assistant/state.js`·`Drawer.jsx` | 서랍 포커스·스크롤 |
 | `[aria-controls="assistant"]` (`.top` 안 먼저) · `dialog[open]` | `Drawer.jsx` | 서랍을 닫을 때 돌려줄 버튼(연 버튼이 사라졌으면), 대화상자가 떠 있으면 Esc는 그 창이 먼저 |
-| `#acct-login` · `#acct-user` · `#acct-store` · `#auth-demo` | `state/account.js`·`account/focus.js`·`AuthDialog.jsx` | 로그인·로그아웃·가게 바꾸기·기록 지우기 뒤 포커스 |
+| `#acct-user`(상단 바 이름 → 프로필) · `#acct-store`(상단 바 [바꾸기] → 가게 선택) · `#auth-demo`(시연 시작) · `#auth-login`·`#auth-signup`(폼) · `#stage-title`(단계 화면 제목) · `#acct-dialog`(기록 지우기·탈퇴 확인 창) · `#prof-pw` · `#prof-up-<가게>`·`#prof-down-<가게>`·`#prof-remove-<가게>`·`#prof-keep-<가게>` | `Topbar.jsx`·`account/*`·시험(`App.test.jsx`·`account.test.jsx`·`stages.test.jsx`) | 시험이 이름으로 찾음, 프로필의 순서 바꾸기·빼기 뒤 포커스. 예전 `#acct-login`(게스트 [로그인])·`#auth-dialog`(로그인 창)는 11/20에 없앰 |
 | `#paste-text` | `analysis/PasteTab.jsx` | 예시 문장·빈 글일 때 포커스 |
 | `#an-tab-<탭>` · `#mk-tab-<탭>` · `#mkt-tab-chat` · `#mkt-tab-report` | `Tabs`·`analysis/state.js`·`Market.jsx`·`marketing/*` | 탭 키보드 이동, `navTo`로 연 탭에 포커스 |
 | `#mkt-options` · `#mkt-retry` · `#mkt-card-<n>`(`-title`) · `#mkt-idea-<n>`(`-title`·`-q`) · `#mkt-text-<n>-<열쇠>` | `marketing/state.js`·`ResultCard.jsx` | 맞춤 마케팅의 포커스·스크롤 |
 | `#rp-*-sec`(구역) · 리포트 안의 `details` · `details[data-rp-opened]` | `Report.jsx` | 구역 바로가기, 인쇄 직전에 펼쳤다가 인쇄 뒤 다시 접기 |
-| `aria-controls`의 대상 `side-menu` · `assistant` · `acct-dialog` · `auth-dialog` | `Topbar.jsx` | 연결이 실제 id를 가리켜야 함 (`account.test.jsx`가 `acct-user`의 것을 확인) |
+| `aria-controls`의 대상 `side-menu` · `assistant` · `auth-forgot`(로그인의 '비밀번호를 잊었어요') · `prof-pw`(비밀번호 바꾸기 폼) | `Topbar.jsx`·`Login.jsx`·`Profile.jsx` | 연결이 실제 id를 가리켜야 함. 상단 바 이름 버튼은 창이 아니라 화면(프로필)으로 가므로 11/20부터 `aria-controls`가 없음 |
+| `.mode-band` | `account/account.css` | 단계 화면에서는 `.stage-page .mode-band { order: 0 }` (760px 이하 `layout.css`의 `order: 2`는 메인 화면 틀 순서용) |
 
 **(7) 코드가 켜고 끄는 상태** (CSS가 이 상태를 보고 모양을 정함. 모양은 바꿔도 되지만 상태를 바꾸는 방식은 그대로)
 
@@ -2163,7 +2212,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 12 | `features/flow/calc.js`의 `REPLACES_MAX`·`replacesOf` | `REPLACES_MAX` = `demo.REPLACES_MAX`(20), `replacesOf`에 `.slice(0, REPLACES_MAX)` | `test_regen_one.py` `ScreenSendsAtMostTheServerLimit` |
 | 13 | `features/analysis/calc.js`의 `PASTE_SAMPLES` (`{ text, rating }` 칸) | 4개. 앞 3개는 정해 둔 문장, 4번째는 억울한 리뷰 시연 문장이고 저장 예시 답글이 있음 | `test_pasted_reply.py` `PasteSampleAndStoredExample` (C6 저장본이 있을 때만) |
 
-- **조심할 점**: 시험 1·3·6은 파일 전체 글자를 읽어서 **주석에도 걸립니다.** 주석에 `#/settings` 같은 없는 주소나 따옴표로 감싼 `'/api/…'`를 쓰면 깨집니다. `c9`는 `P("…")` 안의 경로 글자, 문자열, 주석, 시험 파일에서도 걸립니다.
+- **조심할 점**: 시험 1·3·6은 파일 전체 글자를 읽어서 **주석에도 걸립니다.** 주석에 `#/settings` 같은 없는 주소나 따옴표로 감싼 `'/api/…'`를 쓰면 깨집니다. 단계 화면(로그인·프로필 등)에 `#/이름` 주소를 만들지 않는 것도 이 시험 때문입니다 (2.2 (5)). 가게 id 가 들어가는 경로는 템플릿 글자(`` `/api/account/stores/${enc(id)}/summary` ``)로 쓰면 `$` 앞(`/api/account/stores/`)만 경로로 읽히고, 서버에 그것으로 시작하는 경로가 있으면 통과합니다 (`features/account/acctApi.js`). `c9`는 `P("…")` 안의 경로 글자, 문자열, 주석, 시험 파일에서도 걸립니다.
 - node로 실제로 돌리는 시험(7·8)은 `flow/calc.js`·`assistant/chat.js`를 그대로 import 합니다. 이 두 파일과 그것이 부르는 `lib/domain.js`에는 React·CSS import를 넣지 않습니다. node가 없으면 그 몇 건만 건너뜁니다.
 - 화면 문구는 서버 시험이 지키지 않습니다 (위 표의 메뉴 글자·시작 모드 글자·예시 문장·글 종류 이름만). 대신 아래 vitest가 몇몇 문구를 확인합니다.
 
@@ -2179,13 +2228,14 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 | 영역 | 파일 | 보는 것 |
 |---|---|---|
-| 화면 틀 | `src/App.test.jsx` | 덮는 메뉴의 첫 포커스·Tab 가두기·Esc·바깥·[메뉴 닫기] 뒤 토글 버튼 포커스, 메뉴 항목으로 이동하면 그 화면 제목 포커스, 승인 대기 칩(`#top-waiting`), 시험용 안내 띠 한 곳·바닥 줄, 게스트 문구 |
+| 화면 틀 | `src/App.test.jsx` | (app 단계 전제) 덮는 메뉴의 첫 포커스·Tab 가두기·Esc·바깥·[메뉴 닫기] 뒤 토글 버튼 포커스, 메뉴 항목으로 이동하면 그 화면 제목 포커스, 메뉴의 '프로필'로 프로필 단계, 승인 대기 칩(`#top-waiting`), 시험용 안내 띠 한 곳·바닥 줄, 사장님 칸('{이름} 사장님' · '프로필 · 로그아웃')·가게 칩('(가상)'·[바꾸기]), 휴대폰 계정 그림 단추(`#acct-user`) |
+| 단계 전환 | `src/features/account/stages.test.jsx` | 부팅 분기(게스트 → A1 · 로그인 + 들어간 가게 → app · 로그인만 → A3 · 신원 실패·`notice` → X1과 [다시 시도]), 로그인 → A3 → 가게 열기 → app 홈과 새로고침 유지, [바꾸기]로 같은 가게를 다시 열면 서버를 안 부름, 로그아웃 → A1, 회원가입 → 새 가게 등록, 401 `login_needed` → X2 → 같은 사장님·가게면 하던 화면, 다른 사장님이면 A3, 409 → A3, 403 → 권한 없음, 로그인 전 단계의 늦은 401 무시, `X-IC26-Signed-In` 헤더, 가게 자료는 app 단계에서만 부름 |
 | 틀 도우미 | `src/lib/shell.test.js` · `src/lib/theme.test.js` · `src/state/staff.test.js` | 안내 띠·바닥 줄 문구와 폭 구간(760·761~1024·그 위, 소수 폭), 화면 모양 순서·저장, 오늘 할 일·AI 비서 상태 |
 | 공통 부품 | `src/components/ui.test.jsx` | 아이콘(자리 글자 없음, 그림이 서로 다름, 로고), 빈 안내, `Dialog` |
 | 흐름 | `features/flow/calc.test.js` · `screens.test.jsx` | 순수 계산, 네 화면 그리기와 카드 → 초안 → 승인 → 완료 → 처음부터 다시의 API 순서 |
 | 리뷰 분석 | `features/analysis/calc.test.js` · `Analysis.test.jsx` | 탭·`navTo`, 붙여넣기 뒤 다시 읽기, 캡처 후보를 `source: "capture"`로 저장 |
 | 서랍 | `features/assistant/chat.test.js` · `Drawer.test.jsx` | 분기 표기 등 순수 계산, 선택지 위치, 기준 범위 칩과 안내 한 줄, 화면 이동 뒤 포커스, `drawerCovers` |
-| 계정 | `features/account/account.test.jsx` | 로그인 실패 때 비밀번호 유지, 로그아웃 뒤 `#acct-login` 포커스, 내 계정 창의 [로그아웃]·확인 단계·Esc |
+| 계정 화면 | `features/account/account.test.jsx` | A1: 로그인 실패 때 비밀번호 유지(401 `bad_login`은 단계 유지)·`keep`·'비밀번호를 잊었어요' 한 줄·시연 버튼은 시험용 실행 + `demo_login`일 때만. A2: 입력 규칙·`stores: []`. A3: 마지막 본 가게 맨 앞·주 버튼·칩, '(가상)', 요약 `tone` 색, `unavailable`이면 숫자 줄 없음, 불러오는 동안 자리, 0곳. A5: 이름 저장(PATCH), 비밀번호 틀림은 그 자리에, 예시 가게·[정보 고치기], 빼기 확인 뒤 DELETE, 순서 PUT, 확인 창의 '되돌릴 수 없어요'·비밀번호 칸·Esc, 탈퇴 뒤 A1 |
 | 상권 | `features/market/format.test.js` · `Market.test.jsx` | 처음 불러오기 순서, 머리 고지 한 줄, 비교 탭, `epoch`, `navTo` 탭 |
 | 맞춤 마케팅 | `features/marketing/logic.test.js` · `Marketing.test.jsx` | health → meta → step → 시작 모드 → plan → 승인, 결과 칸 라이브 영역, 안내 띠가 겹치지 않음 |
 | 종합 리포트 | `features/report/format.test.js` · `Report.test.jsx` | 'AI 문장 아님' 고지는 머리 한 곳, 출처·우리 가게 매출 아님·점수 변동 근거는 남음 |
@@ -2220,7 +2270,8 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 
 | 언제 | 함수 | 부르는 API | 결과가 가는 곳 |
 |---|---|---|---|
-| 페이지를 열 때 | `state/boot.js` `boot` | `GET /api/auth/me` → `GET /api/market/status`(기다리지 않음) → `GET /api/health` → `GET /api/briefing` → `GET /api/cards` → `GET /api/insight` → `GET /api/approvals`(기다리지 않음) | `health`: 시험용 안내 띠·알림 띠·바닥 줄. `briefing`: 홈·상단 바 가게 이름·초안의 리뷰 원문. `cards`: 추천 카드·홈 할 일. `insight`: 리뷰 분석. `approvals`: AI 비서의 맞춤 마케팅 승인 수 |
+| 페이지를 열 때 | `state/boot.js` `boot` | `GET /api/health`(기다리지 않음) + `GET /api/auth/me` → 단계 (2.2 (5)) | 로그인 전이면 A1, 들어간 가게가 그대로면 아래 줄, 아니면 A3 |
+| 메인 화면에 들어갈 때 (가게 열기·새로고침) | `enterApp` → `storeChanged` | `GET /api/health` → `GET /api/briefing` → `GET /api/cards` → `GET /api/insight` → `GET /api/approvals`(기다리지 않음) → `GET /api/market/status`(기다리지 않음) | `health`: 시험용 안내 띠·알림 띠·바닥 줄. `briefing`: 홈·초안의 리뷰 원문 (상단 바 가게 칩은 `me.stores`의 지금 가게). `cards`: 추천 카드·홈 할 일. `insight`: 리뷰 분석. `approvals`: AI 비서의 맞춤 마케팅 승인 수 |
 | 위 호출이 실패하면 | | | 알림 띠에 문장, 홈의 주 버튼이 "불러오지 못했어요". `insight`만 실패하면 리뷰 분석 화면에만 안내 |
 | 홈 '무엇을 할까요?' | `go("cards")` | 없음 | `#/cards` |
 | 카드 버튼 | `choose` → `runCard` | `POST /api/cards/{id}/run`. 점검 수칙 상자가 있는 카드만 `{"measures": […]}` (그 밖에는 본문 없음) | `#/draft`. 이미 만든 카드면 API 없이 `#/draft` |
@@ -2301,17 +2352,25 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 - 상단 바와 아래 탭(760px 이하)의 'AI에게 묻기'는 **열기 전용**입니다 (11/20, `state/store.js`의 `focusOrOpenDrawer`). 닫혀 있으면 열고, 이미 열려 있으면 닫지 않고 입력칸 `#assistant-q`에 포커스를 줍니다(입력칸이 막혀 있으면 `#assistant-close`). 닫기는 서랍 안 [닫기]와 `Esc`만 합니다. 버튼 이름·`aria-controls="assistant"`·`aria-expanded`는 그대로입니다.
 - 서랍 답의 종류(1.15): 가게 정보·화면 위치(`store_*`), 되묻기(`help_guide`), 추천 카드(`cards_guide`), 고객응대·마케팅·리포트(`*_guide`), 상권 답. 화면은 `reply.kind`로 그리기를 나누지 않고 글·버튼·추천 질문을 같은 모양으로 그립니다.
 
-**계정** (`state/account.js`, `features/account/`)
+**계정** (`state/account.js`, `features/account/`, 11/20 단계 화면. 단계 규칙은 2.2 (5))
 
 | 언제 | 부르는 API | 결과 |
 |---|---|---|
-| 로그인 · 회원가입 · 시연 계정 | `POST /api/auth/login`·`signup`·`demo-login` → `storeChanged()` | 창을 닫고 모든 화면을 새 가게로. 실패하면 창에 오류, 친 비밀번호는 그대로 (성공·닫기 때만 비움) |
-| 가게 바꾸기 (`#acct-store`, 가게가 둘 이상일 때) | `POST /api/auth/store` `{store_id}` → `storeChanged()` | 끝나면 포커스를 가게 고르기 칸으로 |
-| 로그아웃 (왼쪽 메뉴 계정 줄 또는 내 계정 창 `#acct-logout`) | `POST /api/auth/logout` → `storeChanged()` | 게스트 화면, 포커스는 상단 바 `#acct-login` |
-| 내 계정 '기록 지우기'(지금 가게·모든 가게) → [지우기] | `DELETE /api/assistant/conversation`(실패·꺼짐 무시, 8초) → `POST /api/auth/reset` `{scope}` → `storeChanged()` | `complete: false`면 창을 열어 둔 채 오류와 '다시 지우기'. 성공이면 창을 닫고 오른쪽 아래 결과 띠 |
-| 내 계정 '회원 탈퇴' → [탈퇴하기] | 위 대화 지우기 → `POST /api/auth/withdraw` `{password}` (시연 계정은 `{}`) → `storeChanged()` | 게스트 화면, 결과 띠, 포커스는 `#acct-login`. 비밀번호 칸은 보낸 뒤 늘 비움. `bad_password`면 칸으로 포커스 |
+| A1 [로그인] · '시연 사장님으로 1초 시작 (가게 3곳)' | `POST /api/auth/login` `{login_id, password, keep}`(`keep` = '로그인 상태 유지 (7일)') · `POST /api/auth/demo-login` | A3 (또는 하던 화면). 실패하면 카드에 오류, 친 비밀번호는 그대로. 시연 버튼은 시험용 실행(`isTestRun(health)` = `health.mode_notice`가 있음)이고 `me.demo_login`이 `true`일 때만 보임 (실제 서버에서는 숨김, 6차 회의) |
+| A1 '비밀번호를 잊었어요' | 없음 | 그 자리에 "비밀번호 찾기는 아직 지원하지 않아요. 새 계정을 만들어 주세요." 한 줄 |
+| A2 [가입하고 가게 등록하기] | `POST /api/auth/signup` `{login_id, password, display_name, stores: []}` | 새 가게 등록(`mode: "signup"`). 아이디(영문 소문자·숫자로 시작 3~32자)·비밀번호(8자 이상)·확인·이름·동의(필수)를 먼저 보고, 틀린 칸으로 포커스 |
+| A3 열기 | `GET /api/account/stores` → 가게마다 `GET /api/account/stores/{id}/summary` (따로·동시에) | 카드: 첫 글자 · 이름(`sample`이면 ' (가상)') · '업종 · 상권' · '리뷰 n · 불만 n'(`unavailable`이면 숨김) · 요약 한 줄(`tone` bad 빨강 · good 초록 · muted 회색) · [이 가게 열기]. `last_opened` 가게는 맨 앞 + 초록 주 버튼 + '마지막으로 본 가게' 칩. 마지막 칸 '+ 새 가게 등록'. 0곳이면 그 칸과 "아직 등록한 가게가 없어요". 그림의 '오늘 승인 대기'·'이번 주 보고서'·카드의 '승인 대기'는 서버가 모르는 값이라 없음 |
+| A3 [이 가게 열기] | `POST /api/auth/store` `{store_id}` → `storeChanged()` | 그 가게의 홈 (2.2 (5)) |
+| A5 [이름 저장] · [비밀번호 바꾸기] | `PATCH /api/account/profile` `{display_name}` · `POST /api/account/password` `{current_password, new_password}` | 그 자리에 한 줄. 비밀번호 칸은 보낸 뒤 늘 비움, 401 `bad_password`면 지금 비밀번호 칸으로. 시연 계정은 비밀번호 버튼이 없음 |
+| A5 내 가게 [빼기] → 확인 [빼기] | `DELETE /api/account/stores/{id}` → `GET /api/auth/me` | 확인 줄에 "가게를 빼도 그 가게의 기록은 지워지지 않아요." 들어가 있던 가게를 뺐으면 `entered`를 지움 ([가게로 돌아가기] → A3) |
+| A5 [위로]·[아래로] | `PUT /api/account/stores/order` `{store_ids}` | 순서 = 가게 선택 화면 순서. 포커스는 누른 버튼(끝으로 가 잠기면 반대 버튼) |
+| A5 [정보 고치기] (직접 등록한 가게만, 예시 가게는 '예시 가게' 표시) · '+ 새 가게 등록' | 없음 | 새 가게 등록 (`edit` + `storeId` · `add`) |
+| A5 '기록 지우기'(지금 가게·모든 가게) → [지우기] | `DELETE /api/assistant/conversation`(실패·꺼짐 무시, 8초) → `POST /api/auth/reset` `{scope}` → (들어가 있던 가게가 있으면) `storeChanged()` | `complete: false`면 창을 열어 둔 채 오류와 '다시 지우기'. 성공이면 창을 닫고 오른쪽 아래 결과 띠 |
+| A5 '회원 탈퇴' → [탈퇴하기] | 위 대화 지우기 → `POST /api/auth/withdraw` `{password}` (시연 계정은 `{}`) | A1, 결과 띠. 비밀번호 칸은 보낸 뒤 늘 비움. `bad_password`면 칸으로 포커스 |
+| 로그아웃 (A3 위쪽 줄·사장님 칸, 왼쪽 메뉴 '프로필 · 로그아웃', X2 권한 없음) | `POST /api/auth/logout` | A1 (401 이면 이미 끝난 것으로 보고 같음) |
 
-- 확인 단계의 기본 포커스는 [취소]이고 Esc도 취소입니다. '되돌릴 수 없어요' 경고는 지우지 않습니다.
+- 확인 창(`#acct-dialog`)의 기본 포커스는 [취소]이고 Esc도 취소입니다. 닫히면 연 버튼으로 포커스가 돌아갑니다. '지우면 되돌릴 수 없어요.' · '탈퇴하면 되돌릴 수 없어요.' 경고는 지우지 않습니다.
+- 그림 A5의 '보관한 보고서' 구역은 만들지 않았습니다 (서버에 보고서 저장 기능이 없음).
 
 ### 2.7 자유롭게 바꿔도 되는 것
 
@@ -2352,10 +2411,11 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
 
 **(3) 눈으로 확인** (`APP_MODE=mock services/web/run.sh` → `http://localhost:8000`. 고치면서 보려면 서버를 띄운 채 `npm run dev` → `http://localhost:5173`)
 
+0. 처음 열면 로그인 화면(A1)과 시험용 안내 띠 한 줄. '시연 사장님으로 1초 시작' → 가게 선택(A3) → [이 가게 열기] → 홈. 새로고침해도 홈, 로그아웃하면 A1 (2.2 (5)).
 1. 홈이 뜨고 숫자 타일 4개·차트가 채워지고, 맨 위에 시험용 안내 띠가 한 줄 보인다.
 2. '무엇을 할까요?' → 카드 → 만들기 → 초안 → 고쳐서 승인 → 다 승인하면 처리 완료 → '처음부터 다시'.
 3. 리뷰 분석 탭이 마우스와 ←/→/Home/End로 바뀌고, 예시 문장으로 '분류하기'·'붙여넣은 리뷰 지우기'가 된다.
-4. 폭 1440 · 1280(+ 서랍 열기) · 900 · 375px에서 가로 스크롤이 없고, 2.9 표대로 메뉴·서랍이 움직인다. 375px에서도 상단 바 [로그인]·이름 버튼으로 계정 창과 로그아웃에 닿는다.
+4. 폭 1440 · 1280(+ 서랍 열기) · 900 · 375px에서 가로 스크롤이 없고, 2.9 표대로 메뉴·서랍이 움직인다. 375px에서도 상단 바 이름(그림) 버튼으로 프로필, [바꾸기]로 가게 선택에 닿는다. 단계 화면(A1·A2·A3·A5·X1·X2)도 375px에서 가로 스크롤이 없다.
 5. 900px에서 메뉴를 펼치면 첫 메뉴 항목에 포커스, Tab이 메뉴 안에서만 돌고, Esc·바깥·[메뉴 닫기]로 닫으면 토글 버튼으로 돌아온다.
 6. 상단 바 화면 모양 버튼으로 시스템 → 밝게 → 어둡게, `?theme=light`·`?theme=dark`에서 글자가 읽힌다.
 7. 'AI에게 묻기'로 서랍이 열리고, 열린 채 다시 누르면 닫히지 않고 입력칸에 포커스가 간다. `Esc`·'닫기'로 닫힌다. 화면 이동 선택지를 누르면 그 화면으로 간다.
@@ -2394,7 +2454,8 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
 **(4) 승인 대기 수와 계정**
 
 - 승인 대기 수는 왼쪽 메뉴 '승인할 글' 옆 숫자(`.count`, `aria-label="승인 대기 n개"`)입니다. 메뉴가 안 보일 때(넓은 화면에서 접음, 761~1024px에서 덮는 메뉴가 닫혀 있음)는 상단 바에 승인 대기 칩 `#top-waiting`(→ `#/draft`)이 대신 보입니다. 0이면 둘 다 없습니다. 760px 이하에서는 아래 탭 '오늘 처리'와 하위 탭 '승인할 글'에 숫자가 보이고 칩은 그리지 않습니다. 이때 '오늘 처리' 탭은 승인 대기가 있으면 `#/draft`, 없으면 `#/cards`로 갑니다.
-- 계정은 **모든 폭에서** 상단 바의 [로그인](`#acct-login`, 로그인 창) 또는 이름 버튼(`#acct-user`, 내 계정 창)으로 닿습니다. 내 계정 창에 [로그아웃](`#acct-logout`)이 있어서, 왼쪽 메뉴가 없는 760px 이하에서도 로그아웃할 수 있습니다 (그때 계정 단추는 그림 단추, id 는 같음). 왼쪽 메뉴가 보일 때(넓은 화면, 또는 761~1024px에서 펼친 덮는 메뉴)는 메뉴 맨 아래 계정 줄(게스트 + [로그인] / 이름 + [내 계정]·[로그아웃])도 있습니다.
+- 계정은 **모든 폭에서** 상단 바의 이름 버튼(`#acct-user`, '{이름} 사장님' → 사장님 프로필)과 가게 칩의 [바꾸기](`#acct-store` → 가게 선택)로 닿습니다 (11/20, Figma 06 B1). 메인 화면에는 로그인 전 사장님이 없어서 [로그인]·'게스트' 표시는 없습니다. 760px 이하에서는 이름 버튼이 그림 단추(이름은 `.sr`, id 는 같음)이고, 왼쪽 메뉴가 없으므로 로그아웃은 [바꾸기] → 가게 선택 화면(A3)의 [로그아웃]으로 합니다 (프로필 A5 그림에는 로그아웃이 없음). 왼쪽 메뉴가 보일 때(넓은 화면, 또는 761~1024px에서 펼친 덮는 메뉴)는 메뉴 맨 아래 사장님 칸(첫 글자 동그라미 + '{이름} 사장님' + '프로필 · 로그아웃')도 있습니다.
+- 상단 바 가게 칩: 이름(예시 가게면 ' (가상)') · '업종 · 상권'은 `me.stores`의 지금 가게(`me.store_id`)에서 읽고, 없으면 브리핑의 가게. 예전 가게 고르기 `<select>`는 없앴습니다. 메뉴 접기(`#menu-toggle`)·승인 대기 칩(`#top-waiting`)·화면 모양 버튼은 그림에 없지만 그대로 둡니다.
 
 **(5) 서랍이 본문을 미는지 덮는지**
 
