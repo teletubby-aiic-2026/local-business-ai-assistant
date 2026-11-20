@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { getState, setState } from "../../state/store.js";
 import Marketing from "./Marketing.jsx";
 import { MKT_DEMO_NOTICE, noticeLines } from "./state.js";
+import { getChat } from "../assistant/state.js";
 
 const START = { state: { node: "start", raw: {}, confirms: {}, mode: null }, bot_messages: ["무엇을 도와드릴까요?"], done: false,
   options: [{ label: "맞춤 홍보 제안" }, { label: "광고비 점검" }], multi: false, input: null };
@@ -85,6 +86,23 @@ describe("맞춤 마케팅 화면", () => {
     const log = document.getElementById("mkt-log");
     expect(log.contains(region) || region.contains(log)).toBe(false);
     expect(within(log).queryByText("광고비 점검 결과")).toBeNull();
+  });
+
+  it("결과 카드의 'AI에게 이어서 묻기'는 서랍을 열고 카드에 맞는 질문을 입력칸에 채우기만 한다 (보내지 않음)", async () => {
+    const calls = [];
+    globalThis.fetch = fakeFetch(calls);
+    prep();
+    act(() => setState({ epoch: getState().epoch + 1, drawerOpen: false }));   // 앞 시험의 대화를 비우고 처음부터
+    render(<Marketing />);
+    const mode = await screen.findByText("광고비 점검");
+    await act(async () => { fireEvent.click(mode); });
+    await screen.findByText("광고비 점검 결과");
+    const ask = screen.getByRole("button", { name: "AI에게 이어서 묻기" });
+    expect(ask.closest(".mkt-card-actions")).toBeTruthy();
+    await act(async () => { fireEvent.click(ask); });
+    expect(getState().drawerOpen).toBe(true);
+    expect(getChat().draft).toBe("주변에 같은 업종 점포는 몇 개야?");   // 광고비 표 카드
+    expect(calls.some((c) => c.path.includes("/api/assistant/messages"))).toBe(false);
   });
 
   it("시작 모드를 고르면 첫 응답 전에도 고른 모드와 '처음부터'가 바로 보인다", async () => {

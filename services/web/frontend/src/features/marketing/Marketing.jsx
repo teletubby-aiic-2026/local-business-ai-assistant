@@ -66,7 +66,7 @@ export default function Marketing() {
   const owner = `마케팅 비서${s.storeName ? ` · ${s.storeName} 기준` : ""}`;
   return (
     <div className="col wide mkt">
-      <PageHead owner={owner} title="맞춤 마케팅" sub="몇 가지 질문에 답하면 우리 가게에 맞는 홍보 방법과 글을 제안해요." />
+      <PageHead owner={owner} title="맞춤 마케팅" sub="선택한 조건으로 손익을 계산하고 우리 가게 홍보 방법과 초안을 만들어요." />
       {notices.length > 0 && <Notice tone="warn" role="note" className="mkt-notice">{notices.join(" ")}</Notice>}
       {s.down && <DownPanel down={s.down} checking={s.checking} />}
       {!s.ready && !s.down && <Panel className="mkt-loading"><Status /></Panel>}

@@ -43,10 +43,10 @@ export function staffOf(s) {
   const complaints = b ? [...new Set([...(b.groups || []).flatMap((g) => (g.reviews || []).map((r) => r.review_id)),
     ...(b.single_complaints || []).map((x) => x.review_id)].filter(Boolean))] : [];
   const open = complaints.filter((id) => !replied.has(id)).length;
-  const careText = !care.length ? "오늘 할 일 없음" : doneOf(care) ? "오늘 몫 끝" : madeOf(care) ? `승인 대기 ${waitOf(care)}개` : "만들 차례";
+  const careText = !care.length ? "오늘 할 일 없음" : doneOf(care) ? "오늘 승인 완료" : madeOf(care) ? `승인 대기 ${waitOf(care)}개` : "초안 만들기 전";
   out.push({ key: "care", name: "고객 응대 비서", ok: doneOf(care) && open === 0, text: b ? `${careText} · 답글 안 단 불만 ${open}건` : careText });
   const mktDone = Math.max(s.approvedLog.filter((x) => x.mkt).length, s.mktServer);
-  const mktText = !mktItems.length ? "오늘 할 일 없음" : doneOf(mktItems) ? "오늘 몫 끝" : madeOf(mktItems) ? `승인 대기 ${waitOf(mktItems)}개` : "만들 차례";
+  const mktText = !mktItems.length ? "오늘 할 일 없음" : doneOf(mktItems) ? "오늘 승인 완료" : madeOf(mktItems) ? `승인 대기 ${waitOf(mktItems)}개` : "초안 만들기 전";
   out.push({ key: "mkt", name: "마케팅 비서", ok: doneOf(mktItems) || mktDone > 0, text: `${mktText}${mktDone ? ` · 맞춤 마케팅 승인 ${mktDone}건` : ""}` });
   const m = s.staffMarket;
   out.push({ key: "market", name: "상권 분석 비서", ok: !!m && m.state === "ready", text: !m ? "확인 중" : m.state === "ready"

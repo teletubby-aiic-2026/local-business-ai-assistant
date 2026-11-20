@@ -202,6 +202,8 @@ describe("휴대폰 (760px 이하): 아래 탭 + 묶음 하위 탭 + 한 줄 상
     expect(asks[0].closest(".tabbar")).toBeTruthy();
     fireEvent.click(asks[0]);
     expect(asks[0].getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(asks[0]);   // 한 번 더 눌러도 닫히지 않는다 (닫기는 서랍의 닫기·Esc)
+    expect(asks[0].getAttribute("aria-expanded")).toBe("true");
   });
 
   it("살펴보기 화면에서는 하위 탭(리뷰 분석·상권 분석·종합 리포트)과 현재 화면 표시, 홈에는 하위 탭 없음", async () => {

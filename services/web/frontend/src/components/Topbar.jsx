@@ -1,7 +1,7 @@
 // 상단 바: 메뉴 접기 · 가게 이름(바꾸기 겸용) · 승인 대기 칩 | 화면 모양 · 로그인(또는 이름=내 계정) · AI에게 묻기 (Figma 02 공통 요소 '상단 바')
 // 계정 버튼은 모든 폭에서 보인다 (760px 이하에서는 왼쪽 메뉴의 계정 줄이 숨으므로 이 버튼이 유일한 길)
 import { forwardRef } from "react";
-import { useStore, setState, openDrawer } from "../state/store.js";
+import { useStore, setState, focusOrOpenDrawer } from "../state/store.js";
 import { storeLine } from "../lib/domain.js";
 import { waitingCount } from "../state/staff.js";
 import { acctSwitch, displayName } from "../state/account.js";
@@ -73,7 +73,7 @@ const Topbar = forwardRef(function Topbar({ menuOpen, onToggleMenu, showWaiting 
               {narrow ? <><Icon name="계정" size={20} /><span className="sr">로그인</span></> : "로그인"}
             </Button>}
         {!narrow && (
-          <Button variant="primary" className="ask-btn" aria-controls="assistant" aria-expanded={drawerOpen} onClick={() => openDrawer("toggle")}>
+          <Button variant="primary" className="ask-btn" aria-controls="assistant" aria-expanded={drawerOpen} onClick={focusOrOpenDrawer}>
             <Icon name="AI" size={18} />AI에게 묻기
           </Button>
         )}

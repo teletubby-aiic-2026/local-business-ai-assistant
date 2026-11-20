@@ -62,3 +62,10 @@ export function resetStore() { state = initialState(); listeners.forEach((l) => 
 
 export const setAlert = (msg) => setState({ alert: msg || "" });
 export const openDrawer = (open = true) => setState((s) => ({ drawerOpen: open === "toggle" ? !s.drawerOpen : !!open }));
+// 'AI에게 묻기' 버튼: 닫혀 있으면 열고, 열려 있으면 닫지 않고 입력칸으로 (입력칸이 준비 전이면 닫기 버튼으로). 닫기는 서랍의 닫기·Esc 가 맡는다
+export function focusOrOpenDrawer() {
+  if (!state.drawerOpen) { openDrawer(true); return; }
+  const q = document.getElementById("assistant-q");
+  const target = q && !q.disabled ? q : document.getElementById("assistant-close");
+  target?.focus({ preventScroll: true });
+}

@@ -191,7 +191,7 @@ export async function restart() {
   if (failed) setAlert(`화면은 처음으로 돌렸지만 서버의 승인 기록은 지우지 못했어요. ${failed}`);
 }
 
-// 홈 'AI 비서' 칸: 누르면 맡은 화면으로
+// 홈 '담당 비서 현황' 칸: 누르면 맡은 화면으로
 export function staffGo(key) {
   if (key === "data") navTo("analysis", "summary");
   else if (key === "care") go(waitingCount(getState()) ? "draft" : "cards");

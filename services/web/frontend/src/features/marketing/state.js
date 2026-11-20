@@ -4,11 +4,12 @@
 // - 가게가 바뀌거나(epoch) 처리 완료의 '처음부터 다시'(mktResetSeq)면 처음으로 (예전 mktReset). 다음에 화면을 열 때 처음부터 시작한다.
 // - 오류는 이 화면 안에만 (맨 위 띠를 쓰지 않음).
 import { useSyncExternalStore } from "react";
-import { getState, setState as setApp } from "../../state/store.js";
+import { getState, setState as setApp, focusOrOpenDrawer } from "../../state/store.js";
+import { setDraft } from "../assistant/state.js";
 import { staffApprovals } from "../../state/boot.js";
 import { currentRoute } from "../../lib/router.js";
 import { mktApi, mktPost } from "./api.js";
-import { MKT_STATES, MKT_SUB, MKT_UNIT, badgeOf, calcRange, downKey, draftLabel, initialDrafts, mktKey } from "./logic.js";
+import { MKT_STATES, MKT_SUB, MKT_UNIT, askQuestionOf, badgeOf, calcRange, downKey, draftLabel, initialDrafts, mktKey } from "./logic.js";
 
 // 대화를 처음으로 되돌릴 때 비우는 것. mode = 고른 시작 모드 글자 (질문 칸 제목에 보임)
 const blankChat = () => ({ flow: null, prompt: null, log: [], cards: [], error: "", hasRetry: false, questions: 0, mode: "" });
@@ -488,6 +489,12 @@ export async function noticeFollow(n) {
   } catch (e) {
     if (cardOf(n)) updCard(n, (x) => ({ notice: { ...x.notice, busy: false, error: e.message } }));
   }
+}
+
+// 'AI에게 이어서 묻기': 카드에 맞는 질문을 서랍 입력칸에 채우고 서랍을 연다 (보내기는 사장님이 직접)
+export function askFromCard(card) {
+  setDraft(askQuestionOf(card));
+  focusOrOpenDrawer();
 }
 
 // ── 마케팅 보고서 탭 (주간·월간) ──

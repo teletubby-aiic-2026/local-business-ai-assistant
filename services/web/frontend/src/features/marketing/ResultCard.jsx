@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button } from "../../components/ui.jsx";
 import { CALC_MAX_BUDGET, MKT_DEMO, MKT_VERDICT, barPct, couponRows, draftLabel, mktKey, tilesOf, todoHeadOf, whyLinesOf, wonKo } from "./logic.js";
-import { approve, couponGen, editDraft, editFollow, ideaAsk, ideaNext, ideaTry, nextCoupon, noticeFollow, rewrite, slide, storyLink } from "./state.js";
+import { approve, askFromCard, couponGen, editDraft, editFollow, ideaAsk, ideaNext, ideaTry, nextCoupon, noticeFollow, rewrite, slide, storyLink } from "./state.js";
 import { isSendEnter } from "./Ask.jsx";
 
 function Tiles({ tiles, live }) {
@@ -311,6 +311,7 @@ export default function ResultCard({ card }) {
       <div className="btn-row mkt-card-actions">
         <Button variant="primary" disabled={card.approved || card.replaced || card.approving} onClick={() => approve(n)}>{card.approved ? "승인함" : "승인"}</Button>
         <Button disabled={card.approved || card.replaced || card.rewriting} onClick={() => rewrite(n)}>다시 쓰기</Button>
+        <Button variant="text" onClick={() => askFromCard(card)}>AI에게 이어서 묻기</Button>
         {card.done && <a className="small" href="#/done">처리 완료에서 보기</a>}
       </div>
       <p className={card.msgBad ? "small mkt-card-msg bad" : "small mkt-card-msg"} role="status">{card.msg}</p>

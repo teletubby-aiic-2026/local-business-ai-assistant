@@ -1,5 +1,5 @@
 // 홈 = 대시보드 (예전 1 오늘 renderBriefing·renderDash·renderKeywords·renderHourChart).
-// 한 줄 흐름: 브리핑 기간 → 제목 → 오늘의 핵심 문제 → 숫자 타일 4 → 오늘 할 일·AI 비서 → 불만 시간대·주제 차트 → AI에게 묻기.
+// 한 줄 흐름: 브리핑 기간 → 제목 → 오늘의 핵심 문제 → 숫자 타일 4 → 오늘 할 일·담당 비서 현황 → 불만 시간대·주제 차트 → AI에게 묻기.
 // 차트는 브리핑(불만 리뷰 시각·주제)에서 바로 센다. 외부 라이브러리 없음.
 import { useStore, openDrawer } from "../../state/store.js";
 import { todosOf, staffOf } from "../../state/staff.js";
@@ -76,7 +76,7 @@ export default function Home() {
           </div>
         </Panel>
 
-        <Panel title="AI 비서" titleId="flow-staff-title">
+        <Panel title="담당 비서 현황" titleId="flow-staff-title">
           <ul className="plain flow-staff">
             {staff.map((x) => (
               <li key={x.key}>

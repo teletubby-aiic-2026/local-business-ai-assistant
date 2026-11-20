@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getState, openDrawer, resetStore, setState } from "../../state/store.js";
 import Drawer from "./Drawer.jsx";
+import Topbar from "../../components/Topbar.jsx";
 import { chatReset, drawerCovers } from "./state.js";
 
 const COND = { area_name: "장승배기역 4번", industry_name: "한식음식점", period: "20262", is_store_default: true };
@@ -93,6 +94,37 @@ describe("서랍 답의 선택지", () => {
     fireEvent.click(screen.getByRole("button", { name: "AI에게 묻기 닫기" }));
     expect(getState().drawerOpen).toBe(false);
     expect(document.activeElement.id).toBe("opener");
+  });
+});
+
+describe("상단 'AI에게 묻기' 버튼 (실제 상단 바)", () => {
+  const ask = () => screen.getByRole("button", { name: "AI에게 묻기" });
+
+  it("두 번 눌러도 서랍은 닫히지 않고 입력칸으로 간다", async () => {
+    globalThis.fetch = fakeFetch([]);
+    render(<><Topbar /><Drawer /></>);
+    ask().focus();
+    act(() => { fireEvent.click(ask()); });
+    expect(getState().drawerOpen).toBe(true);
+    await waitFor(() => expect(document.getElementById("assistant-q").disabled).toBe(false));
+    ask().focus();   // 실제로 누르면 버튼이 포커스를 가져간다
+    act(() => { fireEvent.click(ask()); });
+    expect(getState().drawerOpen).toBe(true);
+    expect(ask().getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement.id).toBe("assistant-q");
+  });
+
+  it("입력칸이 아직 막혀 있으면(준비 전) 다시 눌렀을 때 닫기 버튼으로 간다", async () => {
+    globalThis.fetch = vi.fn(() => new Promise(() => {}));   // 상태 확인이 끝나지 않음
+    render(<><Topbar /><Drawer /></>);
+    ask().focus();
+    act(() => { fireEvent.click(ask()); });
+    expect(document.getElementById("assistant-q").disabled).toBe(true);
+    ask().focus();
+    act(() => { fireEvent.click(ask()); });
+    expect(getState().drawerOpen).toBe(true);
+    expect(ask().getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement.id).toBe("assistant-close");
   });
 });
 
