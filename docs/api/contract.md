@@ -38,7 +38,7 @@ open http://localhost:8000
 curl -s http://localhost:8000/api/health
 ```
 
-- `run.sh`가 리뷰 분석 서버(8020번 포트), 맞춤 마케팅 서버(8030번 포트), 비서 화면 서버(8000번 포트)를 같이 띄웁니다. `Ctrl+C`(또는 스크립트 `kill`)로 셋 다 끕니다. 맞춤 마케팅을 빼려면 `MARKETING_SURVEY_URL=off` (4부).
+- `run.sh`가 리뷰 분석 서버(8020번 포트), 맞춤 마케팅 서버(8030번 포트), 비서 화면 서버(8000번 포트)를 같이 띄웁니다. 상권 공식 자료(`services/market-analysis/data/official`, git 밖 자료 묶음)가 있으면 상권 서비스(8766번 포트)도 띄웁니다 (11/20. 상권 파이썬은 `MARKET_PYTHON`, 상권 의존성은 `services/market-analysis/requirements.lock.txt`). `Ctrl+C`(또는 스크립트 `kill`)로 모두 끕니다. 맞춤 마케팅을 빼려면 `MARKETING_SURVEY_URL=off` (4부), 상권을 빼려면 `MARKET_URL=off`.
 - `APP_MODE=mock`이면 키 파일이 있어도 모델(HCX)을 부르지 않습니다. 키가 없어도 됩니다.
 - 화면 모양은 상단 바 버튼으로 시스템 → 밝게 → 어둡게를 고릅니다 (localStorage `ic26.theme`). 주소 뒤 `?theme=light|dark`는 그 화면에서만 고정합니다.
 - 자동 API 문서는 `http://localhost:8000/docs`에 있습니다 (로컬에서만. 배포 계획서의 Nginx 설정은 `/docs`를 막음).

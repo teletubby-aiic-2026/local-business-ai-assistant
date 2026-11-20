@@ -88,6 +88,15 @@ open http://localhost:8000
 
 **공식 자료 없이 끝까지 확인하는 법** (개발 전용): 상권 서비스의 시험이 쓰는 합성 자료로 상권 서비스를 띄웁니다. 숫자는 합성 값이고 서울시 OpenAPI 수집(`--collect`)은 하지 않습니다. 상권 서비스는 파이썬 3.12가 필요해(`requirements.lock.txt`의 `pyproj` 3.8) 컨테이너를 씁니다. 자세한 설명은 `scripts/serve_market_synthetic.py` 머리말.
 
+**11/20부터 실제 자료로 네 서비스를 한 번에 띄우기**: 팀 자료 묶음(`seoul-market-data-*.tar.gz`)을 빈 폴더에 풀어 그 안의 `services/market-analysis/data` 를 저장소의 같은 자리에 두면(git 밖), `run.sh` 가 상권 서비스(8766)도 띄우고 비서 화면을 거기로 잇습니다. 키 파일이 있으면 상권도 live(HCX-005, 키 이름 `CLOVA_STUDIO_API_KEY` 가 없으면 `CLOVA_API_KEY` 를 그 이름으로도 넘김), `APP_MODE=mock` 이면 고정 문형 답입니다.
+
+```bash
+python3 -m venv /tmp/venv-market && /tmp/venv-market/bin/pip install -r services/market-analysis/requirements.lock.txt -r services/market-analysis/requirements-assistant.txt
+MARKET_PYTHON=/tmp/venv-market/bin/python services/web/run.sh     # 화면·리뷰 분석·맞춤 마케팅·상권 네 서비스
+```
+
+합성 자료로만 볼 때 (공식 자료 없이):
+
 ```bash
 # 한 번만: 파이썬 3.12 이미지 (requirements 설치)
 cd services/market-analysis && printf 'FROM python:3.12-slim\nCOPY requirements.lock.txt requirements-assistant.txt /tmp/\nRUN pip install --no-cache-dir -q -r /tmp/requirements.lock.txt -r /tmp/requirements-assistant.txt\n' | docker build -q -t ic26-market-dev:py312 -f - .
