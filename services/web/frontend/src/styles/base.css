@@ -120,6 +120,8 @@ h1:focus { outline: none; }
 .page-head .ph-text { display: grid; gap: 8px; }
 .owner-chip { justify-self: start; display: inline-flex; gap: 6px; align-items: center; padding: 3px 10px; border-radius: var(--r-full); background: var(--brand-soft); color: var(--accent-text); font-size: var(--fs-small); font-weight: 500; }
 .page-head .ph-sub { color: var(--muted); }
+/* 좁은 본문(휴대폰): 화면 제목을 한 단계 작게, 머리 버튼은 줄을 바꿔 왼쪽부터 */
+@container content (max-width: 479px) { .page-head { gap: var(--s-12); } .page-head h1 { font-size: 24px; } .page-head .btn-row { width: 100%; } }
 
 /* ── 상태 점 ── */
 .dot { width: 8px; height: 8px; border-radius: var(--r-full); background: var(--bar); display: inline-block; flex: none; }

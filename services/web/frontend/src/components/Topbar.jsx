@@ -5,7 +5,7 @@ import { useStore, setState, openDrawer } from "../state/store.js";
 import { storeLine } from "../lib/domain.js";
 import { waitingCount } from "../state/staff.js";
 import { acctSwitch, displayName } from "../state/account.js";
-import { Button, Icon } from "./ui.jsx";
+import { Button, Icon, Logo } from "./ui.jsx";
 import { THEME_LABELS, nextTheme, setTheme, useTheme } from "../lib/theme.js";
 
 // 화면 모양 버튼: 누를 때마다 시스템 → 밝게 → 어둡게. 지금 고른 것을 그림과 글(읽기 프로그램·툴팁)로 알린다
@@ -26,7 +26,8 @@ function ThemeButton() {
 }
 
 // showWaiting: 왼쪽 메뉴가 안 보일 때(접었거나 761~1024px) 메뉴의 '승인할 글' 숫자를 여기서 보여 준다
-const Topbar = forwardRef(function Topbar({ menuOpen, onToggleMenu, showWaiting = false }, toggleRef) {
+// narrow(760px 이하): 한 줄 상단 바 = 로고 · 가게 · 화면 모양 · 계정(그림 버튼). 'AI에게 묻기'와 승인 대기 수는 아래 탭으로 옮긴다
+const Topbar = forwardRef(function Topbar({ menuOpen, onToggleMenu, showWaiting = false, narrow = false }, toggleRef) {
   const briefing = useStore((s) => s.briefing);
   const me = useStore((s) => s.me);
   const busy = useStore((s) => s.acctBusy);
@@ -42,6 +43,7 @@ const Topbar = forwardRef(function Topbar({ menuOpen, onToggleMenu, showWaiting 
         <Button ref={toggleRef} id="menu-toggle" className="icon-btn menu-toggle" aria-controls="side-menu" aria-expanded={menuOpen} aria-label={label} title={label} onClick={onToggleMenu}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /></svg>
         </Button>
+        {narrow && <Logo className="top-logo" />}
         <div className="store-pick">
           <span className="sp-text">
             <span className="sp-name" id="store-name">{line.name || "가게"}</span>
@@ -55,7 +57,7 @@ const Topbar = forwardRef(function Topbar({ menuOpen, onToggleMenu, showWaiting 
             </label>
           )}
         </div>
-        {showWaiting && waiting > 0 && (
+        {!narrow && showWaiting && waiting > 0 && (
           <a className="wait-chip" id="top-waiting" href="#/draft" aria-label={`승인 대기 ${waiting}개`}>
             <span>승인 대기</span><span className="count" aria-hidden="true">{waiting}</span>
           </a>
@@ -64,11 +66,17 @@ const Topbar = forwardRef(function Topbar({ menuOpen, onToggleMenu, showWaiting 
       <div className="top-right">
         <ThemeButton />
         {on
-          ? <Button id="acct-user" className="acct-btn" disabled={busy} aria-haspopup="dialog" aria-controls="acct-dialog" onClick={() => setState({ acctOpen: true })}>{displayName(me)}</Button>
-          : <Button id="acct-login" className="acct-btn" disabled={busy} aria-haspopup="dialog" aria-controls="auth-dialog" onClick={() => setState({ authOpen: true })}>로그인</Button>}
-        <Button variant="primary" className="ask-btn" aria-controls="assistant" aria-expanded={drawerOpen} onClick={() => openDrawer("toggle")}>
-          <Icon name="AI" size={18} />AI에게 묻기
-        </Button>
+          ? <Button id="acct-user" className={narrow ? "acct-btn icon-btn" : "acct-btn"} title={narrow ? `내 계정 · ${displayName(me)}` : undefined} disabled={busy} aria-haspopup="dialog" aria-controls="acct-dialog" onClick={() => setState({ acctOpen: true })}>
+              {narrow ? <><Icon name="계정" size={20} /><span className="sr">{displayName(me)}</span></> : displayName(me)}
+            </Button>
+          : <Button id="acct-login" className={narrow ? "acct-btn icon-btn" : "acct-btn"} title={narrow ? "로그인" : undefined} disabled={busy} aria-haspopup="dialog" aria-controls="auth-dialog" onClick={() => setState({ authOpen: true })}>
+              {narrow ? <><Icon name="계정" size={20} /><span className="sr">로그인</span></> : "로그인"}
+            </Button>}
+        {!narrow && (
+          <Button variant="primary" className="ask-btn" aria-controls="assistant" aria-expanded={drawerOpen} onClick={() => openDrawer("toggle")}>
+            <Icon name="AI" size={18} />AI에게 묻기
+          </Button>
+        )}
       </div>
     </header>
   );

@@ -149,3 +149,6 @@
 
 /* 카드 이유 문장의 줄바꿈(\n)을 살린다 (서버가 문장마다 줄을 나눠 보냄) */
 .card-reason { white-space: pre-line; }
+
+/* 휴대폰(760px 이하)에서는 본문 맨 위 하위 탭(MobileNav.jsx GroupNav)이 단계를 보여 주므로 진행 단계 줄은 숨긴다 */
+@media (max-width: 760px) { .flow-steps { display: none; } }

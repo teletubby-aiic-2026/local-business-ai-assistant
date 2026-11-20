@@ -66,6 +66,7 @@
   --side-w: 260px;
   --top-h: 72px;
   --drawer-w: 400px;
+  --tabbar-h: 64px;   /* 휴대폰 아래 탭 높이 (안전 영역 제외) */
   --col: 880px; --col-wide: 1040px; --col-narrow: 720px;
 }
 

@@ -92,6 +92,9 @@
 .rp-trend .rp-ax { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .rp-trend .rp-now { fill: var(--ink); font-weight: 700; }
 .rp-table-wrap { overflow-x: auto; margin-top: var(--s-8); border: 1px solid var(--line); border-radius: var(--r-md); }
+/* 표가 상자보다 넓으면(휴대폰) 첫 칸(불만 이름)은 붙여 두고 나머지만 가로로 민다 */
+.rp-table tbody th, .rp-table thead th:first-child { position: sticky; left: 0; z-index: 1; background: var(--panel); }
+.rp-table thead th:first-child { background: var(--surface); }
 .rp-table { width: 100%; min-width: 600px; border-collapse: collapse; font-size: var(--fs-small); }
 .rp-table th, .rp-table td { padding: 10px 12px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
 .rp-table thead th { border-top: 0; background: var(--surface); color: var(--muted); font-weight: 500; white-space: nowrap; }
@@ -192,4 +195,13 @@
   .rp-big-n { font-size: 44px; }
   .rp-snap-v { min-width: 4.5em; font-size: 20px; }
   .rp-month-nav strong { min-width: 0; }
+}
+
+/* 좁은 본문(휴대폰): 구역 바로가기 칩은 한 줄로 두고 옆으로 밀어 보기 (두세 줄로 꺾이면 첫 화면이 칩으로 찼음) */
+@container content (max-width: 639px) {
+  .rp-bar { display: grid; justify-content: stretch; }
+  .rp-jump { min-width: 0; }
+  .rp-jump ul { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .rp-jump ul::-webkit-scrollbar { display: none; }
+  .rp-chip { flex: none; white-space: nowrap; }
 }
