@@ -34,7 +34,7 @@ def bundle_price(store, item: str, partner: str) -> dict:
 
 
 def _base_text(ctx, item: str | None, key, model) -> str:
-    if key is None:
+    if key is None or not any(c.kind == "promo" for c in ctx.cards):     # 상권 카드가 없는 가게도 코드 템플릿 (11/20)
         return review_promo_fallback_text(ctx.store, item)
     result = generate_review_promo(ctx, _card_by_kind(ctx, "promo"), key, model=model, menu=item)
     draft = next((d for d in result.drafts if d.generator == "review_promo"), None)

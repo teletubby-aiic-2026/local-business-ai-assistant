@@ -98,6 +98,11 @@ class SetupDefaults:
     period: str
     business_status: str
     label: str
+    # 직접 등록한 가게(11/20)는 주소로 등록할 수 있다. 예시 세 곳은 역(station) 그대로
+    location_kind: str = "station"         # station | address
+    road_address: str = ""                 # 주소로 등록한 가게의 도로명 주소 (상권 서비스 주소 검색에 다시 넣는다)
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 STORE_DEFAULTS: dict[str, SetupDefaults] = {
@@ -114,6 +119,93 @@ for _sid in ("store_basak", "store_mongle"):
     _b = store_profiles.BUNDLES[_sid]
     STORE_DEFAULTS[_sid] = SetupDefaults(station_id=_b.station_id, industry_code=_b.industry_code, area_code=_b.area_code,
                                          period="20262", business_status="operating", label=_b.label)
+
+
+# 사장님이 직접 등록한 가게 (6차 회의 11/20): 등록 때 받은 위치·업종·상권·분기가 기본 조건이다.
+# 가게를 고치면 바로 따라가도록 저장 값(store_profiles.get, 5초 기억)에서 그때그때 만든다.
+ADDRESS_MISS = "등록한 주소로 상권 위치를 찾지 못했어요. 질문이나 상권 분석 화면에서 위치를 직접 골라 주세요."
+
+
+def registered_defaults(store_id: str | None) -> SetupDefaults | None:
+    """등록 가게의 기본 조건. 예시 가게·모르는 가게, 위치나 업종이 없어 맞출 수 없는 가게면 None."""
+    if not store_profiles.is_registered_id(store_id):
+        return None
+    bundle = store_profiles.get(store_id)
+    if bundle is None or not bundle.registered or not bundle.industry_code:
+        return None
+    loc = bundle.location or {}
+    kind = "station" if loc.get("kind") == "station" else "address"
+    road = (loc.get("road_address") or loc.get("label") or "").strip()
+    if (kind == "station" and not bundle.station_id) or (kind == "address" and not road):
+        return None
+    return SetupDefaults(station_id=bundle.station_id, industry_code=bundle.industry_code, area_code=bundle.area_code,
+                         period=bundle.period, business_status=bundle.business_status, label=bundle.label,
+                         location_kind=kind, road_address=road if kind == "address" else "",
+                         latitude=loc.get("latitude"), longitude=loc.get("longitude"))
+
+
+def store_defaults(store_id: str | None) -> SetupDefaults | None:
+    """가게의 기본 분석 조건: 예시 세 곳은 STORE_DEFAULTS, 직접 등록한 가게는 등록한 값."""
+    return STORE_DEFAULTS.get(store_id or "") or registered_defaults(store_id)
+
+
+def _nospace(text: Any) -> str:
+    return re.sub(r"\s+", "", text) if isinstance(text, str) else ""
+
+
+def same_location(location: Any, wanted: SetupDefaults) -> bool:
+    """상권 서비스에 저장된 위치가 우리 가게 위치와 같은지 (역 id, 또는 주소면 도로명 주소)."""
+    if not isinstance(location, dict):
+        return False
+    if wanted.location_kind == "address":
+        return location.get("kind") == "address" and _nospace(location.get("road_address")) == _nospace(wanted.road_address)
+    return location.get("station_id") == wanted.station_id
+
+
+def _meters(a_lat, a_lon, b_lat, b_lon) -> float:
+    import math
+    dy = (a_lat - b_lat) * 111_000.0
+    dx = (a_lon - b_lon) * 111_000.0 * math.cos(math.radians((a_lat + b_lat) / 2))
+    return math.hypot(dx, dy)
+
+
+ADDRESS_NEAR_M = 150.0      # 도로명이 글자로 안 맞을 때 좌표로 같은 곳이라고 볼 거리
+
+
+def pick_address(candidates: list[dict], wanted: SetupDefaults) -> dict | None:
+    """주소 검색 후보 가운데 등록한 주소와 맞는 하나: 도로명 주소가 같은 것 → 좌표가 150m 안 → 후보가 하나뿐일 때. 아니면 None."""
+    usable = [c for c in candidates if isinstance(c, dict) and c.get("id") and c.get("in_seoul") is not False]
+    want = _nospace(wanted.road_address)
+    same = [c for c in usable if want and want in (_nospace(c.get("road_address")), _nospace(c.get("label")))]
+    if same:
+        return same[0]
+    if isinstance(wanted.latitude, (int, float)) and isinstance(wanted.longitude, (int, float)):
+        near = sorted((_meters(wanted.latitude, wanted.longitude, c["latitude"], c["longitude"]), i, c)
+                      for i, c in enumerate(usable)
+                      if isinstance(c.get("latitude"), (int, float)) and isinstance(c.get("longitude"), (int, float)))
+        if near and near[0][0] <= ADDRESS_NEAR_M:
+            return near[0][2]
+    return usable[0] if len(usable) == 1 else None
+
+
+def location_body(call: Callable[..., Any], wanted: SetupDefaults) -> dict | None:
+    """상권 서비스 프로필에 넣을 위치. 역은 그대로, 주소는 저장된 도로명 주소로 다시 검색해서 맞는 후보를 고른다
+    (상권 서비스의 주소 후보 id 는 세션마다 다르다). 검색이 실패하거나 맞는 후보가 없으면 None."""
+    if wanted.location_kind != "address":
+        return {"kind": "station", "station_id": wanted.station_id}
+    try:
+        found = call("POST", "/api/onboarding/locations/search", {"query": wanted.road_address[:200]})
+    except MarketError as exc:
+        if exc.state == "down":
+            raise
+        log.info("등록 가게 주소 검색 실패 (%s)", exc.state)
+        return None
+    if not isinstance(found, dict) or not found.get("search_id"):
+        return None
+    chosen = pick_address(found.get("candidates") or [], wanted)
+    if chosen is None:
+        return None
+    return {"kind": "address", "search_id": found["search_id"], "candidate_id": chosen["id"]}
 
 
 # ── 분기 표기 ───────────────────────────────────────────────────────────
@@ -594,6 +686,7 @@ class AssistantProxy:
     def __init__(self, client: MarketClient | None, *, store_id: str = "store_ongi", config_error: str | None = None):
         self.market = client                 # None 이면 이 서버에서 상권 비서를 끈 것
         self.config_error = config_error     # 주소 설정이 틀렸을 때의 안내 (off 가 아니라 error 로 보인다)
+        self.store_id = store_id
         self.defaults = STORE_DEFAULTS.get(store_id)
         self.slots = threading.BoundedSemaphore(MAX_CONCURRENT)
         # setup 이 실제로 맞춘 우리 가게 조건 (상권 코드, 업종 코드, 분기). 정해 둔 분기·상권이 자료에 없어 다른 것으로 맞췄을 때도
@@ -623,11 +716,24 @@ class AssistantProxy:
     def for_store(self, store_id: str) -> "AssistantProxy":
         """다른 가게의 프록시 (얕은 사본: 같은 상권 서비스 연결·동시 요청 한도). 기본 조건과 가게 프로필만 그 가게 것."""
         view = copy.copy(self)
+        view.store_id = store_id
         view.defaults = STORE_DEFAULTS.get(store_id)
         view.home = None
         view.read_store = None
         view.demo = None
         return view
+
+    @property
+    def defaults(self) -> SetupDefaults | None:
+        """우리 가게 기본 조건. 예시 세 곳은 정해 둔 값, 직접 등록한 가게(11/20)는 등록한 값(고치면 바로 따라감)."""
+        fixed = self.__dict__.get("_defaults")
+        if fixed is not None:
+            return fixed
+        return registered_defaults(self.__dict__.get("store_id"))
+
+    @defaults.setter
+    def defaults(self, value: SetupDefaults | None) -> None:
+        self._defaults = value
 
     def attach_store(self, demo) -> None:
         """가게 기본 질문에 답할 때 가게 프로필을 읽을 곳을 붙인다 (create_app 이 부른다).
@@ -653,9 +759,10 @@ class AssistantProxy:
     def _is_home(self, conditions: dict) -> bool | None:
         """지금 조건이 우리 가게 기본 조건과 같은지 (상권·업종·분기 코드로 비교). 기본 조건이 없는 가게이거나 코드가 없으면 None(모름)."""
         key = tuple(conditions.get(name) for name in ("area_code", "industry_code", "period"))
-        if self.defaults is None or not all(isinstance(value, str) and value for value in key):
+        defaults = self.defaults
+        if defaults is None or not all(isinstance(value, str) and value for value in key):
             return None
-        wanted = (self.defaults.area_code, self.defaults.industry_code, self.defaults.period)
+        wanted = (defaults.area_code, defaults.industry_code, defaults.period)
         return key == wanted or key == self.home
 
     def _conditions(self, conditions: Any) -> Any:
@@ -683,7 +790,8 @@ class AssistantProxy:
         return None
 
     def status(self) -> dict:
-        setup = {"label": self.defaults.label if self.defaults else None}
+        defaults = self.defaults
+        setup = {"label": defaults.label if defaults else None}
         problem = self._unavailable()
         extra: dict = {}
         if problem is None:
@@ -739,10 +847,13 @@ class AssistantProxy:
             return self._setup_result("already", "ready", None, conditions()), session["token"]
         profile = state.get("profile")
         if profile is None or force:
+            location = location_body(call, wanted)
+            if location is None:          # 주소로 등록한 가게인데 상권 서비스의 주소 검색이 맞는 후보를 못 줌 (11/20)
+                return self._setup_result("unavailable", "error", ADDRESS_MISS, None), session["token"]
             state = call("POST", "/api/onboarding/profile", {
-                "location": {"kind": "station", "station_id": wanted.station_id}, "industry_code": wanted.industry_code,
+                "location": location, "industry_code": wanted.industry_code,
                 "business_status": wanted.business_status, "expected_revision": state.get("revision")})
-        elif not (profile["location"].get("station_id") == wanted.station_id
+        elif not (same_location(profile["location"], wanted)
                   and profile["industry"].get("code") == wanted.industry_code):
             # 사용자가 이미 다른 위치·업종을 고르는 중이다. 덮어쓰지 않는다
             return self._setup_result("already", "ready", None, None), session["token"]
@@ -811,7 +922,8 @@ class AssistantProxy:
             return None
 
     def _shop(self) -> str:
-        label = self.defaults.label if self.defaults else ""
+        defaults = self.defaults
+        label = defaults.label if defaults else ""
         return label.split(" · ")[0] if label else "우리 가게"
 
     def domain_answer(self, domain: str, text: str, visitor: str | None = None) -> dict:

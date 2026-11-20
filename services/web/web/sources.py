@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 
 from shared.contracts import AnalysisSnapshot, ReviewRecord, StoreProfile, load_json
-from shared import store_profiles
+from shared import store_header, store_profiles
 
 DEV_FAKE_PREFIX = "개발용 가짜 값"
 
@@ -47,9 +47,15 @@ class ReviewSource:
     def _visitor(self) -> dict[str, str]:
         return {"visitor_id": self.visitor_id} if self.visitor_id else {}
 
+    @staticmethod
+    def _store_headers(store_id: str | None) -> dict[str, str] | None:
+        """직접 등록한 가게(11/20)면 가게 프로필 헤더 (shared/store_header.py). 예시 가게면 None (예전 요청 그대로)."""
+        return store_header.headers_for(store_id) or None
+
     def _get(self, path: str, **params: Any) -> Any:
         try:
-            res = self._client.get(f"/api/review-insight{path}", params=params)
+            res = self._client.get(f"/api/review-insight{path}", params=params,
+                                   headers=self._store_headers(params.get("store_id")))
         except httpx.HTTPError as exc:
             raise SourceError(f"리뷰 분석 서비스({self.base_url})에 연결하지 못했습니다: {exc.__class__.__name__}") from None
         return self._json(res)
@@ -94,7 +100,8 @@ class ReviewSource:
         if source:
             body["source"] = source
         try:
-            res = self._client.post("/api/review-insight/reviews", json=body, timeout=self.paste_timeout)
+            res = self._client.post("/api/review-insight/reviews", json=body, timeout=self.paste_timeout,
+                                    headers=self._store_headers(store_id))
         except httpx.HTTPError as exc:
             raise SourceError(f"리뷰 분석 서비스({self.base_url})에 연결하지 못했습니다: {exc.__class__.__name__}") from None
         return self._json(res)
@@ -106,7 +113,8 @@ class ReviewSource:
         if forget_labels:
             params["forget_labels"] = "true"
         try:
-            res = self._client.delete("/api/review-insight/reviews/pasted", params=params)
+            res = self._client.delete("/api/review-insight/reviews/pasted", params=params,
+                                      headers=self._store_headers(store_id))
         except httpx.HTTPError as exc:
             raise SourceError(f"리뷰 분석 서비스({self.base_url})에 연결하지 못했습니다: {exc.__class__.__name__}") from None
         return self._json(res)

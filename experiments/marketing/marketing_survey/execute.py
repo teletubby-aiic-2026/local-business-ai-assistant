@@ -48,13 +48,33 @@ BAEMIN_INTRO_LIMIT = 40
 _BAEMIN_INTRO_FALLBACK_TMPL = "{menu}, 정성껏 만들어 따뜻하게 보내드립니다."
 
 
+# 카드가 없어 만들 수 없는 글의 안내 (사장님이 직접 등록한 가게, 11/20: 리뷰·상권 지표가 아직 없음). server.py 가 409 로 보여 준다
+MISSING_CARD_MESSAGES = {
+    "complaint": "이 가게는 아직 맞춤 마케팅에 반복 불만 자료가 없어 이 글을 만들 수 없어요. 리뷰 답글·배달앱 안내문은 추천 카드의 불만 카드에서 만들어 주세요.",
+    "promo": "우리 가게 상권 지표가 아직 없어 쿠폰 홍보 글을 만들 수 없어요. 새 손님 홍보 글·남은 재료 팔기 같은 기능은 바로 쓸 수 있어요.",
+}
+
+
+class MissingCard(ValueError):
+    """ctx 에 그 종류의 카드가 없음. message 는 사장님에게 보여 줄 문장."""
+
+    def __init__(self, kind: str):
+        super().__init__(f"이 가게엔 kind={kind} 카드가 없어요")
+        self.kind = kind
+        self.message = MISSING_CARD_MESSAGES.get(kind, "이 가게 자료가 아직 없어 이 글을 만들 수 없어요.")
+
+
 def _card_by_kind(ctx, kind: str):
     """ctx.cards 에서 kind(complaint/promo)로 카드를 찾는다 — card_id 를 박지 않아 가게가
-    바뀌어도(ctx.cards 가 바뀌어도) 그대로 쓸 수 있다."""
+    바뀌어도(ctx.cards 가 바뀌어도) 그대로 쓸 수 있다. 없으면 MissingCard (ValueError)."""
     card = next((c for c in ctx.cards if c.kind == kind), None)
     if card is None:
-        raise ValueError(f"이 가게엔 kind={kind} 카드가 없어요")
+        raise MissingCard(kind)
     return card
+
+
+def _has_card(ctx, kind: str) -> bool:
+    return any(c.kind == kind for c in ctx.cards)
 
 
 def _baemin_intro_line(text: str, menu: str | None, limit: int = BAEMIN_INTRO_LIMIT) -> str:
@@ -102,6 +122,13 @@ def _run_reply(ctx, key, model):
 
 
 def _run_review_promo(ctx, strategy, key, model):
+    if not _has_card(ctx, "promo"):
+        # 상권 카드가 없는 가게(직접 등록한 가게, 11/20): 홍보 글은 가게 이름·메뉴만으로 쓰는 코드 템플릿으로 (키 유무와 상관없이)
+        text = review_promo_fallback_text(ctx.store, strategy.menu or None)
+        return None, DraftOutput(
+            draft_id=f"d_demo_card_{ctx.store.store_id.removeprefix('store_')}_promo",
+            card_id=f"card_{ctx.store.store_id.removeprefix('store_')}_promo",
+            store_id=ctx.store.store_id, generator="review_promo", text=text, data_origin=ctx.store.data_origin)
     promo_card = _card_by_kind(ctx, "promo")
     if key is None:
         # review_promo 는 아직 저장본(c6/replay)이 없어, 다른 생성기처럼 run_card 재생 대신
@@ -120,7 +147,7 @@ def _run_review_promo(ctx, strategy, key, model):
 
 def _review_promo_text(ctx, menu, key, model):
     """review_promo 생성기를 메뉴 이름만으로 바로 돌린다(기본 할 일 — Strategy 객체가 없어도 된다)."""
-    if key is None:
+    if key is None or not _has_card(ctx, "promo"):      # 상권 카드가 없는 가게도 코드 템플릿 (11/20)
         return review_promo_fallback_text(ctx.store, menu or None)
     promo_card = _card_by_kind(ctx, "promo")
     result = generate_review_promo(ctx, promo_card, key, model=model, menu=menu or None)
@@ -145,7 +172,10 @@ def _basic_todo_drafts(ctx, answers, key, model):
     if answers.goal == "새 손님":
         drafts[0] = _review_promo_text(ctx, menu, key, model)
     elif answers.goal == "재주문":
-        _, reply_draft = _run_reply(ctx, key, model)
+        try:
+            _, reply_draft = _run_reply(ctx, key, model)
+        except MissingCard:          # 반복 불만 카드가 없는 가게 (11/20): 답글 없이 요청사항 안내만
+            reply_draft = None
         base = reply_draft.text if reply_draft else ""
         extra = "다음 주문 때도 같은 요청사항이 있으시면 요청사항에 적어 주세요."
         drafts[0] = f"{base}\n{extra}" if base else extra
@@ -191,7 +221,12 @@ def build_plan(ctx, strategy, answers, key, model="HCX-005", today=None):
         generator_name = step.get("generator")
         if not generator_name:
             continue
-        text = run_step_generator(ctx, strategy, generator_name, key, model=model)
+        try:
+            text = run_step_generator(ctx, strategy, generator_name, key, model=model)
+        except MissingCard as exc:
+            # 카드가 없어 이 글만 못 만듦 (직접 등록한 가게, 11/20). 할 일·쿠폰 계산은 그대로 보여 주고 이유를 싣는다
+            plan.setdefault("unavailable_drafts", []).append({"step_id": step["step_id"], "message": exc.message})
+            continue
         if text and step["step_id"] == "baemin_intro":
             menu = strategy.menu or playbooks.default_menu(ctx.store)
             text = _baemin_intro_line(text, menu, step.get("max_chars") or BAEMIN_INTRO_LIMIT)

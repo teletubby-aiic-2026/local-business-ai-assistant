@@ -44,7 +44,8 @@ class AccountData:
         except Exception as exc:
             bundle = store_profiles.get(store_id)
             if bundle is not None and bundle.registered and "오류 404" in str(exc):
-                # 직접 등록한 가게(11/20)는 리뷰 분석 서비스가 아직 모른다 (없는 가게 404) → 붙여넣은 리뷰가 있을 수 없다
+                # 직접 등록한 가게(11/20): 리뷰 분석 서비스는 가게 프로필 헤더로 그 가게를 안다 (sources.ReviewSource).
+                # 그래도 404 면 (헤더를 모르는 옛 판 서비스) 그 서비스에는 이 가게의 붙여넣은 리뷰가 있을 수 없다
                 reviews = 0
             else:
                 log.warning("초기화: 붙여넣은 리뷰를 지우지 못했어요 (%s, %s)", store_id, exc.__class__.__name__)

@@ -43,9 +43,9 @@ from shared import store_profiles
 
 import httpx
 
-from .assistant_proxy import (COOKIE_NAME, DEFAULT_HOST, DEFAULT_TIMEOUT, SESSION_SECONDS, SET_COOKIE, STORE_DEFAULTS, TOKEN,
-                              MarketClient, MarketError, SetupDefaults, Upstream, _detail, _pick_area, period_words,
-                              quarter_words)
+from .assistant_proxy import (ADDRESS_MISS, COOKIE_NAME, DEFAULT_HOST, DEFAULT_TIMEOUT, SESSION_SECONDS, SET_COOKIE,
+                              STORE_DEFAULTS, TOKEN, MarketClient, MarketError, SetupDefaults, Upstream, _detail, _pick_area,
+                              location_body, period_words, quarter_words, same_location, store_defaults)
 
 log = logging.getLogger("web.market_proxy")
 
@@ -183,7 +183,8 @@ class MarketProxy:
 
     # 우리 가게 조건으로 ------------------------------------------------------------
     def setup(self, token: str | None, store_id: str, force: bool = False) -> tuple[dict, str | None]:
-        wanted: SetupDefaults | None = STORE_DEFAULTS.get(store_id)
+        # 예시 세 곳은 정해 둔 조건, 직접 등록한 가게(11/20)는 등록한 위치·업종·상권·분기
+        wanted: SetupDefaults | None = store_defaults(store_id)
         session = {"token": token}
 
         def call(method, path, body=None, timeout=20.0):
@@ -197,10 +198,13 @@ class MarketProxy:
         if state.get("conditions_confirmed") and not force:
             return {"status": "already", "state": "ready", "conditions": self._conditions(state, store_id)}, session["token"]
         profile = state.get("profile")
-        if profile is None or force or not (profile.get("location", {}).get("station_id") == wanted.station_id
+        if profile is None or force or not (same_location(profile.get("location"), wanted)
                                            and profile.get("industry", {}).get("code") == wanted.industry_code):
+            location = location_body(call, wanted)
+            if location is None:          # 주소로 등록한 가게인데 주소 검색이 맞는 후보를 못 줌 → 조건을 맞추지 못함 (500 아님)
+                return {"status": "unavailable", "state": "error", "message": ADDRESS_MISS, "conditions": None}, session["token"]
             state = call("POST", "/api/onboarding/profile", {
-                "location": {"kind": "station", "station_id": wanted.station_id}, "industry_code": wanted.industry_code,
+                "location": location, "industry_code": wanted.industry_code,
                 "business_status": wanted.business_status, "expected_revision": state.get("revision")})
         options = call("GET", "/api/onboarding/analysis-options", timeout=30.0)
         candidates = [c for c in options.get("candidates", []) if not c.get("selection_blocked_reason")]
@@ -224,14 +228,15 @@ class MarketProxy:
         profile = state.get("profile") or {}
         industry = profile.get("industry") or {}
         location = profile.get("location") or {}
-        wanted = STORE_DEFAULTS.get(store_id)
+        wanted = store_defaults(store_id)
         out = {"area_code": sel.get("area_code"), "area_name": sel.get("area_name") or sel.get("name"),
                "industry_code": industry.get("code"), "industry_name": industry.get("name"),
                "period": sel.get("period"), "period_label": period_words(sel.get("period_label") or sel.get("period")),
                "location_label": location.get("label") or location.get("name"), "revision": state.get("revision")}
         # 우리 가게 기본 조건인지 (서버가 판단. 화면의 서랍 플래그 이름과 겹치지 않게 home)
+        # 분기를 정하지 않고 등록한 가게(11/20)는 상권·업종만 본다 (setup 이 그 상권의 최신 분기로 맞춤)
         out["home"] = bool(wanted) and (out["area_code"], out["industry_code"], out["period"]) == (
-            wanted.area_code, wanted.industry_code, wanted.period)
+            wanted.area_code, wanted.industry_code, wanted.period or out["period"])
         return out
 
     # 그대로 넘기기 ------------------------------------------------------------
@@ -242,6 +247,30 @@ class MarketProxy:
             path = f"{path}?{urlencode(params)}"
         up = self._request(method, path, token, body, read_timeout=timeout)
         return present(up.data), up.token or token
+
+
+# ── 지금 가게 ──────────────────────────────────────────────────────────
+def store_view(bundle) -> dict | None:
+    """status 의 store: 가게 고르기 목록과 같은 칸. 직접 등록한 가게(11/20)는 등록한 위치 이름(location_label)·구·업종 코드·
+    상권 코드·분기를 더한다 (역으로 등록하지 않은 가게는 station_name 이 null 이라 화면이 location_label 을 쓴다)."""
+    if bundle is None:
+        return None
+    out = bundle.public()
+    if bundle.registered:
+        out.update(location_label=(bundle.location or {}).get("label") or None, location_kind=(bundle.location or {}).get("kind"),
+                   district_name=store_district(bundle), industry_code=bundle.industry_code or None,
+                   area_code=bundle.area_code or None, period=bundle.period or None)
+    return out
+
+
+def store_district(bundle) -> str | None:
+    """문화행사의 구: 예시 세 곳은 정해 둔 구, 등록 가게는 등록한 구 → 주소에서 읽은 구 → None(서울 전체). 가게를 모르면 동작구 (예전 그대로)."""
+    if bundle is None:
+        return "동작구"
+    if not bundle.registered:
+        return bundle.district_name
+    from shared.store_header import district_of
+    return district_of({"location": bundle.location})
 
 
 # ── 라우터 ─────────────────────────────────────────────────────────────
@@ -295,7 +324,7 @@ def create_market_router(proxy: MarketProxy, store_of: Callable[[Request], str] 
             log.exception("상권 분석 status 오류 (%s)", exc.__class__.__name__)
             data = {"state": "error", "message": MESSAGES["error"]}
         bundle = store_profiles.get(store_of(request))
-        data["store"] = bundle.public() if bundle else None
+        data["store"] = store_view(bundle)
         return _respond(data, 200, None, False)
 
     @router.post("/setup")
@@ -308,8 +337,11 @@ def create_market_router(proxy: MarketProxy, store_of: Callable[[Request], str] 
             return _respond({"error": {"message": "지원하지 않는 요청이에요.", "state": "invalid"}}, 405, None, False)
         params = {k: request.query_params[k][:20] for k in keys if k in request.query_params}
         if name == "cultural-events" and not params.get("district"):
-            bundle = store_profiles.get(store_of(request))
-            params["district"] = bundle.district_name if bundle else "동작구"
+            district = store_district(store_profiles.get(store_of(request)))
+            if district:
+                params["district"] = district
+            else:
+                params.pop("district", None)          # 구를 모르는 등록 가게: 서울 전체
         body = None
         if request.method == "POST":
             raw = await request.body()

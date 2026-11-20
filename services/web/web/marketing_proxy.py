@@ -61,6 +61,8 @@ from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
+from shared import store_header
+
 log = logging.getLogger("web.marketing")
 
 DEFAULT_URL = "http://127.0.0.1:8030"
@@ -206,11 +208,13 @@ class MarketingProxy:
             return {"state": problem.state, "message": problem.message, "service": "marketing-survey", "store_id": self.store}
         timeout = httpx.Timeout(HEALTH_TIMEOUT)
         try:
-            r = self.client.get(SERVICE_PREFIX + "/health", params={"store": self.store}, timeout=timeout)
+            r = self.client.get(SERVICE_PREFIX + "/health", params={"store": self.store}, timeout=timeout,
+                                headers=store_header.headers_for(self.store) or None)
             data = r.json() if r.status_code == 200 else None
             if r.status_code == 404:
                 # 마케팅 서비스가 /health 를 아직 모르는 판(PR #56 그대로)이면 가게 이름(meta)이 오는지로 쓸 수 있는지만 본다
-                m = self.client.get(SERVICE_PREFIX + "/meta", params={"store": self.store}, timeout=timeout)
+                m = self.client.get(SERVICE_PREFIX + "/meta", params={"store": self.store}, timeout=timeout,
+                                    headers=store_header.headers_for(self.store) or None)
                 meta = m.json() if m.status_code == 200 else None
                 if isinstance(meta, dict) and meta.get("store_name"):
                     return {"state": "ready", "message": None, "service": "marketing-survey", "mode": None,
@@ -243,7 +247,8 @@ class MarketingProxy:
         timeout = httpx.Timeout(connect=2.0, read=self.read_timeout(path), write=10.0, pool=2.0)
         try:
             r = self.client.request(method, f"{SERVICE_PREFIX}/{path}", params=params,
-                                    json=body if method != "GET" else None, timeout=timeout)
+                                    json=body if method != "GET" else None, timeout=timeout,
+                                    headers=store_header.headers_for(self.store) or None)
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
             log.warning("맞춤 마케팅 서비스에 연결하지 못함 (%s %s: %s)", method, path, exc.__class__.__name__)
             raise MarketingError("down", http=503) from None
@@ -290,6 +295,7 @@ class MarketingProxy:
             return "refused"
         try:
             r = self.client.delete(SERVICE_PREFIX + "/records", params={"store": self.store, "visitor_id": visitor_id},
+                                   headers=store_header.headers_for(self.store) or None,
                                    timeout=httpx.Timeout(connect=1.0, read=CLEAR_TIMEOUT, write=CLEAR_TIMEOUT, pool=1.0))
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
             log.warning("맞춤 마케팅 기록을 지우지 못함: 서비스에 연결하지 못함")
