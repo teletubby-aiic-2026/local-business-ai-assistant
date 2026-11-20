@@ -359,6 +359,16 @@ def _suggestions(issues: list[dict], late: int) -> list[dict]:
                                                          "답글로 조치를 알리고, 매장에서 확인해 보세요"})
     if late:
         out.append({"text": f"기한을 넘긴 답글이 {late}건 있었어요. 피크가 끝난 뒤 30분 안에 리뷰를 확인하는 시간을 정해 보세요"})
+    # 반복 불만에 답글을 달았거나, 반복은 아니어도 답글 없는 불만이 남은 달에 "크게 고칠 응대가 없다"고 하면 표와 어긋난다
+    # (11/21 실시간 확인 13번: 주간 보고서는 '포장 상태 3건 반복'인데 월간은 '고칠 응대 없음') → 그 불만을 지켜볼 일로 적는다.
+    for i in issues:
+        if i["is_repeated"] and i["state"] == "replied_watching":
+            out.append({"issue_id": i["issue_id"], "text": f"'{i['topic_name']}' 불만이 {i['review_count']}건 반복됐어요. "
+                                                         "답글은 달았으니 같은 불만이 다시 들어오는지 지켜보세요"})
+    for i in issues:
+        if not i["is_repeated"] and i["state"] == "no_reply":
+            out.append({"issue_id": i["issue_id"], "text": f"'{i['topic_name']}' 불만 {i['review_count']}건에 아직 답글이 없어요. "
+                                                         "답글을 달고 같은 불만이 이어지는지 지켜보세요"})
     if not out:
         out.append({"text": "이번 달은 크게 고칠 응대가 보이지 않아요. 지금 방식을 이어 가세요"})
     return out[:3]

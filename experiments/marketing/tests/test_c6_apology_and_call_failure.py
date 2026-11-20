@@ -91,33 +91,49 @@ class TestApologyInReply(unittest.TestCase):
     def test_reply_that_stays_without_apology_still_ends_with_an_apology(self):
         """끝까지 사과 없는 AI 글은 사과 없이 내보내지 않는다. 다시 쓰기 2번 뒤에도 사과만 빠졌으면 11/15부터는
         템플릿으로 통째 덮지 않고 말투에 맞는 짧은 사과 한 문장을 덧붙인다(c6.reply._repair_ai_part)."""
+        # 11/21: NO_APOLOGY 의 "확인해 볼게요"는 이제 AI 가 쓴 약속으로 걸린다(checks.ai_part_only_empathy). 사과만 빠진 글로 본다.
         ctx, card, _ = one_review_ctx()
-        with patch("clova.call", side_effect=lambda *a, **k: {"content": NO_APOLOGY}) as call:
+        no_apology = "주문하신 공깃밥이 빠져 있었다니 많이 당황하셨겠어요. 소중한 리뷰 감사해요."
+        with patch("clova.call", side_effect=lambda *a, **k: {"content": no_apology}) as call:
             d = generate_reply_draft(ctx, card, "k").drafts[0]
         self.assertEqual(call.call_count, 3)                 # 처음 1번 + 다시 쓰기 2번
         self.assertFalse(d.checks["used_fallback"])
         self.assertTrue(d.checks["ai_part_repaired"])
         self.assertTrue(d.checks["apology_expressed"])
-        self.assertIn(NO_APOLOGY + " 정말 죄송해요.", d.text)
+        self.assertIn(no_apology + " 정말 죄송해요.", d.text)
         self.assertEqual(d.failed_reasons, [])
 
-    def test_reply_without_apology_and_with_other_faults_goes_to_template(self):
-        """사과 말고 다른 점검도 걸린 글(약속을 씀)은 고치지 않고 예전처럼 코드 템플릿(사과 포함)으로 바뀐다."""
+    def test_reply_without_apology_and_with_a_promise_drops_the_promise(self):
+        """사과가 빠지고 약속 문장도 쓴 글: 11/21부터는 약속 문장만 빼고(조치는 코드가 붙임) 공감 문장 + 짧은 사과로 살린다.
+        (예전에는 코드 템플릿으로 바뀌었다 — 실시간 원문 기록에서 기본 문장으로 떨어진 답글 대부분이 이 꼴이었다.)"""
         ctx, card, _ = one_review_ctx()
         promise = "공깃밥이 빠졌다니 속상하셨겠어요. 앞으로 꼭 챙길게요."
         with patch("clova.call", side_effect=lambda *a, **k: {"content": promise}) as call:
             d = generate_reply_draft(ctx, card, "k").drafts[0]
         self.assertEqual(call.call_count, 3)
+        self.assertFalse(d.checks["used_fallback"])
+        self.assertTrue(d.checks["ai_part_repaired"])
+        self.assertTrue(d.checks["apology_expressed"])
+        self.assertIn("공깃밥이 빠졌다니 속상하셨겠어요. 정말 죄송해요.", d.text)
+        self.assertNotIn("꼭 챙길게요", d.text)              # AI 가 쓴 약속은 남지 않는다
+        self.assertEqual(d.failed_reasons, [])
+
+    def test_reply_with_only_a_promise_goes_to_template(self):
+        """약속 문장만 있는 글은 뺄 수 없어(남는 공감이 없음) 예전처럼 코드 템플릿(사과 포함)으로 바뀐다."""
+        ctx, card, _ = one_review_ctx()
+        with patch("clova.call", side_effect=lambda *a, **k: {"content": "앞으로 꼭 챙길게요."}) as call:
+            d = generate_reply_draft(ctx, card, "k").drafts[0]
+        self.assertEqual(call.call_count, 3)
         self.assertTrue(d.checks["used_fallback"])
         self.assertFalse(d.checks["ai_part_repaired"])
-        self.assertTrue(d.checks["apology_expressed"])
         self.assertIn("죄송", d.text)
-        self.assertNotIn("속상하셨겠어요", d.text)           # 사과 없는 AI 글은 남지 않는다
+        self.assertNotIn("꼭 챙길게요", d.text)
         self.assertEqual(d.failed_reasons, [])
 
     def test_reply_with_apology_anywhere_passes(self):
         ctx, card, _ = one_review_ctx()
-        late = "주문하신 공깃밥이 빠진 건 꼼꼼히 확인해 볼게요. 소중한 리뷰 감사해요. 불편을 드려 죄송해요."
+        # 11/21: 첫 문장을 '확인해 볼게요'(AI 가 쓴 약속, 이제 점검에 걸림)에서 공감 문장으로 바꿨다. 이 시험이 보는 것은 '사과가 끝에 있어도 됨'
+        late = "주문하신 공깃밥이 빠져 있었다니 많이 놀라셨겠어요. 소중한 리뷰 감사해요. 불편을 드려 죄송해요."
         with patch("clova.call", side_effect=lambda *a, **k: {"content": late}) as call:
             d = generate_reply_draft(ctx, card, "k").drafts[0]
         self.assertEqual(call.call_count, 1)
@@ -175,6 +191,18 @@ class TestCallFailure(unittest.TestCase):
         self.assertIn("공깃밥이 빠진 건 저희가 확인해 볼게요", d.text)
         self.assertFalse(d.checks["apology_expressed"])
         self.assertTrue(d.failed_reasons)
+
+    def test_failed_rewrite_call_still_gets_the_code_repair(self):
+        """11/21: 다시 쓰기 호출이 실패해도, 사과 어미만 다른 글은 코드가 고쳐 점검을 넘긴다 (추가 호출 없음)."""
+        ctx, card, _ = one_review_ctx()
+        formal = "공깃밥이 빠졌다니 정말 죄송합니다."
+        with patch("clova.call", side_effect=lambda key, system, messages, **kw: dict(FAIL) if "수정 지시" in messages[0]["content"]
+                   else {"content": formal}):
+            d = generate_reply_draft(ctx, card, "k").drafts[0]
+        self.assertEqual(d.failed_reasons, [])
+        self.assertTrue(d.checks["ai_part_repaired"])
+        self.assertFalse(d.checks["used_fallback"])
+        self.assertIn("공깃밥이 빠졌다니 정말 죄송해요.", d.text)
 
     def test_notice_falls_back_with_a_first_sentence_apology(self):
         with patch("clova.call", side_effect=lambda *a, **k: dict(FAIL)) as call:

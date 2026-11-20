@@ -80,6 +80,102 @@ P1_SENTENCES = {
     ],
 }
 
+# ── 불만 주제별 답글 (11/21, 실시간 품질 확인 M1·M2) ─────────────────────────────
+# 위 M1·P1 문장과 품목 빠짐 템플릿은 '포장 누락' 전용이다. 가게가 늘며 식감·대기·포장 상태 불만에도 "주문서와 대조해
+# 빠지는 게 없도록"·"주문하신 품목이 빠져 있었다니"가 붙었다. 이제 답글은 리뷰의 불만 주제(리뷰 분석 주제 id,
+# services/review-insight/app/topics.py)를 보고 고른다. 포장 누락(missing_item)은 예전과 똑같다.
+
+MISSING_TOPIC = "missing_item"
+OTHER_TOPIC = "other"          # 주제를 모를 때 (분류가 없고 글에서 빠짐 표현도 못 찾음)
+
+# 주제마다 맞는 재발 방지 조치(위 MEASURES 의 id). 화면의 '점검 수칙' 고르기 목록도 이것만 보여 준다.
+# 맞는 조치가 없는 주제는 목록이 비고, 답글·안내문에 코드가 조치를 붙이지 않는다 (사장님이 하지 않은 조치를 지어내지 않음).
+TOPIC_MEASURES = {
+    "missing_item": ["M1", "M2", "M3", "M4"],
+    "temperature": ["M5"],
+}
+
+# 주제 이름(리뷰 분석 topics.py 와 같은 이름)과, 답글 프롬프트에서 무엇을 짚을지 설명.
+TOPIC_LABELS = {
+    "missing_item": "포장 누락", "texture": "식감", "taste": "맛", "portion": "양", "price": "가격",
+    "delivery_time": "배달 시간", "temperature": "음식 온도", "packaging": "포장 상태", "service": "응대",
+    "hygiene": "위생", "menu": "메뉴 구성", "atmosphere": "매장 환경", "wait_time": "매장 대기",
+}
+
+# 기본 문장(템플릿)과 안내문 템플릿이 쓰는 '무슨 일이었는지' 말. 리뷰 글에 없는 원인은 넣지 않는다.
+# reply: '~다니' 꼴(답글 템플릿 앞부분), notice: '최근 ~ 말씀이 이어졌습니다'의 가운데.
+TOPIC_PHRASES = {
+    "texture": {"reply": "기대하신 식감이 아니었다니", "notice": "음식 식감이 아쉬웠다는"},
+    "taste": {"reply": "음식 맛이 기대에 못 미쳤다니", "notice": "음식 맛이 아쉬웠다는"},
+    "portion": {"reply": "양이 아쉬우셨다니", "notice": "음식 양이 아쉬웠다는"},
+    "price": {"reply": "가격에 비해 아쉬우셨다니", "notice": "가격에 비해 아쉬웠다는"},
+    "delivery_time": {"reply": "배달을 오래 기다리셨다니", "notice": "배달을 오래 기다리셨다는"},
+    "temperature": {"reply": "음식이 식은 채로 도착했다니", "notice": "음식이 식은 채로 도착했다는"},
+    "packaging": {"reply": "포장이 온전하지 않은 채로 도착했다니", "notice": "포장이 온전하지 않은 채로 도착했다는"},
+    "service": {"reply": "응대가 불편하셨다니", "notice": "응대가 불편했다는"},
+    "hygiene": {"reply": "위생이 걱정되셨다니", "notice": "위생이 걱정되셨다는"},
+    "menu": {"reply": "메뉴 구성이 아쉬우셨다니", "notice": "메뉴 구성이 아쉬웠다는"},
+    "atmosphere": {"reply": "매장을 이용하시면서 불편하셨다니", "notice": "매장 이용이 불편했다는"},
+    "wait_time": {"reply": "주문하신 메뉴를 오래 기다리셨다니", "notice": "주문한 메뉴를 오래 기다리셨다는"},
+}
+
+# 주제별 기본 문장 틀(말투별 3개, 리뷰 순서로 돌려 씀). {what} = TOPIC_PHRASES[주제]["reply"].
+TOPIC_FALLBACK_FRAMES = {
+    "해요체": [
+        "{what} 정말 죄송해요.",
+        "{what} 많이 속상하셨겠어요, 죄송해요.",
+        "{what} 마음이 무거워요, 정말 죄송해요.",
+    ],
+    "합니다체": [
+        "{what} 정말 죄송합니다.",
+        "{what} 많이 속상하셨을 것 같습니다, 죄송합니다.",
+        "{what} 진심으로 죄송합니다.",
+    ],
+}
+# 주제를 모를 때: 무슨 일이었는지 단정하지 않는 사과만.
+OTHER_FALLBACK = {
+    "해요체": ["불편을 드려 정말 죄송해요.", "이용하시면서 불편하셨다니 정말 죄송해요.", "기대하신 만큼 만족스럽지 못하셨다니 죄송해요."],
+    "합니다체": ["불편을 드려 정말 죄송합니다.", "이용하시면서 불편하셨다니 정말 죄송합니다.", "기대하신 만큼 만족스럽지 못하셨다니 죄송합니다."],
+}
+
+# 포장 누락이 아닌 답글에서 조치 문장 자리에 붙이는, 지킬 수 있는 문장 (무엇을 바꾸겠다는 약속이 아님).
+NEUTRAL_LINES = {
+    "해요체": [
+        "말씀해 주신 점은 매장에서 꼭 확인할게요.",
+        "남겨 주신 내용은 매장에서 함께 살펴볼게요.",
+        "말씀해 주신 부분은 매장에서 다시 확인해 볼게요.",
+    ],
+    "합니다체": [
+        "말씀해 주신 점은 매장에서 꼭 확인하겠습니다.",
+        "남겨 주신 내용은 매장에서 함께 살펴보겠습니다.",
+        "말씀해 주신 부분은 매장에서 다시 확인해 보겠습니다.",
+    ],
+}
+
+# 사장님이 고른 조치가 그 주제에 맞을 때(포장 누락 밖) 답글에 붙이는 문장. 포장 누락은 위 M1_SENTENCES 그대로.
+REPLY_MEASURE_SENTENCES = {
+    "M5": {"해요체": "배달 파트너사에 음식 온도를 잘 지켜 달라고 요청할게요.",
+           "합니다체": "배달 파트너사에 음식 온도 유지를 요청하겠습니다."},
+}
+
+# AI 에게 보여 주는 공감·사과 예시(주제별). 포장 누락은 위 REPLY_FEWSHOT 그대로.
+def topic_fewshot(topic, register):
+    what = TOPIC_PHRASES.get(topic, {}).get("reply")
+    if not what:
+        return OTHER_FALLBACK[register][1]
+    return TOPIC_FALLBACK_FRAMES[register][0].format(what=what)
+
+
+def topic_label(topic):
+    return TOPIC_LABELS.get(topic, "그 밖의 불편")
+
+
+def measures_for_topics(topics):
+    """주제 목록(묶음의 주제들)에 맞는 조치 id (MEASURES 순서, 겹침 없이)."""
+    wanted = {mid for t in (topics or []) for mid in TOPIC_MEASURES.get(t, [])}
+    return [m["id"] for m in MEASURES if m["id"] in wanted]
+
+
 # 메뉴판에는 없지만 포장에 같이 들어가는 구성품 — _missing_items 가 메뉴 이름과 같이 찾아본다.
 COMPONENT_ITEMS = ["공깃밥", "수저", "젓가락", "숟가락", "소스", "반찬", "음료"]
 

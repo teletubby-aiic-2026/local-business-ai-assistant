@@ -34,7 +34,8 @@ _AI_EMPATHY_FORBIDDEN = re.compile(
     r"|(?:드릴게요?|드리겠습니다|드리겠어요)[.!?]?(?=\s|$)"
 )
 # '좋아해 주시는'·'싫어해 주'는 바른 말(좋아하다·싫어하다)이라 뺀다 — 11/15 실시간 홍보글 "좋아해 주고 계십니다"가 걸렸다.
-_BROKEN_ENDING = re.compile(r"(?<![좋싫])[어아]해\s?주|해해|주세주세요")
+# '이해해요'(이해하다)의 '해해'는 바른 말이라 뺀다 — 11/21 실시간 답글 "답답하셨을 마음 충분히 이해해요"가 걸려 기본 문장으로 갔다.
+_BROKEN_ENDING = re.compile(r"(?<![좋싫])[어아]해\s?주|(?<!이)해해|주세주세요")
 _FORMAL_END = re.compile(r"(합니다|습니다|됩니다|입니다|바랍니다|드립니다)[.!?]?\s*$")
 _INFORMAL_END = re.compile(r"(해요|게요|어요|아요|예요|죠)[.!?]?\s*$")
 _STYLE_SUFFIX = {"haeyo": "요", "hamnida": "니다", "mixed": "요"}
@@ -160,6 +161,16 @@ def has_invented_measure(text: str, chosen_measures: list[dict] | None) -> bool:
     return False
 
 
+# 공지가 원인을 짐작하는 말 (11/21 실시간: 식감 불만 공지 "배달 과정에서 시간이 지체되어 이런 문제가 발생한 것으로 보입니다").
+# '지체되어'·'지연되어'는 배달 시간·대기 불만에서는 있었던 일 그 자체라 잡지 않는다.
+_GUESSED_CAUSE = re.compile(r"것으로\s*(?:보입니다|보여|추정)|것\s*같습니다|(?:때문|탓)(?:에|으로|이)")
+
+
+def guessed_cause(text: str) -> bool:
+    """'~한 것으로 보입니다'·'~때문에'·'지체되어'처럼 리뷰에 없는 원인을 짐작해 쓴 말이 있으면 True (포장 누락이 아닌 공지)."""
+    return bool(_GUESSED_CAUSE.search(text or ""))
+
+
 def has_overpromise(text: str) -> bool:
     """'없을 거예요'·'절대'·'완벽' 같은 장담이나 '도입했으니'처럼 이미 끝난 일처럼 말하면 True.
     reply·notice 공용 — 약속은 전부 "~할게요"처럼 앞으로 할 일로만 써야 한다."""
@@ -204,7 +215,24 @@ def ai_part_only_empathy(text: str) -> bool:
     ('감사'·'다음에'는 자연스러운 공감 표현에도 섞여 나올 수 있어 허용한다)"""
     if not text:
         return True
-    return not bool(_AI_EMPATHY_FORBIDDEN.search(text))
+    return not bool(_AI_EMPATHY_FORBIDDEN.search(text)) and not _has_promise_ending(text)
+
+
+# 앞으로 무엇을 하겠다는 말끝 (11/21 실시간 원문: "더 신선한 상태로 … 포장해서 보낼게요", "더 신경 쓸게요",
+# "다시 한번 확인해야겠네요", "더욱 신경 쓰겠습니다"). '속상하시겠어요'·'불편하셨겠습니다'처럼 손님 마음을 짐작하는
+# '-시겠/-셨겠'은 공감이라 뺀다. 'ㄹ게요'(할게요·쓸게요·보낼게요)는 말하는 사람의 약속이라 잡는다.
+_PROMISE_END = re.compile(r"(?<![시셨])겠(?:습니다|어요)|해야겠|도록\s*(?:하겠|할게|노력|주의|신경)")
+_L_GEYO = re.compile(r"([가-힣])게요")
+
+
+def _has_promise_ending(text: str) -> bool:
+    if _PROMISE_END.search(text):
+        return True
+    for m in _L_GEYO.finditer(text):
+        code = ord(m.group(1)) - 0xAC00
+        if 0 <= code <= 11171 and code % 28 == 8:   # 받침 ㄹ: 할게요·쓸게요·보낼게요·챙길게요
+            return True
+    return False
 
 
 def style_match(ai_part: str, style: str) -> bool:
@@ -217,7 +245,9 @@ def style_match(ai_part: str, style: str) -> bool:
     sentences = [s for s in sentences if s]
     if not sentences:
         return False
-    return all(s.rstrip(".!?").endswith(suffix) for s in sentences)
+    # '~죠'(지요의 준말)도 해요체다 — 11/21 실시간: "치킨 먹는 재미가 없죠. 정말 죄송해요."가 걸려 기본 문장으로 갔다
+    endings = (suffix, "죠") if suffix == "요" else (suffix,)
+    return all(s.rstrip(".!?~… ").endswith(endings) for s in sentences)
 
 
 def notice_has_start(text: str, start_label: str) -> bool:
@@ -732,6 +762,7 @@ def fix_hints(failed: list[str], formal: bool = False, register: str | None = No
         "no_invented_ingredient": "메뉴 설명에 없는 재료(채소·참깨·치즈·버섯·계란 등)는 지어내지 말고 빼 주세요.",
         "no_unverified_claim": "'인기 메뉴'·'가장 인기'·'1위'·'최고'·'많은 분들이' 같은 근거 없는 인기·순위 주장은 빼 주세요.",
         "notice_no_complaint_word": "'항의' 같은 손님을 자극하는 단어는 빼 주세요.",
+        "no_guessed_cause": "리뷰에 적히지 않은 원인('~것으로 보입니다'·'~때문에')은 짐작해 쓰지 말고 있었던 일만 써 주세요.",
         "apology_expressed": "가게 잘못일 수 있는 불만이에요. 글 안에 불편을 드려 죄송하다는 사과를 한 번 넣어 주세요.",
         # 사과 없이 사실을 설명하는 답글(c6.stance EXPLAIN)의 점검
         "no_compensation_offer": "요청을 들어드리겠다거나 더 챙겨 드리겠다는 약속, 환불·무료·서비스·할인 같은 말은 빼 주세요.",
@@ -766,6 +797,27 @@ _APOLOGY_ENDING_TO = {
                 (r"죄송한\s*마음이에요", "죄송한 마음입니다"), (r"미안해요", "미안합니다")),
 }
 _APOLOGY_ENDING_TO["mixed"] = _APOLOGY_ENDING_TO["haeyo"]   # mixed 는 AI 부분이 해요체 (c6.measures.REPLY_AI_REGISTER)
+
+
+# 해요체 답글의 AI 부분에서 사과가 아닌 문장이 합니다체로 끝난 경우, 말끝만 해요체로 바꾸는 표 (뜻이 같은 흔한 말끝만).
+# 11/21 실시간: "실망감을 누구보다 잘 알고 있습니다", "마음 충분히 이해합니다", "정말 안타깝습니다"가 걸려 기본 문장으로 갔다.
+_HAEYO_ENDINGS = ((r"있습니다", "있어요"), (r"없습니다", "없어요"), (r"이해합니다", "이해해요"), (r"안타깝습니다", "안타까워요"),
+                  (r"아쉽습니다", "아쉬워요"), (r"같습니다", "같아요"), (r"속상합니다", "속상해요"), (r"마음입니다", "마음이에요"))
+
+
+def to_haeyo_endings(ai_part: str) -> str:
+    """문장 끝이 위 표의 합니다체 말끝이면 해요체로 바꾼다. 그 밖의 문장은 그대로 둔다."""
+    if not ai_part or not ai_part.strip():
+        return ai_part
+    out = []
+    for sentence in _SENT_SPLIT.split(ai_part.strip()):
+        for pattern, ending in _HAEYO_ENDINGS:
+            fixed = re.sub(rf"(?:{pattern})(?=[.!?~…]*$)", ending, sentence)
+            if fixed != sentence:
+                sentence = fixed
+                break
+        out.append(sentence)
+    return " ".join(out)
 
 
 def fix_apology_ending(ai_part: str, style: str) -> str:

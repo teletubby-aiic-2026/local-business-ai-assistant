@@ -75,7 +75,7 @@ class IssueGroup:
     is_repeated: bool                       # review_count >= 3
     review_ids: list[str]
     evidence: list[dict]                    # [{review_id, quote}] 근거 구절
-    time_bands: dict                        # 상권 데이터와 같은 시간대 구간별 건수 {"17~21시": 5, ...}
+    time_bands: dict                        # 상권 데이터와 같은 시간대 구간별 건수 {"17~21시": 5, ...}. 작성 시각을 아는 리뷰만 셈 (붙여넣은 리뷰 빼고), 그런 리뷰가 없으면 {}
     main_time_band: Optional[str]           # 한 구간에 60% 이상 몰렸으면 그 구간, 아니면 null
     channels: dict                          # 채널별 건수
     recent_count: int                       # 최근 절반 기간 건수
