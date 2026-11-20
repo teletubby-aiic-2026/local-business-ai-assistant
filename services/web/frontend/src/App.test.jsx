@@ -196,6 +196,22 @@ describe("안내 문구", () => {
     act(() => { fireEvent.click(document.getElementById("acct-store")); });
     expect(getState().stage).toBe("pick");
   });
+
+  it("상단 바 가게 칩의 아래 줄은 신원의 가게 목록 값: 브리핑이 없거나 업종·상권이 없어도 '불러오는 중'으로 남지 않음", () => {
+    mockWidth("wide");
+    const mine = { store_id: "store_new000000001", name: "우리분식", business_type_name: "분식전문점", area_name: "상도역 5번", station_name: null, sample: false };
+    // 가게를 여는 중(지금 가게가 아직 비어 있음)이어도 들어간 가게의 값으로
+    setState({ me: { ...ME, store_id: null, stores: [...ME.stores, mine] }, entered: mine.store_id, briefing: null, booted: false });
+    render(<App />);
+    expect(document.getElementById("store-name").textContent).toBe("우리분식");
+    expect(document.querySelector(".store-pick .sp-sub").textContent).toBe("분식전문점 · 상도역 5번 상권");
+    // 업종·상권이 빈 가게: 아래 줄을 비운다
+    act(() => { setState({ me: { ...ME, store_id: mine.store_id, stores: [{ ...mine, business_type_name: "", area_name: null }] } }); });
+    expect(document.querySelector(".store-pick .sp-sub")).toBeNull();
+    // 목록에도 브리핑에도 없을 때만 '불러오는 중'
+    act(() => { setState({ me: { ...ME, store_id: "store_x", stores: [] }, entered: "store_x" }); });
+    expect(document.querySelector(".store-pick .sp-sub").textContent).toBe("불러오는 중");
+  });
 });
 
 describe("휴대폰 (760px 이하): 아래 탭 + 묶음 하위 탭 + 한 줄 상단 바", () => {

@@ -33,7 +33,7 @@ export async function authDo(path, body) {
   const me = await api("/api/auth/" + path, { method: "POST", body: JSON.stringify(body || {}) });
   const { resume, entered } = getState();
   setState({ me, resume: null, alert: "" });
-  if (path === "signup") { writeEntered(null); clearStoreData(); setStage("store-new", { entered: null, storeNew: { mode: "signup" } }); return me; }
+  if (path === "signup") { writeEntered(null); clearStoreData(); setStage("store-new", { entered: null, storeNew: { mode: "signup" }, storeNewFrom: "pick" }); return me; }
   const sameUser = resume && resume.userId && me.user && resume.userId === me.user.user_id;
   if (sameUser && resume.storeId && resume.storeId === me.store_id && entered === resume.storeId
       && (me.stores || []).some((s) => s.store_id === resume.storeId)) {

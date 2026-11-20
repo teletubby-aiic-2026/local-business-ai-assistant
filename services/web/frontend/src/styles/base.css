@@ -100,6 +100,8 @@ h1:focus { outline: none; }
 .tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: var(--r-md); background: var(--chip); flex-wrap: wrap; }
 .tabs [role="tab"] { border: 0; background: transparent; padding: 8px 16px; border-radius: var(--r-sm); font: 500 var(--fs-button)/1.4 var(--font); color: var(--ink-2); cursor: pointer; min-height: 40px; }
 .tabs [role="tab"][aria-selected="true"] { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: var(--shadow-tab); }
+/* 화면 열(.col, 격자)에 바로 놓인 탭 줄은 글자 폭만큼만 (본문 폭으로 늘이지 않음. 리뷰 분석·맞춤 마케팅·종합 리포트 등 모든 화면) */
+.col > .tabs { justify-self: start; }
 
 /* ── 입력 ── */
 .field { display: grid; gap: 6px; font-size: var(--fs-small); font-weight: 500; color: var(--ink-2); }

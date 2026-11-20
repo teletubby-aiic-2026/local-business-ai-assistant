@@ -74,6 +74,12 @@ describe("홈", () => {
     expect(screen.getByText("불러오지 못했어요", { selector: "li" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "불러오지 못했어요" }).disabled).toBe(true);
   });
+  it("브리핑을 못 받으면(등록 가게를 리뷰 분석이 아직 모를 때 등) 핵심 문제·기간 줄이 '정리하고 있어요'·'불러오는 중'으로 남지 않음", () => {
+    setState({ cards: [], briefing: null, bootError: "리뷰 분석 서비스 오류 404" });
+    const { container } = render(<Home />);
+    expect(screen.getByText("리뷰를 불러오지 못했어요", { selector: "strong" })).toBeTruthy();
+    expect(container.querySelector(".flow-eyebrow").textContent).toBe("밤 11시 브리핑");
+  });
 });
 
 describe("추천 카드", () => {
@@ -231,6 +237,28 @@ describe("기준 화면 배치 (Figma 06 B1~B4)", () => {
     expect(ask.querySelector(".flow-ask-go").textContent).toBe("묻기");
     // 오늘의 핵심 문제는 이름표 + 굵은 한 줄
     expect(container.querySelector(".flow-hero .flow-hero-label").textContent).toBe("오늘의 핵심 문제");
+  });
+
+  it("홈: 리뷰 0건이면 빈 안내 아래 다음에 할 일 두 개 ([리뷰 넣기] → 리뷰 분석의 리뷰 넣기 탭, [상권 분석 보기])", () => {
+    setState({ cards: [], briefing: { store: { name: "새 가게" }, period: { start: null, end: null },
+      counts: { review_count: 0, complaint_count: 0 }, top_issue_id: null, groups: [], single_complaints: [], pasted: [], snapshots: [] } });
+    const { container } = render(<Home />);
+    const foot = container.querySelector(".flow-todo-foot");
+    expect([...foot.querySelectorAll("button")].map((x) => x.textContent)).toEqual(["리뷰 넣기", "상권 분석 보기"]);
+    expect(screen.queryByRole("button", { name: "무엇을 할까요?" })).toBeNull();
+    expect(container.querySelector(".flow-staff-text").textContent).toBe("데이터 분석 비서아직 리뷰 없음");
+    act(() => { fireEvent.click(screen.getByRole("button", { name: "리뷰 넣기" })); });
+    expect(window.location.hash).toBe("#/analysis");
+    expect(getState().nav).toMatchObject({ name: "analysis", sub: "paste" });
+    act(() => { fireEvent.click(screen.getByRole("button", { name: "상권 분석 보기" })); });
+    expect(window.location.hash).toBe("#/market");
+  });
+
+  it("홈: 리뷰가 있는 가게는 그대로 ('무엇을 할까요?' 하나, 다음 할 일 버튼 없음)", () => {
+    const { container } = render(<Home />);
+    expect([...container.querySelector(".flow-todo-foot").querySelectorAll("button")].map((x) => x.textContent)).toEqual(["무엇을 할까요?"]);
+    expect(screen.queryByRole("button", { name: "리뷰 넣기" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "상권 분석 보기" })).toBeNull();
   });
 
   it("홈: 리뷰 0건인 새 가게도 깨지지 않고 짧은 빈 안내 (로그인 정보가 없어도)", () => {

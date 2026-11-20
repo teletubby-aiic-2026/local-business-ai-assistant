@@ -92,14 +92,18 @@ export function chatPieces(line) {
   return out;
 }
 
-// 서랍 전용 호출: 같은 출처 쿠키·JSON, 90초가 넘으면 끊는다. 실패하면 message·state 를 담은 Error (맨 위 띠에는 아무것도 띄우지 않음)
+// 서랍 전용 호출: 같은 출처 쿠키·JSON, 90초가 넘으면 끊는다. 실패하면 message·state·status 를 담은 Error (맨 위 띠에는 아무것도 띄우지 않음).
+// options.headers 는 기본 헤더 위에 더한다. 로그인 표시 헤더와 401·409·403 단계 전환은 부르는 쪽(state.js 의 call)이 붙인다
+// (이 파일은 서버 시험이 node 로 그대로 불러 보므로 React 를 부르는 lib/api.js 를 import 하지 않는다)
 export async function drawerApi(path, options = {}, slow = "응답이 늦어지고 있어요. 잠시 뒤 다시 확인해 주세요.") {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), CHAT_WAIT_MS);
-  const fail = (message, st) => Object.assign(new Error(message), { state: st });
+  let status = 0;
+  const fail = (message, st) => Object.assign(new Error(message), { state: st, status });
   try {
     const res = await fetch(path, { credentials: "same-origin", cache: "no-store", ...options, signal: ctl.signal,
-      headers: { "Content-Type": "application/json", Accept: "application/json" } });
+      headers: { "Content-Type": "application/json", Accept: "application/json", ...(options.headers || {}) } });
+    status = res.status;
     const body = await res.json().catch(() => null);
     if (res.ok && body) return body;
     if (body?.error?.message) throw fail(body.error.message, body.error.state || "error");
@@ -107,8 +111,8 @@ export async function drawerApi(path, options = {}, slow = "응답이 늦어지�
     if (res.status === 422) throw fail("질문을 다시 확인해 주세요. 1000자까지 쓸 수 있어요.", "invalid");
     throw fail(res.ok ? "응답을 읽지 못했어요. 잠시 뒤 다시 시도해 주세요." : `상권 비서가 응답하지 않았어요 (${res.status}). 잠시 뒤 다시 시도해 주세요.`, "error");
   } catch (e) {
-    if (e.name === "AbortError") throw fail(slow, "timeout");
-    if (e instanceof TypeError) throw fail("상권 비서에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.", "down");
+    if (e.name === "AbortError") { status = 0; throw fail(slow, "timeout"); }
+    if (e instanceof TypeError) { status = 0; throw fail("상권 비서에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.", "down"); }
     throw e;
   } finally { clearTimeout(timer); }
 }

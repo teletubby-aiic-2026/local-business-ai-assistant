@@ -31,8 +31,11 @@ export function setStage(stage, extra = {}) {
 
 export const goPick = () => setStage("pick");
 export const goProfile = () => setStage("profile");
-// 새 가게 등록 (mode: signup 회원가입 직후 · add 가게 더하기 · edit 정보 고치기)
-export const goStoreNew = (mode = "add", storeId) => setStage("store-new", { storeNew: { mode, ...(storeId ? { storeId } : {}) } });
+// 새 가게 등록 (mode: signup 회원가입 직후 · add 가게 더하기 · edit 정보 고치기).
+// storeNewFrom: [취소]로 돌아갈 단계 (프로필에서 왔으면 profile, 그 밖은 가게 선택)
+export const goStoreNew = (mode = "add", storeId) => setStage("store-new", {
+  storeNew: { mode, ...(storeId ? { storeId } : {}) }, storeNewFrom: getState().stage === "profile" ? "profile" : "pick",
+});
 
 // 들어가 있던 가게로 (프로필 '가게로 돌아가기'). 그 가게가 아직 내 가게이고 지금 가게면 메인 화면, 아니면 가게 선택
 export function backToStore() {

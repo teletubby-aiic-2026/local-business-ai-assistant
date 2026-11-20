@@ -28,11 +28,15 @@ export function ThemeButton() {
   );
 }
 
-// 가게 칩의 두 줄: 신원의 지금 가게(이름 · 예시면 ' (가상)', 업종 · 상권). 신원에 없으면 브리핑의 가게
-function chipOf(me, briefing) {
-  const s = currentStore(me);
-  if (s) return storeLabel(s);
-  return storeLine(briefing);
+// 가게 칩의 두 줄: 신원의 가게 목록(me.stores)에서 지금 가게(me.store_id, 없으면 들어간 가게)의 이름 · '업종 · 상권'.
+// 가게를 열거나 바꾸는 동안에도, 브리핑에 업종·상권이 없는 새 가게도 목록 값으로 그린다. 목록에 없을 때만 브리핑의 가게,
+// 그것도 없으면 '불러오는 중'. 목록에 있는데 업종·상권이 비었으면 아래 줄을 비운다 (불러오는 중으로 남지 않게)
+function chipOf(me, entered, briefing) {
+  const stores = (me && me.stores) || [];
+  const s = currentStore(me) || stores.find((x) => x.store_id === entered) || null;
+  if (s) return { ...storeLabel(s), known: true };
+  const b = storeLine(briefing);
+  return { ...b, known: !!b.name };
 }
 
 // showWaiting: 왼쪽 메뉴가 안 보일 때(접었거나 761~1024px) 메뉴의 '승인할 글' 숫자를 여기서 보여 준다
@@ -40,10 +44,11 @@ function chipOf(me, briefing) {
 const Topbar = forwardRef(function Topbar({ menuOpen, onToggleMenu, showWaiting = false, narrow = false }, toggleRef) {
   const briefing = useStore((s) => s.briefing);
   const me = useStore((s) => s.me);
+  const entered = useStore((s) => s.entered);
   const busy = useStore((s) => s.acctBusy);
   const drawerOpen = useStore((s) => s.drawerOpen);
   const waiting = useStore(waitingCount);
-  const chip = chipOf(me, briefing);
+  const chip = chipOf(me, entered, briefing);
   const who = displayName(me);
   const label = menuOpen ? "왼쪽 메뉴 접기" : "왼쪽 메뉴 펼치기";
   return (
@@ -56,7 +61,7 @@ const Topbar = forwardRef(function Topbar({ menuOpen, onToggleMenu, showWaiting 
         <div className="store-pick">
           <span className="sp-text">
             <span className="sp-name" id="store-name">{chip.name || "가게"}</span>
-            <span className="sp-sub">{chip.sub || "불러오는 중"}</span>
+            {(chip.sub || !chip.known) && <span className="sp-sub">{chip.sub || "불러오는 중"}</span>}
           </span>
           <Button id="acct-store" variant="text" size="small" className="sp-switch" aria-label="가게 바꾸기" disabled={busy} onClick={goPick}>바꾸기</Button>
         </div>

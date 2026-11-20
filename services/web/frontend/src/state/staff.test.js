@@ -85,4 +85,11 @@ describe("홈 지표 도우미", () => {
     expect(marketScope(s)).toBe("공통 업종 17~24시");
     expect(heroProblem(briefing)).toBe("포장 누락 3건 반복 · 17~21시에 몰림");
   });
+
+  it("리뷰 0건(새로 등록한 가게): 핵심 문제는 '아직 들어온 리뷰가 없어요', 데이터 분석 비서는 '아직 리뷰 없음'", () => {
+    const empty = { counts: { review_count: 0, complaint_count: 0 }, top_issue_id: null, groups: [], single_complaints: [], pasted: [], snapshots: [] };
+    expect(heroProblem(empty)).toBe("아직 들어온 리뷰가 없어요");
+    expect(heroProblem({ ...briefing, groups: [] })).toBe("오늘은 반복되는 불만이 없어요");   // 리뷰는 있는데 반복 불만이 없는 것과 구별
+    expect(staffOf(base({ briefing: empty, cards: [] }))[0].text).toBe("아직 리뷰 없음");
+  });
 });
