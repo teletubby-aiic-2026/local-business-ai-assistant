@@ -358,7 +358,8 @@ def _apology_addon(ai_part, register):
 def _repair_ai_part(ai_part, failed, style, register):
     """다시 쓰기 뒤에도 남은 실패가 사과 말투·사과 빠짐뿐일 때, AI 가 쓴 공감 문장을 살리고 그 부분만 고친 글을 돌려준다.
     (a) style_match: 끝 사과 어미만 말투가 다르면 어미만 바꾼다('죄송합니다' → '죄송해요', 합니다체는 반대).
-        사과가 아닌 문장의 말투가 다르면 고치지 않는다(원래 글을 그대로 돌려줘 템플릿으로 간다).
+        해요체 답글은 사과가 아닌 문장의 흔한 합니다체 말끝('이해합니다'·'있습니다')도 바꾼다(checks.to_haeyo_endings, 11/21).
+        그래도 말투가 다르면 고치지 않는다(원래 글을 그대로 돌려줘 템플릿으로 간다).
     (b) apology_expressed: 사과만 빠졌으면 말투에 맞는 짧은 사과 한 문장을 덧붙인다(_apology_addon).
     (c) ai_part_only_empathy: 약속·조치 문장("다음에는 꼭 챙길게요")만 빼고 남은 공감 문장을 쓴다(_drop_promise_sentences).
         뺀 뒤 남은 글의 말투·사과를 다시 보고 (a)·(b)를 한다. 남는 문장이 없으면 고치지 않는다.
@@ -383,6 +384,8 @@ def _repair_ai_part(ai_part, failed, style, register):
             failed = [f for f in failed if f != "apology_expressed"]
     if "style_match" in failed:
         fixed = checks.fix_apology_ending(fixed, style)
+        if not checks.style_match(fixed, style) and style in ("haeyo", "mixed"):
+            fixed = checks.to_haeyo_endings(fixed)   # 사과 아닌 문장의 흔한 합니다체 말끝 (11/21)
         if not checks.style_match(fixed, style):
             return ai_part
     if "apology_expressed" in failed:
@@ -486,7 +489,9 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
 
     # 남은 실패가 사과 말투·사과 빠짐뿐이면 코드가 그 부분만 고친다 (추가 호출 없음, _repair_ai_part).
     # 고친 글이 점검을 전부 넘을 때만 쓰고, 아니면 아래 템플릿으로 간다.
-    if failed and not needs and not rewrite_call_failed:
+    # 다시 쓰기 호출이 실패(429 등)했어도 코드 보정은 호출이 없어 해 본다 — 11/21 실시간: '사과드립니다' 어미만 걸린 답글이
+    # 다시 쓰기 호출 실패로 점검 실패 그대로 화면에 나왔다. 보정으로도 못 넘으면 예전처럼 AI 글과 실패 사유를 그대로 보인다.
+    if failed and not needs:
         repaired = _repair_ai_part(ai_body, failed, style, ai_register)
         if repaired != ai_body:
             r_text, r_evidence, r_chk, r_failed = _check(repaired)

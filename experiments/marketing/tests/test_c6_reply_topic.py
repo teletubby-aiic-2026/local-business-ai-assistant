@@ -178,6 +178,15 @@ class TestChecks(unittest.TestCase):
         self.assertTrue(checks.no_broken_ending("답답하셨을 마음 충분히 이해해요."))
         self.assertFalse(checks.no_broken_ending("적어해해 주세요"))
 
+    def test_jyo_is_haeyo(self):
+        self.assertTrue(checks.style_match("치킨 먹는 재미가 없죠. 정말 죄송해요.", "haeyo"))
+        self.assertFalse(checks.style_match("치킨 먹는 재미가 없죠. 정말 죄송합니다.", "haeyo"))
+
+    def test_common_formal_endings_to_haeyo(self):
+        self.assertEqual(checks.to_haeyo_endings("실망감을 잘 알고 있습니다. 마음 충분히 이해합니다."),
+                         "실망감을 잘 알고 있어요. 마음 충분히 이해해요.")
+        self.assertEqual(checks.to_haeyo_endings("더 신경 쓰겠습니다."), "더 신경 쓰겠습니다.")   # 약속은 바꾸지 않는다
+
     def test_guessed_cause(self):
         self.assertTrue(checks.guessed_cause("배달 과정에서 시간이 지체되어 이런 문제가 발생한 것으로 보입니다."))
         self.assertTrue(checks.guessed_cause("주문이 몰렸기 때문에 늦었습니다."))
@@ -218,6 +227,29 @@ class TestNoticeByTopic(unittest.TestCase):
         self.assertEqual(d.failed_reasons, [])
         self.assertNotIn("것으로 보입니다", d.text)
         self.assertTrue(d.text.startswith("[안내] 식감 관련") or d.text.startswith("[안내] 매장 대기 관련"), d.text)
+
+    def test_general_notice_measure_line_is_written_by_code(self):
+        """고른 조치가 없는 포장 누락 밖 공지: AI 가 지어낸 '오늘부터' 조치 줄을 코드 문장으로 바꾼다."""
+        from c6.notice import GENERAL_NOTICE_MEASURE
+        card = RecommendationCard(card_id="card_t", store_id=SAMPLE_STORE.store_id, kind="complaint", reason_text="시험",
+                                  review_ids=[WAIT.review_id])
+        ctx = build_context(store=SAMPLE_STORE, reviews=[WAIT], tone=SAMPLE_TONE, cards=[card], snapshots=[],
+                            owner_replies=OWNER_REPLIES, policies=POLICIES)
+        ai = ("최근 음료를 오래 기다리셨다는 말씀이 이어졌습니다.\n불편을 드려 죄송합니다.\n"
+              "오늘부터 대기 예상 시간을 미리 안내하고 주문을 유도하겠습니다.\n다른 불편한 점이 있으면 리뷰로 알려 주세요.")
+        with patch("clova.call", side_effect=lambda *a, **k: {"content": ai, "won": 0.0}):
+            d = generate_prevention_notice(ctx, card, "k").drafts[0]
+        self.assertIn(f"오늘부터 {GENERAL_NOTICE_MEASURE}", d.text)
+        self.assertNotIn("유도", d.text)
+        later = ai.replace("오늘부터 대기 예상", "앞으로 대기 예상")      # '앞으로'로 시작한 조치 줄도 바꾼다
+        with patch("clova.call", side_effect=lambda *a, **k: {"content": later, "won": 0.0}):
+            d2 = generate_prevention_notice(ctx, card, "k").drafts[0]
+        self.assertIn(f"오늘부터 {GENERAL_NOTICE_MEASURE}", d2.text)
+        self.assertNotIn("유도", d2.text)
+        self.assertEqual(d2.failed_reasons, [])
+        self.assertFalse(d.checks["used_fallback"])
+        self.assertTrue(d.checks["ai_part_repaired"])
+        self.assertEqual(d.failed_reasons, [])
 
 
 if __name__ == "__main__":

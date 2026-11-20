@@ -192,6 +192,18 @@ class TestCallFailure(unittest.TestCase):
         self.assertFalse(d.checks["apology_expressed"])
         self.assertTrue(d.failed_reasons)
 
+    def test_failed_rewrite_call_still_gets_the_code_repair(self):
+        """11/21: 다시 쓰기 호출이 실패해도, 사과 어미만 다른 글은 코드가 고쳐 점검을 넘긴다 (추가 호출 없음)."""
+        ctx, card, _ = one_review_ctx()
+        formal = "공깃밥이 빠졌다니 정말 죄송합니다."
+        with patch("clova.call", side_effect=lambda key, system, messages, **kw: dict(FAIL) if "수정 지시" in messages[0]["content"]
+                   else {"content": formal}):
+            d = generate_reply_draft(ctx, card, "k").drafts[0]
+        self.assertEqual(d.failed_reasons, [])
+        self.assertTrue(d.checks["ai_part_repaired"])
+        self.assertFalse(d.checks["used_fallback"])
+        self.assertIn("공깃밥이 빠졌다니 정말 죄송해요.", d.text)
+
     def test_notice_falls_back_with_a_first_sentence_apology(self):
         with patch("clova.call", side_effect=lambda *a, **k: dict(FAIL)) as call:
             d = generate_prevention_notice(CTX, COMPLAINT, "k", chosen_measures=[dict(MEASURES[0])]).drafts[0]

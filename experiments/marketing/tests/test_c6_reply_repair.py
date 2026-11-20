@@ -105,8 +105,11 @@ class TestApologyEnding(unittest.TestCase):
         text = "공깃밥이 빠졌다니 속상하셨겠어요."
         self.assertEqual(_repair_ai_part(text, ["ai_part_only_empathy", "apology_expressed"], "haeyo", "해요체"), text)
         self.assertEqual(_repair_ai_part(text, [], "haeyo", "해요체"), text)
+        self.assertEqual(_repair_ai_part("많이 불편하셨겠습니다.", ["style_match"], "haeyo", "해요체"),
+                         "많이 불편하셨겠습니다.")      # 사과 아닌 문장의 말투는 고치지 않는다 → 템플릿으로 간다
+        # 11/21: 흔한 말끝 몇 개('같습니다'·'이해합니다' 등, checks.to_haeyo_endings)는 해요체로 바꾼다 (예전에는 이것도 템플릿으로 갔다)
         self.assertEqual(_repair_ai_part("속상하셨을 것 같습니다.", ["style_match"], "haeyo", "해요체"),
-                         "속상하셨을 것 같습니다.")      # 사과 아닌 문장의 말투는 고치지 않는다 → 템플릿으로 간다
+                         "속상하셨을 것 같아요.")
 
 
 class TestRepairInReply(unittest.TestCase):

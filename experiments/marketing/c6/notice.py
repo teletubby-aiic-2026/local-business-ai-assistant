@@ -44,6 +44,7 @@ NOTICE_FALLBACK_GENERAL_TMPL = (
     "{start_label} {measure_sentence}\n"
     "다른 불편한 점이 있으면 리뷰로 알려 주세요."
 )
+GENERAL_NOTICE_MEASURE = "말씀해 주신 점을 매장에서 더 꼼꼼히 살피겠습니다."
 _ORDER_1 = {
     "missing": '최근 있었던 일을 한 문장으로: 아래 리뷰들에서 빠졌던 품목을 묶어서, 특정 손님을 가리키지 않고 서술. "-습니다"로 끝날 것',
     "general": ('최근 있었던 일을 한 문장으로: 아래 리뷰들이 말한 불편({label})을 리뷰에 적힌 말로만 묶어서, 특정 손님을 가리키지 않고 서술. '
@@ -237,7 +238,7 @@ def _notice_fallback_text(target_reviews, menu_names, chosen_measures, start_lab
         if chosen_measures:
             measure_sentence = MEASURE_FALLBACK_SENTENCES.get(chosen_measures[0]["id"], chosen_measures[0]["text"])
         else:
-            measure_sentence = _NOTICE_FALLBACK_GENERIC_MEASURE
+            measure_sentence = GENERAL_NOTICE_MEASURE
         return NOTICE_FALLBACK_GENERAL_TMPL.format(
             phrase=phrase, start_label=start_label, measure_sentence=_drop_leading_time_phrase(measure_sentence))
     groups = [g for g in _notice_fallback_item_groups(target_reviews, menu_names) if g]
@@ -329,6 +330,23 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
             result["no_guessed_cause"] = not checks.guessed_cause(body)
         return result
 
+    # 포장 누락이 아니고 사장님이 고른 조치도 없는 공지: '오늘부터' 줄(조치)을 코드가 쓴다 (11/21 실시간: 대기 불만 공지에
+    # "대기 예상 시간을 미리 안내하고 주문을 유도하여"처럼 사장님이 정하지 않은 조치를 지어냄. 고른 조치가 없으면 답글처럼
+    # 무엇을 바꾸겠다는 약속 대신 지킬 수 있는 문장만 둔다).
+    pin_line = f"{start_label} {GENERAL_NOTICE_MEASURE}" if (not missing_notice and not chosen_measures) else ""
+
+    def _pin_measure(body_):
+        if not pin_line or not body_:
+            return body_
+        lines = [ln.strip() for ln in body_.splitlines() if ln.strip()]
+        # '오늘부터' 대신 '앞으로'·'다음부터'로 시작한 조치 줄도 조치 줄로 본다 (실시간: "앞으로 …" 줄이 코드 줄과 같이 남았다)
+        def is_measure(ln):
+            return ln.startswith(start_label) or any(ln.startswith(p + " ") for p in _LEADING_TIME_PHRASES)
+        at = next((i for i, ln in enumerate(lines) if is_measure(ln)), None)
+        if at is None:
+            return _insert_measure_line(body_, pin_line)
+        return "\n".join(lines[:at] + [pin_line] + [ln for ln in lines[at + 1:] if not is_measure(ln)])
+
     retry_exempt = ("length_ok",)
     evidence_ids = _compute_evidence()
 
@@ -350,6 +368,8 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
     raw = resp.get("content", "")
     body = parsing.extract_body(raw)  # JSON이든 평문이든 본문을 절대 버리지 않는다
     body = _dedupe_start_label_line(body, start_label)
+    hcx_body = body
+    body = _pin_measure(body)
 
     needs = []
     if call_errors and not body:   # 호출이 끝내 실패 → 코드가 쓴 기본 문장으로 채우고 사장님께 알린다 (다시 쓰기 호출 없음)
@@ -368,7 +388,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
                     return fixed, text2, chk2, failed2
         return body_, text_, chk_, failed_
 
-    last_ai_body = "" if needs else body   # HCX 가 마지막으로 쓴 본문 — 최종 본문이 이와 다르면 코드가 고친 것(ai_part_repaired)
+    last_ai_body = "" if needs else hcx_body   # HCX 가 마지막으로 쓴 본문 — 최종 본문이 이와 다르면 코드가 고친 것(ai_part_repaired)
     body, text, check_results, failed = _check_with_word_fix(body)
 
     rewrite_call_failed = False
@@ -408,6 +428,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         if body2:
             body = _dedupe_start_label_line(body2, start_label)
             last_ai_body = body
+            body = _pin_measure(body)
         body, text, check_results, failed = _check_with_word_fix(body)
 
     # 딱딱한 표현이 남으면 본문에만 사전대로 단어를 바꾼다 (추가 호출 없음). 공지는 합니다체라 formal=True —

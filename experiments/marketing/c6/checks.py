@@ -245,7 +245,9 @@ def style_match(ai_part: str, style: str) -> bool:
     sentences = [s for s in sentences if s]
     if not sentences:
         return False
-    return all(s.rstrip(".!?").endswith(suffix) for s in sentences)
+    # '~죠'(지요의 준말)도 해요체다 — 11/21 실시간: "치킨 먹는 재미가 없죠. 정말 죄송해요."가 걸려 기본 문장으로 갔다
+    endings = (suffix, "죠") if suffix == "요" else (suffix,)
+    return all(s.rstrip(".!?~… ").endswith(endings) for s in sentences)
 
 
 def notice_has_start(text: str, start_label: str) -> bool:
@@ -795,6 +797,27 @@ _APOLOGY_ENDING_TO = {
                 (r"죄송한\s*마음이에요", "죄송한 마음입니다"), (r"미안해요", "미안합니다")),
 }
 _APOLOGY_ENDING_TO["mixed"] = _APOLOGY_ENDING_TO["haeyo"]   # mixed 는 AI 부분이 해요체 (c6.measures.REPLY_AI_REGISTER)
+
+
+# 해요체 답글의 AI 부분에서 사과가 아닌 문장이 합니다체로 끝난 경우, 말끝만 해요체로 바꾸는 표 (뜻이 같은 흔한 말끝만).
+# 11/21 실시간: "실망감을 누구보다 잘 알고 있습니다", "마음 충분히 이해합니다", "정말 안타깝습니다"가 걸려 기본 문장으로 갔다.
+_HAEYO_ENDINGS = ((r"있습니다", "있어요"), (r"없습니다", "없어요"), (r"이해합니다", "이해해요"), (r"안타깝습니다", "안타까워요"),
+                  (r"아쉽습니다", "아쉬워요"), (r"같습니다", "같아요"), (r"속상합니다", "속상해요"), (r"마음입니다", "마음이에요"))
+
+
+def to_haeyo_endings(ai_part: str) -> str:
+    """문장 끝이 위 표의 합니다체 말끝이면 해요체로 바꾼다. 그 밖의 문장은 그대로 둔다."""
+    if not ai_part or not ai_part.strip():
+        return ai_part
+    out = []
+    for sentence in _SENT_SPLIT.split(ai_part.strip()):
+        for pattern, ending in _HAEYO_ENDINGS:
+            fixed = re.sub(rf"(?:{pattern})(?=[.!?~…]*$)", ending, sentence)
+            if fixed != sentence:
+                sentence = fixed
+                break
+        out.append(sentence)
+    return " ".join(out)
 
 
 def fix_apology_ending(ai_part: str, style: str) -> str:
