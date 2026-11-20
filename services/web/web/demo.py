@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from shared import store_profiles
 from shared.answer_check import check_answer, feedback
 from shared.contracts import LABELS_KO, AnalysisSnapshot, StoreProfile, quarter_label
 from shared.contracts import CARD_GENERATORS   # 카드 종류 → 그 카드가 만드는 글 종류 (개별 다시 만들기의 입력 검사)
@@ -144,7 +145,7 @@ class Demo:
         groups = [{**{k: g[k] for k in ("issue_id", "topic_name", "review_count", "is_repeated",
                                         "main_time_band", "time_bands", "evidence")},
                    "reviews": [review_view(rid) for rid in g["review_ids"]]} for g in insight.get("groups", [])]
-        return {
+        out = {
             "store": {"name": st["store"].get("name"), "business_type_name": st["store"].get("business_type_name"),
                       "data_origin": st["store"].get("data_origin"), "area_name": self._area_name(snaps)},
             "period": {"start": insight.get("period_start"), "end": insight.get("period_end")},
@@ -159,6 +160,10 @@ class Demo:
                            "dev_fake": is_dev_fake(s)} for s in snaps],
             "data_origin": insight.get("data_origin"),
         }
+        if self.registered and not out["store"]["area_name"]:      # 상권 지표 파일이 없는 등록 가게: 등록한 상권 이름
+            bundle = store_profiles.get(self.s.store_id)
+            out["store"]["area_name"] = (bundle.area_name or None) if bundle else None
+        return self._with_empty(out, insight)
 
     # 리뷰 분석 화면(#/analysis)의 요약·불만 묶음용. #14 insight 를 읽어서 화면에 쓰는 칸만 그대로 넘긴다 (읽기 전용).
     # 리뷰별 분류(classifications)와 반복 묶음 사본(repeated_issues)은 화면에 안 써서 뺀다.
@@ -170,13 +175,35 @@ class Demo:
             found = self._src(visitor).insight(self.s.store_id)
         except SourceError as exc:
             raise DemoError(str(exc), status=503) from None
-        return {k: found.get(k) for k in self.INSIGHT_KEYS}
+        return self._with_empty({k: found.get(k) for k in self.INSIGHT_KEYS}, found)
+
+    # ── 직접 등록한 가게 (6차 회의 11/20) ─────────────────────────────
+    # 리뷰가 0건이면 오류가 아니라 빈 결과다. 그때만 empty_reason(사장님 말 한 문장)을 더한다 (예시 세 곳은 리뷰가 있어 응답 그대로).
+    EMPTY_REASON = "아직 리뷰가 없어요. 리뷰를 붙여넣거나 캡처로 넣으면 분석을 시작해요."
+    NO_CARD_A = "같은 불만이 3건 이상 모이면 불만 카드를 만들어요. 아직 반복된 불만이 없어요."
+    NO_CARD_B_REGISTERED = "우리 가게 상권 지표가 아직 없어 쿠폰 홍보 카드는 만들지 않았어요. 상권 분석 화면에서 상권 숫자는 볼 수 있어요."
+
+    @property
+    def registered(self) -> bool:
+        return store_profiles.is_registered_id(self.s.store_id)
+
+    def _with_empty(self, out: dict, insight: dict) -> dict:
+        if self.registered and not insight.get("review_count"):
+            out["empty_reason"] = self.EMPTY_REASON
+        return out
 
     def cards(self, visitor: str | None = None) -> dict:
         st = self._state(visitor)
         plans = self._plans(st)
-        return {"cards": [p.to_dict() for p in plans],
-                "no_card_b": why_no_card_b(st["snapshots"], self.s.card_b_snapshot_id, self.s.card_b_threshold)}
+        out = {"cards": [p.to_dict() for p in plans],
+               "no_card_b": why_no_card_b(st["snapshots"], self.s.card_b_snapshot_id, self.s.card_b_threshold)}
+        if self.registered:
+            # 등록 가게는 상권 지표 파일이 아직 없다: 개발용 문장(C4 파일) 대신 사장님 말로. 불만 카드가 없으면 그 이유도
+            if out["no_card_b"] and not st["snapshots"]:
+                out["no_card_b"] = self.NO_CARD_B_REGISTERED
+            if not any(p.card.kind == "complaint" for p in plans):
+                out["no_card_a"] = self.EMPTY_REASON if not st["insight"].get("review_count") else self.NO_CARD_A
+        return self._with_empty(out, st["insight"])
 
     def _plans(self, st: dict) -> list[CardPlan]:
         writer = self._reason_writer if self.s.mode == "live" else None

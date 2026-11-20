@@ -189,7 +189,21 @@ def load(store_id: str, visitor_id: str | None = None) -> Profile:
             continue
         data.pop("_note", None)
         return Profile.model_validate(data)
-    return Profile(store_id=store_id)
+    return _registered_start(store_id) or Profile(store_id=store_id)
+
+
+def _registered_start(store_id: str) -> Profile | None:
+    """직접 등록한 가게(11/20)의 처음 값: 등록 때 받은 메뉴·가격·도로명 주소·끝인사. 그 밖의 칸은 빈 틀 (사장님이 채움)."""
+    from app import registered, service
+    if not service.is_registered(store_id):
+        return None
+    found = registered.get(store_id) or {}
+    location = found.get("location") or {}
+    name = found.get("name") or ""
+    return Profile(store_id=store_id, data_origin="real",
+                   basic=Basic(address=location.get("road_address")),
+                   menu=[MenuItem(name=m["name"], price=m["price"]) for m in found.get("menus") or []],
+                   reply=Reply(sign_off=f"{name} 드림" if name else None))
 
 
 def save(profile: Profile, visitor_id: str | None = None) -> Profile:

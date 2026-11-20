@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.models import IssueGroup, Review, ReviewClassification, ReviewInsight
 from app.topics import TOPICS, topic_name
@@ -25,6 +25,7 @@ MIN_COUNT = 3          # 이 건수 이상이면 반복
 WINDOW_DAYS = 28       # 최근 4주
 MAIN_BAND_SHARE = 0.6  # 한 시간대에 60% 이상 몰리면 '주로 이 시간대'
 _ORDER = {t: i for i, t in enumerate(TOPICS)}
+KST = timezone(timedelta(hours=9))
 
 
 def time_band(iso: str) -> str:
@@ -40,7 +41,9 @@ def build_insight(store_id: str, reviews: list[Review], classes: list[ReviewClas
                   end: datetime | None = None, window_days: int = WINDOW_DAYS, min_count: int = MIN_COUNT,
                   group_min: int = GROUP_MIN) -> ReviewInsight:
     by_id = {r.review_id: r for r in reviews}
-    end = end or max(datetime.fromisoformat(r.created_at) for r in reviews)
+    if end is None:
+        # 리뷰가 0건이면(직접 등록한 가게에 아직 리뷰를 안 넣음, 11/20) 오늘(한국 시간)까지 4주 → 빈 결과
+        end = max(datetime.fromisoformat(r.created_at) for r in reviews) if reviews else datetime.now(KST)
     end_day = end.replace(hour=23, minute=59, second=59)
     start = (end_day - timedelta(days=window_days)).replace(hour=0, minute=0, second=0) + timedelta(days=1)
     mid = start + (end_day - start) / 2

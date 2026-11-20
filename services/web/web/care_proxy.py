@@ -59,6 +59,8 @@ from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from shared import store_header
+
 log = logging.getLogger("web.care")
 
 DEFAULT_URL = "http://127.0.0.1:8020"
@@ -225,6 +227,8 @@ class CareProxy:
                 headers["X-Forwarded-For"] = client_ip      # 서비스의 손님 횟수 제한이 이 값의 맨 앞을 쓴다 (값 하나만 보냄)
         elif self.token:
             headers["X-Access-Token"] = self.token
+        if not public:
+            headers.update(store_header.headers_for(self.store))  # 직접 등록한 가게면 가게 프로필 (11/20). 예시 가게는 그대로
         timeout = httpx.Timeout(connect=2.0, read=self.timeout if multipart else min(READ_TIMEOUT, self.timeout),
                                 write=30.0 if multipart else 10.0, pool=2.0)
         try:
@@ -280,6 +284,7 @@ class CareProxy:
         if visitor_id and VISITOR_ID.fullmatch(visitor_id):
             body["visitor_id"] = visitor_id
         headers = {"X-Access-Token": self.token} if self.token else {}
+        headers.update(store_header.headers_for(self.store))      # 직접 등록한 가게면 가게 프로필 (11/20)
         try:
             r = self.client.post(f"{SERVICE_PREFIX}/reviews/{review_id}/status", json=body, headers=headers,
                                  timeout=httpx.Timeout(self.reply_timeout))

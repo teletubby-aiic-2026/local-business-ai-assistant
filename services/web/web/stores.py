@@ -6,27 +6,34 @@
 - 다른 가게는 처음 쓸 때 만든다. Demo 는 가게마다 따로 만든다 (승인 기록을 잠시 들고 있는 줄·초안 기억이 가게별이어야 함).
   리뷰 분석 연결·저장소·이유 모델은 기본 Demo 의 것을 같이 쓴다. 상권 지표 파일은 shared.store_profiles 의 가게별 파일.
 - 프록시는 for_store 로 만든 얕은 사본이다 (같은 HTTP 연결·동시 요청 한도를 같이 쓰고, 가게 id 만 다르다).
-- 직접 등록한 가게(11/20)도 같은 방식이다. 상권 지표 파일이 없는 경로라 카드 ⓑ 는 뜨지 않고, 리뷰 분석 서비스가 아직 모르는 가게라
-  브리핑·카드는 503 이다 (다음 단계에서 리뷰 분석·맞춤 마케팅이 등록 가게를 받게 한다).
+- 직접 등록한 가게(11/20)도 같은 방식이다. 리뷰 분석·맞춤 마케팅 서비스는 요청마다 실린 가게 프로필 헤더(shared/store_header.py)로
+  그 가게를 안다. 상권 지표 파일이 없는 경로라 카드 ⓑ 는 뜨지 않는다.
+- 등록 가게는 끝없이 늘 수 있으므로 REGISTERED_MAX 곳까지만 들고 있고, 가장 오래 안 쓴 가게부터 버린다 (다시 쓰면 새로 만든다).
+  DB 에 아직 못 쓴 승인 기록(_pending)이 있는 Demo 는 버리지 않는다. 예시 세 곳은 늘 들고 있다.
 """
 from __future__ import annotations
 
 import dataclasses
 import threading
+from collections import OrderedDict
 
 from shared import store_profiles
 
 from .demo import Demo
 
+REGISTERED_MAX = 64
+
 
 class StoreHub:
-    def __init__(self, demo: Demo, assistant, care, marketing):
+    def __init__(self, demo: Demo, assistant, care, marketing, registered_max: int = REGISTERED_MAX):
         self.default_id = demo.s.store_id
         self._base = demo
         self._demos: dict[str, Demo] = {self.default_id: demo}
         self._assistant = {self.default_id: assistant}
         self._care = {self.default_id: care}
         self._marketing = {self.default_id: marketing}
+        self._recent: OrderedDict[str, None] = OrderedDict()     # 들고 있는 등록 가게 (오래 안 쓴 것부터)
+        self.registered_max = registered_max
         self._lock = threading.Lock()
 
     def known(self, store_id: str | None) -> bool:
@@ -35,12 +42,28 @@ class StoreHub:
     def _id(self, store_id: str | None) -> str:
         return store_id if store_id and self.known(store_id) else self.default_id
 
+    def _touch(self, sid: str) -> None:
+        """등록 가게를 방금 쓴 것으로 적고, 넘치면 오래된 가게의 Demo·프록시를 버린다 (잠금 안에서 부른다)."""
+        if sid == self.default_id or sid in store_profiles.BUNDLES:
+            return
+        self._recent[sid] = None
+        self._recent.move_to_end(sid)
+        for old in list(self._recent):
+            if len(self._recent) <= self.registered_max:
+                break
+            if old == sid or getattr(self._demos.get(old), "_pending", None):
+                continue                 # 지금 쓰는 가게·DB 에 못 쓴 승인 기록이 있는 가게는 남긴다
+            self._recent.pop(old)
+            for table in (self._demos, self._assistant, self._care, self._marketing):
+                table.pop(old, None)
+
     def demo(self, store_id: str | None = None) -> Demo:
         sid = self._id(store_id)
         with self._lock:
             found = self._demos.get(sid)
-        if found is not None:
-            return found
+            if found is not None:
+                self._touch(sid)
+                return found
         # 직접 등록한 가게(11/20)는 저장소에서 찾으므로 잠금 밖에서 읽는다. 그 사이 지워졌으면 기본 가게
         bundle = store_profiles.get(sid)
         if bundle is None:
@@ -53,6 +76,7 @@ class StoreHub:
                                                card_b_snapshot_id="")
                 found = Demo(settings, source=base.source, reason_model=base._reason_model, storage=base.storage)
                 self._demos[sid] = found
+            self._touch(sid)
             return found
 
     def assistant(self, store_id: str | None = None):
@@ -60,6 +84,7 @@ class StoreHub:
         with self._lock:
             found = self._assistant.get(sid)
             if found is not None:
+                self._touch(sid)
                 return found
         demo = self.demo(sid)
         with self._lock:
@@ -68,6 +93,7 @@ class StoreHub:
                 found = self._assistant[self.default_id].for_store(sid)
                 found.attach_store(demo)
                 self._assistant[sid] = found
+            self._touch(sid)
             return found
 
     def care(self, store_id: str | None = None):
@@ -75,6 +101,7 @@ class StoreHub:
         with self._lock:
             if sid not in self._care:
                 self._care[sid] = self._care[self.default_id].for_store(sid)
+            self._touch(sid)
             return self._care[sid]
 
     def marketing(self, store_id: str | None = None):
@@ -82,8 +109,14 @@ class StoreHub:
         with self._lock:
             if sid not in self._marketing:
                 self._marketing[sid] = self._marketing[self.default_id].for_store(sid)
+            self._touch(sid)
             return self._marketing[sid]
 
     def demos(self) -> list[Demo]:
         with self._lock:
             return list(self._demos.values())
+
+    def held(self) -> int:
+        """들고 있는 등록 가게 수 (시험용)."""
+        with self._lock:
+            return len(self._recent)

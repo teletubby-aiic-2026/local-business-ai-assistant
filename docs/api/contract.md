@@ -1758,6 +1758,9 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 - **이 표 밖은 모두 `404`** (`{"error": {"state": "not_found"}}`, 서비스에 보내지 않음). 메서드가 다른 것도 `404`. 여러 가게 목록(`stores`)은 통합 화면이 가게 하나라 열지 않고, 기록 지우기(`DELETE records`)는 화면이 직접 부르지 않고 `DELETE /api/approvals`(1.7.1)가 서버 안에서 부릅니다. 서비스 자체 화면(`/`, `/web/*`)도 열지 않습니다.
 - **쿼리는 서버가 고정합니다**: `store`는 `DEMO_STORE_ID`, `visitor_id`는 이 서버의 방문자 쿠키(형식이 맞을 때만. 없거나 틀리면 쿼리를 빼고 보냄, 4부 4.3). 브라우저가 쿼리로 보낸 `store`·`visitor_id`는 버리고, 그 밖의 쿼리는 `report`의 `period`만 넘깁니다. 본문은 그대로 넘깁니다(64KB까지).
+- **직접 등록한 가게 (11/20)**: `store` 는 그 가게 id 이고, 요청마다 `X-IC26-Store-Profile` 헤더(1.16)를 서버가 붙입니다. 리뷰·카드·상권 지표가 없는 가게라
+  카드가 있어야 만드는 글(`generate` 의 배달앱 안내문·쿠폰 홍보, `notice-followup`)은 **409** `{"error": {"message": "이 가게는 아직 맞춤 마케팅에 반복 불만 자료가 없어 … / 우리 가게 상권 지표가 아직 없어 …", "state": "invalid"}}`,
+  `plan` 은 200 + `unavailable_drafts: [{step_id, message}]`(만들지 못한 글만 빠지고 할 일·쿠폰 계산은 그대로). 예시 세 곳에는 생기지 않습니다.
 - 글을 만드는 세 경로(`plan`·`generate`·`idea-try`, 4부 4.2의 'live에서 HCX')만 45초(`MARKETING_TIMEOUT_SEC`)까지 기다리고 나머지는 10초입니다. 화면(`mktApi`)은 그보다 조금 길게(60초·15초) 기다립니다. 실시간 확인(11/16): 공지·답글 `plan` 7.4초, 가게 이야기 글 `plan` 7.7초, 새 손님 `plan` 11.5초.
 - 서비스 호출(동기 httpx)은 서버 스레드에서 돌아서, 느린 `plan`이 다른 API를 붙잡지 않습니다 (시험으로 확인). 동시에 기다리는 호출은 8개까지.
 - **`/api/health`에 마케팅 상태를 섞지 않습니다.** 섞으면 다른 화면 맨 위 막힘 띠에 마케팅 꺼짐이 뜹니다. 화면은 `#/marketing`을 처음 열 때 `health`를 따로 부릅니다.
@@ -1919,13 +1922,24 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | GET | `changes` | 같은 이름 | `comparison`(qoq·yoy), `expected_revision` |
 | GET | `comparison` | 같은 이름 | `comparison_area_code`, `expected_revision` |
 | POST | `data-sync` | 서울 열린데이터광장 실시간 확인 (60초까지 기다림) | |
-| GET | `cultural-events` | 서울시 문화행사. 구를 안 주면 가게의 구(동작구) | `district` |
+| GET | `cultural-events` | 서울시 문화행사. 구를 안 주면 가게의 구(예시 세 곳 동작구, 등록 가게는 아래) | `district` |
 | GET | `map-config` (11/20) | `/api/onboarding/map-config`. 네이버 지도 브라우저용 공개 ID. 늘 `{client_id, configured}` 두 칸만 | |
 | POST | `locations/search` (11/20) | `/api/onboarding/locations/search`. 주소 검색. 본문 `{query}` 그대로 넘김 | |
 | POST | `locations/area-preview` (11/20) | `/api/onboarding/locations/area-preview`. 동네 참고 위치. 본문(`{kind: "area", text, district_code, neighborhood_code}`) 그대로 넘김 | |
 
 - 지도·위치 경로 3개 (11/20, 6차 회의 ⑥ 상권 분석 지도 · 새 가게 등록): 응답을 아래 분기 표기 바꾸기에 넣지 않고 그대로 넘깁니다(`market_proxy.RAW_ROUTES`). 주소의 건물 번호(예: '상도로 20241')가 분기 코드처럼 보여 '2024년 1분기'로 바뀌기 때문입니다. `map-config`는 상권 서비스가 다른 칸을 더 실어 보내도 버리고, `client_id`가 영문·숫자·`_`·`-` 1~64자이고 `configured`가 `true`일 때만 `configured: true`입니다(그 밖은 `{client_id: "", configured: false}`). 주소 검색어는 쿼리(20자에서 잘림)가 아니라 본문으로 보냅니다. 상권 서비스가 바쁠 때(429 '주소 조회 중…')는 다른 경로처럼 422로 그 문장을 넘깁니다. 검색 결과(`search_id`·후보 `id`)는 상권 서비스의 세션에 남으므로 같은 `/api/market` 쿠키로 이어서 `profile`을 보내야 합니다.
 - `conditions`: `{area_code, area_name, industry_code, industry_name, period, period_label, location_label, revision, home}`. `home`은 지금 가게의 기본 조건인지(서버가 판단).
+
+등록 가게의 기본 조건 (11/20)
+- `setup`·서랍의 `POST /api/assistant/setup` 은 등록한 위치·업종 코드·상권 코드·분기를 씁니다(가게를 고치면 5초 안에 따라감). 분기를 정하지 않았으면
+  그 상권의 최신 분기, `home`·`is_store_default` 는 상권·업종(·정했으면 분기)으로 판단합니다.
+- 역으로 등록한 가게는 `{kind: "station", station_id}`, **주소로 등록한 가게는 저장된 도로명 주소로 `POST /api/onboarding/locations/search` 를 다시 불러**
+  맞는 후보(도로명이 같은 것 → 좌표 150m 안 → 후보가 하나뿐일 때)의 `search_id`·`candidate_id` 로 프로필을 넣습니다(후보 id 는 세션마다 다름).
+  검색이 실패하거나(422·429 등) 맞는 후보가 없으면 200 `{status: "unavailable", state: "error", message: "등록한 주소로 상권 위치를 찾지 못했어요. …", conditions: null}`.
+  이미 같은 주소(공백 무시)·업종이 저장돼 있으면 다시 검색하지 않습니다.
+- `status.store`: 가게 줄과 같은 칸 + 등록 가게면 `location_label`·`location_kind`·`district_name`·`industry_code`·`area_code`·`period`.
+  주소로 등록한 가게는 `station_name` 이 `null` 이라 화면은 `location_label` 을 쓰면 됩니다.
+- 문화행사의 구: 등록한 `district_name`(서울 25개 구일 때) → 도로명 주소·위치 이름에서 읽은 구 → 없으면 `district` 를 빼고 보냄(서울 전체).
 - 세션 쿠키 `market_onboarding_session`의 경로는 `/api/market`이라 서랍(`/api/assistant`)과 따로입니다. 화면에서 조건을 바꿔도 서랍 대화가 흔들리지 않습니다.
 - 상권 서비스의 입력 오류는 그 상태 그대로(409: 다른 곳에서 조건이 바뀜 → 화면이 서버 조건으로 다시 불러옴, 422), 꺼짐·느림·5xx·이상한 응답은 503 `{"error": {"message", "state"}}`. 500 은 없고, 다른 화면은 영향이 없습니다.
 - 사람이 읽는 칸(`message`·`label`·`note(s)`·`warning(s)`·`title`·`summary`·`text`·`sentence`·`period_note` 등)의 분기 코드만 '2026년 2분기'로 바꿉니다. `value`·`value_text`·`period` 같은 숫자·코드 칸은 그대로입니다. `period`만 있는 곳에는 `period_label`을 붙입니다.
@@ -2006,11 +2020,34 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `empty` | 리뷰 0건 | "리뷰를 넣으면 분석을 시작해요"·`muted`, 숫자 0 |
 | `unavailable` | 분석을 불러오지 못함 | "분석을 불러오지 못했어요"·`muted`, `reviews`·`complaints` 는 `null` |
 
-**등록한 가게로 아직 안 되는 것 (다음 단계)**
+**등록한 가게로 도는 것 (11/20, `feat/f6-be-services`)**
 
-- 리뷰 분석·맞춤 마케팅 서비스는 아직 등록한 가게를 모릅니다(404). 그래서 등록 가게를 고른 상태의 `/api/briefing`·`/api/cards`·`/api/insight`·붙여넣기는 503(리뷰 분석 서비스 오류 문장), `summary` 는 `empty` 입니다. 승인 기록(`/api/approvals`)은 됩니다.
-- 상권 지표 파일이 없어 카드 ⓑ 가 뜨지 않습니다(`/api/health` 의 막힘 띠에는 넣지 않음). 상권 서랍·상권 화면의 '우리 가게 기본 조건' 자동 맞춤(`POST /api/market/setup`)은 아직 등록한 역·업종·상권을 쓰지 않고 `already` 로 답합니다(조건은 사장님이 화면에서 고름).
-- 등록 가게는 `shared/store_profiles.py` 가 예시 세 곳 다음으로 찾습니다(`set_registered_lookup`, 찾은 값은 5초만 기억하고 없다는 결과는 기억하지 않음 → 다른 WAS 에서 고친 이름도 5초 안에 보임). 말투는 기본 해요체, 메뉴 가격은 등록한 메뉴, 문화행사 구는 `location.district_name`(없으면 서울 전체).
+서비스 사이의 가게 프로필 전달
+- 리뷰 분석(8020)·맞춤 마케팅(8030)은 화면 서버와 다른 프로세스라 등록 가게를 직접 모릅니다. 화면 서버가 **등록 가게의 요청마다**
+  `X-IC26-Store-Profile` 헤더에 가게 프로필(`shared/store_header.py`, base64url JSON `{v:1, store_id, name, business_type_name,
+  industry_code, business_status, channels, menus, location, area}`)을 실어 보냅니다. 예시 세 곳·게스트 요청에는 싣지 않습니다(예전 요청 그대로).
+- 서비스는 헤더를 검사해(가게 id `store_` + 16진수 12자만 — 예시 가게 id 는 거절, 12,000자까지, 칸마다 형식) 자기 프로세스의 등록 목록
+  (크기 상한 256 LRU)에 넣습니다. 틀리면 400 이고 그 요청은 처리하지 않습니다. 헤더 없이 온 모르는 가게는 예전처럼 404.
+- DB 가 있든 없든, WAS 가 몇 대든 같습니다: 화면 서버는 같은 WAS 의 127.0.0.1 서비스를 부르고, 프로필은 요청에 같이 가며, 서비스가 다시 켜져도
+  다음 요청의 헤더로 바로 압니다. 붙여넣은 리뷰·기록은 예시 가게와 같은 자리(파일 또는 `reviews`·`review_records`·`marketing_sessions` 표)에
+  가게 id 로 저장됩니다. 고객응대의 가게 정보(`care_profile_<가게>.json`)는 예전처럼 WAS 마다의 파일입니다.
+
+화면별
+- 홈(`/api/briefing`)·리뷰 분석(`/api/insight`)·추천 카드(`/api/cards`): 리뷰가 0건이면 오류가 아니라 **빈 결과**(리뷰 0·불만 0·묶음 없음·카드 없음)이고,
+  등록 가게일 때만 이유 칸이 더해집니다: `empty_reason`("아직 리뷰가 없어요. 리뷰를 붙여넣거나 캡처로 넣으면 분석을 시작해요."),
+  `/api/cards` 의 `no_card_a`(불만 카드가 없는 이유) · `no_card_b`("우리 가게 상권 지표가 아직 없어 쿠폰 홍보 카드는 만들지 않았어요. …").
+  예시 세 곳의 응답에는 이 칸이 생기지 않습니다. 브리핑의 `store.area_name` 은 등록한 상권 이름입니다.
+- 붙여넣기·캡처 저장(`POST /api/reviews`)은 예시 가게와 같은 경로로 분류·묶음을 다시 계산합니다(리뷰 ID `rv_<가게 16진수>_paste_001`, 작성 시각은 실제 시각).
+  같은 주제 불만이 3건이면 반복 묶음 → 불만 카드 → 답글·안내문 생성(mock 은 가게 이름으로 쓴 코드 틀)·승인·'답글 달았음' 기록이 됩니다.
+- 고객응대(`/api/care/*`): 응대 점수·일일·월간 보고서가 0건에서도 200. 가게 정보(`/profile`)의 처음 값은 등록한 메뉴·가격·도로명 주소·끝인사("<가게> 드림").
+- 맞춤 마케팅: 등록한 이름·메뉴·가격·채널(배달의민족·쿠팡이츠·요기요·네이버 → 채널 코드)로 돕니다. 리뷰·카드·상권 지표는 빈 목록입니다
+  (**붙여넣은 리뷰와 그 불만 카드는 아직 맞춤 마케팅에 넘기지 않습니다** — 리뷰 답글·안내문은 추천 카드에서 만듦).
+  카드가 있어야 만드는 글(배달앱 안내문·답글·쿠폰 홍보 글·개선 소식)은 1.12 의 409 안내(`{"error": {"message", "state": "invalid"}}`)이고,
+  `plan` 은 200 + `unavailable_drafts: [{step_id, message}]`(그 글만 빠짐), 새 손님 홍보 글·남은 재료 팔기는 가게 이름·메뉴로 쓴 코드 틀입니다.
+- 상권 화면·서랍: 1.14 '등록 가게의 기본 조건'.
+- 계정 초기화·탈퇴: 등록 가게의 붙여넣은 리뷰·상태·답글 기록·분류 결과와 맞춤 마케팅 기록도 지웁니다(서비스가 헤더로 그 가게를 알게 되어서).
+- 화면 서버는 등록 가게의 Demo·프록시를 64곳까지만 들고 있습니다(가장 오래 안 쓴 것부터 버림, DB 에 못 쓴 승인 기록이 있으면 남김).
+- 등록 가게는 `shared/store_profiles.py` 가 예시 세 곳 다음으로 찾습니다(`set_registered_lookup`, 찾은 값은 5초만 기억하고 없다는 결과는 기억하지 않음 → 다른 WAS 에서 고친 이름도 5초 안에 보임). 말투는 기본 해요체, 메뉴 가격은 등록한 메뉴.
 
 ---
 
@@ -2738,6 +2775,13 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
   ```
 - 본문이 아니라 쿼리로 받는 이유: 비서 화면 서버가 GET·POST 모두 쿼리에 `store`·`visitor_id`를 붙여 중계하고 본문은 손대지 않기 때문입니다.
 - 쓰는 곳: `plan`·`approve`·`idea-try`는 기록을 그 방문자 자리(파일 또는 DB)에 쓰고, `report`는 그 방문자 기록만 읽고, `DELETE /records`는 그 방문자 기록만 지웁니다. 나머지 경로는 받아서 형식만 봅니다.
+
+### 4.3.1 `X-IC26-Store-Profile` — 직접 등록한 가게 (11/20)
+
+- 모든 경로가 선택 헤더 `X-IC26-Store-Profile`(1.16, `shared/store_header.py`)을 받습니다. 검사를 통과하면 그 가게를 이 프로세스의 등록 목록에 넣고
+  `?store=<그 가게 id>` 로 고를 수 있습니다(컨텍스트: 등록한 이름·업종·메뉴·가격·채널 + 기본 말투·공통 정책, 리뷰·카드·상권 지표·예전 답글은 빈 목록).
+  틀린 값(모양·12,000자 초과·예시 가게 id)은 `400 {"detail": "가게 프로필 헤더가 맞지 않아요: …"}`. 헤더 없이 온 모르는 가게는 예전처럼 `404`.
+- 카드가 없어 만들 수 없는 글은 `409 {"detail": "<안내 문장>", "state": "no_complaint_card" | "no_promo_card"}` (500 아님). `/stores`·`/meta` 의 가게 목록은 예시 세 곳 그대로입니다.
 
 ### 4.4 기록 (파일 또는 DB)
 
