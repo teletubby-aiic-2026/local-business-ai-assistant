@@ -105,11 +105,11 @@ export default function PickStore() {
           <dl className="inset pick-owner-facts">
             <div><dt>가진 가게</dt><dd>{count}곳</dd></div>
           </dl>
-          <div className="stack-8">
+          <div className="stack-8 pick-owner-btns">
             <Button className="acct-full" onClick={goProfile}>사장님 프로필</Button>
             <Button className="acct-full" disabled={busy} onClick={acctLogout}>로그아웃</Button>
           </div>
-          <p className="small muted">가게를 고르면 그 가게의 홈으로 갑니다. 상단 바에서 언제든 바꿀 수 있어요.</p>
+          <p className="small muted pick-note">가게를 고르면 그 가게의 홈으로 갑니다. 상단 바에서 언제든 바꿀 수 있어요.</p>
         </aside>
 
         <section className="pick-stores" aria-labelledby="stage-title">

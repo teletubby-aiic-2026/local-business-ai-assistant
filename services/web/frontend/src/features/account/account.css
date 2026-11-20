@@ -22,7 +22,8 @@
 .stage-card.center { text-align: center; }
 .stage-card.center .btn-row { justify-content: center; }
 .stage-card-icon { display: inline-grid; place-items: center; width: 56px; height: 56px; border-radius: var(--r-full); background: var(--bad-bg); color: var(--bad); }
-.stage-page .mode-band { padding: 8px 32px; }
+/* order: 0 — layout.css 의 760px 이하 규칙(.mode-band { order: 2 })은 메인 화면 틀 순서용이라, 단계 화면에서는 위쪽 줄 바로 아래 그대로 */
+.stage-page .mode-band { order: 0; padding: 8px 32px; }
 
 /* 첫 글자 동그라미 (사장님·가게) */
 .face { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: var(--r-full); background: var(--brand-soft); color: var(--accent-text); font-weight: 700; }
@@ -72,7 +73,13 @@
 
 /* ── A3 가게 선택: 왼쪽 사장님 칸 + 가게 카드 ── */
 .pick { width: min(100%, var(--col-wide)); display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--s-24); align-items: start; }
-@container content (max-width: 760px) { .pick { grid-template-columns: minmax(0, 1fr); } }
+/* 좁은 본문: 한 줄기로 쌓고, 사장님 칸은 이름과 버튼 두 개만 (가게 카드가 첫 화면에 보이게) */
+@container content (max-width: 760px) {
+  .pick { grid-template-columns: minmax(0, 1fr); gap: var(--s-20); }
+  .pick-owner { padding: var(--s-16); }
+  .pick-owner .pick-owner-facts, .pick-owner .pick-note { display: none; }
+  .pick-owner .pick-owner-btns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .pick-owner-head { display: flex; align-items: center; gap: var(--s-12); }
 .pick-owner-name { display: grid; min-width: 0; }
 .pick-owner-name b { font-size: 18px; line-height: 1.4; }
