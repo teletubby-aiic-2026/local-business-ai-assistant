@@ -149,7 +149,8 @@ function ReviewItem({ r }) {
 }
 
 // 초안 상자: 편집 칸 → 점검 칩 줄 → 고칠 곳 → 승인·복사·다시 만들기.
-// 칩은 색과 함께 모양(● ▲ ■)으로도 나눈다. 점검을 못 넘어 정해 둔 기본 문장으로 바꾼 글(checks.used_fallback)은 'AI 글 아님'을 칩으로 밝힌다
+// 칩은 색과 함께 모양(● ▲ ■)으로도 나눈다. 점검을 못 넘어 정해 둔 기본 문장으로 바꾼 글(checks.used_fallback)은
+// '기본 문장으로 바꿈' 칩과 이유 한 줄로 밝히고 모델 표시는 뺀다
 function DraftPanel({ d, s, busy, note }) {
   const box = useRef(null);
   const regenBtn = useRef(null);
@@ -187,8 +188,9 @@ function DraftPanel({ d, s, busy, note }) {
         {!failed.length && !checks.length && !approved && <Badge tone="ok" className="flow-chk ok">점검 통과</Badge>}
         {checks.length > 0 && <Badge tone="warn" className="flow-chk warn">확인 필요 {checks.length}</Badge>}
         {failed.length > 0 && <Badge tone="bad" className="flow-chk bad">점검 실패 {failed.length}</Badge>}
-        {fallback && <Badge className="flow-chk">기본 문장 (AI 글 아님)</Badge>}
+        {fallback && <Badge className="flow-chk">기본 문장으로 바꿈</Badge>}
       </p>
+      {fallback && <p className="small muted flow-fallback-note">AI 글이 점검을 넘지 못해 기본 문장으로 바꿨어요.</p>}
       {failed.length > 0 && <ul className="plain flow-issues bad">{failed.map((x, i) => <li key={i}><b>점검 실패</b> · {x}</li>)}</ul>}
       {checks.length > 0 && <ul className="plain flow-issues">{checks.map((x, i) => <li key={i}><b>확인 필요</b> · {x}</li>)}</ul>}
       <div className="btn-row">
@@ -197,7 +199,8 @@ function DraftPanel({ d, s, busy, note }) {
         <Button ref={regenBtn} variant="text" disabled={busy} onClick={regen}>{busy ? "만드는 중…" : "다시 만들기"}</Button>
       </div>
       <p className="small muted" role="status">{busy ? "이 글만 다시 만들고 있어요. 다른 글은 그대로예요." : note}</p>
-      <p className="small muted">{d.model || ""}{d.elapsed_ms ? ` · ${(d.elapsed_ms / 1000).toFixed(1)}초` : ""}</p>
+      {/* 기본 문장으로 바꾼 글에는 모델 이름·걸린 시간을 붙이지 않는다 (모델이 쓴 글이 아니므로, 11/20 박건영 결정) */}
+      {!fallback && <p className="small muted">{d.model || ""}{d.elapsed_ms ? ` · ${(d.elapsed_ms / 1000).toFixed(1)}초` : ""}</p>}
     </Panel>
   );
 }

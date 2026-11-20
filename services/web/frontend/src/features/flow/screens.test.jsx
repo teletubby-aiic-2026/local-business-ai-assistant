@@ -272,7 +272,7 @@ describe("기준 화면 배치 (Figma 06 B1~B4)", () => {
   });
 
   it("승인할 글: 진행줄은 글자 + 지금 글 이름 (막대 없음), 리뷰마다 회색 상자, 점검 칩 줄은 글 칸과 버튼 사이", () => {
-    const run = { ...runA, drafts: [runA.drafts[0], { ...runA.drafts[1], checks: { used_fallback: true } }] };
+    const run = { ...runA, drafts: [runA.drafts[0], { ...runA.drafts[1], model: "HCX-005", elapsed_ms: 7400, checks: { used_fallback: true } }] };
     setState({ results: { card_a: run }, current: "card_a", draftId: "d2" });
     const { container } = render(<Draft />);
     const progress = container.querySelector(".flow-progress");
@@ -288,7 +288,12 @@ describe("기준 화면 배치 (Figma 06 B1~B4)", () => {
     const issues = container.querySelector(".flow-issues");
     const approveBtn = screen.getByRole("button", { name: "승인" });
     expect(order(box, chips) && order(chips, issues) && order(issues, approveBtn)).toBe(true);
-    expect([...chips.querySelectorAll(".badge")].map((b) => b.textContent)).toEqual(["확인 필요 1", "기본 문장 (AI 글 아님)"]);
+    expect([...chips.querySelectorAll(".badge")].map((b) => b.textContent)).toEqual(["확인 필요 1", "기본 문장으로 바꿈"]);
+    // 기본 문장으로 바꾼 글: 이유 한 줄이 칩 아래에 있고, 모델 이름·걸린 시간은 보이지 않는다
+    const draftBox = container.querySelector(".flow-draft-box");
+    expect(draftBox.querySelector(".flow-fallback-note").textContent).toBe("AI 글이 점검을 넘지 못해 기본 문장으로 바꿨어요.");
+    expect(draftBox.textContent).not.toContain("HCX-005");
+    expect(draftBox.textContent).not.toContain("7.4초");
     expect(container.querySelector(".flow-draft-box .panel-head .badge")).toBeNull();   // 머리 오른쪽에는 배지 없음
   });
 
