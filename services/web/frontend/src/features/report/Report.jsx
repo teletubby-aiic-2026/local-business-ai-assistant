@@ -1,6 +1,6 @@
 // 종합 리포트 (#/report). 6차 회의(11/20) Figma 06 'D1 종합 리포트' 구성:
 // 머리([다시 만들기] [PDF 저장]) → 오늘 요약·응대 점수 한 줄 → 탭(주간·월간)과 기간 이동 → 저장 안내 띠 → 타일 4개
-// → '이번 주에 고칠 것'/'다음 달에 고칠 것' + '주제별 흐름' → '마케팅 숫자' → 손님 칭찬 요약 · 응대 기록(점수 추이·반복 불만)
+// → '이번 주에 고칠 것'/'이번 달에 고칠 것'(끝난 기간은 '이 주·이 달 기록에서 고칠 것') + '주제별 흐름' → '마케팅 숫자' → 손님 칭찬 요약 · 응대 기록(점수 추이·반복 불만)
 // → 응대 점수 · 답글을 기다리는 불만 · 상권 요약 · 마케팅 요약 → '저장된 보고서' 목록.
 // 주간·월간 보고서는 /api/reports/* (서버가 계정별로 저장. 숫자는 리뷰 분석 서비스의 규칙 계산, AI 문장 아님).
 // 오늘 요약·응대 점수는 /api/care/* 로 그때그때. 상권·마케팅 요약은 처음 화면을 열 때 이미 받은 브리핑·추천 카드와 /api/approvals 로만.
@@ -10,14 +10,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Badge, Button, PageHead, Panel, StatTile, Tabs, TopicBar } from "../../components/ui.jsx";
 import { getState, openDrawer, useStore } from "../../state/store.js";
-import { currentRoute } from "../../lib/router.js";
-import { draftsOf, marketScope, shortBasis, snapValue, sourceUrl } from "../../lib/domain.js";
+import { currentRoute, go } from "../../lib/router.js";
+import { draftsOf, isOwnStore, marketScope, shortBasis, snapValue, sourceUrl } from "../../lib/domain.js";
 import {
   KINDS, getReport, loadApprovals, loadReport, loadScore, openReport, openSaved, remakeReport, reportReady, resetIfStoreChanged, setTab, useReport,
 } from "./state.js";
 import {
-  KIND_KO, NONE, PERIOD_WORDS, RP_ISSUE_STATE, RP_NOTE, SOURCE_KO, clip, clockView, dateKo, deltaTone, marketingNumbers, peakText, periodText,
-  printMeta, savedNote, signed, sourceLine, stamp, tilesOf, topicRows, trendGeometry,
+  KIND_KO, NONE, PERIOD_WORDS, RP_ISSUE_STATE, RP_NOTE, SOURCE_KO, clip, clockView, dateKo, deltaTone, fixItems, fixTitle, isPast, marketingNumbers,
+  peakText, periodText, printMeta, savedNote, signed, sourceLine, stamp, tilesOf, topicRows, trendGeometry,
 } from "./format.js";
 import "./report.css";
 
@@ -120,12 +120,11 @@ function PeriodBar({ rp }) {
   );
 }
 
-// ── 고칠 것 (근거와 함께 최대 3개) ──
+// ── 고칠 것 (근거와 함께 최대 3개). 제목·문장은 보는 기간에 맞게 (끝난 기간이면 '이 주 기록에서 고칠 것') ──
 function FixPanel({ view }) {
-  const w = PERIOD_WORDS[view.kind];
-  const sugg = Array.isArray(view.report?.suggestions) ? view.report.suggestions : [];
+  const sugg = fixItems(view);
   return (
-    <Panel title={w.fix} titleId="rp-fix-title" id="rp-fix-sec" className="rp-sec rp-fix">
+    <Panel title={fixTitle(view)} titleId="rp-fix-title" id="rp-fix-sec" className="rp-sec rp-fix">
       <ol className="plain rp-fixes" id="rp-fixes">
         {sugg.length ? sugg.map((s, i) => (
           <li key={i}>
@@ -162,7 +161,7 @@ function TopicPanel({ view }) {
     <Panel title="주제별 흐름" titleId="rp-topics-title" id="rp-topics-sec" className="rp-sec rp-topics">
       <div className="stack-16" id="rp-topics">
         {complaints.length || praises.length ? <>{group("불만", complaints, "complaint")}{group("칭찬", praises, "praise")}</>
-          : <p className="small muted">{none ? "아직 리뷰가 없어요." : "이 기간 리뷰에서 나눈 주제가 아직 없어요."}</p>}
+          : <p className="small muted">{none ? (isPast(view) ? "이 기간에는 리뷰가 없었어요." : "아직 리뷰가 없어요.") : "이 기간 리뷰에서 나눈 주제가 아직 없어요."}</p>}
       </div>
     </Panel>
   );
@@ -347,7 +346,10 @@ function ScorePanel({ score }) {
             <Reasons list={r.reasons} empty="점수를 깎거나 올린 일이 없어요." />
           </div>
           {score.peak && <p className="rp-peak">지금은 피크 시간이라 답글 기한이 멈춰 있어요.</p>}
-          <p className="rp-untimed">지난 불만 <b>{r.untimed_unanswered ?? 0}건</b> <span className="small muted">· 기한 없이 답글을 안 단 지난(합성) 불만 리뷰</span></p>
+          {/* 답글 기한을 세지 않는 예전(합성) 불만. 0건이면(직접 등록한 가게 등) 줄을 두지 않는다 */}
+          {Number(r.untimed_unanswered) > 0 && (
+            <p className="rp-untimed">지난 불만 <b>{r.untimed_unanswered}건</b> <span className="small muted">· 아직 답글을 안 단 예전 불만이에요. 합성 리뷰라 답글 기한은 세지 않아요.</span></p>
+          )}
           <p className="small muted">답글 기한은 불만 리뷰를 받은 뒤 {r.policy?.sla_minutes ?? 30}분이에요{peaks ? ` (피크 ${peaks}에는 멈춤)` : ""}. 답글을 승인하면 기록돼요.</p>
         </div>
       )}
@@ -390,11 +392,13 @@ function PendingPanel({ score }) {
   );
 }
 
-// ── 상권 요약: 브리핑의 상권 지표 (홈 '상권 저녁 매출' 칸과 같은 자료). 서버를 다시 부르지 않는다 ──
+// ── 상권 요약: 브리핑의 상권 지표 (홈 '상권 저녁 매출' 칸과 같은 자료). 서버를 다시 부르지 않는다.
+// 직접 등록한 가게는 브리핑에 상권 지표가 없을 수 있어 '없어요' 대신 상권 분석 화면으로 안내 (홈 칸과 같은 기준) ──
 function MarketPanel() {
   const b = useStore((s) => s.briefing);
   const booted = useStore((s) => s.booted);
   const drawerOpen = useStore((s) => s.drawerOpen);
+  const own = useStore((s) => isOwnStore(s.me));
   const st = !b
     ? { msg: booted ? "브리핑을 불러오지 못해 상권 요약을 만들 수 없어요. 홈에서 다시 불러와 주세요." : "불러오는 중…", bad: booted }
     : { msg: "", bad: false };
@@ -422,13 +426,17 @@ function MarketPanel() {
                   </span>
                 </li>
               );
-            }) : <li className="small muted">상권 지표가 없어요.</li>}
+            }) : own ? <li className="rp-snap-go">상권 매출·점포 수·유동인구는 상권 분석에서 볼 수 있어요.</li>
+              : <li className="small muted">상권 지표가 없어요.</li>}
           </ul>
           {/* 범위(시간대·업종)는 지표 이름에 이미 있다. 고지는 한 문단: 우리 가게 매출 아님 + 서랍의 숫자와 범위가 다름 */}
           <p className="small muted">
             상권·업종 전체의 추정치예요 (우리 가게 매출 아님).{scoped ? " 'AI에게 묻기'는 업종 하나의 하루 전체로 답해서 숫자가 다를 수 있어요." : ""}
           </p>
-          <div><Button aria-controls="assistant" aria-expanded={drawerOpen} onClick={() => openDrawer(true)}>AI에게 묻기로 상권 더 보기</Button></div>
+          <div className="btn-row">
+            {!snaps.length && own && <Button variant="primary" onClick={() => go("market")}>상권 분석 보기</Button>}
+            <Button aria-controls="assistant" aria-expanded={drawerOpen} onClick={() => openDrawer(true)}>AI에게 묻기로 상권 더 보기</Button>
+          </div>
         </div>
       )}
     </Panel>

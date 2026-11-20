@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { resetStore, setState, getState } from "../../state/store.js";
 import { resetNaverMapsForTest } from "../../components/NaverMap.jsx";
-import { resetStoreApiForTest, areaRows, defaultArea, checkMenus, locationBody, errorField, stationsOf, storePatch, latestIndustryPeriod } from "./storeApi.js";
+import { resetStoreApiForTest, areaRows, defaultArea, checkMenus, locationBody, errorField, foodIndustries, stationsOf, storePatch, latestIndustryPeriod } from "./storeApi.js";
 import App from "../../App.jsx";
 
 vi.mock("../flow/Home.jsx", async () => { const { PageHead } = await import("../../components/ui.jsx"); return { default: () => <PageHead title="홈 화면" /> }; });
@@ -147,7 +147,7 @@ describe("새 가게 등록: 역으로 고르는 흐름", () => {
     await ready();
     expect(h1()).toBe("새 가게 등록");
     expect(document.activeElement).toBe(document.querySelector("h1"));
-    expect(screen.getByText("가게 등록 2 / 2")).toBeTruthy();
+    expect(screen.getByText("가게 등록 2 / 3")).toBeTruthy();   // 가입 화면의 세 단계 가운데 둘째 (11/21)
     expect(screen.getByRole("button", { name: "가게 선택으로" })).toBeTruthy();
     expect(screen.getByText("등록하면 이렇게 시작해요")).toBeTruthy();
     expect(screen.getByText(/새 가게에는 아직 리뷰가 없어요\. 등록을 마치면 리뷰 넣기\(붙여넣기·캡처\)부터 안내하고, 상권 분석은 바로 볼 수 있어요\./)).toBeTruthy();
@@ -224,7 +224,7 @@ describe("새 가게 등록: 역으로 고르는 흐름", () => {
   it("업종을 고르기 전에 역을 고르면 상권 서비스를 부르지 않고 업종부터 안내, 업종을 고르면 그때 후보를 받는다", async () => {
     show("add");
     await ready();
-    expect(screen.queryByText("가게 등록 2 / 2")).toBeNull();
+    expect(screen.queryByText("가게 등록 2 / 3")).toBeNull();
     await pickStation();
     expect(screen.getByText("업종을 먼저 골라 주세요. 업종마다 상권 자료가 달라요.")).toBeTruthy();
     MARKET_ASK.forEach((p) => expect(paths()).not.toContain(p));
@@ -496,6 +496,33 @@ describe("가게 정보 고치기", () => {
     expect(sent("PATCH", `/api/account/stores/${SAVED.store_id}`)[0].body).toEqual({ name: "우리분식 본점", menus: [{ name: "떡볶이", price: 4500 }, { name: "순대", price: 5500 }] });
     expect(paths()).toContain("/api/auth/me");   // 상단 바·가게 선택의 이름이 서버와 같게
     MARKET_ASK.forEach((p) => expect(paths()).not.toContain(p));
+    // 11/21: 저장했다는 한 줄 (오른쪽 아래 결과 띠, 실시간 확인 18)
+    expect(getState().acctNotice).toBe("우리분식 본점 정보를 저장했어요.");
+    await waitFor(() => expect(screen.getByText("우리분식 본점 정보를 저장했어요.")).toBeTruthy());
+  });
+
+  it("고친 것 없이 [저장]하면 PATCH 없이 '바뀐 내용이 없어 그대로 두었어요' (11/21)", async () => {
+    show("edit", { storeId: SAVED.store_id, from: "profile", me: meWith([SAVED], null) });
+    await ready();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "저장" })); });
+    await waitFor(() => expect(getState().stage).toBe("profile"));
+    expect(sent("PATCH", `/api/account/stores/${SAVED.store_id}`)).toHaveLength(0);
+    expect(getState().acctNotice).toBe("바뀐 내용이 없어 그대로 두었어요.");
+  });
+
+  it("업종 칸은 음식 업종(코드 CS1…)만, 고치기에서 저장한 업종이 그 밖이면 그 하나는 남긴다 (11/21)", async () => {
+    const ALL = [...OPTIONS.industries, { code: "CS200001", name: "일반교습학원" }, { code: "CS300001", name: "슈퍼마켓" }];
+    server({ "/api/market/options": { ...OPTIONS, industries: ALL },
+      [`/api/account/stores/${SAVED.store_id}`]: { store: { ...SAVED, industry_code: "CS300001", business_type_name: "슈퍼마켓" } } });
+    const opts = () => [...$("sn-industry").options].map((o) => o.value);
+    const first = show("add");
+    await ready();
+    expect(opts()).toEqual(["", "CS100001", "CS100010"]);
+    first.unmount();
+    show("edit", { storeId: SAVED.store_id, from: "profile", me: meWith([SAVED], null) });
+    await ready();
+    expect(opts()).toEqual(["", "CS100001", "CS100010", "CS300001"]);
+    expect($("sn-industry").value).toBe("CS300001");
   });
 
   it("[위치 바꾸기]로 새 역을 고르면 상권 서비스에 묻고, PATCH 에 위치·상권이 들어간다 ([위치 바꾸지 않기]로 되돌리기)", async () => {
@@ -572,6 +599,12 @@ describe("순수 계산 (storeApi.js)", () => {
     expect(defaultArea(rows, "3110999")).toBe("3120154");     // 고를 수 없는 예전 선택은 버림
     expect(defaultArea(areaRows([cand("1234567", "경계", { relation: "boundary" })]), "")).toBe("1234567");
     expect(defaultArea(areaRows([cand("1234567", "먼 곳")]), "")).toBe("");
+  });
+  it("음식 업종만 (코드 CS1…), 남길 업종 하나", () => {
+    const list = [{ code: "CS100001", name: "한식음식점" }, { code: "CS200001", name: "일반교습학원" }, { code: "CS100010", name: "커피-음료" }];
+    expect(foodIndustries(list).map((x) => x.code)).toEqual(["CS100001", "CS100010"]);
+    expect(foodIndustries(list, "CS200001").map((x) => x.code)).toEqual(["CS100001", "CS200001", "CS100010"]);
+    expect(foodIndustries(null)).toEqual([]);
   });
   it("메뉴 검사·위치 본문·오류 칸·역 고르기·고치기 본문", () => {
     expect(checkMenus([{ key: "a", name: " 떡볶이 ", price: "4,500원" }, { key: "b", name: "", price: "" }, { key: "c", name: "가".repeat(31), price: "1" }]))

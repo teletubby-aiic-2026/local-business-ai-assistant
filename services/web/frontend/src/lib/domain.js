@@ -51,6 +51,33 @@ export function storeLine(b) {
   return { name: b.store.name || "", sub: [b.store.business_type_name, b.store.area_name ? b.store.area_name + " 상권" : ""].filter(Boolean).join(" · ") };
 }
 
+// 지금 가게(me.store_id)가 사장님이 직접 등록한 가게인가 (me.stores 의 sample === false). 예시 가게·모름이면 false
+export function isOwnStore(me) {
+  const s = ((me && me.stores) || []).find((x) => x && x.store_id === (me && me.store_id));
+  return !!s && s.sample === false;
+}
+
+// 화면에 찍을 글자: 비었거나 서버가 빈 값을 글자로 보낸 것('null'·'undefined'·'None')은 "" (화면에 null 이 찍히지 않게)
+export const textOr = (v) => {
+  const t = v === null || v === undefined ? "" : String(v).trim();
+  return /^(null|undefined|none|nan)$/i.test(t) ? "" : t;
+};
+
+// 위치 이름을 짧게: 도로명·지번 주소 원문('서울특별시 마포구 와우산로 94 학교법인홍익학원')은 '마포구 와우산로 94'로,
+// 역·동네 이름('장승배기역')은 그대로. 주소로 등록한 가게의 위치 이름이 주소 원문이라 머리줄·서랍에 그대로 찍히지 않게
+const ROAD = /([가-힣]+구)\s+([가-힣A-Za-z0-9.·]+(?:로|길))\s*([0-9]+(?:-[0-9]+)?)?/;
+const JIBUN = /([가-힣]+구)\s+([가-힣0-9]+동[0-9]*가?)\s*([0-9]+(?:-[0-9]+)?)?/;
+export function shortPlace(v) {
+  const t = textOr(v);
+  if (!t) return "";
+  const m = ROAD.exec(t) || JIBUN.exec(t);
+  if (m) return [m[1], m[2], m[3]].filter(Boolean).join(" ");
+  return t.replace(/^서울(특별)?시\s+/, "");
+}
+
+// 서버가 ' · '로 이어 준 이름 줄('가게 · 위치 · 업종'): 빈 조각은 빼고 주소 조각은 짧게
+export const cleanLabel = (v) => textOr(v).split(" · ").map(shortPlace).filter(Boolean).join(" · ");
+
 // 맨 위 알림 띠에 띄울 서버 상태 문제 (예전 renderHealth)
 export function healthProblems(h) {
   if (!h) return "";

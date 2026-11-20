@@ -139,7 +139,7 @@ export async function loadApprovals() {
   let text;
   try {
     const a = await careApi("/api/approvals");
-    text = `서버에 남은 승인 기록 ${(a.items || []).length}건 (맞춤 마케팅 포함 · 이 계정 기준)`;
+    text = `이 계정에서 지금까지 승인한 글 ${(a.items || []).length}건 (맞춤 마케팅 포함)`;
   } catch (e) { text = `승인 기록을 불러오지 못했어요: ${e.message}`; }
   if (ep === r.epoch) set((s) => ({ appr: { text, busy: Math.max(0, s.appr.busy - 1) } }));
 }

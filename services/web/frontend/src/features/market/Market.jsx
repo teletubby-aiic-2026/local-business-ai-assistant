@@ -54,6 +54,10 @@ export default function Market() {
   const period = valueIn(periods, s.pick.period, (p) => p);
   const industry = valueIn(industries, s.pick.industry, (x) => x.code);
   const owner = `상권 분석 비서${s.storeLine ? ` · ${s.storeLine}` : ""}`;
+  // 주소·동네로 등록한 가게는 이 화면에서 업종을 바꿀 수 없다: 칸을 처음부터 잠그고 옆에 까닭 한 줄 (누른 뒤에야 알리지 않게)
+  const industryNote = s.fixedIndustry ? `${s.fixedIndustry}로 등록한 가게는 업종을 프로필의 '정보 고치기'에서 바꿔요.` : "";
+  // 새 조건의 숫자를 불러오는 동안: 보던 숫자는 흐리게 (위 안내 줄이 '바꾸고 있어요'를 말함)
+  const refreshing = s.busy && Object.keys(s.data).length > 0;
 
   return (
     <div className="col wide mk">
@@ -70,7 +74,8 @@ export default function Market() {
             </select>
           </label>
           <label className="field mk-field"><span>업종</span>
-            <select id="mk-industry" value={industry} disabled={locked} onChange={(e) => pickIndustry(e.target.value)}>
+            <select id="mk-industry" value={industry} disabled={locked || !!industryNote} aria-describedby={industryNote ? "mk-industry-note" : undefined}
+              onChange={(e) => pickIndustry(e.target.value)}>
               {industries.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
             </select>
           </label>
@@ -81,6 +86,7 @@ export default function Market() {
           </label>
           <Button variant="primary" className="mk-apply" disabled={locked} onClick={() => apply({ area, period, industry })}>이 조건으로 보기</Button>
         </div>
+        {industryNote && <p id="mk-industry-note" className="small muted mk-cond-note">{industryNote}</p>}
         <div className="mk-cond-now small">
           {s.condLine && <span className="muted">지금 보는 조건: <span className="mk-cond-line">{s.condLine}</span></span>}
           <Button variant="text" size="small" disabled={locked} onClick={home}>우리 가게 기준으로</Button>
@@ -89,9 +95,9 @@ export default function Market() {
 
       {s.options && <MapPanel s={s} />}
 
-      <Tiles s={s} />
+      <Tiles s={s} dim={refreshing} />
 
-      <div className="mk-main">
+      <div className={["mk-main", refreshing && "mk-dim"].filter(Boolean).join(" ")} aria-busy={refreshing || undefined}>
         <div className="mk-tabbar"><Tabs tabs={TABS} active={s.tab} onChange={setTab} idPrefix="mk" label="상권 세부 지표" /></div>
         <TabPanel id="sales" tab={s.tab}><SalesPanel s={s} /></TabPanel>
         <TabPanel id="stores" tab={s.tab}><StoresPanel s={s} /></TabPanel>
@@ -158,14 +164,14 @@ function TabPanel({ id, tab, children }) {
   );
 }
 
-// 핵심 지표 4칸 (예전 mkvTiles). 자료를 받기 전에는 '–'
-function Tiles({ s }) {
-  const d = s.data, c = s.cond || {};
+// 핵심 지표 4칸 (예전 mkvTiles). 자료를 받기 전에는 '–'. 라벨(분기·업종)은 숫자와 같은 조건(dataCond)으로
+function Tiles({ s, dim }) {
+  const d = s.data, c = s.dataCond || {};
   const loaded = Object.keys(d).length > 0;
   const sales = d.sales && d.sales.total, stores = d.stores && d.stores.counts, pop = d.pop && d.pop.total;
   const yoy = ((d.yoy && d.yoy.metrics) || []).find((x) => x.key === "sales");
   return (
-    <div className="tiles mk-tiles" role="group" aria-label="핵심 지표">
+    <div className={["tiles mk-tiles", dim && "mk-dim"].filter(Boolean).join(" ")} role="group" aria-label="핵심 지표" aria-busy={dim || undefined}>
       <StatTile label="분기 추정매출" value={sales && typeof sales.value === "number" ? wonShort(sales.value) : "–"}
         sub={loaded ? `${c.period_label || qLabel(c.period)} · ${c.industry_name || ""}` : ""} />
       <StatTile label="전년 같은 분기 대비" value={yoy ? <span className={yoy.percent < 0 ? "mk-neg" : undefined}>{pctKo(yoy.percent)}</span> : "–"}

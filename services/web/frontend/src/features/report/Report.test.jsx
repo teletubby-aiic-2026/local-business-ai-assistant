@@ -6,7 +6,7 @@
 // - 리뷰 0건: 숫자 0 과 '아직 리뷰가 없어요', 자료 없는 칸은 '–'
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { resetStore, setState } from "../../state/store.js";
+import { getState, resetStore, setState } from "../../state/store.js";
 import { resetReportForTest } from "./state.js";
 import { RP_NOTE } from "./format.js";
 import Report from "./Report.jsx";
@@ -121,7 +121,7 @@ describe("종합 리포트", () => {
     expect(screen.getByText(/'AI에게 묻기'는 업종 하나의 하루 전체로 답해서 숫자가 다를 수 있어요/)).toBeTruthy();
     // 마케팅 요약 칸은 목차 같은 부제 없이
     expect(container.querySelector("#rp-mkt-sec .panel-head .sub")).toBeNull();
-    await waitFor(() => expect(screen.getByText("서버에 남은 승인 기록 0건 (맞춤 마케팅 포함 · 이 계정 기준)")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("이 계정에서 지금까지 승인한 글 0건 (맞춤 마케팅 포함)")).toBeTruthy());
   });
 
   it("그림의 차례: 머리 → 오늘·점수 줄 → 탭·기간 → 저장 띠 → 타일 → 고칠 것·주제 → 마케팅 숫자 → … → 저장된 보고서", async () => {
@@ -159,6 +159,7 @@ describe("종합 리포트", () => {
     fireEvent.click(container.querySelector("#rp-prev"));
     await waitFor(() => expect(container.querySelector("#rp-period-label").textContent).toBe("11월 2주 (11/9 ~ 11/15)"));
     expect(calls.some((c) => c.path === "/api/reports/weekly?period=2026-11-09")).toBe(true);
+    expect(container.querySelector("#rp-fix-title").textContent).toBe("이 주 기록에서 고칠 것");   // 끝난 주
     expect(container.querySelector("#rp-next").disabled).toBe(false);
 
     fireEvent.click(screen.getByRole("tab", { name: "월간" }));
@@ -166,7 +167,8 @@ describe("종합 리포트", () => {
     expect(window.location.hash).toBe("#/report");
     expect(screen.getByRole("tab", { name: "월간" }).getAttribute("aria-selected")).toBe("true");
     expect(container.querySelector("#rp-panel-weekly").hidden).toBe(true);
-    expect(container.querySelector("#rp-fix-title").textContent).toBe("다음 달에 고칠 것");
+    // 11/21: 진행 중인 달은 '이번 달에 고칠 것' (예전 '다음 달에 고칠 것'은 기간과 맞지 않음, 실시간 확인 13·14)
+    expect(container.querySelector("#rp-fix-title").textContent).toBe("이번 달에 고칠 것");
     expect(container.querySelector("#rp-prev").textContent).toContain("지난달");
     expect(container.querySelector("#rp-print").getAttribute("href")).toBe("/api/care/report/monthly/print?month=2026-11");
     expect(container.querySelector("#rp-saved").textContent).toBe("11-20 15:00에 만들어 저장했어요. 이번 달은 아직 진행 중이라, 새 리뷰가 들어오면 다시 만들어 주세요.");
@@ -240,5 +242,56 @@ describe("프로필의 보관한 보고서 수", () => {
     const guest = render(<SavedReportCounts counts={{ storage: "guest", weekly: 0, monthly: 0 }} />);
     expect(guest.container.textContent).toBe("로그인하면 주간·월간 보고서가 이 계정에 저장돼요.");
     expect(guest.container.querySelector(".tile")).toBeNull();
+  });
+});
+
+describe("종합 리포트 (11/21 실시간 확인에서 고친 것)", () => {
+  const own = { authenticated: true, store_id: "u1", stores: [{ store_id: "u1", name: "동네맛김밥", sample: false }] };
+  it("직접 등록한 가게: 상권 지표가 없으면 '없어요' 대신 상권 분석으로 안내와 버튼 (M3)", async () => {
+    setState({ me: own, briefing: { store: { name: "동네맛김밥", business_type_name: "분식전문점" }, snapshots: [] } });
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-market")).toBeTruthy());
+    const box = container.querySelector("#rp-market");
+    expect(box.textContent).not.toContain("상권 지표가 없어요");
+    expect(box.textContent).toContain("상권 매출·점포 수·유동인구는 상권 분석에서 볼 수 있어요.");
+    expect(box.textContent).toContain("우리 가게 매출 아님");   // 정직 고지는 그대로
+    fireEvent.click(screen.getByRole("button", { name: "상권 분석 보기" }));
+    expect(window.location.hash).toBe("#/market");
+  });
+  it("예시 가게는 그대로 (지표가 없으면 '상권 지표가 없어요', 상권 분석 버튼 없음)", async () => {
+    setState({ me: { ...own, stores: [{ ...own.stores[0], sample: true }] }, briefing: { store: { name: "온기한식" }, snapshots: [] } });
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-market")).toBeTruthy());
+    expect(container.querySelector("#rp-market").textContent).toContain("상권 지표가 없어요.");
+    expect(screen.queryByRole("button", { name: "상권 분석 보기" })).toBeNull();
+  });
+  it("지난 불만은 사장님 말로 (숫자와 합성 리뷰 고지는 남김, 15)", async () => {
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-score")).toBeTruthy());
+    const line = container.querySelector(".rp-untimed").textContent;
+    expect(line).toBe("지난 불만 2건 · 아직 답글을 안 단 예전 불만이에요. 합성 리뷰라 답글 기한은 세지 않아요.");
+    expect(line).not.toMatch(/\(합성\)|서버/);
+    await waitFor(() => expect(container.querySelector("#rp-approvals").textContent).toBe("이 계정에서 지금까지 승인한 글 0건 (맞춤 마케팅 포함)"));
+    cleanup();
+    resetReportForTest();   // 3초 안에 다시 열면 다시 부르지 않으므로 모듈 상태를 비운다
+    routes.unshift([(p) => p.startsWith("/api/care/response"), { ...score, untimed_unanswered: 0 }]);
+    const again = render(<Report />);
+    await waitFor(() => expect(again.container.querySelector("#rp-score")).toBeTruthy());
+    expect(again.container.querySelector(".rp-untimed")).toBeNull();   // 0건이면 줄을 두지 않음
+  });
+  it("끝난 주에 리뷰가 0건이면 '이 주에는 들어온 리뷰가 없었어요' (다시 만들라는 말 없이, 14)", async () => {
+    routes.unshift([(p) => p.startsWith("/api/reports/weekly"), weekView("2026-11-09", {
+      report: report({ review_count: 0, complaint_count: 0, complaint_rate: null, previous: { review_count: 0, complaint_count: 0, complaint_rate: null },
+        topics: [], repeated_issues: [],
+        suggestions: [{ kind: "empty", title: "이번 주에 들어온 리뷰가 아직 없어요", evidence: "리뷰 0건", text: "리뷰가 들어오면 보고서를 다시 만들어 보세요" }] }),
+    })]);
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-fixes")).toBeTruthy());
+    expect(container.querySelector("#rp-fix-title").textContent).toBe("이 주 기록에서 고칠 것");
+    expect(container.querySelector("#rp-fixes").textContent).toContain("이 주에는 들어온 리뷰가 없었어요");
+    expect(container.querySelector("#rp-fixes").textContent).not.toMatch(/아직 없어요|다시 만들어 보세요/);
+    expect(container.querySelector("#rp-topics").textContent).toBe("이 기간에는 리뷰가 없었어요.");
+    expect(tiles(container)[0]).toBe("리뷰0건들어온 리뷰가 없었어요");
+    expect(getState().booted).toBe(true);
   });
 });

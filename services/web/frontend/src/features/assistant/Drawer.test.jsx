@@ -178,3 +178,27 @@ describe("서랍이 본문을 덮는가", () => {
     d.remove(); m.remove();
   });
 });
+
+describe("서랍 첫 안내 (11/21 실시간 확인 M7·9)", () => {
+  it("조건을 맞추는 동안의 안내에 주소 원문 대신 짧은 위치 (빈 조각·'null'은 빼고)", async () => {
+    let release;
+    const gate = new Promise((ok) => { release = ok; });
+    const reply = (out) => ({ ok: true, status: 200, json: async () => out });
+    globalThis.fetch = vi.fn(async (url) => {
+      const path = String(url);
+      if (path.endsWith("/status")) return reply({ state: "ready", setup: { label: "동네맛김밥 · 서울특별시 마포구 와우산로 94 학교법인홍익학원 · 분식전문점" } });
+      if (path.endsWith("/conversation")) return reply({ turns: [], conditions: null });
+      if (path.endsWith("/setup")) { await gate; return reply({ status: "ok", conditions: COND }); }
+      return reply({});
+    });
+    render(<Shell />);
+    act(() => openDrawer(true));
+    await waitFor(() => expect(document.getElementById("assistant-status").textContent).toContain("분석 조건을 맞추고 있어요"));
+    const t = document.getElementById("assistant-status").textContent;
+    expect(t).toContain("(동네맛김밥 · 마포구 와우산로 94 · 분식전문점)");
+    expect(t).not.toMatch(/학교법인|서울특별시|null/);
+    await act(async () => { release(); });
+    await waitFor(() => expect(document.getElementById("assistant-q").disabled).toBe(false));
+    expect(document.getElementById("assistant-cond-text").textContent).not.toMatch(/null|undefined/);
+  });
+});

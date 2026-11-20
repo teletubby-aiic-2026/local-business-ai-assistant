@@ -8,14 +8,16 @@ export const RP_ISSUE_STATE = { recurred_after_reply: "답글 뒤 재발", no_re
 // 화면 머리(인쇄에서는 머리글)에 한 번만 두는 고지. 마케팅 요약의 카드 ⓑ 이유 문장은 AI 가 썼을 수 있어 범위를 응대 점수·보고서로 좁혀 말한다
 export const RP_NOTE = "응대 점수와 보고서는 리뷰 기록으로 계산했어요 (AI 문장 아님).";
 
-// 탭(주간·월간)마다 바뀌는 말
+// 탭(주간·월간)마다 바뀌는 말. this·fixPast 는 이미 끝난 기간(period.in_progress === false)을 볼 때
 export const KIND_KO = { weekly: "주간", monthly: "월간" };
 export const PERIOD_WORDS = {
-  weekly: { now: "이번 주", nowIs: "이번 주는", prev: "지난주", same: "지난주와 같아요", next: "다음 주", fix: "이번 주에 고칠 것",
-    ended: "그 주가 끝나기 전에 만든 보고서예요", key: "count_this_week" },
-  monthly: { now: "이번 달", nowIs: "이번 달은", prev: "지난달", same: "지난달과 같아요", next: "다음 달", fix: "다음 달에 고칠 것",
-    ended: "그 달이 끝나기 전에 만든 보고서예요", key: "count_this_month" },
+  weekly: { now: "이번 주", nowIs: "이번 주는", this: "이 주", prev: "지난주", same: "지난주와 같아요", next: "다음 주",
+    fix: "이번 주에 고칠 것", fixPast: "이 주 기록에서 고칠 것", ended: "그 주가 끝나기 전에 만든 보고서예요", key: "count_this_week" },
+  monthly: { now: "이번 달", nowIs: "이번 달은", this: "이 달", prev: "지난달", same: "지난달과 같아요", next: "다음 달",
+    fix: "이번 달에 고칠 것", fixPast: "이 달 기록에서 고칠 것", ended: "그 달이 끝나기 전에 만든 보고서예요", key: "count_this_month" },
 };
+// 이미 끝난 기간의 보고서인가 (서버가 in_progress 를 주지 않으면 진행 중으로 본다)
+export const isPast = (view) => view?.period?.in_progress === false;
 export const NONE = "–";   // 자료가 없는 칸 (숫자를 지어내지 않음)
 
 export const signed = (n) => (Number(n) > 0 ? `+${n}` : String(n ?? 0));
@@ -92,7 +94,7 @@ export function tilesOf(view) {
   const r = view?.report || {}, prev = r.previous || null, a = view?.approvals || null;
   const n = Number(r.review_count) || 0;
   const diff = prev && Number.isFinite(Number(prev.review_count)) ? n - Number(prev.review_count) : null;
-  const reviewSub = !n && !Number(prev?.review_count) ? "아직 리뷰가 없어요"
+  const reviewSub = !n && !Number(prev?.review_count) ? (isPast(view) ? "들어온 리뷰가 없었어요" : "아직 리뷰가 없어요")
     : diff === null ? "" : diff === 0 ? w.same : `${w.prev}보다 ${signed(diff)}`;
   const rate = r.complaint_rate == null ? NONE : `${r.complaint_rate}%`;
   const prevRate = prev ? `${w.prev} ${prev.complaint_rate == null ? NONE : `${prev.complaint_rate}%`}` : "";
@@ -104,6 +106,26 @@ export function tilesOf(view) {
     { id: "rp-t-score", label: "응대 점수", value: score, sub: scoreSub, tint: "lime", title: "응대 점수는 100점에서 시작해요" },
     { id: "rp-t-approved", label: "승인한 글", value: a ? `${a.total ?? 0}개` : NONE, sub: approvalLine(a), tint: "sage" },
   ];
+}
+
+// '고칠 것' 칸의 제목: 진행 중인 기간은 '이번 주에 고칠 것'·'이번 달에 고칠 것', 끝난 기간은 '이 주 기록에서 고칠 것'
+export const fixTitle = (view) => { const w = PERIOD_WORDS[view?.kind] || PERIOD_WORDS.weekly; return isPast(view) ? w.fixPast : w.fix; };
+
+// '고칠 것' 목록 [{title, evidence, text}]. 서버 문장(리뷰 분석 서비스)은 '이번 주·이번 달' 기준이라
+// - 리뷰가 0건인 기간: 끝난 기간이면 '이 주에는 들어온 리뷰가 없었어요' (다시 만들어 보라는 말 없이), 진행 중이면 '아직 없어요' + 다시 만들기 안내
+// - 끝난 기간: '이번 주·이번 달'을 '이 주·이 달'로 바꿔 읽는다 (숫자·근거는 그대로)
+const NOTHING = /크게 고칠 응대가 보이지 않아요/;
+export function fixItems(view) {
+  const w = PERIOD_WORDS[view?.kind] || PERIOD_WORDS.weekly;
+  const past = isPast(view);
+  const list = (Array.isArray(view?.report?.suggestions) ? view.report.suggestions : []).filter((x) => x && (x.title || x.text));
+  const zero = view?.report && !Number(view.report.review_count);
+  if (zero && list.every((x) => x.kind === "empty" || x.kind === "none" || NOTHING.test(`${x.title || ""} ${x.text || ""}`))) {
+    return [past ? { title: `${w.this}에는 들어온 리뷰가 없었어요`, evidence: "리뷰 0건", text: "" }
+      : { title: `${w.now}에 들어온 리뷰가 아직 없어요`, evidence: "리뷰 0건", text: "리뷰가 들어오면 보고서를 다시 만들어 보세요" }];
+  }
+  const fix = (t) => (past && t ? String(t).replace(new RegExp(w.now, "g"), w.this) : t);
+  return list.map((x) => ({ title: fix(x.title), evidence: fix(x.evidence), text: fix(x.text) }));
 }
 
 // 마케팅 숫자 4칸. 승인한 홍보 글만 승인 기록으로 채우고, 나머지는 자료가 오면 그 값 (지금은 null → '–')

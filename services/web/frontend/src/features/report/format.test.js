@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  approvalLine, clockView, clocksOf, dateKo, marketingNumbers, peakText, periodText, printMeta, rpClock, savedNote, signed, stamp, tilesOf, topicRows,
+  approvalLine, clockView, clocksOf, dateKo, fixItems, fixTitle, marketingNumbers, peakText, periodText, printMeta, rpClock, savedNote, signed, stamp, tilesOf, topicRows,
   trendGeometry,
 } from "./format.js";
 
@@ -61,7 +61,9 @@ describe("주간·월간 저장 보고서", () => {
       ["리뷰", "14건", "지난주보다 +3"], ["불만 비율", "29%", "지난주 33%"], ["응대 점수", "91점", "시작 100점 · -9"], ["승인한 글", "7개", "답글 5 · 홍보 2"]]);
     const month = tilesOf(view({ kind: "monthly", report: { review_count: 5, complaint_rate: null, previous: { review_count: 5, complaint_rate: null } }, approvals: null }));
     expect(month.map((t) => [t.value, t.sub])).toEqual([["5건", "지난달과 같아요"], ["–", "지난달 –"], ["–", ""], ["–", ""]]);
-    expect(tilesOf(view({ report: { review_count: 0, previous: { review_count: 0 } } }))[0].sub).toBe("아직 리뷰가 없어요");
+    // 11/21: 끝난 기간이면 '없었어요', 진행 중이면 '아직 없어요' (실시간 확인 14)
+    expect(tilesOf(view({ report: { review_count: 0, previous: { review_count: 0 } } }))[0].sub).toBe("들어온 리뷰가 없었어요");
+    expect(tilesOf(view({ period: { in_progress: true }, report: { review_count: 0, previous: { review_count: 0 } } }))[0].sub).toBe("아직 리뷰가 없어요");
     expect(tilesOf(view({ report: { review_count: 0, previous: { review_count: 4 } } }))[0].sub).toBe("지난주보다 -4");
   });
   it("승인한 글 나눔: 안내문·그 밖은 있을 때만", () => {
@@ -102,5 +104,34 @@ describe("주간·월간 저장 보고서", () => {
     expect(savedNote(view({ storage: "guest" }))).toEqual({ tone: "", text: "로그인하면 만든 보고서가 이 계정에 저장돼요." });
     expect(savedNote(view({ storage: "unavailable" })).tone).toBe("warn");
     expect(savedNote(null)).toEqual({ tone: "", text: "" });
+  });
+});
+
+describe("고칠 것: 보는 기간에 맞는 말 (11/21 실시간 확인 13·14)", () => {
+  const live = { in_progress: true }, past = { in_progress: false };
+  it("제목: 진행 중이면 '이번 주·이번 달에 고칠 것', 끝난 기간이면 '이 주·이 달 기록에서 고칠 것'", () => {
+    expect(fixTitle(view({ period: live }))).toBe("이번 주에 고칠 것");
+    expect(fixTitle(view({ period: past }))).toBe("이 주 기록에서 고칠 것");
+    expect(fixTitle(view({ kind: "monthly", period: live }))).toBe("이번 달에 고칠 것");
+    expect(fixTitle(view({ kind: "monthly", period: past }))).toBe("이 달 기록에서 고칠 것");
+    expect(fixTitle(view({ period: {} }))).toBe("이번 주에 고칠 것");   // 모르면 진행 중으로
+  });
+  it("리뷰 0건: 끝난 주는 '없었어요'(다시 만들라는 말 없이), 진행 중인 주는 서버 문장 그대로의 뜻", () => {
+    const empty = [{ kind: "empty", title: "이번 주에 들어온 리뷰가 아직 없어요", evidence: "리뷰 0건", text: "리뷰가 들어오면 보고서를 다시 만들어 보세요" }];
+    expect(fixItems(view({ period: past, report: { review_count: 0, suggestions: empty } })))
+      .toEqual([{ title: "이 주에는 들어온 리뷰가 없었어요", evidence: "리뷰 0건", text: "" }]);
+    expect(fixItems(view({ period: live, report: { review_count: 0, suggestions: empty } })))
+      .toEqual([{ title: "이번 주에 들어온 리뷰가 아직 없어요", evidence: "리뷰 0건", text: "리뷰가 들어오면 보고서를 다시 만들어 보세요" }]);
+    // 월간은 리뷰가 0건이어도 서버가 '크게 고칠 응대가 보이지 않아요'를 준다 → 리뷰가 없었다고
+    const none = [{ text: "이번 달은 크게 고칠 응대가 보이지 않아요. 지금 방식을 이어 가세요" }];
+    expect(fixItems(view({ kind: "monthly", period: past, report: { review_count: 0, suggestions: none } }))[0].title).toBe("이 달에는 들어온 리뷰가 없었어요");
+  });
+  it("끝난 기간의 문장은 '이번 주·이번 달'을 '이 주·이 달'로 (숫자·근거는 그대로)", () => {
+    const sugg = [{ kind: "no_reply", title: "'포장 상태' 불만 3건에 아직 답글이 없어요", evidence: "이번 주 3건 · 전체 3건", text: "답글로 조치를 알리고, 매장에서 확인해 보세요" }];
+    expect(fixItems(view({ period: past, report: { review_count: 6, suggestions: sugg } }))[0].evidence).toBe("이 주 3건 · 전체 3건");
+    expect(fixItems(view({ period: live, report: { review_count: 6, suggestions: sugg } }))[0].evidence).toBe("이번 주 3건 · 전체 3건");
+    expect(fixItems(view({ kind: "monthly", period: past, report: { review_count: 4, suggestions: [{ text: "이번 달은 크게 고칠 응대가 보이지 않아요. 지금 방식을 이어 가세요" }] } }))[0].text)
+      .toBe("이 달은 크게 고칠 응대가 보이지 않아요. 지금 방식을 이어 가세요");
+    expect(fixItems(view({ report: { review_count: 3 } }))).toEqual([]);
   });
 });

@@ -9,7 +9,7 @@ import { PageHead, Panel, Badge, Button, Empty } from "../../components/ui.jsx";
 import Steps from "./Steps.jsx";
 import { useFlow, setFlow } from "./state.js";
 import { approve, regenDraft, rerunCard, copyText } from "./actions.js";
-import { RULES_TITLE, RERUN_LABEL, failedOf, checksOf, statusOf, listBadges, regenKey, textOf, touchedOf, pickCurrent, starText } from "./calc.js";
+import { RULES_TITLE, RERUN_LABEL, FALLBACK_CHIP, failedOf, checksOf, draftStateText, isFallback, listBadges, regenKey, textOf, touchedOf, pickCurrent, starText } from "./calc.js";
 import "./flow.css";
 
 export default function Draft() {
@@ -150,7 +150,7 @@ function ReviewItem({ r }) {
 
 // 초안 상자: 편집 칸 → 점검 칩 줄 → 고칠 곳 → 승인·복사·다시 만들기.
 // 칩은 색과 함께 모양(● ▲ ■)으로도 나눈다. 점검을 못 넘어 정해 둔 기본 문장으로 바꾼 글(checks.used_fallback)은
-// '기본 문장으로 바꿈' 칩과 이유 한 줄로 밝히고 모델 표시는 뺀다
+// '점검 통과'를 붙이지 않고 '기본 문장으로 바꿈' 칩(주의 색)과 이유·확인 안내 한 줄로 밝히고 모델 표시는 뺀다 (11/21 실시간 확인 M2)
 function DraftPanel({ d, s, busy, note }) {
   const box = useRef(null);
   const regenBtn = useRef(null);
@@ -159,10 +159,10 @@ function DraftPanel({ d, s, busy, note }) {
   useEffect(() => () => clearTimeout(timer.current), []);
   const failed = failedOf(d), checks = checksOf(d);
   const approved = s.approved.has(d.draft_id);
-  const [, statusText] = statusOf(d, s.approved);
+  const statusText = draftStateText(d, s.approved);
   const name = GEN_NAMES[d.generator] || d.generator;
   const textId = `flow-text-${d.draft_id}`;
-  const fallback = d.checks?.used_fallback === true;
+  const fallback = isFallback(d);
 
   const copy = async () => {
     await copyText(box.current?.value ?? textOf(s, d), box.current);
@@ -185,12 +185,12 @@ function DraftPanel({ d, s, busy, note }) {
       </div>
       <p className="flow-checks">
         {approved && <Badge tone="ok" className="flow-chk ok">승인 완료</Badge>}
-        {!failed.length && !checks.length && !approved && <Badge tone="ok" className="flow-chk ok">점검 통과</Badge>}
+        {!failed.length && !checks.length && !approved && !fallback && <Badge tone="ok" className="flow-chk ok">점검 통과</Badge>}
         {checks.length > 0 && <Badge tone="warn" className="flow-chk warn">확인 필요 {checks.length}</Badge>}
         {failed.length > 0 && <Badge tone="bad" className="flow-chk bad">점검 실패 {failed.length}</Badge>}
-        {fallback && <Badge className="flow-chk">기본 문장으로 바꿈</Badge>}
+        {fallback && <Badge tone={approved ? undefined : "warn"} className="flow-chk">{FALLBACK_CHIP}</Badge>}
       </p>
-      {fallback && <p className="small muted flow-fallback-note">AI 글이 점검을 넘지 못해 기본 문장으로 바꿨어요.</p>}
+      {fallback && <p className="small muted flow-fallback-note">AI 글이 점검을 넘지 못해 기본 문장으로 바꿨어요.{approved ? "" : " 리뷰 내용과 맞는지 확인하고 고쳐서 승인해 주세요."}</p>}
       {failed.length > 0 && <ul className="plain flow-issues bad">{failed.map((x, i) => <li key={i}><b>점검 실패</b> · {x}</li>)}</ul>}
       {checks.length > 0 && <ul className="plain flow-issues">{checks.map((x, i) => <li key={i}><b>확인 필요</b> · {x}</li>)}</ul>}
       <div className="btn-row">

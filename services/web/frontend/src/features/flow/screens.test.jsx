@@ -319,7 +319,8 @@ describe("기준 화면 배치 (Figma 06 B1~B4)", () => {
     expect([...chips.querySelectorAll(".badge")].map((b) => b.textContent)).toEqual(["확인 필요 1", "기본 문장으로 바꿈"]);
     // 기본 문장으로 바꾼 글: 이유 한 줄이 칩 아래에 있고, 모델 이름·걸린 시간은 보이지 않는다
     const draftBox = container.querySelector(".flow-draft-box");
-    expect(draftBox.querySelector(".flow-fallback-note").textContent).toBe("AI 글이 점검을 넘지 못해 기본 문장으로 바꿨어요.");
+    // 11/21: 기본 문장은 리뷰와 안 맞을 수 있어 확인·고침 안내를 덧붙임 (실시간 확인 M2)
+    expect(draftBox.querySelector(".flow-fallback-note").textContent).toBe("AI 글이 점검을 넘지 못해 기본 문장으로 바꿨어요. 리뷰 내용과 맞는지 확인하고 고쳐서 승인해 주세요.");
     expect(draftBox.textContent).not.toContain("HCX-005");
     expect(draftBox.textContent).not.toContain("7.4초");
     expect(container.querySelector(".flow-draft-box .panel-head .badge")).toBeNull();   // 머리 오른쪽에는 배지 없음
@@ -352,5 +353,61 @@ describe("기준 화면 배치 (Figma 06 B1~B4)", () => {
     expect([...server.querySelectorAll("li")].map((x) => x.textContent)).toEqual([
       "11-19 21:00 승인 · 포장·주문 안내문 (고침)", "11-19 21:02 승인 · 맞춤 마케팅 글"]);
     expect(server.textContent).not.toContain("d2");   // 내부 글 id 는 보이지 않음
+  });
+});
+
+describe("11/21 실시간 확인에서 고친 것", () => {
+  const own = { authenticated: true, store_id: "u1", stores: [{ store_id: "u1", name: "동네맛김밥", sample: false, area_name: "홍대입구역(홍대)", business_type_name: "분식전문점" }] };
+  it("홈: 직접 등록한 가게는 상권 지표가 없으면 '없음' 대신 '상권 분석에서 보기' → 상권 분석 (M3)", () => {
+    setState({ me: own });
+    const { container } = render(<Home />);
+    const tile = container.querySelector(".tile.tint-sage");
+    expect(tile.textContent).not.toMatch(/지표 없음|–/);
+    expect(tile.querySelector(".tile-sub").textContent).toBe("홍대입구역(홍대) 상권");
+    fireEvent.click(screen.getByRole("button", { name: "상권 분석에서 보기" }));
+    expect(window.location.hash).toBe("#/market");
+  });
+  it("홈: 예시 가게는 그대로 (지표가 있으면 숫자, 없으면 '상권 지표 없음')", () => {
+    setState({ me: { ...own, stores: [{ ...own.stores[0], sample: true }] } });
+    const { container } = render(<Home />);
+    expect(container.querySelector(".tile.tint-sage").textContent).toContain("상권 지표 없음");
+    expect(screen.queryByRole("button", { name: "상권 분석에서 보기" })).toBeNull();
+  });
+  it("추천 카드: 쿠폰 홍보 카드(ⓑ)가 없으면 그 자리에 까닭과 맞춤 마케팅 버튼 (빈 화면이 아님, 12)", () => {
+    setState({ noCardB: "우리 가게 상권 지표가 아직 없어 쿠폰 홍보 카드는 만들지 않았어요." });
+    render(<Cards />);
+    const panel = screen.getByRole("region", { name: "오늘은 쿠폰 홍보 카드가 없어요" });
+    expect(panel.textContent).toContain("ⓑ 쿠폰 홍보");
+    expect(screen.getAllByText(/상권 지표가 아직 없어/)).toHaveLength(1);   // 아래 작은 줄로 또 말하지 않음
+    fireEvent.click(screen.getByRole("button", { name: "맞춤 마케팅에서 홍보 제안 받기" }));
+    expect(window.location.hash).toBe("#/marketing");
+    expect(getState().nav).toMatchObject({ name: "marketing", sub: "promo" });
+  });
+  it("추천 카드: ⓑ 카드가 있으면 빈 자리 칸이 없다", () => {
+    setState({ cards: [cardA, { ...cardA, title: "쿠폰", card: { card_id: "card_b", kind: "promo", reason_text: "칭찬", review_ids: [] }, evidence: [], measures: null }] });
+    render(<Cards />);
+    expect(screen.queryByText("오늘은 쿠폰 홍보 카드가 없어요")).toBeNull();
+  });
+  it("승인할 글: 기본 문장으로 바꾼 글은 '점검 통과' 없이 '기본 문장으로 바꿈'(주의)과 확인 안내, 목록 배지도 '기본 문장' (M2)", () => {
+    const run = { ...runA, drafts: [{ ...runA.drafts[0], checks: { used_fallback: true } }, runA.drafts[1]] };
+    setState({ results: { card_a: run }, current: "card_a", draftId: "d1" });
+    const { container } = render(<Draft />);
+    const chips = [...container.querySelectorAll(".flow-checks .badge")];
+    expect(chips.map((b) => b.textContent)).toEqual(["기본 문장으로 바꿈"]);
+    expect(chips[0].className).toContain("warn");
+    expect(container.querySelector(".flow-checks").textContent).not.toContain("점검 통과");
+    expect(screen.getByLabelText(/AI 답글 초안/).labels[0].textContent).toBe("AI 답글 초안 (기본 문장으로 바꿈)");
+    const row = [...container.querySelectorAll(".flow-list button")].find((b) => b.textContent.includes("답글"));
+    expect([...row.querySelectorAll(".badge")].map((b) => b.textContent)).toEqual(["승인 대기", "기본 문장"]);
+  });
+  it("승인할 글: '다시 만들기'에 같은 기본 문장이 다시 오면 '새로 만들었어요' 대신 사실대로 (M2)", async () => {
+    const fb = { ...runA.drafts[0], text: "주문하신 품목이 빠져 있었다니 정말 죄송해요.", checks: { used_fallback: true } };
+    setState({ results: { card_a: { ...runA, source: "live", drafts: [fb, runA.drafts[1]] } }, current: "card_a", draftId: "d1" });
+    mockFetch(() => ({ source: "live", drafts: [{ ...fb, draft_id: "d9" }] }));
+    render(<Draft />);
+    fireEvent.click(screen.getByRole("button", { name: "다시 만들기" }));
+    expect(await screen.findByText("다시 만들었지만 같은 기본 문장이 나왔어요. 리뷰와 맞게 직접 고쳐서 승인해 주세요.")).toBeTruthy();
+    expect(screen.queryByText(/이 글만 새로 만들었어요/)).toBeNull();
+    expect(getState().draftId).toBe("d9");
   });
 });

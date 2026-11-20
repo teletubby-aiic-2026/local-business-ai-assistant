@@ -6,6 +6,7 @@ import { useSyncExternalStore } from "react";
 import { openDrawer } from "../../state/store.js";
 import { navTo } from "../../lib/router.js";
 import { authHeaders, handleAuthError } from "../../lib/api.js";
+import { cleanLabel } from "../../lib/domain.js";
 import {
   CHAT_STARTERS, CHAT_STATES, CHAT_SLOW, chatQuarter, chatCondText, chatId, chatSuggest, chatSameKey, chatNavTarget, drawerApi,
 } from "./chat.js";
@@ -282,7 +283,8 @@ export async function chatStart() {
   try {
     const st = await call("/api/assistant/status");
     if (g !== gen) return;
-    set({ label: st?.setup?.label || "" });
+    // 서버의 기본 조건 이름('가게 · 위치 · 업종'). 주소로 등록한 가게는 위치가 주소 원문이라 짧게, 빈 조각('null')은 뺀다
+    set({ label: cleanLabel(st?.setup?.label) });
     if (st?.state !== "ready") { chatState(st?.state, st?.message); return; }
     const conv = await call("/api/assistant/conversation");
     if (g !== gen) return;

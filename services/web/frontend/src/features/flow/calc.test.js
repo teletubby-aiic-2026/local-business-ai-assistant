@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { homeStats, keywordRows, hourChart, scopeChips, sourceLine, reasonByAI, measureIds, replacesOf, statusOf, listBadges, touchedOf, mapDraft, pickCurrent, starText } from "./calc.js";
+import { homeStats, keywordRows, hourChart, scopeChips, sourceLine, reasonByAI, measureIds, replacesOf, statusOf, listBadges, touchedOf, mapDraft, pickCurrent, starText,
+  draftStateText, isFallback, regenNote } from "./calc.js";
 
 const briefing = {
   period: { start: "2026-11-12", end: "2026-11-18" },
@@ -113,4 +114,27 @@ describe("초안", () => {
     expect(s.results.a.drafts[1].edited_text).toBeUndefined();
   });
   it("별점", () => { expect(starText(4)).toBe("★★★★☆"); expect(starText(0)).toBe(""); });
+});
+
+describe("기본 문장으로 바꾼 글 (11/21 실시간 확인 M2)", () => {
+  const fb = { draft_id: "f1", text: "주문하신 품목이 빠져 있었다니 정말 죄송해요.", checks: { used_fallback: true } };
+  it("점검 상태 규칙(statusOf)은 그대로 '점검 통과'지만, 화면 이름은 '기본 문장으로 바꿈'이고 목록 배지는 '기본 문장'", () => {
+    expect(isFallback(fb)).toBe(true);
+    expect(isFallback({ checks: { used_fallback: false } })).toBe(false);
+    expect(isFallback({})).toBe(false);
+    expect(statusOf(fb, new Set())).toEqual(["ok", "점검 통과"]);          // 측정 스크립트와 같은 규칙은 바꾸지 않음
+    expect(draftStateText(fb, new Set())).toBe("기본 문장으로 바꿈");
+    expect(draftStateText(fb, new Set(["f1"]))).toBe("승인 완료");
+    expect(draftStateText({ draft_id: "x" }, new Set())).toBe("점검 통과");
+    expect(listBadges(fb, new Set())).toEqual([["", "승인 대기"], ["warn", "기본 문장"]]);
+    expect(listBadges({ ...fb, c7_flags: ["확인"] }, new Set())).toEqual([["", "승인 대기"], ["warn", "확인 필요"], ["warn", "기본 문장"]]);
+    expect(listBadges(fb, new Set(["f1"]))).toEqual([["ok", "승인 완료"]]);
+  });
+  it("다시 만들기 뒤 안내: 같은 글·또 기본 문장이면 사실대로", () => {
+    expect(regenNote(fb, { ...fb, draft_id: "f2" }, "live")).toBe("다시 만들었지만 같은 기본 문장이 나왔어요. 리뷰와 맞게 직접 고쳐서 승인해 주세요.");
+    expect(regenNote(fb, { ...fb, text: "다른 기본 문장" }, "live")).toBe("다시 만들었지만 이번에도 기본 문장으로 바뀌었어요. 리뷰와 맞는지 확인하고 고쳐서 승인해 주세요.");
+    expect(regenNote({ text: "A" }, { text: "A" }, "live")).toBe("다시 만들었지만 같은 글이 나왔어요. 필요하면 직접 고쳐서 승인해 주세요.");
+    expect(regenNote({ text: "A" }, { text: "B" }, "live")).toBe("이 글만 새로 만들었어요. 다른 글은 그대로예요.");
+    expect(regenNote({ text: "A" }, { text: "A" }, "seed")).toBe("시험용 실행이라 같은 예시 글을 다시 불러왔어요. 다른 글은 그대로예요.");
+  });
 });

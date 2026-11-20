@@ -7,7 +7,8 @@ import Market, { mapSource } from "./Market.jsx";
 
 const COND = { area_code: "A1", area_name: "상도역", industry_code: "I1", industry_name: "한식음식점", period: "20262", period_label: "2026년 2분기", revision: 3, home: true };
 const RESP = {
-  status: { state: "ready", data: { message: "준비됨" }, store: { name: "상도 국밥", station_name: "상도역", business_type_name: "한식" } },
+  status: { state: "ready", data: { status: "ready", message: "서버에 2026년 1분기~2026년 2분기 상권 자료 2개 분기가 준비돼 있어요.", periods: ["20261", "20262"], verified_files: 837 },
+    store: { name: "상도 국밥", station_name: "상도역", business_type_name: "한식" } },
   setup: { conditions: COND },
   "analysis-options": { candidates: [{ area_code: "A1", name: "상도역", district_code: "D1", available_periods: ["20261", "20262"] }] },
   options: { industries: [{ code: "I1", name: "한식음식점" }] },
@@ -54,7 +55,9 @@ describe("상권 분석 화면", () => {
     expect(screen.getAllByText(/우리 가게 (실제 )?매출이 아니에요/).length).toBe(1);
     expect(screen.getByRole("heading", { name: "서울시 자료 최신화" })).toBeTruthy();
     expect(screen.queryByText(/열린데이터광장/)).toBeNull();
-    expect(screen.getByText("준비됨 · 서울시 확인 기록 없음")).toBeTruthy();
+    // 11/21: 볼 수 있는 분기 범위만 사장님 말로 (원본 파일 수·'서버에 준비'·'확인 기록 없음' 같은 안쪽 사정은 적지 않음)
+    expect(screen.getByText("2026년 1분기~2026년 2분기 자료를 볼 수 있어요.")).toBeTruthy();
+    expect(document.querySelector(".mk-seoul").textContent).not.toMatch(/원본 파일|837|확인 기록|서버에/);
     expect(screen.getByText("2026년 2분기 · 한식음식점")).toBeTruthy();   // 기준 분기·업종은 지표에 그대로
   });
 
@@ -224,6 +227,66 @@ describe("상권 분석 화면의 지도", () => {
     expect(calls.some((u) => u.startsWith("POST") && u.includes("/profile"))).toBe(false);
     expect(document.getElementById("mk-industry").value).toBe("I1");
     expect(screen.getByRole("button", { name: "이 조건으로 보기" }).disabled).toBe(false);
+  });
+
+  it("주소로 등록한 가게: 머리줄에 'null' 대신 등록한 위치를 짧게, 업종 칸은 처음부터 잠기고 까닭 한 줄 (11/21 M7·7)", async () => {
+    resp.status = { state: "ready", data: { status: "ready", periods: ["20262"] },
+      store: { name: "동네맛김밥", station_name: null, location_label: "서울특별시 마포구 와우산로 94 학교법인홍익학원", business_type_name: "분식전문점", sample: false } };
+    resp["analysis-selection"].profile.location = { kind: "address", label: "서울특별시 마포구 와우산로 94 학교법인홍익학원", latitude: 37.55, longitude: 126.92 };
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    expect(document.querySelector(".owner-chip").textContent).toBe("상권 분석 비서 · 동네맛김밥 · 마포구 와우산로 94 · 분식전문점");
+    expect(document.body.textContent).not.toMatch(/null|undefined/);
+    const sel = document.getElementById("mk-industry");
+    expect(sel.disabled).toBe(true);
+    expect(sel.getAttribute("aria-describedby")).toBe("mk-industry-note");
+    expect(document.getElementById("mk-industry-note").textContent).toBe("주소로 등록한 가게는 업종을 프로필의 '정보 고치기'에서 바꿔요.");
+    // 상권·분기는 그대로 고를 수 있다
+    expect(document.getElementById("mk-area").disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "이 조건으로 보기" }).disabled).toBe(false);
+  });
+
+  it("역으로 등록한 가게는 업종 칸이 열려 있고 까닭 줄이 없다", async () => {
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    expect(document.getElementById("mk-industry").disabled).toBe(false);
+    expect(document.getElementById("mk-industry-note")).toBeNull();
+  });
+
+  it("조건을 바꾸는 동안 보던 숫자는 흐리게, 지표 라벨·지금 조건 줄은 새 숫자와 함께 바뀐다 (11/21 8)", async () => {
+    let release;
+    const gate = new Promise((ok) => { release = ok; });
+    const NEW = { ...COND, period: "20261", period_label: "2026년 1분기", home: false, revision: 4 };
+    let applied = false;
+    global.fetch = vi.fn(async (url, opts = {}) => {
+      const path = String(url).replace("/api/market/", "").split("?")[0];
+      calls.push(`${opts.method || "GET"} ${String(url)}`);
+      if (opts.method === "POST" && path === "analysis-selection") applied = true;
+      if (path === "setup" && applied) return { ok: true, status: 200, json: async () => ({ conditions: NEW }) };
+      if (path === "sales" && String(url).includes("expected_revision=4")) {
+        await gate;
+        return { ok: true, status: 200, json: async () => ({ total: { value: 900000000 } }) };
+      }
+      return { ok: true, status: 200, json: async () => resp[path] || {} };
+    });
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    const tiles = document.querySelector(".mk-tiles");
+    expect(tiles.className).not.toContain("mk-dim");
+    fireEvent.change(document.getElementById("mk-period"), { target: { value: "20261" } });
+    fireEvent.click(screen.getByRole("button", { name: "이 조건으로 보기" }));
+    await waitFor(() => expect(document.querySelector(".mk-tiles").className).toContain("mk-dim"));
+    expect(document.querySelector(".mk-tiles").getAttribute("aria-busy")).toBe("true");
+    expect(document.querySelector(".mk-main").className).toContain("mk-dim");
+    // 숫자가 오기 전: 라벨·지금 조건 줄은 아직 보던 숫자의 조건
+    expect(screen.getByText("2026년 2분기 · 한식음식점")).toBeTruthy();
+    expect(document.querySelector(".mk-cond-line").textContent).toContain("2026년 2분기");
+    expect(document.querySelector(".mk-state").textContent).not.toBe("");
+    await act(async () => { release(); });
+    await screen.findAllByText("9억 원");
+    expect(document.querySelector(".mk-tiles").className).not.toContain("mk-dim");
+    expect(screen.getByText("2026년 1분기 · 한식음식점")).toBeTruthy();
+    expect(document.querySelector(".mk-cond-line").textContent).toContain("2026년 1분기");
   });
 
   it("역으로 등록한 가게는 업종을 바꾸면 역 위치와 함께 profile 을 보낸다", async () => {

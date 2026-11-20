@@ -3,9 +3,11 @@
 // 차트는 브리핑(불만 리뷰 시각·주제)에서 바로 센다. 외부 라이브러리 없음.
 // 새로 등록한 가게는 리뷰가 0건일 수 있다: 기간이 비어도 'undefined' 를 찍지 않고, 차트·할 일은 짧은 빈 안내로.
 // 리뷰 0건이면 '오늘 할 일' 아래 버튼이 다음에 할 일 두 개 ([리뷰 넣기] → 리뷰 분석의 리뷰 넣기 탭, [상권 분석 보기])
+// 직접 등록한 가게는 브리핑에 상권 지표가 없을 수 있다(예시 가게용 '공통 업종 17~24시' 계산): 그때 상권 칸은 '없음' 대신 상권 분석으로 안내
 import { useStore, openDrawer } from "../../state/store.js";
 import { todosOf, staffOf } from "../../state/staff.js";
-import { heroProblem, homeSnap, snapValue, scopeNote } from "../../lib/domain.js";
+import { heroProblem, homeSnap, isOwnStore, snapValue, scopeNote } from "../../lib/domain.js";
+import { currentStore } from "../../state/account.js";
 import { go, navTo } from "../../lib/router.js";
 import { PageHead, Panel, StatTile, TopicBar, Button } from "../../components/ui.jsx";
 import { useFlow } from "./state.js";
@@ -30,6 +32,8 @@ export default function Home() {
   const staff = staffOf(s);
   const noReviews = b?.counts?.review_count === 0;   // 새 가게: 리뷰 0건
   const period = b?.period?.start && b?.period?.end ? `${b.period.start} ~ ${b.period.end} · 리뷰는 합성 데이터` : "";
+  const toMarket = !snap && !!b && isOwnStore(s.me);   // 직접 등록한 가게: 상권 숫자는 상권 분석 화면에
+  const myArea = toMarket ? (currentStore(s.me) || {}).area_name : "";
 
   return (
     <div className="col wide flow-home">
@@ -47,8 +51,10 @@ export default function Home() {
         <StatTile tint="mint" icon="불만" label="불만" value={<Unit n={stats?.complaints} />} sub={stats?.complaintsSub} />
         <StatTile tint="lime" icon="반복 불만" label="반복 불만" value={<Unit n={stats?.repeated} />} sub={stats?.repeatedSub} />
         {/* 범위(상권·업종·시간대)를 숫자 아래 칩으로 늘 붙인다: 서랍의 답(한 업종 하루 전체)과 범위가 달라 나란히 보면 모순처럼 보이므로 */}
-        <StatTile tint="sage" icon="상권 매출" label="상권 저녁 매출" value={snap ? snapValue(snap) : "–"}
-          sub={snap ? <ScopeMeta chips={scopeChips(snap)} /> : b ? "상권 지표 없음" : ""}
+        <StatTile tint="sage" icon="상권 매출" label="상권 저녁 매출"
+          value={toMarket ? <button type="button" className="flow-tile-go" onClick={() => go("market")}>상권 분석에서 보기<span aria-hidden="true"> ›</span></button>
+            : snap ? snapValue(snap) : "–"}
+          sub={snap ? <ScopeMeta chips={scopeChips(snap)} /> : toMarket ? (myArea ? `${myArea} 상권` : "") : b ? "상권 지표 없음" : ""}
           title={snap ? `${snap.metric_name}. ${scopeNote(snap)}` : undefined} />
       </div>
 

@@ -115,12 +115,36 @@ export const checksOf = (d) => [...(d.needs_input || []), ...(d.c7_flags || [])]
 export const statusOf = (d, approved) => approved.has(d.draft_id) ? ["ok", "승인 완료"]
   : failedOf(d).length ? ["bad", "점검 실패"] : checksOf(d).length ? ["warn", "확인 필요"] : ["ok", "점검 통과"];
 
-// 초안 목록의 배지: 승인 상태(승인 완료 · 승인 대기)를 먼저, 승인 전이면 점검 결과(점검 실패 · 확인 필요)를 덧붙인다.
+// 점검을 못 넘어 정해 둔 기본 문장으로 바꾼 글 (checks.used_fallback). 점검 상태 규칙(statusOf)으로는 '점검 통과'지만
+// 화면은 이 글에 '점검 통과'를 붙이지 않고 '기본 문장'으로 밝힌다 (리뷰와 맞는지 사장님이 확인해야 하는 글)
+export const isFallback = (d) => d?.checks?.used_fallback === true;
+// 초안 상자의 점검 상태 한 줄 (읽기 프로그램용 이름표에도 씀): 기본 문장으로 바꾼 글은 '점검 통과' 대신 '기본 문장으로 바꿈'
+export const draftStateText = (d, approved) => {
+  const [tone, text] = statusOf(d, approved);
+  return tone === "ok" && !approved.has(d.draft_id) && isFallback(d) ? FALLBACK_CHIP : text;
+};
+export const FALLBACK_CHIP = "기본 문장으로 바꿈";
+
+// 초안 목록의 배지: 승인 상태(승인 완료 · 승인 대기)를 먼저, 승인 전이면 점검 결과(점검 실패 · 확인 필요 · 기본 문장)를 덧붙인다.
 // 진행 숫자는 위 진행줄 하나에만 두고, 목록은 글마다 상태만 보인다
 export function listBadges(d, approved) {
   if (approved.has(d.draft_id)) return [["ok", "승인 완료"]];
   const [tone, text] = statusOf(d, approved);
-  return tone === "ok" ? [["", "승인 대기"]] : [["", "승인 대기"], [tone, text]];
+  const out = tone === "ok" ? [["", "승인 대기"]] : [["", "승인 대기"], [tone, text]];
+  if (isFallback(d)) out.push(["warn", "기본 문장"]);
+  return out;
+}
+
+// 글 한 건 '다시 만들기' 뒤 안내 한 줄: 새 글이 예전 글과 같거나 또 기본 문장이면 사실대로 알린다
+export function regenNote(before, fresh, source) {
+  if (source === "seed") return "시험용 실행이라 같은 예시 글을 다시 불러왔어요. 다른 글은 그대로예요.";
+  const same = String(fresh?.text ?? "").trim() === String(before?.text ?? "").trim();
+  if (isFallback(fresh)) {
+    return same ? "다시 만들었지만 같은 기본 문장이 나왔어요. 리뷰와 맞게 직접 고쳐서 승인해 주세요."
+      : "다시 만들었지만 이번에도 기본 문장으로 바뀌었어요. 리뷰와 맞는지 확인하고 고쳐서 승인해 주세요.";
+  }
+  if (same) return "다시 만들었지만 같은 글이 나왔어요. 필요하면 직접 고쳐서 승인해 주세요.";
+  return "이 글만 새로 만들었어요. 다른 글은 그대로예요.";
 }
 
 export const regenKey = (cardId, d) => [cardId, d.generator, d.target_review_id || ""].join("|");

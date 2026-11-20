@@ -93,3 +93,14 @@ describe("홈 지표 도우미", () => {
     expect(staffOf(base({ briefing: empty, cards: [] }))[0].text).toBe("아직 리뷰 없음");
   });
 });
+
+describe("데이터 분석 비서 한 줄 (11/21 실시간 확인 5)", () => {
+  const text = (b) => staffOf(base({ briefing: b, cards: [] })).find((x) => x.key === "data").text;
+  it("리뷰가 모두 붙여 넣은 것이면 같은 수를 두 번 말하지 않는다", () => {
+    const pasted = Array.from({ length: 6 }, (_, i) => ({ review_id: `p${i}` }));
+    expect(text({ ...briefing, counts: { review_count: 6, complaint_count: 4 }, pasted })).toBe("붙여 넣은 리뷰 6건 정리 끝");
+    expect(text({ ...briefing, counts: { review_count: 20, complaint_count: 5 }, pasted: pasted.slice(0, 2) })).toBe("리뷰 20건 정리 끝 · 새로 붙인 리뷰 2건");
+    expect(text({ ...briefing, counts: { review_count: 20, complaint_count: 5 }, pasted: [] })).toBe("리뷰 20건 정리 끝");
+    expect(text({ ...briefing, counts: { review_count: 0, complaint_count: 0 }, pasted: [] })).toBe("아직 리뷰 없음");
+  });
+});

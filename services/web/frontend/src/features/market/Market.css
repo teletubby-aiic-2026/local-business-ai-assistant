@@ -10,7 +10,10 @@
 .mk-apply { flex: 0 0 auto; }
 @container content (max-width: 679px) { .mk-apply { flex: 1 1 100%; } }
 .panel.mk-cond > .mk-cond-row { margin-top: 0; }   /* 앞의 제목(h2.sr)은 읽기 프로그램용이라 위 여백을 주지 않음 */
-.panel.mk-cond > .mk-cond-now { margin-top: var(--s-8); }
+.panel.mk-cond > .mk-cond-now, .panel.mk-cond > .mk-cond-note { margin-top: var(--s-8); }
+/* 새 조건의 숫자를 불러오는 동안 보던 숫자는 흐리게 (라벨·숫자가 섞여 보이지 않게) */
+.mk-dim { opacity: .45; transition: opacity .15s; }
+@media (prefers-reduced-motion: reduce) { .mk-dim { transition: none; } }
 .mk-cond-now { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 var(--s-12); }
 .mk-cond-now .btn.text { margin-left: auto; }
 

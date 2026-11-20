@@ -6,7 +6,7 @@
 // - 고치기: GET 으로 채우고 바뀐 칸만 PATCH → 프로필. 위치·상권을 바꾸지 않았으면 상권 서비스에 다시 묻지 않는다.
 // 입력은 화면에만 있다 (새로고침하면 사라짐, 임시 저장 없음). 위쪽 줄은 features/account/Stage.jsx 의 StageFrame
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getState, useStore } from "../../state/store.js";
+import { getState, setState, useStore } from "../../state/store.js";
 import { goPick, goProfile } from "../../state/stage.js";
 import { acctLoad, storeChanged } from "../../state/boot.js";
 import { openStore } from "../../state/account.js";
@@ -15,7 +15,7 @@ import { Button, Icon } from "../../components/ui.jsx";
 import NaverMap, { locationPoint } from "../../components/NaverMap.jsx";
 import { StageFrame, StageTitle, WhoText } from "../account/Stage.jsx";
 import {
-  CHANNELS, MENU_MAX, NAME_MAX, QUERY_MAX, QUERY_MIN, areaRows, areaSub, checkMenus, createStore, defaultArea, errorField, getStore,
+  CHANNELS, MENU_MAX, NAME_MAX, QUERY_MAX, QUERY_MIN, areaRows, areaSub, checkMenus, createStore, defaultArea, errorField, foodIndustries, getStore,
   lineOf, locationBody, marketOptions, patchStore, periodLabel, plainMessage, resolveAreas, searchAddress, stationsOf, storePatch,
 } from "./storeApi.js";
 import "./stores.css";
@@ -52,7 +52,8 @@ export default function StoreNew({ mode = "add", storeId }) {
     <StageFrame right={<><WhoText me={me} /><Button size="small" onClick={goPick}>가게 선택으로</Button></>}>
       <div className="stage-col sn">
         <header className="stack-8 sn-head">
-          {mode === "signup" && <span className="badge brand sn-step">가게 등록 2 / 2</span>}
+          {/* 가입 화면의 세 단계(계정 만들기 → 가게 등록 → 홈으로) 가운데 둘째 */}
+          {mode === "signup" && <span className="badge brand sn-step">가게 등록 2 / 3</span>}
           <StageTitle>{edit ? "가게 정보 고치기" : "새 가게 등록"}</StageTitle>
           <p className="muted">{edit ? LEAD : `${LEAD} 나중에 프로필에서 고칠 수 있어요.`}</p>
         </header>
@@ -113,6 +114,7 @@ function StoreForm({ mode, opts, saved, onCancel }) {
   useEffect(() => () => { alive.current = false; }, []);
 
   const industryName = (opts.industries.find((x) => x.code === industry) || {}).name || "";
+  const industryList = useMemo(() => foodIndustries(opts.industries, (saved && saved.industry_code) || ""), [opts, saved]);
   const usingSaved = locSource === "saved" && industry === ((saved && saved.industry_code) || "");
   const savedStation = !!(savedLoc && savedLoc.kind === "station" && savedLoc.station_id);
   // 상권 서비스에 보낼 위치: 이 화면에서 고른 위치, 또는 (고치기에서 업종만 바꿨고 역으로 등록한 가게면) 저장한 역
@@ -296,9 +298,12 @@ function StoreForm({ mode, opts, saved, onCancel }) {
     try {
       if (edit) {
         const patch = storePatch(saved, { ...base, location, area: areaBody });
-        if (Object.keys(patch).length) await patchStore(saved.store_id, patch);
+        const changed = Object.keys(patch).length > 0;
+        if (changed) await patchStore(saved.store_id, patch);
         await acctLoad();                                          // 상단 바·가게 선택의 이름·업종·상권이 서버와 같게
         if (getState().entered === saved.store_id) storeChanged();  // 들어가 있던 가게면 메인 화면 자료도 새로 (기다리지 않음)
+        // 결과 한 줄은 오른쪽 아래 띠(AcctToast). storeChanged 가 띠를 비우므로 그 뒤에
+        setState({ acctNotice: changed ? `${name.trim() || "가게"} 정보를 저장했어요.` : "바뀐 내용이 없어 그대로 두었어요." });
         goProfile();
         return;
       }
@@ -342,7 +347,7 @@ function StoreForm({ mode, opts, saved, onCancel }) {
             <select id="sn-industry" name="industry_code" value={industry} disabled={busy}
               aria-invalid={!!err("industry") || undefined} aria-describedby={desc("industry")} onChange={(e) => changeIndustry(e.target.value)}>
               <option value="">업종을 골라 주세요</option>
-              {opts.industries.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
+              {industryList.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
             </select>
             {errLine("industry")}
           </div>

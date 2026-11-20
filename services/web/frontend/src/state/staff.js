@@ -33,10 +33,13 @@ export function staffOf(s) {
   const b = s.briefing, c = (b && b.counts) || {};
   const pasted = ((b && b.pasted) || []).length;
   const out = [];
-  // 리뷰 0건(새로 등록한 가게)은 '리뷰 0건 정리 끝' 대신 '아직 리뷰 없음'
+  // 리뷰 0건(새로 등록한 가게)은 '리뷰 0건 정리 끝' 대신 '아직 리뷰 없음'.
+  // 리뷰가 모두 붙여 넣은 것이면 같은 수를 두 번 말하지 않는다 ('리뷰 6건 정리 끝 · 새로 붙인 리뷰 6건' → '붙여 넣은 리뷰 6건 정리 끝')
+  const total = c.review_count ?? 0;
   const dataText = !b ? (s.booted ? "리뷰를 불러오지 못했어요" : "리뷰 정리 중")
-    : c.review_count === 0 && !pasted ? "아직 리뷰 없음"
-    : `리뷰 ${c.review_count ?? 0}건 정리 끝${pasted ? ` · 새로 붙인 리뷰 ${pasted}건` : ""}`;
+    : total === 0 && !pasted ? "아직 리뷰 없음"
+    : pasted && pasted >= total ? `붙여 넣은 리뷰 ${pasted}건 정리 끝`
+    : `리뷰 ${total}건 정리 끝${pasted ? ` · 새로 붙인 리뷰 ${pasted}건` : ""}`;
   out.push({ key: "data", name: "데이터 분석 비서", ok: !!b, text: dataText });
   const care = items.filter((t) => t.agent === "고객 응대 비서");
   const mktItems = items.filter((t) => t.agent === "마케팅 비서");

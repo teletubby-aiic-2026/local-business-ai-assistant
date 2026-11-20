@@ -97,6 +97,13 @@ export function latestIndustryPeriod(c) {
 
 export const NO_INDUSTRY_DATA = "이 업종의 상권 자료가 없어 고를 수 없어요.";
 
+// 새 가게 등록의 업종 칸: 배달 음식점 서비스라 상권 업종표(100개) 가운데 음식 업종(코드 CS1…, 10개)만.
+// 고치기에서 저장한 업종이 그 밖이면 그 하나는 남긴다 (모르는 값으로 바뀌지 않게)
+export const FOOD_PREFIX = "CS1";
+export function foodIndustries(industries, keep = "") {
+  return list(industries).filter((x) => String(x.code).startsWith(FOOD_PREFIX) || (keep && x.code === keep));
+}
+
 // 상권 후보 → 라디오 한 줄 {code, name, type, relation, distance, period, blocked, geometry}. blocked 가 있으면 고를 수 없음 (그 이유)
 export function areaRows(candidates) {
   return list(candidates).filter((c) => c && /^[0-9]{7}$/.test(String(c.area_code))).map((c) => {
