@@ -1,12 +1,12 @@
 // 2 추천 카드 (예전 renderCards·measureBox·evidenceChip). 카드마다 출처·시점 한 줄은 늘 보이고,
-// 근거 리뷰·이유 문장 출처는 '근거 보기'로 접는다.
+// 근거 리뷰·상권 지표(기준·원본 링크)는 '근거 보기'로 접는다. 이유 문장을 AI 가 썼으면 거기에 한 줄로 밝힌다 (검사기 이야기는 보이지 않음).
 import { useStore } from "../../state/store.js";
 import { KIND_NAMES, KIND_AGENT, shortBasis, sourceUrl } from "../../lib/domain.js";
 import { PageHead, Panel, Badge, Button } from "../../components/ui.jsx";
 import Steps from "./Steps.jsx";
 import { useFlow, setFlow } from "./state.js";
 import { choose } from "./actions.js";
-import { RULES_TITLE, sourceLine, measureIds } from "./calc.js";
+import { RULES_TITLE, sourceLine, measureIds, reasonByAI } from "./calc.js";
 import "./flow.css";
 
 export default function Cards() {
@@ -23,7 +23,7 @@ export default function Cards() {
   return (
     <div className="col flow-cards">
       <Steps at="cards" />
-      <PageHead owner={owners || undefined} title="무엇을 할까요?" sub="어떤 카드를 띄울지는 규칙이 정해요. 하나를 골라 주세요." />
+      <PageHead owner={owners || undefined} title="무엇을 할까요?" />
       {!cards.length
         ? <Panel><p className="muted">{!booted ? "불러오는 중…" : bootError ? "카드를 불러오지 못했어요." : "오늘은 추천할 카드가 없어요."}</p></Panel>
         : <div className="grid-2 flow-card-grid">
@@ -46,13 +46,13 @@ function CardPanel({ p, index, made, busy, picked, mock }) {
         {KIND_AGENT[c.kind] && <Badge tone="brand">{KIND_AGENT[c.kind]}</Badge>}
       </div>
       <h2 id={titleId}>{p.title}</h2>
-      <p>{c.reason_text}</p>
+      <p className="card-reason">{c.reason_text}</p>
       <p className="small muted">근거: {sourceLine(p)}</p>
       <Measures p={p} picked={picked} mock={mock} />
       <details className="flow-more">
         <summary className="small">근거 보기</summary>
         <ul className="plain flow-ev">{(p.evidence || []).map((e, i) => <Evidence key={`${e.id}-${i}`} e={e} />)}</ul>
-        <p className="small muted">이유 문장: {p.reason_source}{(p.problems || []).length ? ` · 검사기 지적 ${p.problems.length}건` : ""}</p>
+        {reasonByAI(p) && <p className="small muted">카드 설명 글은 AI가 썼어요.</p>}
       </details>
       <Button variant="primary" className="flow-card-go" disabled={!!busy} onClick={() => choose(c.card_id)}>{label}</Button>
     </article>
@@ -72,7 +72,7 @@ function Evidence({ e }) {
 }
 
 // 불만 카드: 오늘부터 가게에서 실천할 점검 수칙을 사장님이 고른다. 고른 수칙만 포장·주문 안내문에 들어간다.
-// 시험용 실행(mock)은 저장 예시 글을 그대로 보여 주므로 '안내문에 반영'이라고 말하지 않는다
+// 시험용 실행(mock)은 저장 예시 글을 그대로 보여 주므로 '안내문에 반영'이라고 말하지 않고, 반영되지 않는다고 한 줄로 밝힌다
 function Measures({ p, picked, mock }) {
   const opts = p.measures?.options || [];
   if (!opts.length) return null;
@@ -89,7 +89,7 @@ function Measures({ p, picked, mock }) {
           <input type="checkbox" value={o.id} checked={picked.includes(o.id)} onChange={(e) => toggle(o.id, e.target.checked)} /> {o.text}
         </label>
       ))}
-      {mock && <p className="small muted">시험용 실행에서는 저장 예시 글이 그대로 나와요. 고른 수칙은 화면에만 표시돼요.</p>}
+      {mock && <p className="small muted">시험용 실행이라 고른 수칙이 글에 반영되지 않아요.</p>}
     </fieldset>
   );
 }

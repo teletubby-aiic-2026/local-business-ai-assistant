@@ -68,11 +68,11 @@ async function capSave() {
   const tail = bad ? ` ${bad}건은 저장하지 못했어요 (후보 아래 이유).` : "";
   if (ok) {
     setState({ joined: [...joined] });
-    setCap({ saveMsg: `${ok}건 저장했어요. 홈 숫자와 추천 카드도 다시 불러와요…` });
+    setCap({ saveMsg: `리뷰 ${ok}건을 저장했어요. 분석 결과를 갱신하는 중…` });
     try {
       await refresh();   // 붙여넣기와 같이 홈 숫자 · 추천 카드 · 리뷰 분석(요약·묶음)을 모두 새로
-      if (alive()) setCap({ saveMsg: `${ok}건 저장했어요. 요약·불만 묶음·홈 숫자·추천 카드에 반영했어요.${tail}` });
-    } catch (e) { if (alive()) setCap({ saveMsg: `${ok}건 저장했어요. 다만 화면을 다시 불러오지 못했어요: ${e.message}${tail}` }); }
+      if (alive()) setCap({ saveMsg: `리뷰 ${ok}건을 저장하고 분석 결과를 갱신했어요.${tail}` });
+    } catch (e) { if (alive()) setCap({ saveMsg: `리뷰 ${ok}건을 저장했지만 분석 결과는 갱신하지 못했어요: ${e.message}${tail}` }); }
   } else setCap({ saveMsg: `저장하지 못했어요.${tail}` });
   if (alive()) setCap({ busy: false });
 }
@@ -84,7 +84,7 @@ function Reading({ startedAt }) {
   const s = Math.floor((now - startedAt) / 1000);
   return (
     <>
-      <span>{s >= 6 ? "캡처를 읽고 있어요. 긴 캡처는 최대 5조각으로 나눠 읽어서 20초쯤 걸릴 수 있어요" : "캡처를 읽고 있어요"}</span>
+      <span>{s >= 6 ? "캡처를 읽고 있어요. 긴 캡처는 20초쯤 걸릴 수 있어요" : "캡처를 읽고 있어요"}</span>
       <span className="an-cap-sec" aria-hidden="true">{s >= 2 ? `${s}초` : ""}</span>
     </>
   );
@@ -127,7 +127,8 @@ export default function Capture() {
       onDragOver={(e) => { e.preventDefault(); setDrop(true); }}
       onDragLeave={() => setDrop(false)}
       onDrop={(e) => { e.preventDefault(); setDrop(false); if (!getMod().cap.busy) capPick(e.dataTransfer?.files?.[0]); }}>
-      <p className="small muted">배달앱 리뷰 화면을 캡처해 올리면 AI가 글과 별점을 옮겨 적어요. 바로 저장하지 않고, 사장님이 고치고 고른 것만 저장해요.</p>
+      {/* 업로드 전 설명은 한 줄. '바로 저장하지 않음'은 후보 목록 위 확인 경고가 말한다 */}
+      <p className="small muted">AI가 배달앱 리뷰 캡처에서 글과 별점을 읽어 와요.</p>
       <div className="an-cap-pick">
         {/* 파일 칸은 화면에서 숨기고(키보드 순서에서도 뺌) 옆 버튼이 click() 으로 연다. display:none 이면 일부 브라우저가 click() 을 막아서 sr 로 숨김 */}
         <input ref={fileRef} id="cap-file" className="sr" type="file" accept="image/png,image/jpeg,image/webp" tabIndex={-1} aria-hidden="true"
@@ -143,10 +144,10 @@ export default function Capture() {
       {c.result && (
         <div className="an-cap-result">
           {c.result.demo && (
-            <p className="an-cap-demo"><b>예시 결과 — 이미지를 실제로 읽지 않았어요</b><span>키가 없거나 시험용 실행이라 미리 정해 둔 예시 후보를 보여 줘요.</span></p>
+            <p className="an-cap-demo"><b>예시 결과 — 이미지를 실제로 읽지 않았어요</b><span>미리 정해 둔 예시 후보예요.</span></p>
           )}
           {c.result.warnings.length > 0 && <ul className="an-warns" aria-label="확인할 점">{c.result.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
-          <p className="notice warn an-cap-star"><b>저장하기 전에 별점과 글이 캡처와 같은지 한 번 확인해 주세요.</b></p>
+          <p className="notice warn an-cap-star"><b>저장하기 전에 별점과 글이 캡처와 같은지 확인해 주세요. 고른 후보만 저장해요.</b></p>
           {c.url && <details className="an-cap-shot"><summary className="small">올린 캡처 보기</summary><img src={c.url} alt="올린 리뷰 화면 캡처" /></details>}
           <ol className="plain an-cap-list" aria-label="옮겨 적은 리뷰 후보">
             {c.items.length

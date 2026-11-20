@@ -5,6 +5,9 @@ import { praiseOf, shortBasis } from "../../lib/domain.js";
 export const SOURCE_KO = { sample: "합성 리뷰", paste: "붙여넣기", capture: "캡처", app: "가상 배달앱", memo: "매장 메모" };
 export const RP_ISSUE_STATE = { recurred_after_reply: "답글 뒤 재발", no_recurrence: "답글 뒤 7일 재발 없음", replied_watching: "답글 달고 지켜보는 중", no_reply: "답글 없음" };
 
+// 화면 머리(인쇄에서는 머리글)에 한 번만 두는 고지. 마케팅 요약의 카드 ⓑ 이유 문장은 AI 가 썼을 수 있어 범위를 응대 점수·보고서로 좁혀 말한다
+export const RP_NOTE = "응대 점수와 보고서는 리뷰 기록으로 계산했어요 (AI 문장 아님).";
+
 export const signed = (n) => (Number(n) > 0 ? `+${n}` : String(n ?? 0));
 export const deltaTone = (n) => (Number(n) < 0 ? "neg" : Number(n) > 0 ? "pos" : "");
 export const monthKo = (m) => { const [y, mo] = String(m || "").split("-"); return y && mo ? `${y}년 ${Number(mo)}월` : "이번 달"; };

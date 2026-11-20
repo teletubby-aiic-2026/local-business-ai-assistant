@@ -10,6 +10,17 @@
 #     MARKETING_RECORDS_DIR 맞춤 마케팅 기록 폴더 (기본 experiments/marketing/data/marketing)
 #     MARKETING_SURVEY_URL  비우면 띄운 서버 주소를 비서 화면에 넘김. off 면 띄우지 않고 비서 화면에도 off,
 #                           다른 주소를 주면 띄우지 않고 그 주소를 그대로 넘김
+#   상권 서비스(services/market-analysis, 127.0.0.1:8766)도 같이 띄운다 (11/20). 서랍(AI에게 묻기)·상권 분석 화면이 부른다
+#     MARKET_PORT           포트 (기본 8766)
+#     MARKET_PYTHON         상권 서비스용 파이썬 (기본 PYTHON). services/market-analysis/requirements.lock.txt 가 깔려 있어야 함
+#     MARKET_APP_MODE       상권의 모드를 따로 정할 때 (mock|live). 기본은 APP_MODE 와 같음
+#     MARKET_URL            비우면 띄운 서버 주소를 비서 화면에 넘김. off 면 띄우지 않고 상권 부분도 끔,
+#                           다른 주소를 주면 띄우지 않고 그 주소를 씀
+#     공식 자료(services/market-analysis/data/official)가 없으면 띄우지 않고 알리기만 한다
+#     (자료는 git 밖: 팀 자료 묶음 seoul-market-data-*.tar.gz 의 services/market-analysis/data 를 그 자리에)
+#     ASSISTANT_ENABLED(기본 1)·ASSISTANT_PLANNER(기본 off)는 서버 deploy/env.example 과 같은 기본값
+#   화면(services/web/frontend, React + Vite)은 빌드가 없거나 소스보다 오래되었으면 띄우기 전에 다시 빌드한다 (npm 필요)
+#     WEB_FRONTEND_DIST     다른 빌드 폴더를 쓸 때 (주면 자동 빌드를 하지 않음)
 # 키는 저장소 밖 ~/.config/teletubby-aiic/env 에서만 읽고, 값을 화면에 찍지 않는다.
 set -euo pipefail
 
@@ -17,6 +28,29 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WEB_DIR="$ROOT/services/web"
 PY="${PYTHON:-$ROOT/.venv/bin/python}"
 [ -x "$PY" ] || PY="$(command -v python3)"
+
+# 화면 빌드: dist/index.html 이 없거나 소스(src·index.html·package*.json·vite.config.js)보다 오래되었으면 새로 빌드한다.
+# node_modules 가 없거나 package-lock.json 보다 오래되었으면 npm ci 부터 한다. 빌드가 실패하면 서버를 띄우지 않는다.
+# 키 파일을 읽기 전에 한다 (npm 이 키 환경 변수를 보지 않게)
+FRONT_DIR="$WEB_DIR/frontend"
+if [ -z "${WEB_FRONTEND_DIST:-}" ] && [ -f "$FRONT_DIR/package.json" ]; then
+  FRONT_INDEX="$FRONT_DIR/dist/index.html"
+  STALE=""
+  if [ ! -f "$FRONT_INDEX" ]; then
+    STALE="빌드가 없음"
+  elif [ -n "$(find "$FRONT_DIR/src" "$FRONT_DIR/index.html" "$FRONT_DIR/package.json" "$FRONT_DIR/package-lock.json" \
+                 "$FRONT_DIR/vite.config.js" -newer "$FRONT_INDEX" -print -quit 2>/dev/null)" ]; then
+    STALE="소스가 빌드보다 새로움"
+  fi
+  if [ -n "$STALE" ]; then
+    command -v npm >/dev/null 2>&1 || { echo "화면을 빌드해야 하는데($STALE) npm 이 없습니다. Node.js 20 이상을 설치하세요."; exit 1; }
+    echo "화면 빌드 ($STALE): $FRONT_DIR"
+    # && 로 잇는다: '( … ) || …' 안에서는 set -e 가 꺼져 npm ci 실패를 놓친다
+    ( cd "$FRONT_DIR" \
+      && { [ -d node_modules ] && [ ! package-lock.json -nt node_modules/.package-lock.json ] || npm ci --no-audit --no-fund; } \
+      && npm run build --silent ) || { echo "화면 빌드에 실패했습니다. 위 오류를 확인하세요 ($FRONT_DIR)"; exit 1; }
+  fi
+fi
 
 WANT_MODE="${APP_MODE:-}"              # 명령줄에서 준 모드가 먼저. 비어 있으면 아래에서 키 파일 유무로 정함
 case "$WANT_MODE" in
@@ -69,12 +103,28 @@ fi
 export MARKETING_SURVEY_URL
 export MARKETING_APP_MODE="${MARKETING_APP_MODE:-$APP_MODE}"
 [ -n "${MARKETING_RECORDS_DIR:-}" ] && export MARKETING_RECORDS_DIR="$(abspath "$MARKETING_RECORDS_DIR")"
+# 상권: MARKET_URL 이 비어 있고 코드와 공식 자료가 있을 때만 이 스크립트가 띄운다 (off 면 끔, 다른 주소면 그 서버를 씀)
+MARKET_DIR="$(abspath "${MARKET_DIR:-$ROOT/services/market-analysis}")"
+MARKET_PORT="${MARKET_PORT:-8766}"
+MARKET_PY="${MARKET_PYTHON:-$PY}"
+MARKET_LOCAL=0
+if [ -z "${MARKET_URL:-}" ]; then
+  if [ -f "$MARKET_DIR/app/intake_api.py" ] && [ -d "$MARKET_DIR/data/official" ]; then
+    MARKET_LOCAL=1
+    export MARKET_URL="http://127.0.0.1:$MARKET_PORT"
+  else
+    echo "주의: 상권 공식 자료가 없어 상권 서비스를 띄우지 않습니다 ($MARKET_DIR/data/official). 서랍의 상권 답·상권 분석 화면은 '준비 안 됨'으로 보입니다"
+  fi
+else
+  export MARKET_URL
+fi
 
 # 이미 떠 있는 서버가 있으면 그 서버의 응답을 성공으로 착각하므로, 시작 전에 멈춘다
 port_free() { "$PY" -c "import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('127.0.0.1', int(sys.argv[1])))" "$1" 2>/dev/null; }
 NEED_PORTS="$WEB_PORT"
 [ "${WEB_REVIEW_SOURCE:-local}" != "remote" ] && NEED_PORTS="$REVIEW_PORT $WEB_PORT"
 [ "$MARKETING_LOCAL" = 1 ] && NEED_PORTS="$NEED_PORTS $MARKETING_PORT"
+[ "$MARKET_LOCAL" = 1 ] && NEED_PORTS="$NEED_PORTS $MARKET_PORT"
 for p in $NEED_PORTS; do
   if ! port_free "$p"; then
     echo "포트 $p 를 이미 다른 프로세스가 쓰고 있습니다. 앞서 띄운 서버를 Ctrl+C 로 끄고 다시 실행하세요."
@@ -85,8 +135,10 @@ done
 
 REVIEW_PID=""
 MARKETING_PID=""
+MARKET_PID=""
 WEB_PID=""
 cleanup() {
+  [ -n "$MARKET_PID" ] && kill "$MARKET_PID" 2>/dev/null || true
   [ -n "$WEB_PID" ] && kill "$WEB_PID" 2>/dev/null || true
   [ -n "$REVIEW_PID" ] && kill "$REVIEW_PID" 2>/dev/null || true
   [ -n "$MARKETING_PID" ] && kill "$MARKETING_PID" 2>/dev/null || true
@@ -125,6 +177,30 @@ elif [ "$MARKETING_SURVEY_URL" = off ]; then
   echo "맞춤 마케팅: 끔 (MARKETING_SURVEY_URL=off)"
 else
   echo "맞춤 마케팅: 띄우지 않고 $MARKETING_SURVEY_URL 을 씁니다"
+fi
+
+if [ "$MARKET_LOCAL" = 1 ]; then
+  "$MARKET_PY" -c "import pyproj, shapefile" 2>/dev/null || {
+    echo "상권 서비스 파이썬($MARKET_PY)에 의존성이 없습니다: pip install -r services/market-analysis/requirements.lock.txt"
+    echo "  다른 파이썬이면 MARKET_PYTHON=<경로>, 상권 없이 실행하려면 MARKET_URL=off"; exit 1; }
+  MARKET_APP_MODE="${MARKET_APP_MODE:-$APP_MODE}"
+  # 상권 서비스는 HCX 키를 CLOVA_STUDIO_API_KEY(밑줄 하나 더) 로 읽는다. 키 파일에 없으면 같은 키를 그 이름으로도 넘긴다
+  if [ -n "${CLOVA_API_KEY:-}" ] && [ -z "${CLOVA_STUDIO_API_KEY:-}" ]; then export CLOVA_STUDIO_API_KEY="$CLOVA_API_KEY"; fi
+  # 대화 기록(SQLite)은 실행 폴더에 둔다 (공식 자료 폴더가 아님). 서버(deploy/systemd/ic26-market.service)와 같은 시작 앱
+  MARKET_DB="${ONBOARDING_DB_PATH:-$(abspath "${WEB_RUNTIME_DIR:-$WEB_DIR/data/runtime}")/market/onboarding.sqlite3}"
+  mkdir -p "$(dirname "$MARKET_DB")"
+  ( cd "$MARKET_DIR" && exec env -u APP_PUBLIC_ORIGIN APP_MODE="$MARKET_APP_MODE" ONBOARDING_DB_PATH="$MARKET_DB" \
+      ASSISTANT_ENABLED="${ASSISTANT_ENABLED:-1}" ASSISTANT_PLANNER="${ASSISTANT_PLANNER:-off}" PYTHONDONTWRITEBYTECODE=1 \
+      "$MARKET_PY" -m uvicorn app.intake_api:configured_app --factory --host 127.0.0.1 --port "$MARKET_PORT" --log-level warning ) &
+  MARKET_PID=$!
+  if ! curl -fs -o /dev/null --retry 30 --retry-connrefused --retry-delay 1 "$MARKET_URL/health"; then
+    echo "상권 서비스가 뜨지 않았습니다 ($MARKET_URL). 상권 없이 실행하려면 MARKET_URL=off"; exit 1
+  fi
+  echo "상권: $MARKET_URL (APP_MODE=$MARKET_APP_MODE, 기록 $MARKET_DB)"
+elif [ "${MARKET_URL:-}" = off ]; then
+  echo "상권: 끔 (MARKET_URL=off)"
+elif [ -n "${MARKET_URL:-}" ]; then
+  echo "상권: 띄우지 않고 $MARKET_URL 을 씁니다"
 fi
 
 echo "한 화면: http://localhost:$WEB_PORT  (APP_MODE=$APP_MODE)"

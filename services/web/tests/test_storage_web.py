@@ -96,15 +96,25 @@ def test_first_response_sets_a_visitor_cookie_and_later_ones_do_not(tmp_path):
     assert client.cookies.get(VISITOR_COOKIE) == value
 
 
-def test_cookie_also_comes_with_the_page_and_errors_but_not_static_files(tmp_path):
+def test_cookie_also_comes_with_the_page_and_errors_but_not_static_files(tmp_path, monkeypatch):
+    # 화면 빌드(frontend/dist)가 있든 없든 같게: 임시 빌드 폴더를 WEB_FRONTEND_DIST 로 준다 (index.html + assets/x.js)
+    dist = tmp_path / "frontend-dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text('<!doctype html><div id="root"></div><script type="module" src="/assets/x.js"></script>',
+                                     encoding="utf-8")
+    (dist / "assets" / "x.js").write_text("console.log('x')", encoding="utf-8")
+    monkeypatch.setenv("WEB_FRONTEND_DIST", str(dist))
     client, _, source = make_app(tmp_path)
-    assert VISITOR_COOKIE in client.get("/").cookies
+    page = client.get("/")
+    assert page.status_code == 200 and 'id="root"' in page.text and VISITOR_COOKIE in page.cookies
     other = TestClient(client.app)
     source.down = True
     res = other.get("/api/briefing")                                  # 503 오류 응답에도 쿠키는 실린다
     assert res.status_code == 503 and VISITOR_COOKIE in res.cookies
     fresh = TestClient(client.app)
-    assert "set-cookie" not in fresh.get("/static/app.js").headers
+    asset = fresh.get("/assets/x.js")                                 # 화면 파일(/assets/*)에는 쿠키를 싣지 않는다
+    assert asset.status_code == 200 and "console.log" in asset.text
+    assert "set-cookie" not in asset.headers and VISITOR_COOKIE not in fresh.cookies
 
 
 def test_cookie_is_secure_behind_https_only(tmp_path):

@@ -30,7 +30,7 @@ export default function Analysis() {
 
   return (
     <div className="col an">
-      <PageHead owner="데이터 분석 비서" title="리뷰 분석" sub="리뷰를 감정과 주제로 나눠서 보여 드려요." />
+      <PageHead owner="데이터 분석 비서" title="리뷰 분석" />
       {insight && <p className="an-period small muted">{periodLine(insight)}</p>}
       <Notice tone="bad">{insightError}</Notice>
       {!insight && !insightError && <p className="small muted" role="status">불러오는 중…</p>}

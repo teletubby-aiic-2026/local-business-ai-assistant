@@ -4,12 +4,12 @@
 - 고객응대·마케팅·리포트 질문은 이 서버가 지금 가게의 현황 1~2줄과 그 화면으로 가는 버튼(payload.type navigate)으로 답한다.
   상권 서비스는 부르지 않는다. 상권 서비스가 꺼져 있어도 답한다.
 - 가게 기본 질문(이름·메뉴·화면 위치)은 예전 그대로.
+- 화면(React, services/web/frontend/src)과 맞물리는 이름: #/market 메뉴 글자(Sidebar.jsx)·맞춤 마케팅 시작 모드(marketing/logic.js MKT_SUB).
 
 실행 (services/web 에서):  env -u APP_MODE PYTHONPATH=../.. python -m pytest -q tests/test_assistant_domains.py
 """
 from __future__ import annotations
 
-import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +18,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from shared.storage import MemoryStore
+from tests import frontend_src as fs
 from tests.test_assistant_proxy import FakeMarket
 from tests.test_auth_stores import REPO, RecordingSource
 from tests.test_web import settings
@@ -71,6 +72,17 @@ class Classify(unittest.TestCase):
         self.assertEqual([marketing_sub(q) for q in MARKETING], ["promo", "leftover", "ad", "story", "repeat", "promo"])
         self.assertEqual(set(ap.MKT_SUBS), {"promo", "leftover", "ad", "story", "repeat"})
 
+    def test_marketing_modes_match_the_screen(self):
+        """서랍 버튼의 sub(promo …)로 맞춤 마케팅 화면이 고르는 시작 모드 글자가 서버 MKT_SUBS 와 같다 (11/20 React 전환 때
+        test_post_m5_ui_static.py 에서 옮김). 글자는 마케팅 서비스(flow.py START_MODES)가 주는 보기 이름이라 화면 문구와 따로 바꿀 수 없다."""
+        logic = fs.read("features/marketing/logic.js")
+        where = "frontend/src/features/marketing/logic.js"
+        self.assertEqual(fs.object_pairs(fs.const_value(logic, "MKT_SUB", where)), ap.MKT_SUBS,
+                         "화면 MKT_SUB 와 assistant_proxy.MKT_SUBS 가 달라요 (서랍의 '맞춤 마케팅: …' 버튼이 다른 모드를 열게 됨)")
+        modes = fs.object_keys(fs.const_value(logic, "MKT_MODES", where))   # 시작 모드 카드 (보기 글자 → 설명)
+        for label in ap.MKT_SUBS.values():
+            self.assertIn(label, modes, f"화면 MKT_MODES 에 시작 모드 '{label}' 가 없어요")
+
 
 class Answers(unittest.TestCase):
     def setUp(self):
@@ -123,9 +135,9 @@ class Answers(unittest.TestCase):
         # 화면 위치 안내에 새 메뉴가 있고, 예전 '리뷰 내용은 여기서 답하지 않아요'는 없다 (서랍이 이제 리뷰 질문에도 답함)
         self.assertIn(f"'{ap.MARKET_SCREEN}'", where["text"])
         self.assertNotIn("답하지 않아요", where["text"])
-        html = (Path(ap.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
-        link = re.search(r'<a href="#/market" data-route="market">([\s\S]*?)</a>', html).group(1)
-        self.assertEqual(re.sub(r"\s+", " ", re.sub(r"<svg[\s\S]*?</svg>|<[^>]+>", "", link)).strip(), ap.MARKET_SCREEN)   # 메뉴 글자와 같다
+        menu = fs.sidebar_menu()                                     # frontend/src/components/Sidebar.jsx 왼쪽 메뉴 {주소: 글자}
+        self.assertEqual(menu.get("market"), ap.MARKET_SCREEN,       # #/market 메뉴 글자와 같다
+                         f"Sidebar.jsx 의 #/market 메뉴 글자({menu.get('market')!r})가 assistant_proxy.MARKET_SCREEN 과 달라요 (같이 고칠 것)")
         self.assertEqual(self.market_calls(), [])
 
     def test_domain_answers_work_while_the_market_service_is_off(self):

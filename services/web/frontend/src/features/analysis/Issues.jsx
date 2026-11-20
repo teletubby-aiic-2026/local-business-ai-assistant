@@ -56,7 +56,6 @@ export default function Issues({ d }) {
         ? <div className="an-groups">{groups.map((g) => <Group key={g.issue_id} g={g} top={g.issue_id === d.top_issue_id} isNew={joined.has(g.issue_id)} />)}</div>
         : <Panel><p className="muted">묶인 불만이 없어요.</p></Panel>}
       <Panel title={d ? `묶이지 않은 불만 ${singles.length}건` : "묶이지 않은 불만"} titleId="an-singles-title">
-        <p className="small muted">어느 묶음에도 들지 않은 불만이에요.</p>
         <ul className="plain an-quotes">
           {singles.length
             ? singles.map((s, i) => <li key={`${s.review_id}-${i}`} className="an-quote">{(s.topic_names || []).join("·")}: “{s.quote}” <span className="small muted an-rid">{s.review_id}</span></li>)

@@ -1,35 +1,43 @@
-/* 상권 분석 (#/market, Figma 화면 11). 본문 + 오른쪽 280px 옆 칸, 1100px 이하는 옆 칸을 아래로 */
+/* 상권 분석 (#/market, Figma 화면 11). 본문 + 오른쪽 280px 옆 칸.
+   폭은 창이 아니라 본문 실제 폭(@container content, layout.css)으로 가른다: 980px 아래(1280px 노트북 + 서랍 등)면 옆 칸을 아래로.
+   지표 칸(.mk-main)도 크기 컨테이너라 지표 4칸·탭은 그 칸의 폭을 본다. 공통 CSS(main.jsx)가 먼저 읽히지만, 공통 클래스는 두 클래스로 덮어 순서에 기대지 않는다 */
 .mk { word-break: keep-all; overflow-wrap: break-word; }
 
-/* 분석 조건 */
+/* 분석 조건: 넓으면 고르기 3개와 버튼이 한 줄, 아니면 버튼은 아랫줄 */
 .mk-cond-row { display: flex; flex-wrap: wrap; gap: var(--s-12); align-items: flex-end; }
 .mk-field { min-width: 0; flex: 1 1 160px; }
 .mk-field select { min-width: 0; max-width: 100%; }
 .mk-cond-btns { flex: 1 1 100%; }
-@media (min-width: 1101px) { .mk-cond-btns { flex: 0 1 auto; } }
+@container content (min-width: 1000px) { .mk-cond-btns { flex: 0 1 auto; } }
 
-/* 본문 두 칸 */
+/* 본문 두 칸 → 좁으면 위아래 (아래로 간 옆 칸의 두 패널은 나란히) */
 .mk-body { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--s-24); align-items: start; }
-.mk-main, .mk-side { display: grid; gap: var(--s-16); min-width: 0; }
-@media (max-width: 1100px) { .mk-body { grid-template-columns: minmax(0, 1fr); } }
+/* 한 칸 격자도 minmax(0, 1fr): 줄바꿈 없는 비교 표의 폭이 칸을 밀어 휴대전화에서 가로 스크롤이 생기지 않게 (표는 .mk-table-wrap 안에서만 밀림) */
+.mk-main, .mk-side { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-16); min-width: 0; }
+.mk-main { container: mk-main / inline-size; }
+@container content (max-width: 979px) {
+  .mk-body { grid-template-columns: minmax(0, 1fr); gap: var(--s-16); }
+  .mk-side { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); align-items: start; }
+}
 
-/* 핵심 지표 4칸 */
-.mk-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* 핵심 지표 4칸은 2×2: 한 줄 4칸이면 1280px 노트북(지표 칸 약 950px)에서도 '117억 7,727만 원'의 '원'이 혼자 다음 줄로 꺾인다.
+   지표 칸이 아주 넓을 때(1100px 이상)만 한 줄 */
+.tiles.mk-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container mk-main (min-width: 1100px) { .tiles.mk-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .mk-tiles .num { overflow-wrap: anywhere; }
-@media (max-width: 700px) { .mk-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .mk-neg { color: var(--bad); }
 
-/* 탭: 좁은 화면은 2×2 */
+/* 탭: 지표 칸이 좁으면 2×2 */
 .mk-tabbar .tabs { display: flex; }
-@media (max-width: 760px) {
-  .mk-tabbar .tabs { display: grid; grid-template-columns: 1fr 1fr; }
-  .mk-tabbar [role="tab"] { white-space: normal; line-height: 1.3; }
+@container mk-main (max-width: 779px) {
+  .mk-tabbar .tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mk-tabbar .tabs [role="tab"] { white-space: normal; line-height: 1.3; }
 }
 .mk-panel:focus-visible { outline-offset: 4px; }
 .mk-panel h3 { margin: 0 0 var(--s-8); }
 .mk-lead { font-size: var(--fs-body); }
 .mk-lead b { font-variant-numeric: tabular-nums; }
-.mk-grid { display: grid; gap: var(--s-16) var(--s-24); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.mk-grid { display: grid; gap: var(--s-16) var(--s-24); grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
 .mk-grid > section { min-width: 0; display: grid; gap: var(--s-8); align-content: start; }
 .mk-grid > section > h3 { margin: 0; }
 
@@ -45,7 +53,7 @@
 .mk-facts li { display: flex; justify-content: space-between; gap: var(--s-12); padding: 6px 0; border-bottom: 1px solid var(--line); font-size: var(--fs-small); }
 .mk-facts b { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
 
-/* 비교 표 */
+/* 비교 표 (표는 이 칸 안에서만 옆으로 밀림) */
 .mk-table-wrap { overflow-x: auto; }
 .mk-table { width: 100%; border-collapse: collapse; font-size: var(--fs-small); }
 .mk-table caption { text-align: left; padding-bottom: 6px; color: var(--muted); }
@@ -63,3 +71,4 @@
 .mk-sync-result:empty { display: none; }
 .mk-events { display: grid; gap: var(--s-8); }
 .mk-events li { display: grid; gap: 2px; padding: 8px 12px; border-radius: var(--r-md); background: var(--surface); overflow-wrap: anywhere; }
+@container content (max-width: 479px) { .mk-side .panel { padding: var(--s-20) var(--s-16); } }

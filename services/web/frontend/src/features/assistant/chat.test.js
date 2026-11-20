@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { chatQuarter, chatPeriod, chatCondText, chatNavTarget, chatBlocks, chatPieces, chatSuggest, chatSameKey, chatValue } from "./chat.js";
+import {
+  CHAT_SCOPE_DAY, chatQuarter, chatPeriod, chatCondText, chatNavTarget, chatBlocks, chatPieces, chatScopeNote, chatSuggest, chatSameKey, chatValue,
+} from "./chat.js";
 
 describe("분기 표기", () => {
   it("문장 속 분기 코드만 바꾸고 금액·개수는 그대로", () => {
@@ -13,6 +15,14 @@ describe("분기 표기", () => {
     expect(chatPeriod({ period_label: "2026년 2분기" })).toBe("2026년 2분기");
     expect(chatCondText({ area_name: "장승배기역 4번", industry_name: "한식음식점", period: "20262" })).toBe("장승배기역 4번 상권 · 한식음식점 · 2026년 2분기");
     expect(chatCondText(null)).toBe("");
+  });
+});
+
+describe("답의 기준 범위", () => {
+  it("칩은 '하루 전체', 안내 한 줄은 추정치·우리 가게 매출 아님·홈 타일 범위", () => {
+    expect(CHAT_SCOPE_DAY).toBe("하루 전체");
+    expect(chatScopeNote("공통 업종 17~24시")).toBe("상권·업종 전체 추정치예요 (우리 가게 매출 아님 · 홈 타일은 공통 업종 17~24시 기준)");
+    expect(chatScopeNote("")).toBe("상권·업종 전체 추정치예요 (우리 가게 매출 아님)");
   });
 });
 

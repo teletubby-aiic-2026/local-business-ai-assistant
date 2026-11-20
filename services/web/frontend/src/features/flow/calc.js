@@ -23,6 +23,16 @@ export function homeStats(b) {
   };
 }
 
+// 홈 '상권 저녁 매출' 칸의 범위 칩: [상권명, 업종 범위, 시간대]. 지표 이름에서 읽는다 (lib/domain.js marketScope 와 같은 규칙).
+// 칩으로 나눠 보여서 서랍의 답(한 업종 하루 전체)과 범위가 다르다는 것을 설명 문장 없이 드러낸다
+export function scopeChips(snap) {
+  if (!snap) return [];
+  const name = String(snap.metric_name || "");
+  const hours = (name.match(/([0-9]{1,2}~[0-9]{1,2}시)/) || [])[1] || "";
+  const kind = name.includes(" · ") ? name.split(" · ").pop().replace(/^두 분기\s*/, "").trim() : "";
+  return [snap.area_name, kind, hours].filter(Boolean);
+}
+
 // 홈 차트: 브리핑의 불만 리뷰(묶음 + 묶이지 않은 불만)만 센다. 리뷰 하나에 주제 하나 기준
 export function complaintsOf(b) {
   const list = [];
@@ -79,6 +89,10 @@ export function sourceLine(p) {
   return parts.join(" · ");
 }
 
+// 카드 이유 문장을 AI 가 썼는지 (reason_source: "고정 문장" | "HCX-005 (검사기 통과)" | "HCX-005 실패 → 고정 문장").
+// 화면에는 검사기 이야기 없이 'AI가 쓴 문장'인지만 보인다
+export const reasonByAI = (p) => { const s = String(p?.reason_source || ""); return /HCX/.test(s) && !s.includes("고정 문장"); };
+
 // 카드 ⓐ 점검 수칙에서 지금 체크된 id (선택지 순서). 사장님이 바꾼 값(picks) → 이미 만든 카드는 그때 고른 수칙 → 카드 기본값
 // (이미 만든 카드가 기본값으로 돌아가면 '카드 전체 다시 만들기'가 고른 수칙을 잃는다)
 export function measureIds(p, results, picks = {}) {
@@ -99,6 +113,14 @@ export const failedOf = (d) => d.failed_reasons || [];
 export const checksOf = (d) => [...(d.needs_input || []), ...(d.c7_flags || [])];
 export const statusOf = (d, approved) => approved.has(d.draft_id) ? ["ok", "승인 완료"]
   : failedOf(d).length ? ["bad", "점검 실패"] : checksOf(d).length ? ["warn", "확인 필요"] : ["ok", "점검 통과"];
+
+// 초안 목록의 배지: 승인 상태(승인 완료 · 승인 대기)를 먼저, 승인 전이면 점검 결과(점검 실패 · 확인 필요)를 덧붙인다.
+// 진행 숫자는 위 진행줄 하나에만 두고, 목록은 글마다 상태만 보인다
+export function listBadges(d, approved) {
+  if (approved.has(d.draft_id)) return [["ok", "승인 완료"]];
+  const [tone, text] = statusOf(d, approved);
+  return tone === "ok" ? [["", "승인 대기"]] : [["", "승인 대기"], [tone, text]];
+}
 
 export const regenKey = (cardId, d) => [cardId, d.generator, d.target_review_id || ""].join("|");
 export const sameSlot = (a, b) => a.generator === b.generator && (a.target_review_id || "") === (b.target_review_id || "");

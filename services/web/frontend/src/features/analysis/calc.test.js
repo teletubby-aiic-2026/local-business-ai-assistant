@@ -51,7 +51,20 @@ describe("캡처", () => {
       { text: "a", rating: "5", ai: 5, pii: false, dup: false, picked: true, saved: false, msg: "" },
       { text: "b", rating: "", ai: null, pii: true, dup: true, picked: false, saved: false, msg: "" },
     ]);
-    expect(capStatusLine({ demo: true, pieces: 3 }, 2)).toBe("후보 2건 · 3조각으로 나눠 읽음 · 예시 결과. 글과 별점을 고치고, 저장할 리뷰를 골라 주세요.");
-    expect(capStatusLine({ engine: "HCX-005" }, 1)).toBe("후보 1건 · 읽은 모델 HCX-005. 글과 별점을 고치고, 저장할 리뷰를 골라 주세요.");
+    // 고치고 고르라는 안내는 후보 목록 위 확인 경고 한 곳에만 (상태 줄에서는 뺌)
+    expect(capStatusLine({ demo: true, pieces: 3 }, 2)).toBe("후보 2건 · 3조각으로 나눠 읽음 · 예시 결과");
+    expect(capStatusLine({ engine: "HCX-005" }, 1)).toBe("후보 1건 · 읽은 모델 HCX-005");
+  });
+});
+
+describe("분류 방식 배지", () => {
+  it("model·replay·rule 을 사람이 읽는 이름으로, 모르는 값은 숨김", async () => {
+    const { methodName } = await import("./calc.js");
+    expect(methodName("model")).toBe("AI 분류");
+    expect(methodName("replay")).toBe("저장된 AI 분류");
+    expect(methodName("rules")).toBe("규칙 분류 (AI 아님)");
+    expect(methodName("rule")).toBe("규칙 분류 (AI 아님)");
+    expect(methodName("")).toBe("");
+    expect(methodName("other")).toBe("");
   });
 });

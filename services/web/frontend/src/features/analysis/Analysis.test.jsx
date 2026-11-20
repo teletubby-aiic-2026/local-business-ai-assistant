@@ -19,13 +19,17 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("리뷰 분석 화면", () => {
   it("요약·묶음을 그리고 탭을 바꾼다", () => {
-    render(<Analysis />);
+    const { container } = render(<Analysis />);
     expect(screen.getByText("2026-10-12 ~ 2026-11-08 · 리뷰는 합성 데이터")).toBeTruthy();
+    // 머리말 설명 없이 제목만 (합성 데이터 고지는 기간 줄 한 곳)
+    expect(container.querySelector(".page-head .ph-sub")).toBeNull();
+    expect(screen.getByText("리뷰 하나에 주제가 여럿이면 주제마다 1건씩 들어가요.")).toBeTruthy();
     expect(screen.getByText("불만이 많은 주제")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "불만 묶음" }));
     expect(getMod().tab).toBe("issues");
     expect(screen.getByText("포장 누락 3건")).toBeTruthy();
     expect(screen.getByText("묶이지 않은 불만 1건")).toBeTruthy();
+    expect(screen.queryByText("어느 묶음에도 들지 않은 불만이에요.")).toBeNull();   // 제목을 되풀이하던 줄
   });
 
   it("navTo 로 탭을 연다", () => {
@@ -38,7 +42,7 @@ describe("리뷰 분석 화면", () => {
     const calls = [];
     vi.spyOn(globalThis, "fetch").mockImplementation((path, opt = {}) => {
       calls.push([path, opt.method || "GET", opt.body]);
-      if (path === "/api/reviews") return json({ review: { review_id: "rv_p1", text: "식었어요" }, classification: { sentiment: "negative", topics: [{ topic: "temperature", polarity: "negative" }] }, joined_issues: ["iss_missing_item"] }, 201);
+      if (path === "/api/reviews") return json({ review: { review_id: "rv_p1", text: "식었어요", pii_masked: true }, classification: { sentiment: "negative", method: "rules", topics: [{ topic: "temperature", polarity: "negative" }] }, joined_issues: ["iss_missing_item"] }, 201);
       if (path === "/api/cards") return json({ cards: [] });
       if (path === "/api/approvals") return json({ items: [] });
       return json(path === "/api/insight" ? insight : {});
@@ -50,11 +54,19 @@ describe("리뷰 분석 화면", () => {
     fireEvent.change(screen.getByLabelText(/리뷰 글/), { target: { value: " 식었어요 " } });
     fireEvent.change(screen.getByLabelText("별점"), { target: { value: "2" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "분류하기" })); });
-    await waitFor(() => expect(screen.getByText("붙여 넣었어요. 홈 숫자, 추천 카드, 요약, 불만 묶음에 반영했어요.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("리뷰를 저장하고 분석 결과를 갱신했어요.")).toBeTruthy());
     expect(calls[0]).toEqual(["/api/reviews", "POST", JSON.stringify({ text: "식었어요", rating: 2 })]);
     expect(calls.map((c) => c[0])).toEqual(["/api/reviews", "/api/briefing", "/api/cards", "/api/insight", "/api/approvals"]);
     expect(getState().joined).toEqual(["iss_missing_item"]);
     expect(screen.getByText(/불만 묶음에 들어갔어요/).textContent).toContain("포장 누락");   // 들어간 묶음 이름
+    // 분류 방식과 개인정보 가림은 배지로. 내부 id(rv_p1)·방식 이름(rules)·'검증:' 같은 내부 표현은 보이지 않음
+    const meta = document.querySelector(".an-result-meta");
+    expect([...meta.querySelectorAll(".badge")].map((b) => b.textContent)).toEqual(["규칙 분류 (AI 아님)", "개인정보 가림"]);
+    expect(document.body.textContent).not.toContain("rv_p1");
+    expect(document.body.textContent).not.toContain("분류 방식");
+    expect(document.body.textContent).not.toContain("검증:");
+    // 채널 고르기는 그대로 (안 고르면 본문에 넣지 않음)
+    expect(screen.getByLabelText("채널").tagName).toBe("SELECT");
   });
 
   it("캡처: 후보를 읽고 고른 것만 source=capture 로 저장, 오류는 칸 안에만", async () => {
@@ -63,7 +75,7 @@ describe("리뷰 분석 화면", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation((path, opt = {}) => {
       calls.push([path, opt.body]);
       if (path === "/api/care/reviews/capture") return fail ? json({ error: { message: "리뷰를 찾지 못했어요", state: "invalid" } }, 422)
-        : json({ candidates: [{ text: "맛있어요", rating: 5 }, { text: "같은 글", rating: 3, duplicate: true }], demo: true, warnings: ["예시"] });
+        : json({ candidates: [{ text: "맛있어요", rating: 5, pii_masked: true }, { text: "같은 글", rating: 3, duplicate: true }], demo: true, warnings: ["예시"] });
       if (path === "/api/reviews") return json({ joined_issues: [] }, 201);
       if (path === "/api/cards") return json({ cards: [] });
       if (path === "/api/approvals") return json({ items: [] });
@@ -71,6 +83,9 @@ describe("리뷰 분석 화면", () => {
     });
     const { container } = render(<Analysis />);
     fireEvent.click(screen.getByRole("tab", { name: "리뷰 넣기" }));
+    // 올리기 전 설명은 한 줄
+    expect(screen.getByText("AI가 배달앱 리뷰 캡처에서 글과 별점을 읽어 와요.")).toBeTruthy();
+    expect(screen.queryByText(/바로 저장하지 않고/)).toBeNull();
     const input = container.querySelector("#cap-file");
     fireEvent.change(input, { target: { files: [new File(["x"], "a.gif", { type: "image/gif" })] } });
     expect(screen.getByRole("alert").textContent).toBe("png·jpg·webp 이미지만 올릴 수 있어요.");
@@ -82,9 +97,17 @@ describe("리뷰 분석 화면", () => {
     fail = false;
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "캡처 읽기" })); });
     await waitFor(() => expect(screen.getByText("예시 결과 — 이미지를 실제로 읽지 않았어요")).toBeTruthy());
+    expect(screen.queryByText(/키가 없거나/)).toBeNull();
+    // 확인 경고는 후보 목록 바로 위에 남는다 (상태 줄에는 같은 안내를 되풀이하지 않음)
+    const warn = container.querySelector(".an-cap-star");
+    const list = screen.getByRole("list", { name: "옮겨 적은 리뷰 후보" });
+    expect(warn.textContent).toContain("저장하기 전에 별점과 글이 캡처와 같은지 확인해 주세요.");
+    expect(warn.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector(".an-cap-status").textContent).toBe("후보 2건 · 예시 결과");
+    expect(screen.getByText("개인정보 가림")).toBeTruthy();   // 후보 1의 개인정보 가림 배지
     expect(screen.getByText("1건 고름")).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "선택한 리뷰 저장" })); });
-    await waitFor(() => expect(screen.getByText("1건 저장했어요. 요약·불만 묶음·홈 숫자·추천 카드에 반영했어요.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("리뷰 1건을 저장하고 분석 결과를 갱신했어요.")).toBeTruthy());
     expect(calls.find((c) => c[0] === "/api/reviews")[1]).toBe(JSON.stringify({ text: "맛있어요", rating: 5, source: "capture" }));
     expect(screen.getByText("저장함")).toBeTruthy();
   });

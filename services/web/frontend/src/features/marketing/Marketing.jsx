@@ -12,23 +12,27 @@ import "./Marketing.css";
 
 const TABS = [{ id: "chat", label: "맞춤 제안" }, { id: "report", label: "마케팅 보고서" }];
 
+// 제안 결과: 새 카드가 붙으면 화면 낭독기가 읽게 카드 목록을 늘 그려 둔 라이브 영역(role=log, polite)으로 둔다.
+// 빈 안내는 목록 밖에 둔다 (진행 안내는 질문 칸의 role=status 가 이미 읽으므로 여기서 또 읽지 않음)
 function ResultsPanel() {
   const cards = useMkt((s) => s.cards);
   const busy = useMkt((s) => s.busy);
   return (
     <Panel className="mkt-results" title="제안 결과" titleId="mkt-results-title">
-      {cards.length ? (
-        <div className="mkt-cards">{cards.map((c) => <ResultCard key={c.n} card={c} />)}</div>
-      ) : (
+      {!cards.length && (
         <Empty title={busy ? "답을 정리하고 있어요" : "아직 제안 결과가 없어요"}>질문에 다 답하면 여기에 홍보 방법과 글이 나와요.</Empty>
       )}
+      <div id="mkt-cards" className="mkt-cards" role="log" aria-live="polite" aria-relevant="additions" aria-labelledby="mkt-results-title">
+        {cards.map((c) => <ResultCard key={c.n} card={c} />)}
+      </div>
     </Panel>
   );
 }
 
-// 맞춤 제안 탭: 첫 질문이면 기능 카드 격자, 질문이 진행되면 두 칸(질문 · 제안 결과)
+// 맞춤 제안 탭: 첫 질문이면 기능 카드 격자, 시작 모드를 고르면 바로 두 칸(질문 · 제안 결과).
+// 첫 질문이 오기 전에도 고른 모드와 '처음부터'가 보이게, 사장님이 한 번이라도 답했으면 두 칸으로 넘어간다
 function Chat() {
-  const atStart = useMkt((s) => !s.cards.length && (!s.flow || s.flow.node === "start"));
+  const atStart = useMkt((s) => !s.cards.length && !s.log.some((e) => e.kind === "user") && (!s.flow || s.flow.node === "start"));
   if (atStart) return <StartView />;
   return <div className="mkt-split"><AskPanel /><ResultsPanel /></div>;
 }
@@ -52,17 +56,17 @@ export default function Marketing() {
   const epoch = useStore((x) => x.epoch);
   const resetSeq = useStore((x) => x.mktResetSeq);
   const navSeq = useStore((x) => x.nav.seq);
+  const appBand = useStore((x) => x.health?.mode_notice);   // 화면 맨 위 시험용 띠가 떠 있는가
   // 가게가 바뀌었거나 '처음부터 다시'였으면 먼저 처음으로, 그다음 열기 (처음이면 시작)
   useEffect(() => { sync(); open(); }, [epoch, resetSeq]);
   // 다른 화면이 navTo("marketing", 시작 모드)로 보냈으면 그 모드로 (nav.seq 마다 한 번)
   useEffect(() => { handleNav(); }, [navSeq]);
 
-  const notices = noticeLines(s);
+  const notices = noticeLines(s, !!appBand);
   const owner = `마케팅 비서${s.storeName ? ` · ${s.storeName} 기준` : ""}`;
   return (
-    <div className="col mkt">
-      <PageHead owner={owner} title="맞춤 마케팅"
-        sub="몇 가지 질문에 답하면 우리 가게에 맞는 홍보 방법과 글을 제안해요. 숫자는 코드가 계산하고, 글은 AI가 써요." />
+    <div className="col wide mkt">
+      <PageHead owner={owner} title="맞춤 마케팅" sub="몇 가지 질문에 답하면 우리 가게에 맞는 홍보 방법과 글을 제안해요." />
       {notices.length > 0 && <Notice tone="warn" role="note" className="mkt-notice">{notices.join(" ")}</Notice>}
       {s.down && <DownPanel down={s.down} checking={s.checking} />}
       {!s.ready && !s.down && <Panel className="mkt-loading"><Status /></Panel>}

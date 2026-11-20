@@ -5,11 +5,15 @@
     상권 서비스로 되돌아가는 값(선택지 payload, 조건의 코드, 대화의 action, 사용자가 쓴 글)은 바뀌지 않는다
   · 기본 조건 표시: conditions.is_store_default (지금 조건이 우리 가게 기본 조건과 같은지)
   · 가게 기본 질문: 고르는 규칙(가게 질문·상권 질문 표), 답의 내용과 모양, 상권 서비스를 부르지 않음, 프로필을 못 읽을 때
+  · 화면(React, services/web/frontend/src)과 맞물리는 것: 분기 정규식(chat.js CHAT_QUARTER·chatQuarter·chatPeriod)이 서버와 같고,
+    서랍 첫 추천 질문(chat.js CHAT_STARTERS → state.js)이 상권·전 파트 질문이며, 답에 적는 메뉴 이름이 Sidebar.jsx 메뉴 글자와 같다.
+    node 가 있으면 chat.js 를 실제로 불러 서버 함수와 결과를 견준다 (없으면 그 한 건만 건너뜀)
 
 실행 (services/web 에서): PYTHONPATH=<저장소 루트> python -m pytest -q tests/test_assistant_ux.py
 """
 from __future__ import annotations
 
+import json
 import re
 import tempfile
 import unittest
@@ -24,11 +28,13 @@ from web.demo import Demo
 from web.main import create_app
 from web.settings import REPO_ROOT, Settings
 
+from tests import frontend_src as fs
 from tests.test_assistant_proxy import WANTED, FakeMarket, build, error_of
 from tests.test_web import FakeSource, fixture, settings
 
 MARKET_FLOW = (REPO_ROOT / "services" / "market-analysis" / "app" / "assistant" / "flow.py").read_text(encoding="utf-8")
-INDEX_HTML = (REPO_ROOT / "services" / "web" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+CHAT_JS = "features/assistant/chat.js"          # 서랍의 순수 계산 (CHAT_QUARTER · chatQuarter · chatPeriod · CHAT_STARTERS)
+CHAT_STATE = "features/assistant/state.js"      # 서랍 상태 (첫 추천 질문 칩을 CHAT_STARTERS 로 채움)
 STORE = fixture("store_ongi.json")
 
 # 가게 자체를 묻는 질문 → 프록시가 답한다 (질문, 종류)
@@ -52,7 +58,7 @@ STORE_QUESTIONS = [
 
 # 상권 질문·그 밖의 말 → 반드시 상권 서비스로 간다
 MARKET_QUESTIONS = [
-    # 서랍의 첫 추천 질문 4개 (app.js CHAT_STARTERS)
+    # 서랍의 첫 추천 질문 중 상권 질문 (frontend/src/features/assistant/chat.js CHAT_STARTERS)
     "우리 가게 상권 매출은 어때?", "주말 매출은 어때?", "주변에 같은 업종 점포는 몇 개야?", "점심과 저녁 중 매출은 어디가 커?",
     # 우리 가게·동네를 말하지만 상권 자료를 묻는 질문
     "우리 가게 주변 상권 매출 어때?", "우리 동네 한식 매출", "우리 가게 업종 평균 매출", "우리 가게 업종 점포 수 알려줘",
@@ -76,7 +82,7 @@ MARKET_QUESTIONS = [
 ]
 
 
-# 분기 표기 표 (화면 정적 시험 test_assistant_ux_static.py 도 같은 표로 화면 함수를 돌려 본다): (상권 서비스가 준 글자, 화면에 보일 글자)
+# 분기 표기 표 (아래 QuarterOnScreen 도 같은 표로 화면 함수 chat.js chatQuarter 를 돌려 본다): (상권 서비스가 준 글자, 화면에 보일 글자)
 QUARTER_CHANGED = [
     ("20262", "2026년 2분기"),
     ("장승배기역 4번 상권의 한식음식점 업종을 20262 자료로 볼게요. [F1]", "장승배기역 4번 상권의 한식음식점 업종을 2026년 2분기 자료로 볼게요. [F1]"),
@@ -267,6 +273,51 @@ class TestQuarterWordsOnTheWire(Base):
         self.assertEqual(self.client.post("/api/assistant/actions", json=echo).json()["echo"], echo)   # 모르는 칸은 건드리지 않는다
 
 
+class QuarterOnScreen(unittest.TestCase):
+    """화면(frontend/src/features/assistant/chat.js)도 서버가 놓친 분기 코드를 같은 규칙으로 바꾼다.
+    정규식 글자가 서버(QUARTER_IN_TEXT)와 같고, node 가 있으면 화면 함수를 실제로 돌려 서버 함수와 결과가 같은지 본다.
+    (11/20 React 전환 때 test_assistant_ux_static.py 에서 옮김)"""
+
+    def source(self) -> tuple[str, str]:
+        return fs.regex_const(fs.read(CHAT_JS), "CHAT_QUARTER", f"frontend/src/{CHAT_JS}")
+
+    def test_same_pattern_as_the_server(self):
+        pattern, flags = self.source()
+        self.assertEqual(pattern, ap.QUARTER_IN_TEXT.pattern,
+                         "화면 chat.js 의 CHAT_QUARTER 와 서버 assistant_proxy.QUARTER_IN_TEXT 정규식이 달라요 (둘을 같이 고칠 것)")
+        self.assertEqual(flags, "g")                                             # 문장 속 모든 분기 코드를 바꾼다
+
+    def test_pattern_runs_on_older_browsers(self):
+        pattern, _ = self.source()
+        self.assertNotIn("(?<", pattern)     # 뒤돌아보기(lookbehind)는 예전 Safari 에서 파일 전체가 안 읽힌다. 앞 글자를 묶음으로 잡는다
+        self.assertNotIn("/", pattern)
+
+    def test_replacement_matches_the_server(self):
+        js = fs.read(CHAT_JS)
+        quarter = fs.squash(fs.function_text(js, "chatQuarter", f"frontend/src/{CHAT_JS}"))
+        self.assertIn(fs.squash("t.replace(CHAT_QUARTER, (_, pre, y, q, n) => `${pre}${y}년 ${q || n}분기`)"), quarter)
+        self.assertIn(fs.squash('typeof t === "string"'), quarter)               # 글자가 아니면 그대로 (서버 quarter_words 와 같음)
+        period = fs.squash(fs.function_text(js, "chatPeriod", f"frontend/src/{CHAT_JS}"))
+        self.assertIn(fs.squash("/^[0-9]{4}[1-4]$/.test(p)"), period)           # 조건 줄: 칸 전체가 코드일 때 (서버 QUARTER_CODE)
+        self.assertEqual(ap.QUARTER_CODE.pattern, "[0-9]{4}[1-4]")
+
+    @unittest.skipUnless(fs.NODE, "node 가 없어 화면 함수를 실제로 돌려 보지 못함")
+    def test_runs_like_the_server_function(self):
+        texts = [raw for raw, _ in QUARTER_CHANGED] + QUARTER_UNCHANGED
+        fields = ["20262", "19994", "2026년 2분기", "20262 기준", "20265"]
+        out = fs.node_eval({CHAT_JS: ["chatQuarter", "chatPeriod"]}, f"""{{
+            texts: {json.dumps(texts, ensure_ascii=False)}.map(chatQuarter),
+            twice: {json.dumps(texts, ensure_ascii=False)}.map(chatQuarter).map(chatQuarter),
+            fields: {json.dumps(fields, ensure_ascii=False)}.map((p) => chatPeriod({{ period_label: p }})),
+            fromCode: chatPeriod({{ period_label: null, period: "20261" }}),
+            other: [chatQuarter(null), chatQuarter(20262)] }}""")
+        self.assertEqual(out["texts"], [ap.quarter_words(t) for t in texts])
+        self.assertEqual(out["twice"], out["texts"])                             # 서버가 이미 바꾼 글자를 또 바꾸지 않는다
+        self.assertEqual(out["fields"], [ap.period_words(p) for p in fields])
+        self.assertEqual(out["fromCode"], "2026년 1분기")
+        self.assertEqual(out["other"], [None, 20262])
+
+
 # ── 기본 조건 표시 ───────────────────────────────────────────────────────
 class TestStoreDefaultFlag(Base):
     def conditions(self):
@@ -362,8 +413,12 @@ class TestStoreQuestionRules(unittest.TestCase):
 
     def test_the_drawer_starters_are_market_questions(self):
         # 5차 회의(11/18): 첫 추천 질문은 상권 질문과 전 파트 질문(고객응대·마케팅)이 섞인다. 가게 기본 질문은 없다
-        js = (REPO_ROOT / "services" / "web" / "web" / "static" / "app.js").read_text(encoding="utf-8")
-        starters = re.findall(r'"([^"]+)"', re.search(r"const CHAT_STARTERS = \[(.*?)\];", js, re.S).group(1))
+        starters = fs.strings(fs.const_value(fs.read(CHAT_JS), "CHAT_STARTERS", f"frontend/src/{CHAT_JS}"))
+        # 서랍 상태(state.js)가 이 상수로 첫 칩을 채운다 (가져오기 한 번 + 쓰는 곳)
+        state = fs.read(CHAT_STATE)
+        self.assertRegex(state, r'import\s*\{[^}]*\bCHAT_STARTERS\b[^}]*\}\s*from\s*["\']\./chat\.js["\']',
+                         f"frontend/src/{CHAT_STATE} 가 chat.js 의 CHAT_STARTERS 를 가져오지 않아요")
+        self.assertGreaterEqual(len(re.findall(r"\bCHAT_STARTERS\b", state)), 2, f"frontend/src/{CHAT_STATE} 가 CHAT_STARTERS 를 쓰지 않아요")
         self.assertEqual(len(starters), 6)
         for text in starters:
             self.assertIsNone(ap.store_question(text), text)
@@ -502,12 +557,11 @@ class TestStoreAnswers(Base):
         self.assertEqual(self.market.requests, [])
 
     def test_screen_names_match_the_menu_on_the_page(self):
-        nav = re.search(r'<nav class="side"[\s\S]*?</nav>', INDEX_HTML).group(0)
-        labels = [re.sub(r"\s+", " ", re.sub(r"<svg[\s\S]*?</svg>|<[^>]+>", "", link)).strip()
-                  for link in re.findall(r"<a [^>]*data-route=[^>]*>([\s\S]*?)</a>", nav)]
+        labels = list(fs.sidebar_menu().values())             # frontend/src/components/Sidebar.jsx 왼쪽 메뉴 글자
         self.assertEqual(sorted(ap.SCREENS.values()), sorted(["리뷰 분석", "추천 카드", "승인할 글", "처리 완료", "맞춤 마케팅", "종합 리포트"]))
-        for name in ap.SCREENS.values():
-            self.assertIn(name, labels)                       # 답에 적는 메뉴 이름이 화면 메뉴 글자와 같다
+        for name in ap.SCREENS.values():                      # 답에 적는 메뉴 이름이 화면 메뉴 글자와 같다
+            self.assertIn(name, labels, f"서랍 답(assistant_proxy.SCREENS)의 메뉴 이름 '{name}' 이 Sidebar.jsx 메뉴 {labels} 에 없어요 "
+                                        "(메뉴 글자를 바꿨다면 assistant_proxy.SCREENS 도 같이 고칠 것)")
         self.assertIn("동네 상권·업종 매출 상담", ap._where_answer("리뷰 어디서 봐?")["reply"]["text"])
 
     def test_when_the_profile_cannot_be_read(self):

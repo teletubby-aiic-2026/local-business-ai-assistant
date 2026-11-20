@@ -1,15 +1,20 @@
-/* 맞춤 마케팅 (#/marketing): 첫 질문은 기능 카드 격자, 질문이 진행되면 두 칸(질문 · 제안 결과), 900px 이하면 위아래.
-   색은 tokens.css 변수만 쓴다. 넓은 광고비 표는 그 칸 안에서만 옆으로 밀린다 */
+/* 맞춤 마케팅 (#/marketing): 첫 질문은 기능 카드 격자, 시작 모드를 고르면 두 칸(질문 · 제안 결과).
+   폭은 화면 창이 아니라 본문 실제 폭(@container content, layout.css)으로 가른다: 서랍이 열려 본문이 좁아져도(1280px + 서랍 400px)
+   860px 아래면 위아래로 쌓인다. 색은 tokens.css 변수만 쓴다. 넓은 광고비 표는 그 칸 안에서만 옆으로 밀린다 */
 .mkt { word-break: keep-all; overflow-wrap: break-word; }
 .mkt [role="tabpanel"]:focus-visible { outline-offset: 4px; }
 .mkt-state > * + * { margin-top: var(--s-12); }
 
 /* 두 칸 */
-.mkt-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: var(--s-16); align-items: start; }
-@media (max-width: 900px) { .mkt-split { grid-template-columns: 1fr; } }
+.mkt-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: var(--s-20); align-items: start; }
+@container content (max-width: 860px) { .mkt-split { grid-template-columns: minmax(0, 1fr); } }
 .mkt-ask, .mkt-results, .mkt-start { min-width: 0; }
+.mkt-ask h2 { overflow-wrap: anywhere; }
+.mkt-progress { color: var(--muted); font-weight: 500; }   /* 제목 안의 ' · 질문 n' */
 .mkt-cards { display: grid; gap: var(--s-16); }
-.mkt-modes { margin-top: var(--s-4); }
+.mkt-results .mkt-cards:empty { margin-top: 0; }   /* 결과가 오기 전에도 라이브 영역은 그려 둔다 (높이 0) */
+/* feature-grid(base.css)보다 늦게 읽히지 않으므로 두 클래스로 덮는다: 기능 카드 6개가 3 + 3 으로 */
+.feature-grid.mkt-modes { margin-top: var(--s-4); grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
 .mkt-modes .feature-card[aria-disabled="true"] { opacity: .6; cursor: progress; }
 
 /* 대화: 사장님 답 = 오른쪽 연한 말풍선, 비서 = 면 없이 글만 */
@@ -70,9 +75,7 @@
 .mkt-why { padding: 12px 16px; border-radius: var(--r-md); background: var(--surface); display: grid; gap: 4px; }
 .mkt-why-title { color: var(--ink-2); font-size: var(--fs-small); font-weight: 700; }
 .mkt-why ul { margin: 0; padding-left: 18px; }
-.mkt-warn, .mkt-demo { padding: 8px 12px; border-radius: var(--r-md); font-size: var(--fs-small); }
-.mkt-warn { background: var(--warn-bg); color: var(--warn); }
-.mkt-demo { background: var(--warn-bg); color: var(--warn); font-weight: 500; }
+.mkt-warn { padding: 8px 12px; border-radius: var(--r-md); font-size: var(--fs-small); background: var(--warn-bg); color: var(--warn); }
 .mkt-line b { font-variant-numeric: tabular-nums; }
 .mkt-todo-head { font-weight: 700; }
 .mkt-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
@@ -151,7 +154,10 @@
 .mkt-report-state:empty { display: none; }
 .mkt-report-state.bad { padding: 8px 12px; border-radius: var(--r-md); background: var(--bad-bg); color: var(--bad); font-weight: 500; }
 
-@media (max-width: 499px) {
-  .mkt-card { padding: 16px; }
+/* 좁은 본문 (휴대전화 375px 등): 패널·카드 안쪽 여백을 줄여 글 칸을 넓힌다 */
+@container content (max-width: 520px) {
+  .panel.mkt-ask, .panel.mkt-results, .panel.mkt-start, .panel.mkt-report-card { padding: var(--s-16); }
+  .mkt-card { padding: 14px; gap: 12px; }
+  .mkt-draft { padding: 10px 12px 8px; }
   .mkt-msg.user { max-width: 92%; }
 }

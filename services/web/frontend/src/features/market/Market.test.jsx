@@ -44,6 +44,18 @@ describe("상권 분석 화면", () => {
     expect(screen.getByText("음악회").tagName).toBe("B");   // http(s) 아닌 링크는 열지 않음
   });
 
+  it("머리 고지는 한 줄 (출처·추정치·우리 가게 매출 아님), 옆 칸 제목은 '서울시 자료 최신화'", async () => {
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    const sub = document.querySelector(".page-head .ph-sub");
+    expect(sub.textContent).toBe("서울시 상권분석서비스 추정치 기준 · 우리 가게 실제 매출이 아니에요");
+    expect(screen.getAllByText(/우리 가게 (실제 )?매출이 아니에요/).length).toBe(1);
+    expect(screen.getByRole("heading", { name: "서울시 자료 최신화" })).toBeTruthy();
+    expect(screen.queryByText(/열린데이터광장/)).toBeNull();
+    expect(screen.getByText("준비됨 · 서울시 확인 기록 없음")).toBeTruthy();
+    expect(screen.getByText("2026년 2분기 · 한식음식점")).toBeTruthy();   // 기준 분기·업종은 지표에 그대로
+  });
+
   it("비교 탭을 열면 목록을 받고 비교한다, 화면을 다시 열어도 남는다", async () => {
     const { unmount } = render(<Market />);
     await screen.findAllByText("12억 원");

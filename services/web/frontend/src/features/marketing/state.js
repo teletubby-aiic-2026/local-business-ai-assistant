@@ -10,8 +10,8 @@ import { currentRoute } from "../../lib/router.js";
 import { mktApi, mktPost } from "./api.js";
 import { MKT_STATES, MKT_SUB, MKT_UNIT, badgeOf, calcRange, downKey, draftLabel, initialDrafts, mktKey } from "./logic.js";
 
-// 대화를 처음으로 되돌릴 때 비우는 것
-const blankChat = () => ({ flow: null, prompt: null, log: [], cards: [], error: "", hasRetry: false, questions: 0 });
+// 대화를 처음으로 되돌릴 때 비우는 것. mode = 고른 시작 모드 글자 (질문 칸 제목에 보임)
+const blankChat = () => ({ flow: null, prompt: null, log: [], cards: [], error: "", hasRetry: false, questions: 0, mode: "" });
 // '처음부터 다시'·가게 바뀜 때 비우는 것 (예전 mktReset). gen·reportGen·카드 번호·처리한 nav 번호는 이어 간다
 const blank = () => ({
   ...blankChat(),
@@ -172,6 +172,8 @@ export function sendText(value) { if (!m.busy) answer(value, value); }
 
 export async function answer(value, label) {
   if (m.busy) return;
+  // 시작 모드를 고른 것이면 그 이름을 바로 남긴다 (첫 질문이 오기 전에도 질문 칸·'처음부터'가 보이게)
+  if (m.prompt?.start) set({ mode: String(label) });
   addLog(entry("user", label));
   await step(value);
 }
@@ -392,7 +394,7 @@ export async function storyLink(n) {
     const r = await mktPost("step", { state: base.state, answer: "가게 이야기 글" });
     if (stale(gen)) return;
     busy("");
-    set({ flow: r.state });
+    set({ flow: r.state, mode: "가게 이야기 글" });
     addLog(...bots(r));
     prompt(r);
   } catch (e) {
@@ -538,9 +540,11 @@ async function jump(label) {
   }
 }
 
-// 위쪽 안내: 키 없이 저장된 예시로 도는 중이면 꼭, '처음부터 다시' 때 기록을 못 지웠으면 그 안내도 (예전 mktNotice)
-export function noticeLines(s) {
+// 위쪽 안내: 저장된 예시로 도는 중이면 꼭, '처음부터 다시' 때 기록을 못 지웠으면 그 안내도 (예전 mktNotice).
+// 예시 고지는 이 띠 한 곳 + 결과 카드 배지. 화면 맨 위 시험용 띠(health.mode_notice)가 이미 떠 있으면(appBand) 겹쳐 띄우지 않는다
+export const MKT_DEMO_NOTICE = "시험용 실행 · 맞춤 마케팅 글은 미리 저장한 예시·정해 둔 틀이에요 (실제 AI 결과 아님)";
+export function noticeLines(s, appBand = false) {
   const h = s.health || {};
   const demo = h.demo === true || h.mode === "mock" || h.key_present === false || s.demoSeen;   // mock 이면 키가 있어도 데모
-  return [demo ? "시험용 실행 · 맞춤 마케팅이 지금 HCX를 부르지 않아 글은 미리 저장한 예시·정해 둔 틀이에요 (실제 AI 결과 아님)" : "", s.clearNote].filter(Boolean);
+  return [demo && !appBand ? MKT_DEMO_NOTICE : "", s.clearNote].filter(Boolean);
 }

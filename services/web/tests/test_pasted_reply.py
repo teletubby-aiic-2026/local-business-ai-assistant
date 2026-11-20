@@ -19,11 +19,9 @@ from fastapi.testclient import TestClient
 from web.demo import Demo
 from web.generate import PASTED_EXAMPLES_RELATIVE, ensure_marketing_on_path, pasted_reply_targets
 from web.main import create_app
-from web.settings import WEB_DIR
-
+from tests import frontend_src as fs
 from tests.test_web import HAS_C6, MARKETING, FakeSource, settings
 
-STATIC = WEB_DIR / "web" / "static"
 EXAMPLES = MARKETING / PASTED_EXAMPLES_RELATIVE
 UNFAIR = "제육볶음 정식 고기를 불고기로 그냥 바꿔 달라고 했더니 안 된대요. 그것도 못 해 주나요? 별 하나 드립니다"
 OTHER_UNFAIR = "계란말이 서비스로 하나 달라고 했더니 안 된다고 하셨어요. 단골한테 너무하네요"
@@ -49,10 +47,10 @@ class PasteSource(FakeSource):
 
 
 def paste_samples() -> list[dict]:
-    """app.js 의 PASTE_SAMPLES 배열 (text·rating)."""
-    js = (STATIC / "app.js").read_text(encoding="utf-8")
-    block = re.search(r"const PASTE_SAMPLES = \[(.*?)\];", js, re.S).group(1)
-    return [{"text": t, "rating": int(r)} for t, r in re.findall(r'\{\s*text:\s*"([^"]+)",\s*rating:\s*(\d)\s*\}', block)]
+    """화면 리뷰 붙여넣기 탭의 예시 문장 (frontend/src/features/analysis/calc.js 의 PASTE_SAMPLES 배열, text·rating)."""
+    block = fs.const_value(fs.read("features/analysis/calc.js"), "PASTE_SAMPLES", "frontend/src/features/analysis/calc.js")
+    pat = r"""\{\s*text\s*:\s*(["'])(.*?)\1\s*,\s*rating\s*:\s*(\d)\s*,?\s*\}"""
+    return [{"text": text, "rating": int(rating)} for _, text, rating in re.findall(pat, block)]
 
 
 @unittest.skipUnless(HAS_C6, "MARKETING_DIR(C6 저장본) 없음")

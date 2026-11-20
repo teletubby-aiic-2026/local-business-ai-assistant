@@ -120,7 +120,7 @@ for _sid in ("store_basak", "store_mongle"):
 # 상권 서비스의 분기 코드는 '20262'(2026년 2분기)다. 조건에 분기 이름(period_label)이 빠지면 이 코드가 답 문장에 그대로 들어온다
 # ("20262 자료로 볼게요"). 화면에 넘기기 전에 '2026년 2분기'로 바꾼다 (cards.quarter_words 의 '2026Q2' → '2026년 2분기'와 같은 모양).
 # 금액·개수는 건드리지 않는다: 앞뒤에 숫자·영문·쉼표·점이 붙었거나(120262, 20,262, 20262.5) 바로 뒤에 단위가 오면(20262원) 그대로 둔다.
-# 화면(app.js 의 CHAT_QUARTER)도 같은 정규식을 쓴다. 시험이 두 곳의 정규식이 글자 그대로 같은지 확인한다.
+# 화면(frontend/src/features/assistant/chat.js 의 CHAT_QUARTER)도 같은 정규식을 쓴다. 시험이 두 곳의 정규식이 글자 그대로 같은지 확인한다.
 QUARTER_CODE = re.compile(r"[0-9]{4}[1-4]")        # 칸 전체가 분기 코드일 때 (period_label 에 '20262' 가 온 경우)
 QUARTER_IN_TEXT = re.compile(
     r"(^|[^0-9A-Za-z_,.\-])(20[0-9]{2})(?:Q([1-4])(?![0-9A-Za-z])|([1-4])(?![0-9A-Za-z_\-]|[,.][0-9]"
@@ -283,7 +283,7 @@ def _upstream_error(status: int, data: Any, path: str) -> MarketError:
 REPLY_SCHEMA = "assistant-reply-v1"     # 상권 서비스 assistant/flow.py 의 SCHEMA (시험이 같은지 확인)
 STORE_ANSWER = "store_profile"          # 여기서 답한 응답에만 붙는 answered_by 값
 MAX_STORE_QUESTION = 40                 # 공백·기호를 뺀 글자 수. 이보다 긴 글은 단순한 가게 질문으로 보지 않는다
-# 화면 메뉴 이름. static/index.html 의 메뉴 글자와 같아야 한다 (시험이 확인)
+# 화면 메뉴 이름. frontend/src/components/Sidebar.jsx 의 메뉴 글자와 같아야 한다 (시험이 확인)
 SCREENS = {"reviews": "리뷰 분석", "cards": "추천 카드", "drafts": "승인할 글", "done": "처리 완료", "marketing": "맞춤 마케팅",
            "report": "종합 리포트"}
 MARKET_SCREEN = "상권 분석"          # 11/18 메뉴 (#/market). SCREENS 는 리뷰·마케팅 쪽 화면만 (가게 질문 시험이 그 목록을 고정)
@@ -369,7 +369,7 @@ def store_question(text: str) -> str | None:
 # ── 전 파트 질문 (5차 회의 11/18) ──────────────────────────────────────────────
 # 상권 질문은 지금처럼 상권 서비스가 8분기 자료로 답한다. 입력·설정이 필요한 고객응대·마케팅·리포트 질문은 여기서
 # 지금 가게의 현황 1~2줄과 그 기능 화면으로 바로 가는 버튼(payload.type "navigate")을 준다. 상권 서비스는 부르지 않는다.
-# 버튼은 상권 서비스의 /actions 로 보내지 않고 화면(app.js)이 그 자리에서 이동한다.
+# 버튼은 상권 서비스의 /actions 로 보내지 않고 화면(frontend/src/features/assistant/state.js)이 그 자리에서 이동한다.
 DOMAIN_ANSWER = "web_domain"        # 여기서 답한 전 파트 응답의 answered_by
 _STRONG_MARKET = ("상권", "유동", "인구", "점포", "경쟁", "개업", "폐업", "창업", "월세", "임대료", "권리금", "보증금", "통계",
                   "연령", "나이대", "배후", "집객", "직장인", "동네", "주변", "근처")
@@ -378,7 +378,7 @@ _MKT_Q = ("쿠폰", "본전", "할인", "남은재료", "남는재료", "재고"
           "마케팅", "이벤트", "단골", "재주문", "사용률", "전단", "프로모션")
 _CARE_Q = ("리뷰", "후기", "불만", "답글", "댓글", "캡처", "캡쳐", "별점", "진상", "테러", "억울", "악플", "응대", "컴플레인", "클레임",
            "블랙컨슈머")
-# 맞춤 마케팅 화면의 시작 모드 (app.js 의 MKT_SUB 와 같은 값)
+# 맞춤 마케팅 화면의 시작 모드 (frontend/src/features/marketing 의 MKT_SUB 와 같은 값, 시험이 확인)
 MKT_SUBS = {"promo": "맞춤 홍보 제안", "leftover": "남은 재료 팔기", "ad": "광고비 점검", "story": "가게 이야기 글",
             "repeat": "쿠폰 결과 확인"}
 

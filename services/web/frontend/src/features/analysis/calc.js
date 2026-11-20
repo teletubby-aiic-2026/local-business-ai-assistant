@@ -89,9 +89,13 @@ export function capItems(r) {
       picked: !c.duplicate, saved: false, msg: "" };
   });
 }
+// 붙여넣은 리뷰의 분류 방식 → 화면 배지 (AI 생성 여부는 남기고, 내부 이름 model·replay·rule 은 보이지 않게)
+export const METHOD_NAMES = { model: "AI 분류", replay: "저장된 AI 분류", rule: "규칙 분류 (AI 아님)", rules: "규칙 분류 (AI 아님)" };
+export const methodName = (m) => METHOD_NAMES[String(m || "").trim()] || "";
+
 export const capWarnings = (r) => (Array.isArray(r?.warnings) ? r.warnings : []).filter((w) => typeof w === "string" && w.trim());
 export function capStatusLine(r, count) {
   const pieces = Number(r?.pieces) > 1 ? ` · ${Number(r.pieces)}조각으로 나눠 읽음` : "";
-  return `후보 ${count}건${pieces} · ${r?.demo ? "예시 결과" : `읽은 모델 ${r?.engine || ""}`}. 글과 별점을 고치고, 저장할 리뷰를 골라 주세요.`;
+  return `후보 ${count}건${pieces} · ${r?.demo ? "예시 결과" : `읽은 모델 ${r?.engine || ""}`}`;   // 고치고 고르라는 안내는 후보 목록 위 확인 경고 한 곳에
 }
 export const capPickedOf = (items) => items.filter((x) => x.picked && !x.saved);

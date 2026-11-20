@@ -1,6 +1,6 @@
 // 상권 분석 (#/market, 5차 회의 11/18). Figma 화면 11.
-// ① 분석 조건(상권·업종·분기 + 우리 가게 기준으로 + AI에게 묻기) ② 핵심 지표 4칸 ③ 세부 탭 4개 ④ 옆 칸: 서울 열린데이터광장 실시간 최신화 · 우리 동네 문화행사.
-// 숫자는 서울시 상권분석서비스 추정치이고 우리 가게 매출이 아니다. 서버 글은 JSX 로만 넣는다.
+// ① 분석 조건(상권·업종·분기 + 우리 가게 기준으로 + AI에게 묻기) ② 핵심 지표 4칸 ③ 세부 탭 4개 ④ 옆 칸: 서울시 자료 최신화 · 우리 동네 문화행사.
+// 숫자는 서울시 상권분석서비스 추정치이고 우리 가게 매출이 아니다 (머리 한 줄로만 알린다). 서버 글은 JSX 로만 넣는다.
 import { useEffect } from "react";
 import { useStore, openDrawer } from "../../state/store.js";
 import { Button, Notice, PageHead, Panel, StatTile, Tabs } from "../../components/ui.jsx";
@@ -18,6 +18,8 @@ const TABS = [
   { id: "compare", label: "타 상권 1:1 비교" },
 ];
 const STORE_KEYS = ["stores_total", "stores_general", "stores_franchise", "stores_opened", "stores_closed"];
+// 이 화면의 핵심 고지 (출처·추정치·우리 가게 매출 아님). 화면 머리에 이 한 줄만 둔다
+const MK_NOTICE = "서울시 상권분석서비스 추정치 기준 · 우리 가게 실제 매출이 아니에요";
 
 // 고른 값이 목록에 없으면 브라우저처럼 고를 수 있는 첫 보기
 const valueIn = (list, want, key, ok = () => true) => {
@@ -52,8 +54,7 @@ export default function Market() {
 
   return (
     <div className="col wide mk">
-      <PageHead owner={owner} title="상권 분석"
-        sub="서울시 상권분석서비스 공식 자료로 우리 가게 주변 상권을 봐요. 상권·업종 전체의 추정치이고, 우리 가게 매출이 아니에요." />
+      <PageHead owner={owner} title="상권 분석" sub={MK_NOTICE} />
       <Notice tone={s.warn ? "warn" : undefined} className="mk-state">{s.status}</Notice>
 
       <Panel title="분석 조건" titleId="mk-cond-title" sub={s.condLine} className="mk-cond">
@@ -121,7 +122,7 @@ function Tiles({ s }) {
         sub={loaded ? (d.yoy && d.yoy.previous_period ? `${qLabel(d.yoy.previous_period)} 대비 추정매출` : "추정매출") : ""} />
       <StatTile label="같은 업종 점포" value={stores && stores.total ? numKo(stores.total.value, "개") : "–"}
         sub={stores ? `개업 ${numKo(stores.opened && stores.opened.value)} · 폐업 ${numKo(stores.closed && stores.closed.value)}` : ""} />
-      <StatTile label="유동인구(상권 전체)" value={pop && typeof pop.value === "number" ? numKo(pop.value, "명") : "–"}
+      <StatTile label="유동인구" value={pop && typeof pop.value === "number" ? numKo(pop.value, "명") : "–"}
         sub={loaded ? "상권 전체 원천 지표" : ""} />
     </div>
   );
@@ -282,10 +283,10 @@ function CompareTable({ r, cond }) {
 
 function SeoulPanel({ s }) {
   return (
-    <Panel title="서울 열린데이터광장 실시간 최신화" titleId="mk-seoul-title" className="mk-seoul">
+    <Panel title="서울시 자료 최신화" titleId="mk-seoul-title" className="mk-seoul">
       <p className="small">{s.dataLine}</p>
       <Button size="small" className="mk-sync" disabled={s.syncing} onClick={sync}>
-        {s.syncing ? "서울시에 확인하는 중…" : "서울시 최신 데이터 확인·동기화"}
+        {s.syncing ? "서울시에 확인하는 중…" : "최신 자료 확인·동기화"}
       </Button>
       <p className={["small", "mk-sync-result", s.syncWarn && "warn"].filter(Boolean).join(" ")} role="status" aria-live="polite">{s.syncLine}</p>
     </Panel>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { homeStats, keywordRows, hourChart, sourceLine, measureIds, replacesOf, statusOf, touchedOf, mapDraft, pickCurrent, starText } from "./calc.js";
+import { homeStats, keywordRows, hourChart, scopeChips, sourceLine, reasonByAI, measureIds, replacesOf, statusOf, listBadges, touchedOf, mapDraft, pickCurrent, starText } from "./calc.js";
 
 const briefing = {
   period: { start: "2026-11-12", end: "2026-11-18" },
@@ -23,6 +23,12 @@ describe("홈", () => {
     expect(s.complaintsSub).toBe("리뷰의 25%");
     expect(s.repeated).toBe(3);
     expect(s.repeatedSub).toBe("포장 누락");
+  });
+  it("상권 칸 범위 칩: 상권명 · 업종 · 시간대 (지표 이름에서)", () => {
+    const snap = { area_name: "장승배기역 4번", metric_name: "저녁 시간대(17~24시) 추정매출 전년 동기 대비 변화율 · 두 분기 공통 업종" };
+    expect(scopeChips(snap)).toEqual(["장승배기역 4번", "공통 업종", "17~24시"]);
+    expect(scopeChips({ area_name: "노량진", metric_name: "추정매출 변화율" })).toEqual(["노량진"]);
+    expect(scopeChips(null)).toEqual([]);
   });
   it("주제별 불만은 상위 3개 + 그 밖, 핵심 문제 주제는 hot", () => {
     const k = keywordRows(briefing);
@@ -51,6 +57,12 @@ describe("카드", () => {
     measures: { options: [{ id: "M1" }, { id: "M2" }, { id: "M3" }], default: ["M1"] },
   };
   it("근거 한 줄", () => expect(sourceLine(p)).toBe("리뷰 2건 · 합성 데이터 · 서울 상권"));
+  it("이유 문장을 AI 가 썼는지 (검사기 통과한 모델 문장만)", () => {
+    expect(reasonByAI({ reason_source: "HCX-005 (검사기 통과)" })).toBe(true);
+    expect(reasonByAI({ reason_source: "고정 문장" })).toBe(false);
+    expect(reasonByAI({ reason_source: "HCX-005 실패 → 고정 문장" })).toBe(false);
+    expect(reasonByAI({})).toBe(false);
+  });
   it("점검 수칙: 바꾼 값 → 고른 값 → 기본값, 선택지 순서", () => {
     expect(measureIds(p, {}, {})).toEqual(["M1"]);
     expect(measureIds(p, { a: { chosen_measures: [{ id: "M3" }, { id: "M2" }] } }, {})).toEqual(["M2", "M3"]);
@@ -74,6 +86,12 @@ describe("초안", () => {
     expect(statusOf(d1, s.approved)).toEqual(["ok", "승인 완료"]);
     expect(statusOf(d2, s.approved)).toEqual(["bad", "점검 실패"]);
     expect(statusOf(d3, s.approved)).toEqual(["warn", "확인 필요"]);
+  });
+  it("초안 목록 배지: 승인 상태 먼저, 승인 전이면 점검 결과를 덧붙임", () => {
+    expect(listBadges(d1, s.approved)).toEqual([["ok", "승인 완료"]]);
+    expect(listBadges(d2, s.approved)).toEqual([["", "승인 대기"], ["bad", "점검 실패"]]);
+    expect(listBadges(d3, s.approved)).toEqual([["", "승인 대기"], ["warn", "확인 필요"]]);
+    expect(listBadges({ draft_id: "d4" }, s.approved)).toEqual([["", "승인 대기"]]);   // 점검 통과는 '승인 대기'만
   });
   it("승인했거나 고친 글 수", () => expect(touchedOf(s, "a")).toBe(2));
   it("보일 카드·글: 안내문이 먼저, 첫 미승인 글", () => {

@@ -1,6 +1,6 @@
 // 마케팅 보고서 탭 (주간·월간, 예전 mktReport·mktReportDraw). 기록을 코드로 센 것이다 (AI 호출 없음).
-// 기록이 없으면 서버가 데모 기록을 주고(demo: true), 그 사실을 꼭 밝힌다.
-import { Badge, Button, Notice, Panel, StatTile } from "../../components/ui.jsx";
+// 기록이 없으면 서버가 데모 기록을 주고(demo: true), 그 사실을 보고서 위 안내 한 곳에서 꼭 밝힌다.
+import { Button, Notice, Panel, StatTile } from "../../components/ui.jsx";
 import { MKT_PERIOD, MKT_VERDICT, reportView, wonKo } from "./logic.js";
 import { loadReport, useMkt } from "./state.js";
 import { Bar } from "./ResultCard.jsx";
@@ -11,10 +11,8 @@ function ReportCard({ d, period }) {
   const v = reportView(d, period);
   const { L } = v;
   return (
-    <Panel as="article" className="mkt-report-card" title={`${L.now} 마케팅 보고서`} titleId="mkt-report-title"
-      actions={d.demo ? <Badge tone="warn">데모 기록</Badge> : null}>
-      <p className="small muted">{v.start} ~ {v.until} · 기록을 코드로 셌어요 (AI 호출 없음)</p>
-      {d.demo && <Notice tone="warn" role="note">아직 이 가게에 쌓인 마케팅 기록이 없어 예시로 넣어 둔 데모 기록을 보여 줘요. 실제 우리 가게 기록이 아니에요.</Notice>}
+    <Panel as="article" className="mkt-report-card" title={`${L.now} 마케팅 보고서`} titleId="mkt-report-title" sub={`${v.start} ~ ${v.until}`}>
+      {d.demo && <Notice tone="warn" role="note">데모 기록 · 아직 쌓인 마케팅 기록이 없어 예시를 보여 줘요 (우리 가게 실제 기록 아님)</Notice>}
       {v.tiles.length > 0 && (
         <div className="tiles">{v.tiles.map(([val, label], i) => <StatTile key={i} label={label} value={val} tint={TINTS[i % TINTS.length]} />)}</div>
       )}

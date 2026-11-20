@@ -9,10 +9,10 @@ describe("상권 분석 표기", () => {
     expect(qLabel(null)).toBe("");
   });
 
-  it("원 단위를 억·만으로만 줄인다", () => {
-    expect(wonShort(11777272482)).toBe("117억 7,727만 원");
-    expect(wonShort(200000000)).toBe("2억 원");
-    expect(wonShort(-35000)).toBe("-4만 원");
+  it("원 단위를 억·만으로만 줄인다 ('원' 앞은 줄바꿈 없는 띄어쓰기)", () => {
+    expect(wonShort(11777272482)).toBe("117억 7,727만\u00a0원");
+    expect(wonShort(200000000)).toBe("2억\u00a0원");
+    expect(wonShort(-35000)).toBe("-4만\u00a0원");
     expect(wonShort(9500)).toBe("9,500원");
     expect(wonShort(undefined)).toBe("–");
   });
@@ -23,7 +23,7 @@ describe("상권 분석 표기", () => {
     expect(pctKo(3.456)).toBe("+3.46%");
     expect(pctKo(-1)).toBe("-1.00%");
     expect(pctKo(0)).toBe("0.00%");
-    expect(metricValue({ unit: "원" }, { value: 150000000 })).toBe("1억 5,000만 원");
+    expect(metricValue({ unit: "원" }, { value: 150000000 })).toBe("1억 5,000만\u00a0원");
     expect(metricValue({ unit: "명" }, { value: 12 })).toBe("12명");
   });
 
@@ -40,7 +40,13 @@ describe("상권 분석 표기", () => {
     expect(dataStatusText(null)).toBe("적재된 자료 상태를 불러오지 못했어요.");
     expect(dataStatusText({ message: "준비됨", verified_files: 808, last_synced_at: "2026-11-18T21:09:00+09:00" }))
       .toBe("준비됨 · 검증한 원본 파일 808개 · 마지막 서울시 확인 2026-11-18 21:09");
-    expect(syncText({ message: "최신이에요", totals: { sales: 10 }, sample_only: true })).toBe("최신이에요 · 서울시 총 건수: 추정매출 10건 · 키가 없어 서울시 공개 샘플(1~5건)로만 확인했어요.");
+    expect(syncText({ message: "최신이에요", totals: { sales: 10 }, sample_only: true })).toBe("최신이에요 · 서울시 총 건수: 추정매출 10건 · 서울시 공개 샘플(1~5건)로만 확인했어요.");
+    expect(syncText({ message: "최신이에요", sample_only: true, notice: "서버 안내" })).toBe("최신이에요 · 서버 안내");
+  });
+
+  it("서울시와 맞춰 본 기록이 없으면 내부 사정 없이 짧게", () => {
+    expect(dataStatusText({ message: "준비됨", verified_files: 808 })).toBe("준비됨 · 검증한 원본 파일 808개 · 서울시 확인 기록 없음");
+    expect(dataStatusText({ message: "준비됨" })).not.toMatch(/샘플 키|인증키/);
   });
 
   it("링크·쿼리", () => {

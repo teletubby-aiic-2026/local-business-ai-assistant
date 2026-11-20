@@ -22,10 +22,11 @@ from fastapi.testclient import TestClient
 
 from shared.storage import MemoryStore
 from shared.storage.memory import MemoryApprovals
-from web.demo import Demo
+from web.demo import REPLACES_MAX, Demo
 from web.generate import ensure_marketing_on_path
 from web.main import create_app
 
+from tests import frontend_src as fs
 from tests.test_pasted_reply import OTHER_UNFAIR, UNFAIR, PasteSource
 from tests.test_web import HAS_C6, MARKETING, FakeSource, settings
 
@@ -442,6 +443,17 @@ def approve(client, draft_id, text="글"):
 
 def shown(client):
     return [i["draft_id"] for i in client.get("/api/approvals").json()["items"]]
+
+
+class ScreenSendsAtMostTheServerLimit(unittest.TestCase):
+    """화면(frontend/src/features/flow/calc.js)이 보내는 옛 글 id 상한이 서버 상한(demo.REPLACES_MAX)과 같다. 화면이 더 많이 보내면
+    '카드 전체 다시 만들기'가 400 으로 막힌다 (11/20 React 전환 때 test_draft_done_static.py 에서 옮김)."""
+
+    def test_limit_matches_the_server(self):
+        calc = fs.read("features/flow/calc.js")
+        value = fs.const_value(calc, "REPLACES_MAX", "frontend/src/features/flow/calc.js")
+        self.assertEqual(value, str(REPLACES_MAX), f"화면 REPLACES_MAX({value})와 서버 demo.REPLACES_MAX({REPLACES_MAX})가 달라요")
+        self.assertIn(".slice(0,REPLACES_MAX)", fs.squash(fs.function_text(calc, "replacesOf", "frontend/src/features/flow/calc.js")))
 
 
 @unittest.skipUnless(HAS_C6, "MARKETING_DIR(C6 저장본) 없음")

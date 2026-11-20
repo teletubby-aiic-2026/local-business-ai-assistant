@@ -5,11 +5,13 @@
 export const qLabel = (p) => p && typeof p === "object" ? (p.label || qLabel(p.code))
   : /^[0-9]{4}[1-4]$/.test(String(p || "")) ? `${String(p).slice(0, 4)}년 ${String(p)[4]}분기` : String(p || "");
 
+// '원' 앞은 줄바꿈 없는 띄어쓰기(U+00A0): 좁은 지표 칸에서 '원'만 혼자 다음 줄로 꺾이지 않게 ('117억' / '7,727만 원'으로 꺾임)
+const NB = "\u00a0";
 export function wonShort(n) {
   if (typeof n !== "number" || !isFinite(n)) return "–";
   const sign = n < 0 ? "-" : "", v = Math.abs(n);
-  if (v >= 1e8) { const man = Math.round((v % 1e8) / 1e4); return `${sign}${Math.floor(v / 1e8).toLocaleString("ko-KR")}억${man ? ` ${man.toLocaleString("ko-KR")}만` : ""} 원`; }
-  if (v >= 1e4) return `${sign}${Math.round(v / 1e4).toLocaleString("ko-KR")}만 원`;
+  if (v >= 1e8) { const man = Math.round((v % 1e8) / 1e4); return `${sign}${Math.floor(v / 1e8).toLocaleString("ko-KR")}억${man ? ` ${man.toLocaleString("ko-KR")}만` : ""}${NB}원`; }
+  if (v >= 1e4) return `${sign}${Math.round(v / 1e4).toLocaleString("ko-KR")}만${NB}원`;
   return `${sign}${v.toLocaleString("ko-KR")}원`;
 }
 
@@ -47,7 +49,7 @@ export function dataStatusText(d) {
   if (!d) return "적재된 자료 상태를 불러오지 못했어요.";
   const parts = [d.message || ""];
   if (d.verified_files != null) parts.push(`검증한 원본 파일 ${numKo(d.verified_files, "개")}`);
-  parts.push(d.last_synced_at ? `마지막 서울시 확인 ${shortTime(d.last_synced_at)}` : "인증키로 서울시와 맞춰 본 기록 없음 (샘플 키 확인은 기록하지 않아요)");
+  parts.push(d.last_synced_at ? `마지막 서울시 확인 ${shortTime(d.last_synced_at)}` : "서울시 확인 기록 없음");
   return parts.filter(Boolean).join(" · ");
 }
 
@@ -55,7 +57,7 @@ export function dataStatusText(d) {
 export function syncText(r) {
   const totals = Object.entries(r.totals || {}).map(([k, v]) => `${({ sales: "추정매출", stores: "점포", population: "유동인구" })[k] || k} ${numKo(v, "건")}`).join(", ");
   return [r.message, r.checked_at ? `확인 시각 ${shortTime(r.checked_at)}` : "", totals ? `서울시 총 건수: ${totals}` : "",
-    r.sample_only ? (r.notice || "키가 없어 서울시 공개 샘플(1~5건)로만 확인했어요.") : "", r.apply_hint || ""].filter(Boolean).join(" · ");
+    r.sample_only ? (r.notice || "서울시 공개 샘플(1~5건)로만 확인했어요.") : "", r.apply_hint || ""].filter(Boolean).join(" · ");
 }
 
 // 분석 조건 한 줄 (예전 mk-cond-text)

@@ -58,8 +58,17 @@ export function healthProblems(h) {
   if (h.review_service && h.review_service.status === "down") problems.push(`리뷰 분석 서비스(${h.review_service.url})가 꺼져 있어요.`);
   return problems.join(" ");
 }
-// 바닥의 '동작·모의 표시'
+// 상단 안내 띠 (시험용 실행일 때만). 서버의 health.mode_notice 가 있을 때 띄우고, 글은 핵심만 짧게.
+// 이 띠가 '실제 AI 결과가 아님'을 알리는 화면 공통의 한 곳이다 (바닥 줄에서 다시 말하지 않음)
+export const MODE_BAND_MOCK = "시험용 예시 화면 · 실제 AI 생성 결과가 아니에요";
+export const modeBandText = (h) => (h?.mode_notice ? MODE_BAND_MOCK : "");
+
+// 바닥 줄 (자료 출처·AI 생성 여부). 리뷰가 합성 데이터인지는 늘, AI 가 실시간으로 쓰는지는 시험용 띠가 없을 때만 적는다.
+// 분류 방식·규칙·모델 분담 같은 안쪽 사정은 적지 않는다
 export function honestyItems(h) {
-  const p = h?.parts || {};
-  return [`리뷰: ${p.reviews || "합성 데이터"}`, p.briefing, p.cards && `카드: ${p.cards}`, p.generate && `글 생성: ${p.generate}`].filter(Boolean);
+  if (!h) return [];
+  const p = h.parts || {};
+  const items = [`리뷰: ${p.reviews || "합성 데이터"}`];
+  if (!h.mode_notice && p.generate) items.push(`글 생성: ${p.generate}`);
+  return items;
 }

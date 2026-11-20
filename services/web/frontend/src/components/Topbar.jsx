@@ -1,8 +1,11 @@
-// 상단 바: 메뉴 접기 · 가게 이름(바꾸기 겸용) · 게스트 배지 | 로그인(또는 내 계정) · AI에게 묻기 (Figma 02 공통 요소 '상단 바')
+// 상단 바: 메뉴 접기 · 가게 이름(바꾸기 겸용) · 승인 대기 칩 | 화면 모양 · 로그인(또는 이름=내 계정) · AI에게 묻기 (Figma 02 공통 요소 '상단 바')
+// 계정 버튼은 모든 폭에서 보인다 (760px 이하에서는 왼쪽 메뉴의 계정 줄이 숨으므로 이 버튼이 유일한 길)
+import { forwardRef } from "react";
 import { useStore, setState, openDrawer } from "../state/store.js";
 import { storeLine } from "../lib/domain.js";
+import { waitingCount } from "../state/staff.js";
 import { acctSwitch, displayName } from "../state/account.js";
-import { Badge, Button } from "./ui.jsx";
+import { Button, Icon } from "./ui.jsx";
 import { THEME_LABELS, nextTheme, setTheme, useTheme } from "../lib/theme.js";
 
 // 화면 모양 버튼: 누를 때마다 시스템 → 밝게 → 어둡게. 지금 고른 것을 그림과 글(읽기 프로그램·툴팁)로 알린다
@@ -16,17 +19,19 @@ function ThemeButton() {
   const next = nextTheme(choice);
   const label = `화면 모양: ${THEME_LABELS[choice]} (누르면 ${THEME_LABELS[next]})`;
   return (
-    <Button className="theme-toggle" aria-label={label} title={label} onClick={() => setTheme(next)}>
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{THEME_ICON[choice]}</svg>
+    <Button className="icon-btn theme-toggle" aria-label={label} title={label} onClick={() => setTheme(next)}>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">{THEME_ICON[choice]}</svg>
     </Button>
   );
 }
 
-export default function Topbar({ menuOpen, onToggleMenu }) {
+// showWaiting: 왼쪽 메뉴가 안 보일 때(접었거나 761~1024px) 메뉴의 '승인할 글' 숫자를 여기서 보여 준다
+const Topbar = forwardRef(function Topbar({ menuOpen, onToggleMenu, showWaiting = false }, toggleRef) {
   const briefing = useStore((s) => s.briefing);
   const me = useStore((s) => s.me);
   const busy = useStore((s) => s.acctBusy);
   const drawerOpen = useStore((s) => s.drawerOpen);
+  const waiting = useStore(waitingCount);
   const on = !!(me && me.authenticated);
   const line = storeLine(briefing);
   const stores = (on && me.stores) || [];
@@ -34,8 +39,8 @@ export default function Topbar({ menuOpen, onToggleMenu }) {
   return (
     <header className="top">
       <div className="top-left">
-        <Button className="menu-toggle" aria-controls="side-menu" aria-expanded={menuOpen} aria-label={label} title={label} onClick={onToggleMenu}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /></svg>
+        <Button ref={toggleRef} id="menu-toggle" className="icon-btn menu-toggle" aria-controls="side-menu" aria-expanded={menuOpen} aria-label={label} title={label} onClick={onToggleMenu}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /></svg>
         </Button>
         <div className="store-pick">
           <span className="sp-text">
@@ -50,15 +55,23 @@ export default function Topbar({ menuOpen, onToggleMenu }) {
             </label>
           )}
         </div>
-        {!on && <Badge>게스트 체험</Badge>}
+        {showWaiting && waiting > 0 && (
+          <a className="wait-chip" id="top-waiting" href="#/draft" aria-label={`승인 대기 ${waiting}개`}>
+            <span>승인 대기</span><span className="count" aria-hidden="true">{waiting}</span>
+          </a>
+        )}
       </div>
       <div className="top-right">
         <ThemeButton />
         {on
-          ? <Button id="acct-user" disabled={busy} aria-haspopup="dialog" aria-controls="acct-dialog" onClick={() => setState({ acctOpen: true })}>{displayName(me)}</Button>
-          : <Button id="acct-login" disabled={busy} aria-haspopup="dialog" aria-controls="auth-dialog" onClick={() => setState({ authOpen: true })}>로그인</Button>}
-        <Button variant="primary" aria-controls="assistant" aria-expanded={drawerOpen} onClick={() => openDrawer("toggle")}>AI에게 묻기</Button>
+          ? <Button id="acct-user" className="acct-btn" disabled={busy} aria-haspopup="dialog" aria-controls="acct-dialog" onClick={() => setState({ acctOpen: true })}>{displayName(me)}</Button>
+          : <Button id="acct-login" className="acct-btn" disabled={busy} aria-haspopup="dialog" aria-controls="auth-dialog" onClick={() => setState({ authOpen: true })}>로그인</Button>}
+        <Button variant="primary" className="ask-btn" aria-controls="assistant" aria-expanded={drawerOpen} onClick={() => openDrawer("toggle")}>
+          <Icon name="AI" size={18} />AI에게 묻기
+        </Button>
       </div>
     </header>
   );
-}
+});
+
+export default Topbar;
