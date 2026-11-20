@@ -12,7 +12,7 @@ import calendar
 from decimal import Decimal, ROUND_HALF_UP
 import re
 
-from app.assistant.korean import josa
+from app.assistant.korean import amount_words, josa
 
 TOPIC_ORDER = ("conditions", "sales_total", "sales_weekday", "sales_time", "sales_age", "stores_count",
                "stores_open_close", "population", "change_qoq", "change_yoy", "comparison", "area_profile")
@@ -279,6 +279,15 @@ _HEADLINE_METRICS = ("sales", "stores_total", "floating_population", "stores_ope
 _COMPARISON_NAMES = {"추정매출": "분기 추정매출", "전체 점포": "점포 수", "지역 유동인구 원천 총지표": "유동인구"}
 
 
+def _reading(value, unit: str) -> str:
+    """'(약 1억 3,510만 원)' after a change of 1,000,000원 or more. HCX-005 read 135,101,464원 as '13억 5천만 원'
+    (live 2026-11-21); with the reading on the card it has the right one to copy. The server adds the same reading
+    to the final reply anyway (korean.with_units), which leaves an amount already followed by brackets alone."""
+    if unit != "원" or not isinstance(value, int) or value < 1_000_000:
+        return ""
+    return f"({amount_words(value, unit)})"
+
+
 _CHANGE_NAMES = {"추정매출": "매출", "전체 점포": "점포 수", "개업 점포": "개업 점포", "폐업 점포": "폐업 점포",
                  "지역 유동인구 원천 총지표": "유동인구"}
 
@@ -297,7 +306,7 @@ def changes_card(result: dict, comparison: str) -> dict:
         if metric["key"] in _HEADLINE_METRICS:
             delta = metric.get("delta")
             direction = "증가" if delta and delta > 0 else "감소" if delta and delta < 0 else "변화 없음"
-            change = f"{_number(abs(delta), metric['unit'])} {direction}" if delta else "변화 없음"
+            change = f"{_number(abs(delta), metric['unit'])}{_reading(abs(delta), metric['unit'])} {direction}" if delta else "변화 없음"
             percent = _percent(metric.get("percent"), signed=True)
             name = _CHANGE_NAMES.get(metric["label"], metric["label"])
             parts.append(f"{josa(name, '은')} {change}" + (f"({percent})" if percent else ""))

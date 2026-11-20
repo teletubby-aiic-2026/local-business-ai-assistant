@@ -126,6 +126,16 @@ for _sid in ("store_basak", "store_mongle"):
 ADDRESS_MISS = "등록한 주소로 상권 위치를 찾지 못했어요. 질문이나 상권 분석 화면에서 위치를 직접 골라 주세요."
 
 
+_SHORT_PLACE = re.compile(r"^(?:서울특별시|서울시|서울)\s+(\S+구\s+\S+(?:로|길)\S*\s+\d+(?:-\d+)?)(?:\s.*)?$")
+
+
+def short_place(label: str) -> str:
+    """'서울특별시 마포구 와우산로 94 학교법인홍익학원' → '마포구 와우산로 94'. 그 모양이 아니면 그대로."""
+    text = re.sub(r"\s+", " ", label or "").strip()
+    m = _SHORT_PLACE.match(text)
+    return m.group(1) if m else text
+
+
 def registered_defaults(store_id: str | None) -> SetupDefaults | None:
     """등록 가게의 기본 조건. 예시 가게·모르는 가게, 위치나 업종이 없어 맞출 수 없는 가게면 None."""
     if not store_profiles.is_registered_id(store_id):
@@ -138,8 +148,12 @@ def registered_defaults(store_id: str | None) -> SetupDefaults | None:
     road = (loc.get("road_address") or loc.get("label") or "").strip()
     if (kind == "station" and not bundle.station_id) or (kind == "address" and not road):
         return None
+    label = bundle.label
+    if kind == "address" and not bundle.station_name:
+        # 서랍이 조건을 맞추는 동안 보이는 이름 (11/21): 주소 원문 "서울특별시 마포구 와우산로 94 학교법인홍익학원" 대신 "마포구 와우산로 94"
+        label = f"{bundle.short_name} · {short_place(loc.get('label') or road) or bundle.area_name} · {bundle.business_type_name}"
     return SetupDefaults(station_id=bundle.station_id, industry_code=bundle.industry_code, area_code=bundle.area_code,
-                         period=bundle.period, business_status=bundle.business_status, label=bundle.label,
+                         period=bundle.period, business_status=bundle.business_status, label=label,
                          location_kind=kind, road_address=road if kind == "address" else "",
                          latitude=loc.get("latitude"), longitude=loc.get("longitude"))
 
@@ -509,9 +523,12 @@ DOMAIN_ANSWER = "web_domain"        # 여기서 답한 전 파트 응답의 answ
 _STRONG_MARKET = ("상권", "유동", "인구", "점포", "경쟁", "개업", "폐업", "창업", "월세", "임대료", "권리금", "보증금", "통계",
                   "연령", "나이대", "배후", "집객", "직장인", "동네", "주변", "근처")
 _REPORT_Q = ("리포트", "보고서", "응대점수", "성적", "pdf", "결산")
+_MKT_NEW = ("인스타", "sns", "블로그", "플레이스", "배민공지", "신메뉴홍보", "손님늘", "단골늘")     # 11/20 더함 (PR #72)
 _MKT_Q = ("쿠폰", "본전", "할인", "남은재료", "남는재료", "재고", "떨이", "광고비", "광고", "홍보", "가게이야기", "소개글", "스토리",
-          "마케팅", "이벤트", "단골", "재주문", "사용률", "전단", "프로모션",
-          "인스타", "sns", "블로그", "플레이스", "배민공지", "신메뉴홍보", "손님늘", "단골늘")      # 11/20 더함
+          "마케팅", "이벤트", "단골", "재주문", "사용률", "전단", "프로모션", *_MKT_NEW)
+# 11/20 낱말과 함께 오면 상권 자료로 답할 질문 (11/21): "손님 늘리려면 점심이 나아 저녁이 나아?", "SNS 홍보하면 매출 늘까?",
+# "인스타 하는 가게 매출 어때?" 는 마케팅 안내가 아니라 상권의 매출·시간대·요일을 묻는다. 11/20 전 낱말(쿠폰·홍보…)만 있는 질문은 그대로
+_MKT_NEW_MARKET = ("매출", "점심", "저녁", "시간대", "요일", "주말", "평일")
 _CARE_Q = ("리뷰", "후기", "불만", "답글", "댓글", "캡처", "캡쳐", "별점", "진상", "테러", "억울", "악플", "응대", "컴플레인", "클레임",
            "블랙컨슈머")
 # 오늘 추천 카드·할 일·초안을 묻는 말 (11/20). 단독 '추천'·'카드'는 상권 질문("메뉴 추천해줘")과 겹쳐 넣지 않는다
@@ -537,7 +554,8 @@ def nav(label: str, route: str, sub: str | None = None) -> dict:
 def domain_question(text: str) -> str | None:
     """'help' · 'cards' · 'care' · 'marketing' · 'report' 또는 None(상권 서비스로).
     순서: ① 무엇을 물을지 모르는 말 그대로(_HELP_EXACT) → help ② 추천 카드·할 일·초안 낱말(_CARDS_Q)이 있고 상권 자료 낱말이 없으면 cards
-    ③ 상권 자료 낱말(_STRONG_MARKET)이 있으면 상권 서비스 ④ 리포트 → 마케팅 → 고객응대 낱말."""
+    ③ 상권 자료 낱말(_STRONG_MARKET)이 있으면 상권 서비스 ④ 리포트 → 마케팅 → 고객응대 낱말.
+    마케팅은 11/20 낱말(_MKT_NEW: 인스타·sns·손님늘 …)이 매출·점심·저녁·시간대·요일·주말·평일과 함께 오면 고르지 않는다 (11/21)."""
     c = _squash(text)
     if not c:
         return None
@@ -550,7 +568,7 @@ def domain_question(text: str) -> str | None:
         return None
     if any(w in c for w in _REPORT_Q):
         return "report"
-    if any(w in c for w in _MKT_Q):
+    if any(w in c for w in _MKT_Q) and not (any(w in c for w in _MKT_NEW) and any(w in c for w in _MKT_NEW_MARKET)):
         return "marketing"
     if any(w in c for w in _CARE_Q):
         return "care"
@@ -963,26 +981,53 @@ class AssistantProxy:
                                  ["억울한 별점 답글은 어떻게 달아?", "불만 리뷰 제일 많은 게 뭐야?", *BACK_TO_MARKET[:1]])
         if domain == "marketing":
             sub = marketing_sub(text)
-            lines = [self._marketing_status(visitor, shop)]
+            # 질문에 대한 안내가 먼저, 가게 현황은 그다음 (11/21: 남은 재료를 물었는데 칭찬 메뉴 문장이 먼저 나왔다)
             if any(w in c for w in ("본전", "할인", "쿠폰")) and sub in ("promo", "repeat"):
-                lines.append("쿠폰 할인액·장수에 따른 본전 주문 수는 맞춤 마케팅이 메뉴 가격으로 계산해 드려요 (맞춤 홍보 제안의 재주문 쿠폰, "
-                             "쿠폰 결과 확인).")
+                lines = ["쿠폰 할인액·장수에 따른 본전 주문 수는 맞춤 마케팅이 메뉴 가격으로 계산해 드려요 (맞춤 홍보 제안의 재주문 쿠폰, "
+                         "쿠폰 결과 확인)."]
             else:
-                lines.append(f"맞춤 마케팅의 '{MKT_SUBS[sub]}'에서 몇 가지 질문에 답하면 계산과 글을 만들어 드려요.")
+                lines = [f"맞춤 마케팅의 '{MKT_SUBS[sub]}'에서 몇 가지 질문에 답하면 계산과 글을 만들어 드려요."]
+            # 칭찬 메뉴·저녁 매출 문장과 '추천 카드 ⓑ' 버튼은 오늘 쿠폰 홍보 카드(ⓑ)가 있는 가게에서만. 그 문장은 카드 ⓑ 의 근거라
+            # 쿠폰·홍보 질문에만 붙인다 (11/21: 카드가 없는 새 가게에도 버튼이 나왔고, 남은 재료 질문에도 칭찬 메뉴 문장이 붙었다)
+            coupon = self._has_coupon_card(visitor)
+            if coupon and sub in ("promo", "repeat"):
+                status = self._marketing_status(visitor, shop)
+                if status:
+                    lines.append(status)
+            approved = self._marketing_approved(visitor)
+            if approved:
+                lines.append(approved)
             actions = [nav(f"맞춤 마케팅: {MKT_SUBS[sub]}", "marketing", sub)]
             if sub != "promo":
                 actions.append(nav("맞춤 마케팅: 맞춤 홍보 제안", "marketing", "promo"))
-            actions.append(nav("추천 카드 ⓑ 쿠폰 홍보글 보기", "cards"))
+            if coupon:
+                actions.append(nav("추천 카드 ⓑ 쿠폰 홍보글 보기", "cards"))
             return _domain_reply(lines, "marketing_guide", "marketing", actions,
                                  ["남은 재료 묶어서 팔고 싶어", "배달앱 광고비 괜찮은지 봐줘", "쿠폰 2천원 할인하면 몇 개 팔아야 본전이야?"])
         tip = "종합 리포트에서 오늘 요약·응대 점수·손님 칭찬 요약·월간 보고서·상권·마케팅 요약을 한 번에 보고 PDF로 저장할 수 있어요."
         return _domain_reply([status, tip], "report_guide", "report", [nav("종합 리포트·PDF 저장 열기", "report")],
                              ["불만 리뷰 제일 많은 게 뭐야?", *BACK_TO_MARKET[:1]])
 
-    def _marketing_status(self, visitor: str | None, shop: str) -> str:
-        """칭찬 인기 메뉴(shared.praise, 카드 ⓑ 와 같은 함수)와 상권 저녁 매출 지표 한 줄."""
+    def _has_coupon_card(self, visitor: str | None) -> bool:
+        """오늘 추천 카드에 쿠폰 홍보 카드(ⓑ, kind promo)가 있는지. 규칙만으로 계획한다(HCX 를 부르지 않음, _cards_status 와 같은 호출).
+        읽지 못하면 False: 없는 카드로 가는 버튼을 주지 않는다."""
         if self.demo is None:
-            return f"{shop}의 마케팅 현황을 지금 불러오지 못했어요."
+            return False
+        try:
+            from .cards import plan_cards
+            st = self.demo._state(visitor)
+            store, reviews = self.demo._contract_inputs(st)
+            plans = plan_cards(st["insight"], st["snapshots"], self.demo.s.store_id, preferred_id=self.demo.s.card_b_snapshot_id,
+                               threshold=self.demo.s.card_b_threshold, store=store, reviews=reviews)
+        except Exception as exc:
+            log.warning("서랍 현황: 추천 카드를 읽지 못함 (%s)", exc.__class__.__name__)
+            return False
+        return any(getattr(getattr(p, "card", None), "kind", None) == "promo" for p in plans)
+
+    def _marketing_status(self, visitor: str | None, shop: str) -> str | None:
+        """칭찬 인기 메뉴(shared.praise, 카드 ⓑ 와 같은 함수)와 상권 저녁 매출 지표 한 줄. 둘 다 못 읽으면 None."""
+        if self.demo is None:
+            return None
         parts = []
         try:
             from .cards import praised_coupon_menu
@@ -999,9 +1044,7 @@ class AssistantProxy:
                 parts.append(f"{short_metric(s.metric_name)}은 전년 같은 분기보다 {abs(s.value):.2f}% {way} ({s.area_name}).")
         except Exception as exc:
             log.warning("서랍 현황: 마케팅 현황을 읽지 못함 (%s)", exc.__class__.__name__)
-        line = " ".join(parts) or f"{shop}의 칭찬 메뉴·상권 지표를 지금 불러오지 못했어요."
-        approved = self._marketing_approved(visitor)
-        return f"{line} {approved}" if approved else line
+        return " ".join(parts) or None
 
     def _marketing_approved(self, visitor: str | None) -> str | None:
         """맞춤 마케팅에서 승인한 글 건수 한 줄 (11/20). 없거나 못 읽으면 None.
