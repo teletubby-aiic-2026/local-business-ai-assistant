@@ -81,9 +81,10 @@ class FakeSeoul:
     def fetch_auxiliary(self, service, start=1, count=5):
         with self.lock:
             self.calls.append((service, None, start, count))
-        if isinstance(self.events, BaseException):
-            raise self.events
-        return self.events, f"{BASE_URL}/REDACTED/json/{service}/{start}/{start + count - 1}/"
+        events = self.events(start, count) if callable(self.events) else self.events   # 쪽마다 다른 응답은 함수로
+        if isinstance(events, BaseException):
+            raise events
+        return events, f"{BASE_URL}/REDACTED/json/{service}/{start}/{start + count - 1}/"
 
 
 class FakeResponse(io.BytesIO):
@@ -142,6 +143,12 @@ EVENT_ROWS = [
     {"TITLE": "", "GUNAME": "동작구", "STRTDATE": "2026-11-10", "END_DATE": "2026-11-30"},
     event_row("시험 날짜 없음", "동작구", "", ""),
 ]
+NO_MORE_EVENTS = {"RESULT": {"CODE": "INFO-200", "MESSAGE": "해당하는 데이터가 없습니다."}}
+
+
+def full_page(prefix, district="종로구", start="2026-12-05", end="2026-12-06"):
+    """서울시가 한 번에 주는 최대치(1,000행)를 꽉 채운 한 쪽. 실제 목록처럼 먼 미래 행사로 채운다."""
+    return [event_row(f"{prefix} {index:04d}", district, start, end) for index in range(1000)]
 
 
 class LogCapture(logging.Handler):
@@ -487,8 +494,75 @@ class CulturalEventsTests(ServiceTestCase):
         self.assertEqual(set(event), {"title", "category", "place", "district", "start", "end", "is_free", "fee", "link"})
         self.assertEqual((event["start"], event["end"], event["district"]), ("2026-11-10", "2026-11-30", "동작구"))
         self.assertIs(event["is_free"], True)
-        self.assertEqual(fake.calls, [("culturalEventInfo", None, 1, 40)])
+        self.assertEqual(fake.calls, [("culturalEventInfo", None, 1, 1000)])   # 한 쪽이 꽉 차지 않으면 한 번만 부른다
+        self.assertIn("동작구", body["notice"])
         self.assertIn(COOKIE_NAME, result.cookies)
+
+    def test_district_event_far_down_the_list_is_found(self):
+        # 실제 목록은 시작일이 늦은 순이라 앞쪽은 먼 미래 행사다. 동네 행사는 수백 건 뒤에 있다 (11/19 실서버: 앞 40건에 동작구 0건).
+        first = full_page("먼 미래 종로 행사")
+        first[640] = event_row("시험 동작 이번 주 공연", "동작구", "2026-11-21", "2026-11-21")
+        fake = FakeSeoul(events=lambda start, count: events_payload(first) if start == 1 else NO_MORE_EVENTS)
+        self.events_service(fake)
+        body = self.client.get("/api/onboarding/cultural-events", params={"district": "동작구"}).json()
+        self.assertFalse(body["demo"])
+        self.assertEqual((body["scope"], body["fallback"]), ("district", False))
+        self.assertEqual([e["title"] for e in body["events"]], ["시험 동작 이번 주 공연"])
+        self.assertEqual(fake.calls, [("culturalEventInfo", None, 1, 1000), ("culturalEventInfo", None, 1001, 1000)])
+
+    def test_second_page_adds_long_running_events(self):
+        # 여름에 시작해 아직 안 끝난 행사는 둘째 쪽에 있다 (11/19 실서버: 동작구 3건).
+        second = [event_row("시험 동작 여름부터 하는 강좌", "동작구", "2026-07-15", "2026-12-16"),
+                  event_row("시험 동작 끝난 여름 공연", "동작구", "2026-07-01", "2026-07-02")]
+        pages = {1: events_payload(full_page("먼 미래 종로 행사")), 1001: events_payload(second)}
+        fake = FakeSeoul(events=lambda start, count: pages[start])
+        self.events_service(fake)
+        body = self.client.get("/api/onboarding/cultural-events", params={"district": "동작구"}).json()
+        self.assertEqual((body["scope"], body["fallback"]), ("district", False))
+        self.assertEqual([e["title"] for e in body["events"]], ["시험 동작 여름부터 하는 강좌"])
+        self.assertEqual(len(fake.calls), 2)        # 둘째 쪽이 꽉 차지 않았으니 셋째 쪽은 부르지 않는다
+        everything = self.client.get("/api/onboarding/cultural-events").json()
+        self.assertEqual(len(everything["events"]), 20)
+        self.assertNotIn("동작구", everything["notice"])
+        self.assertEqual(len(fake.calls), 2)        # 10분 안에는 다시 부르지 않는다
+
+    def test_stops_after_two_full_pages(self):
+        fake = FakeSeoul(events=lambda start, count: events_payload(full_page(f"쪽 {start}")))
+        self.events_service(fake)
+        body = self.client.get("/api/onboarding/cultural-events", params={"district": "동작구"}).json()
+        self.assertTrue(body["fallback"])
+        self.assertEqual([call[2:] for call in fake.calls], [(1, 1000), (1001, 1000)])
+
+    def test_second_page_failure_still_answers_from_first_page(self):
+        first = full_page("먼 미래 종로 행사")
+        first[10] = event_row("시험 동작 이번 주 공연", "동작구", "2026-11-21", "2026-11-21")
+        for failure in (SeoulApiError("Seoul API request failed or timed out."), RuntimeError(f"boom {FAKE_KEY}"),
+                        {"culturalEventInfo": {"RESULT": {"CODE": "INFO-000"}, "row": "not-a-list"}}):
+            with self.subTest(failure=type(failure).__name__):
+                fake = FakeSeoul(events=lambda start, count, failure=failure: events_payload(first) if start == 1 else failure)
+                self.events_service(fake)
+                result = self.client.get("/api/onboarding/cultural-events", params={"district": "동작구"})
+                body = result.json()
+                self.assertFalse(body["demo"])                      # 예시로 돌아가지 않는다
+                self.assertEqual([e["title"] for e in body["events"]], ["시험 동작 이번 주 공연"])
+                self.assertEqual(len(fake.calls), 2)
+                self.assertTrue(any("page 2 unavailable" in line for line in self.logs.lines))
+                self.assert_no_key(result.text)
+
+    def test_same_event_on_both_pages_is_shown_once(self):
+        # 두 쪽을 받는 사이 새 행사가 등록되면 목록이 밀려 첫 쪽의 끝 행이 둘째 쪽에 다시 온다.
+        first = full_page("먼 미래 종로 행사")
+        first[999] = event_row("시험 동작 걸친 공연", "동작구", "2026-11-20", "2026-11-25")
+        pages = {1: events_payload(first), 1001: events_payload([first[999]])}
+        fake = FakeSeoul(events=lambda start, count: pages[start])
+        self.events_service(fake)
+        body = self.client.get("/api/onboarding/cultural-events", params={"district": "동작구"}).json()
+        self.assertEqual([e["title"] for e in body["events"]], ["시험 동작 걸친 공연"])
+
+    def test_more_rows_than_one_page_is_rejected(self):
+        self.events_service(FakeSeoul(events=events_payload(full_page("너무 많은 행") + [EVENT_ROWS[0]])))
+        body = self.client.get("/api/onboarding/cultural-events", params={"district": "동작구"}).json()
+        self.assertTrue(body["demo"])
 
     def test_no_district_match_falls_back_to_seoul(self):
         fake = FakeSeoul(events=events_payload(EVENT_ROWS))
@@ -544,7 +618,7 @@ class CulturalEventsTests(ServiceTestCase):
         self.assertTrue(again.json()["demo"])
         self.assertEqual(len(opener.urls), 1)
         self.assertIn(FAKE_KEY, opener.urls[0])
-        self.assertTrue(opener.urls[0].endswith("/json/culturalEventInfo/1/40/"))
+        self.assertTrue(opener.urls[0].endswith("/json/culturalEventInfo/1/1000/"))
         self.assertTrue(any("cultural events unavailable" in line for line in self.logs.lines))
         self.assert_no_key(result.text, again.text)
 

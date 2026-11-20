@@ -31,6 +31,11 @@ _SUBJECTS = ("sales_total", *_DISTRIBUTION, "stores_count", "stores_open_close",
 _AREA_PROFILE = re.compile(r"직장인구|상주인구|세대수|집객시설|입지특성|입지유형|배후수요|회사많|직장인많|주민많|사는사람")
 _SEOUL_SUMS = ("sales_total", "stores_count", "stores_open_close")
 _CHANGE = ("change_qoq", "change_yoy")
+# What to eat, not what sells: '오늘 점심 뭐 먹지?' was answered with the market's lunch sales (live 2026-11-21).
+_MEAL = re.compile(r"(?:뭐|뭘|무엇|무얼|메뉴)(?:을|를)?(?:좀)?먹|먹(?:을까|지\??$|을래|어야하|으면좋)")
+# '점심이 나아 저녁이 나아?': a choice between two parts of the sales distribution.
+_CHOICE = re.compile(r"나아|낫|어디가|어느쪽|어느게|중에?(?:어디|언제|뭐)")
+_SALES_SIDE = re.compile(r"매출|팔|상권|장사|손님|가게|점포|업종|창업")
 
 
 class _Text:
@@ -393,7 +398,8 @@ def classify(message: str, *, context: dict | None = None, today: date | None = 
 
     # 2. Domain and turn type --------------------------------------------------
     domain, turn, needs_model = "market_analysis", None, False
-    if question and text.has(kw["out_of_scope_words"]):
+    if question and (text.has(kw["out_of_scope_words"])
+                     or (_MEAL.search(text.compact) and not _SALES_SIDE.search(text.compact))):
         domain = "customer" if customer_words else "general"
         turn = "out_of_scope"
     elif customer_words and marketing_words:
@@ -405,6 +411,13 @@ def classify(message: str, *, context: dict | None = None, today: date | None = 
         reasons.append("고객관리와 마케팅 단어가 함께 나옴: 뒤에 나온 분야를 우선")
     elif customer_words:
         domain, turn = "customer", "handoff"
+    elif (marketing_words and not text.has(kw["marketing_task_verbs"])
+          and topics.intersection(("sales_total",) + _DISTRIBUTION)
+          and ("매출" in text.compact or _CHOICE.search(text.compact))):
+        # '손님 늘리려면 점심이 나아 저녁이 나아?', 'SNS 홍보하면 매출 늘까?': the question is about the market's
+        # sales (시간대·요일·매출), which the cards answer; writing a post is the marketing screen's job (11/21).
+        turn = "data_question"
+        reasons.append("마케팅 낱말이 있지만 상권 매출을 물음: 상권 자료로 답함")
     elif marketing_words:
         domain = "marketing"
         turn = "handoff" if text.has(kw["marketing_task_verbs"]) else "advice"

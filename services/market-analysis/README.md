@@ -81,7 +81,7 @@ python -m app.intake_api
 |---|---|
 | `GET /api/onboarding/data-status` | 앱이 읽은 분석 카탈로그 기준 적재 분기(`periods`, `latest_period`), 준비 단계에서 SHA-256으로 검증한 원본 중 지금 있는 파일 수(`verified_files`/`listed_files`/`missing_files`), 최신 분기 전체 건수(`local_totals`), 마지막 실시간 확인 시각(`last_synced_at`, 없으면 `null`), 인증키 설정 여부(`key_configured`, 키 값은 넣지 않음) |
 | `POST /api/onboarding/data-sync` | 추정매출·점포·길단위인구 3개 자료에 대해 서버 최신 분기의 서울시 전체 건수와 다음 2개 분기 발행 여부(`INFO-000` 있음, `INFO-200` 없음)를 1~5건 조회로 확인합니다. 조회마다 5초 제한, 자료별 실패는 `datasets.<자료>.error`로 돌려주고 500을 내지 않습니다. 한 번에 하나만 실행하며 진행 중에 다시 부르면 `429`, 성공 직후 30초 안의 재요청은 앞 결과(`reused: true`)를 돌려줍니다. |
-| `GET /api/onboarding/cultural-events?district=동작구` | 서울시 문화행사 정보(`culturalEventInfo`) 목록 앞 40건 중 끝나지 않은 행사를 자치구(`GUNAME`)로 고릅니다. 맞는 행사가 없으면 서울 전체(`fallback: true`), 응답은 메모리에 10분 보관(실패는 1분), `district`는 서울 25개 자치구 이름 또는 빈 값만 받습니다(그 밖은 `422`). |
+| `GET /api/onboarding/cultural-events?district=동작구` | 서울시 문화행사 정보(`culturalEventInfo`) 목록 앞 2,000건(1,000건씩 두 쪽) 중 끝나지 않은 행사를 자치구(`GUNAME`)로 고릅니다. 목록이 시작일이 늦은 순이라 앞 40건만으로는 동네 행사가 거의 걸리지 않습니다(11/19 실제 목록: 동작구 0건 → 2,000건이면 7건). 둘째 쪽을 못 받으면 첫 쪽만으로 답합니다. 맞는 행사가 없으면 서울 전체(`fallback: true`), 응답은 메모리에 10분 보관(첫 쪽 실패는 1분), `district`는 서울 25개 자치구 이름 또는 빈 값만 받습니다(그 밖은 `422`). |
 
 - 다음 분기가 발행돼도 자료를 자동으로 바꾸거나 수집하지 않습니다(`staged: null`, `data_changed: false`). 앱이 시작할 때 읽은 카탈로그를 캐시하므로, 서비스를 멈춘 뒤 새 분기를 포함한 자료 묶음을 다시 설치하거나 `python -m scripts.prepare_data --from-dir ...`로 준비하고 다시 시작합니다(`apply_hint`).
 - `SEOUL_OPENAPI_KEY`가 비어 있으면 실시간 확인은 서울시 공개 `sample` 키로 1~5건만 확인하고 `sample_only: true`와 안내를 돌려줍니다. 이때는 마지막 확인 시각을 저장하지 않습니다. 문화행사는 키가 없거나 조회·응답 확인에 실패하면 `demo: true`와 '예시'로 표시한 가짜 목록을 돌려줍니다.

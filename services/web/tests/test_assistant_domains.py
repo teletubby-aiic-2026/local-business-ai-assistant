@@ -118,6 +118,27 @@ class Answers(unittest.TestCase):
         self.assertEqual(routes(ask(self.client, "배달앱 광고비 괜찮은지 봐줘"))[0], ("marketing", "ad"))
         self.assertEqual(self.market_calls(), [])
 
+    def test_marketing_answer_leads_with_the_question_and_keeps_the_praise_line_for_coupon_questions(self):
+        """11/21: 남은 재료를 물으면 칭찬 메뉴 문장 없이 그 기능 안내가 먼저. 쿠폰을 물으면 안내 다음에 카드 ⓑ 근거."""
+        leftover = ask(self.client, "남은 재료 묶어서 팔고 싶어")["reply"]["text"]
+        self.assertTrue(leftover.startswith("맞춤 마케팅의 '남은 재료 팔기'"), leftover)
+        self.assertNotIn("칭찬 리뷰", leftover)
+        coupon = ask(self.client, "쿠폰 2천원 할인하면 몇 개 팔아야 본전이야?")["reply"]["text"].split("\n")
+        self.assertTrue(coupon[0].startswith("쿠폰 할인액"), coupon)
+        self.assertIn("19.31%", coupon[1])
+
+    def test_store_without_a_coupon_card_gets_no_card_button_and_no_card_sentence(self):
+        """11/21: 쿠폰 홍보 카드(ⓑ)가 없는 가게(새로 등록한 가게)에 '추천 카드 ⓑ' 버튼과 '불러오지 못했어요'·칭찬 문장이 나왔다."""
+        from unittest import mock
+        with mock.patch.object(AssistantProxy, "_has_coupon_card", return_value=False):
+            for q in ("쿠폰 2천원 할인하면 몇 개 팔아야 본전이야?", "남은 재료 묶어서 팔고 싶어", "쿠폰 홍보하고 싶어"):
+                with self.subTest(q=q):
+                    data = ask(self.client, q)
+                    self.assertNotIn(("cards", None), routes(data))
+                    self.assertNotIn("칭찬 리뷰", data["reply"]["text"])
+                    self.assertNotIn("불러오지 못했어요", data["reply"]["text"])
+                    self.assertEqual(routes(data)[0][0], "marketing")
+
     def test_report_question(self):
         data = ask(self.client, "이번 달 응대 점수 알려줘")
         self.assertEqual((data["reply"]["kind"], routes(data)), ("report_guide", [("report", None)]))
@@ -204,6 +225,23 @@ class NewRouting(unittest.TestCase):
             self.assertEqual(ap.store_question(q), kind, q)               # 가게 질문은 domain_question 보다 먼저 고른다
         starters = fs.strings(fs.const_value(fs.read("features/assistant/chat.js"), "CHAT_STARTERS", "chat.js"))
         self.assertEqual(sorted(str(domain_question(q)) for q in starters), ["None", "None", "None", "care", "marketing", "marketing"])
+
+    def test_new_marketing_words_with_market_words_go_to_the_market_service(self):
+        """11/21: 11/20 낱말(인스타·SNS·손님 늘…)에 매출·점심·저녁·시간대·요일·주말·평일이 같이 오면 상권 자료로 답한다.
+        11/20 전 낱말만 있는 질문(쿠폰·홍보 …)과 매출 낱말이 없는 질문은 그대로 마케팅."""
+        for q in ("손님 늘리려면 점심이 나아 저녁이 나아?", "SNS 홍보하면 매출 늘까?", "인스타 하는 가게 매출 어때?",
+                  "블로그 하면 주말 손님 많아?"):
+            self.assertIsNone(domain_question(q), q)
+            self.assertIsNone(ap.store_question(q), q)
+        for q in ("손님 늘리고 싶어", "인스타 올리고 싶어", "쿠폰 하면 매출 늘까?", "저녁 쿠폰 홍보하고 싶어", "홍보 글 써줘"):
+            self.assertEqual(domain_question(q), "marketing", q)
+
+    def test_short_place_for_the_setup_label(self):
+        """11/21: 서랍이 조건을 맞추는 동안 보이는 이름에 주소 원문 대신 구·도로명·번지만."""
+        self.assertEqual(ap.short_place("서울특별시 마포구 와우산로 94 학교법인홍익학원"), "마포구 와우산로 94")
+        self.assertEqual(ap.short_place("서울 동작구 장승배기로 161"), "동작구 장승배기로 161")
+        self.assertEqual(ap.short_place("서울특별시 강남구 테헤란로8길 12-3 (역삼동)"), "강남구 테헤란로8길 12-3")
+        self.assertEqual(ap.short_place("장승배기역"), "장승배기역")
 
     def test_reordering_runs_once(self):
         """옮긴 글자가 원래 글자와 같아도(우리가게 우리가게) 한 번만 보고 끝난다 (재귀 없음)."""
