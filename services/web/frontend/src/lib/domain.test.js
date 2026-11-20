@@ -1,6 +1,6 @@
 // lib/domain.js 의 화면 글자 도우미 (11/21 실시간 확인 M7·M3: 'null' 이 찍히지 않게, 주소 원문을 짧게, 직접 등록한 가게)
 import { describe, expect, it } from "vitest";
-import { cleanLabel, isOwnStore, shortPlace, textOr } from "./domain.js";
+import { cleanLabel, isOwnStore, shortPlace, textOr, noticeName, genName } from "./domain.js";
 
 describe("화면 글자 도우미", () => {
   it("textOr: 빈 값과 'null'·'undefined'·'None' 글자는 빈 글자", () => {
@@ -32,5 +32,16 @@ describe("화면 글자 도우미", () => {
     expect(isOwnStore(me(undefined))).toBe(false);
     expect(isOwnStore(me(false, "s2"))).toBe(false);
     expect(isOwnStore(null)).toBe(false);
+  });
+});
+
+describe("안내문 이름: 불만 주제에 맞게 (11/21)", () => {
+  it("포장 누락 카드는 '포장·주문 안내문', 다른 주제는 '안내문', 제목을 모르면 예전 이름", () => {
+    expect(noticeName("포장 누락 3건 반복 → 배달앱 포장·주문 안내문 + 답글")).toBe("포장·주문 안내문");
+    expect(noticeName("식감 4건 반복 → 안내문 + 답글")).toBe("안내문");
+    expect(noticeName(undefined)).toBe("포장·주문 안내문");
+    expect(genName("prevention_notice", "매장 대기 5건 반복 → 안내문 + 답글")).toBe("안내문");
+    expect(genName("reply_draft", "식감 4건 반복 → 안내문 + 답글")).toBe("답글");
+    expect(genName("coupon_promo")).toBe("쿠폰 홍보글");
   });
 });

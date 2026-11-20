@@ -138,3 +138,19 @@ describe("기본 문장으로 바꾼 글 (11/21 실시간 확인 M2)", () => {
     expect(regenNote({ text: "A" }, { text: "A" }, "seed")).toBe("시험용 실행이라 같은 예시 글을 다시 불러왔어요. 다른 글은 그대로예요.");
   });
 });
+
+describe("hourChart: 붙여넣은 리뷰는 시간대 막대에 세지 않는다 (11/21)", () => {
+  it("넣은 시각(00시)이 아니라, 작성 시각을 아는 리뷰만 센다", () => {
+    const b = {
+      top_issue_id: "iss_a", pasted: [{ review_id: "rv_p1" }, { review_id: "rv_p2" }],
+      groups: [{ issue_id: "iss_a", topic_name: "포장 누락", main_time_band: "17~21시",
+        reviews: [{ review_id: "rv_1", created_at: "2026-11-01T18:10:00+09:00", input_method: "sample" },
+                  { review_id: "rv_p1", created_at: "2026-11-21T00:03:00+09:00", input_method: "paste" }] }],
+      single_complaints: [{ review_id: "rv_p2", topic_names: ["맛"], created_at: "2026-11-21T00:05:00+09:00" }],
+    };
+    const chart = hourChart(b);
+    expect(chart.cols.find((c) => c.h === 18).n).toBe(1);
+    expect(chart.cols.some((c) => c.h === 0)).toBe(false);
+    expect(chart.label).toBe("시간대별 불만 리뷰: 18시 1건");
+  });
+});

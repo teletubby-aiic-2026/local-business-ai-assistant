@@ -2,7 +2,7 @@
 // 진행 결과는 store.js(results·approved·approvedLog·pending·current·draftId), 버튼 잠금·안내는 ./state.js.
 import { api } from "../../lib/api.js";
 import { go, navTo, currentRoute } from "../../lib/router.js";
-import { draftsOf, GEN_NAMES } from "../../lib/domain.js";
+import { draftsOf, genName } from "../../lib/domain.js";
 import { getState, setState, setAlert } from "../../state/store.js";
 import { emptyFlow } from "../../state/boot.js";
 import { waitingCount } from "../../state/staff.js";
@@ -152,7 +152,7 @@ export async function approve(id) {
       const pending = { ...now.pending };
       delete pending[id];
       const card = cardOfDraft(now.cards, now.results, id);
-      const name = GEN_NAMES[d.generator] || d.generator;
+      const name = genName(d.generator, card ? card.title : "");
       const log = now.approvedLog.filter((x) => x.id !== id);
       log.push({ id, at: entry.approved_at || new Date().toISOString(), edited: !!entry.edited, kind: d.generator, name,
         title: card ? card.title : "", card: card ? card.title : "", text: entry.text ?? text });

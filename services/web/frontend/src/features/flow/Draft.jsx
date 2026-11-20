@@ -4,7 +4,7 @@
 // 고친 글은 store 의 pending 에 바로 담는다 (예전 saveEdits: 다시 그려도·다른 화면에 다녀와도 남음).
 import { useEffect, useRef, useState } from "react";
 import { useStore, setState } from "../../state/store.js";
-import { GEN_NAMES, KIND_NAMES, KIND_AGENT, SOURCE_NAMES, praiseOf, shortBasis } from "../../lib/domain.js";
+import { genName, KIND_NAMES, KIND_AGENT, SOURCE_NAMES, praiseOf, shortBasis } from "../../lib/domain.js";
 import { PageHead, Panel, Badge, Button, Empty } from "../../components/ui.jsx";
 import Steps from "./Steps.jsx";
 import { useFlow, setFlow } from "./state.js";
@@ -75,7 +75,7 @@ export default function Draft() {
 
       <div className="stack-8">
         <div className="flow-progress">
-          <span className="flow-progress-text"><span>승인 {done} / {drafts.length}</span>{d && <span className="flow-progress-now"> · {GEN_NAMES[d.generator] || d.generator}</span>}</span>
+          <span className="flow-progress-text"><span>승인 {done} / {drafts.length}</span>{d && <span className="flow-progress-now"> · {genName(d.generator, p.title)}</span>}</span>
           <Button disabled={!!f.busy[current]} onClick={() => rerunCard(current)}>
             {rerunBusy ? "만드는 중…" : armed ? "한 번 더 눌러 실행" : RERUN_LABEL}
           </Button>
@@ -94,7 +94,7 @@ export default function Draft() {
             <li key={x.draft_id}>
               <button type="button" aria-current={x.draft_id === draftId ? "true" : undefined}
                 onClick={() => { setFlow({ note: null }); setState({ draftId: x.draft_id }); }}>
-                <span className="flow-list-name">{i + 1}. {GEN_NAMES[x.generator] || x.generator}</span>
+                <span className="flow-list-name">{i + 1}. {genName(x.generator, p.title)}</span>
                 <span className="flow-list-badges">{listBadges(x, s.approved).map(([tone, text]) => <Badge key={text} tone={tone || undefined}>{text}</Badge>)}</span>
               </button>
             </li>
@@ -160,7 +160,7 @@ function DraftPanel({ d, s, busy, note }) {
   const failed = failedOf(d), checks = checksOf(d);
   const approved = s.approved.has(d.draft_id);
   const statusText = draftStateText(d, s.approved);
-  const name = GEN_NAMES[d.generator] || d.generator;
+  const name = genName(d.generator, (s.cards.find((x) => x.card.card_id === (d.card_id || s.current)) || {}).title);
   const textId = `flow-text-${d.draft_id}`;
   const fallback = isFallback(d);
 

@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { useStore } from "../../state/store.js";
 import { navTo } from "../../lib/router.js";
-import { KIND_NAMES, KIND_AGENT, shortBasis, sourceUrl } from "../../lib/domain.js";
+import { KIND_NAMES, KIND_AGENT, shortBasis, sourceUrl, noticeName } from "../../lib/domain.js";
 import { PageHead, Panel, Badge, Button } from "../../components/ui.jsx";
 import Steps from "./Steps.jsx";
 import { useFlow, setFlow } from "./state.js";
@@ -47,7 +47,7 @@ export default function Cards() {
 function CardPanel({ p, index, made, busy, picked, mock }) {
   const c = p.card;
   const [more, setMore] = useState(false);
-  const label = busy === "card" ? "만드는 중…" : made ? "만든 글 보기" : c.kind === "complaint" ? "포장·주문 안내문·답글 만들기" : "홍보글 만들기";
+  const label = busy === "card" ? "만드는 중…" : made ? "만든 글 보기" : c.kind === "complaint" ? `${noticeName(p.title)}·답글 만들기` : "홍보글 만들기";
   const titleId = `flow-card-${c.card_id}`;
   return (
     <article className="panel flow-card" id={`card-${c.card_id}`} aria-labelledby={titleId}>

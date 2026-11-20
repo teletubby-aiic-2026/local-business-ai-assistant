@@ -1,6 +1,11 @@
 // 여러 화면이 같이 쓰는 이름·계산 (예전 app.js 맨 위와 '홈 상권 지표' 부분을 옮김)
 
 export const GEN_NAMES = { reply_draft: "답글", prevention_notice: "포장·주문 안내문", coupon_promo: "쿠폰 홍보글" };
+// 안내문 이름 (11/21): 불만 주제가 포장 누락이면 '포장·주문 안내문', 다른 주제(식감·대기 등)면 서버가 카드 제목을
+// '… → 안내문 + 답글'로 주므로 그냥 '안내문'. 카드 제목을 모르면 예전 이름 그대로.
+export const noticeName = (cardTitle) => (typeof cardTitle === "string" && cardTitle.includes("안내문") && !cardTitle.includes("포장·주문 안내문")
+  ? "안내문" : GEN_NAMES.prevention_notice);
+export const genName = (generator, cardTitle) => (generator === "prevention_notice" ? noticeName(cardTitle) : GEN_NAMES[generator] || generator);
 export const KIND_NAMES = { complaint: "불만 대응", promo: "쿠폰 홍보" };
 // AI 비서: 오늘·분석 = 데이터 분석 비서, 카드 ⓐ·초안 = 고객 응대 비서, 카드 ⓑ = 마케팅 비서
 export const KIND_AGENT = { complaint: "고객 응대 비서", promo: "마케팅 비서" };

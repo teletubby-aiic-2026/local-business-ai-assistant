@@ -37,8 +37,9 @@ export function scopeChips(snap) {
 // 홈 차트: 브리핑의 불만 리뷰(묶음 + 묶이지 않은 불만)만 센다. 리뷰 하나에 주제 하나 기준
 export function complaintsOf(b) {
   const list = [];
-  (b?.groups || []).forEach((g) => (g.reviews || []).forEach((r) => list.push({ topic: g.topic_name, at: r.created_at, top: g.issue_id === b.top_issue_id })));
-  (b?.single_complaints || []).forEach((x) => list.push({ topic: (x.topic_names || [])[0], at: x.created_at, top: false }));
+  const pasted = new Set((b?.pasted || []).map((r) => r.review_id));   // 붙여넣기·캡처로 넣은 리뷰 (단건 불만에는 넣은 방법 칸이 없어 id 로 본다)
+  (b?.groups || []).forEach((g) => (g.reviews || []).forEach((r) => list.push({ topic: g.topic_name, at: r.created_at, top: g.issue_id === b.top_issue_id, paste: r.input_method === "paste" || pasted.has(r.review_id) })));
+  (b?.single_complaints || []).forEach((x) => list.push({ topic: (x.topic_names || [])[0], at: x.created_at, top: false, paste: x.input_method === "paste" || pasted.has(x.review_id) }));
   return list;
 }
 
@@ -58,7 +59,8 @@ export function keywordRows(b) {
 // 불만 리뷰가 몰린 시간: 11~23시 막대. 핵심 문제 묶음의 몰린 시간대(예: 17~21시)는 hot, 같은 뜻을 글자(aria-label·note)로도 쓴다
 export function hourChart(b) {
   const by = new Map();
-  complaintsOf(b).forEach((r) => { const h = Number(String(r.at || "").slice(11, 13)); if (Number.isFinite(h) && String(r.at || "").length >= 13) by.set(h, (by.get(h) || 0) + 1); });
+  // 붙여넣기·캡처로 넣은 리뷰의 시각은 넣은 시각이지 손님이 주문한 시각이 아니라서 시간대 막대에 세지 않는다 (11/21 M6)
+  complaintsOf(b).forEach((r) => { if (r.paste) return; const h = Number(String(r.at || "").slice(11, 13)); if (Number.isFinite(h) && String(r.at || "").length >= 13) by.set(h, (by.get(h) || 0) + 1); });
   const hours = [...by.keys()];
   const from = Math.min(11, ...hours), to = Math.max(23, ...hours);
   const top = (b?.groups || []).find((g) => g.issue_id === b.top_issue_id);
