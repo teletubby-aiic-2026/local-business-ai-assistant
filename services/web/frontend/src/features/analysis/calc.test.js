@@ -56,3 +56,15 @@ describe("캡처", () => {
     expect(capStatusLine({ engine: "HCX-005" }, 1)).toBe("후보 1건 · 읽은 모델 HCX-005");
   });
 });
+
+describe("분류 방식 배지", () => {
+  it("model·replay·rule 을 사람이 읽는 이름으로, 모르는 값은 숨김", async () => {
+    const { methodName } = await import("./calc.js");
+    expect(methodName("model")).toBe("AI 분류");
+    expect(methodName("replay")).toBe("저장된 AI 분류");
+    expect(methodName("rules")).toBe("규칙 분류 (AI 아님)");
+    expect(methodName("rule")).toBe("규칙 분류 (AI 아님)");
+    expect(methodName("")).toBe("");
+    expect(methodName("other")).toBe("");
+  });
+});

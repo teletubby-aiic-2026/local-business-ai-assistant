@@ -89,6 +89,10 @@ export function capItems(r) {
       picked: !c.duplicate, saved: false, msg: "" };
   });
 }
+// 붙여넣은 리뷰의 분류 방식 → 화면 배지 (AI 생성 여부는 남기고, 내부 이름 model·replay·rule 은 보이지 않게)
+export const METHOD_NAMES = { model: "AI 분류", replay: "저장된 AI 분류", rule: "규칙 분류 (AI 아님)", rules: "규칙 분류 (AI 아님)" };
+export const methodName = (m) => METHOD_NAMES[String(m || "").trim()] || "";
+
 export const capWarnings = (r) => (Array.isArray(r?.warnings) ? r.warnings : []).filter((w) => typeof w === "string" && w.trim());
 export function capStatusLine(r, count) {
   const pieces = Number(r?.pieces) > 1 ? ` · ${Number(r.pieces)}조각으로 나눠 읽음` : "";

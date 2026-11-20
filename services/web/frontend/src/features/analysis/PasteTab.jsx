@@ -5,7 +5,7 @@ import { Badge, Button, Panel } from "../../components/ui.jsx";
 import { api } from "../../lib/api.js";
 import { getState, setState, useStore } from "../../state/store.js";
 import { refresh } from "../../state/boot.js";
-import { CHANNELS, PASTE_SAMPLES, RATINGS, SENTIMENT_NAMES, pasteJoin, topicName } from "./calc.js";
+import { CHANNELS, PASTE_SAMPLES, RATINGS, SENTIMENT_NAMES, pasteJoin, topicName, methodName } from "./calc.js";
 import { getMod, setPaste, showTab, useMod } from "./state.js";
 import Capture from "./Capture.jsx";
 
@@ -50,11 +50,15 @@ function PasteResult({ r }) {
   const c = r.classification || {};
   const topics = c.topics || [];
   const { joined, negative } = pasteJoin(r, insightGroups);
-  const sub = `${r.review?.review_id || ""}${c.method ? ` · 분류 방식 ${c.method}` : ""}`;
+  const method = methodName(c.method);
+  const warns = (c.warnings || []).filter((w) => typeof w === "string" && w.trim());
   return (
     <>
-      {(sub || r.review?.pii_masked) && (
-        <p className="small muted an-result-meta">{sub}{r.review?.pii_masked && <Badge title="전화번호·이메일·링크를 [가림]으로 바꿨어요">개인정보 가림</Badge>}</p>
+      {(method || r.review?.pii_masked) && (
+        <p className="small muted an-result-meta">
+          {method && <Badge className="an-method">{method}</Badge>}
+          {r.review?.pii_masked && <Badge title="전화번호·이메일·링크를 [가림]으로 바꿨어요">개인정보 가림</Badge>}
+        </p>
       )}
       <p className="an-rv-text">{r.review?.text || ""}</p>
       <p className="small">감정 <b>{SENTIMENT_NAMES[c.sentiment] || c.sentiment || "?"}</b></p>
@@ -71,7 +75,12 @@ function PasteResult({ r }) {
           ? <>→ 불만 묶음에 들어갔어요: <b>{joined.join(", ")}</b> <Button size="small" onClick={() => showTab("issues", true)}>불만 묶음 보기</Button></>
           : negative ? "→ 아직 어느 묶음에도 들지 않았어요 (같은 불만이 2건 이상이면 묶여요)." : "→ 불만 주제가 없어 묶음에는 들지 않아요."}
       </p>
-      {(c.warnings || []).length > 0 && <ul className="an-warns">{c.warnings.map((w, i) => <li key={i}>검증: {w}</li>)}</ul>}
+      {warns.length > 0 && (
+        <details className="an-warns">
+          <summary>AI 결과를 고친 곳 {warns.length}건</summary>
+          <ul>{warns.map((w, i) => <li key={i}>{w}</li>)}</ul>
+        </details>
+      )}
     </>
   );
 }

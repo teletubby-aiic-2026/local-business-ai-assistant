@@ -42,7 +42,9 @@
 .an-chip::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); }
 .an-chip.neg::before { border-radius: 1px; background: var(--hot); }   /* 색 말고 모양(네모)으로도 불만을 구분 */
 .an-joined .btn { margin-left: 4px; }
-.an-warns { margin: 0; padding: var(--s-12) 0 0 18px; border-top: 1px solid var(--line); color: var(--warn); font-size: var(--fs-small); }
+.an-warns { margin: 0; padding-top: var(--s-12); border-top: 1px solid var(--line); color: var(--muted); font-size: var(--fs-small); }
+.an-warns summary { cursor: pointer; }
+.an-warns ul { margin: var(--s-8, 8px) 0 0; padding-left: 18px; }
 
 /* 캡처로 넣기 */
 .an-cap.drop { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus); }   /* 파일을 끌어 올렸을 때 */

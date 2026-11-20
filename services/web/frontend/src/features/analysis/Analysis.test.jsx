@@ -59,8 +59,12 @@ describe("리뷰 분석 화면", () => {
     expect(calls.map((c) => c[0])).toEqual(["/api/reviews", "/api/briefing", "/api/cards", "/api/insight", "/api/approvals"]);
     expect(getState().joined).toEqual(["iss_missing_item"]);
     expect(screen.getByText(/불만 묶음에 들어갔어요/).textContent).toContain("포장 누락");   // 들어간 묶음 이름
-    // 개인정보 가림은 글 대신 배지로
-    expect(screen.getByText("rv_p1 · 분류 방식 rules").querySelector(".badge").textContent).toBe("개인정보 가림");
+    // 분류 방식과 개인정보 가림은 배지로. 내부 id(rv_p1)·방식 이름(rules)·'검증:' 같은 내부 표현은 보이지 않음
+    const meta = document.querySelector(".an-result-meta");
+    expect([...meta.querySelectorAll(".badge")].map((b) => b.textContent)).toEqual(["규칙 분류 (AI 아님)", "개인정보 가림"]);
+    expect(document.body.textContent).not.toContain("rv_p1");
+    expect(document.body.textContent).not.toContain("분류 방식");
+    expect(document.body.textContent).not.toContain("검증:");
     // 채널 고르기는 그대로 (안 고르면 본문에 넣지 않음)
     expect(screen.getByLabelText("채널").tagName).toBe("SELECT");
   });
