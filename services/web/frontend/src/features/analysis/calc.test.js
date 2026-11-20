@@ -17,6 +17,11 @@ describe("요약", () => {
     expect(summaryTiles(null).reviews).toBe("–");
     expect(summaryTiles({ ...d, groups: [] }).repeatedSub).toBe("없음");
   });
+  it("리뷰 0건인 새 가게: 기간이 비어도 '1일'이 나오지 않는다", () => {
+    const empty = { period_start: null, period_end: null, review_count: 0, complaint_count: 0, sentiment_counts: {}, topic_counts: {}, groups: [] };
+    expect(summaryTiles(empty)).toEqual({ reviews: 0, reviewsSub: "긍정 0 · 중립 0", complaints: 0, complaintsSub: "", repeated: 0, repeatedSub: "없음" });
+    expect(topTopics(empty, "negative")).toEqual([]);
+  });
   it("주제는 많은 순, 모르는 id 는 그대로, 0건은 뺌, 막대는 칸 안 최댓값 대비", () => {
     expect(topTopics(d, "negative").map((t) => [t.name, t.n, t.ratio])).toEqual([["포장 누락", 3, 1], ["배달 시간", 2, 2 / 3], ["맛", 2, 2 / 3], ["odd", 1, 1 / 3]]);
     expect(topTopics(d, "positive").map((t) => t.name)).toEqual(["맛", "배달 시간"]);

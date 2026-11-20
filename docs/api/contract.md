@@ -1234,7 +1234,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 칸 | 뜻 | 화면 |
 |---|---|---|
 | `items[]` | 승인 기록 목록 (승인한 순서. 같은 글을 다시 승인하면 그 글이 맨 뒤로) | '서버 처리 기록' |
-| `items[].draft_id` · `edited` · `approved_at` | 글 id, 고쳤는지, 승인 시각 | "HH:MM:SS · d_… 승인 (사장님이 고침)" |
+| `items[].draft_id` · `edited` · `approved_at` | 글 id, 고쳤는지, 승인 시각 | "MM-DD HH:MM 승인 · 글 이름 (고침)" (11/20. 글 이름은 화면의 승인 목록에서 찾고, 못 찾으면 '글'·'맞춤 마케팅 글'. 글 id 는 보이지 않음) |
 | `items[].status` · `text` · `mode` · `warning` | `1.6` 응답과 같음 | 안 씀 |
 
 **오류**: 없음 (기록이 없으면 `{"items": []}`).
@@ -2275,14 +2275,14 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 | 주소 | 메뉴 묶음 · 메뉴 글자 | 컴포넌트 | 화면 |
 |---|---|---|---|
-| `#/today` | (맨 위) 홈 | `features/flow/Home.jsx` | 대시보드: 핵심 문제 한 줄, 숫자 타일 4개, 오늘 할 일, '담당 비서 현황'(AI 비서 네 명, 11/20 패널 제목), 불만 시간대·주제 차트, AI에게 묻기 줄 |
-| `#/cards` | 오늘 처리 · 추천 카드 | `features/flow/Cards.jsx` | "무엇을 할까요?" 카드 최대 2장, 카드 ⓐ의 점검 수칙 고르기 |
-| `#/draft` | 오늘 처리 · 승인할 글 | `features/flow/Draft.jsx` | 진행줄, 손님 리뷰, 초안 고치기·승인·복사·다시 만들기, 초안 목록 |
-| `#/done` | 오늘 처리 · 처리 완료 | `features/flow/Done.jsx` | 승인 결과 타일·목록, 고른 점검 수칙, '홈으로'·'처음부터 다시', 서버 처리 기록 |
+| `#/today` | (맨 위) 홈 | `features/flow/Home.jsx` | 대시보드 (11/20 Figma 06 B1 배치): 핵심 문제 한 줄(이름표 + 굵은 글), 숫자 타일 4개, 오늘 할 일(넓은 칸, 할 일마다 테두리 상자 + 오른쪽 버튼 모양 상태) · '담당 비서 현황'(320px 칸, AI 비서 네 명 + 첫 글자 동그라미, 11/20 패널 제목), 불만 시간대 · 주제 차트(주제는 '상위 n개'), AI에게 묻기 줄(오른쪽 '묻기'). 리뷰 0건이면 기간 줄을 빼고 핵심 문제·할 일·차트에 짧은 빈 안내 |
+| `#/cards` | 오늘 처리 · 추천 카드 | `features/flow/Cards.jsx` | "무엇을 할까요?" 카드 최대 2장을 위아래로 한 장씩 (11/20 B2), 카드 ⓐ의 점검 수칙 고르기(회색 상자), 만들기 버튼 옆 '근거 보기'(`aria-expanded`, 근거는 버튼 줄 아래에 펼침) |
+| `#/draft` | 오늘 처리 · 승인할 글 | `features/flow/Draft.jsx` | 진행줄('승인 n / 전체 · 지금 글 이름' + 카드 전체 다시 만들기, 막대 없음), 손님 리뷰(근거 건수는 패널 오른쪽, 리뷰마다 회색 상자), 초안 상자(글 칸 → 점검 칩 줄 → 고칠 곳 상자 → 승인·복사·다시 만들기. 점검을 못 넘어 기본 문장으로 바꾼 글은 '기본 문장 (AI 글 아님)' 칩), 초안 목록 (11/20 B3) |
+| `#/done` | 오늘 처리 · 처리 완료 | `features/flow/Done.jsx` | 승인 결과 타일 → '승인한 글'(글마다 이름 · 시각 / 글 앞부분 한 줄 + 복사) → 고른 점검 수칙(✓) → 서버 처리 기록(패널 모양 접힌 칸) → '홈으로'·'처음부터 다시' (11/20 B4 순서) |
 | `#/analysis` | 살펴보기 · 리뷰 분석 | `features/analysis/Analysis.jsx` | 탭 3개: 요약(`summary`) · 불만 묶음(`issues`) · 리뷰 넣기(`paste`: 붙여넣기 + 캡처로 넣기) |
 | `#/market` | 살펴보기 · 상권 분석 | `features/market/Market.jsx` | 분석 조건, 핵심 지표 4칸, 세부 탭 4개(`sales` 매출 · `stores` 점포·개폐업 · `pop` 유동·배후인구·집객시설 · `compare` 타 상권 1:1 비교), 서울시 자료 최신화, 우리 동네 문화행사 |
 | `#/report` | 살펴보기 · 종합 리포트 | `features/report/Report.jsx` | 오늘 요약 · 응대 점수 · 답글을 기다리는 불만 · 손님 칭찬 요약 · 월간 보고서 · 상권 요약 · 마케팅 요약, 구역 바로가기, PDF 저장 |
-| `#/marketing` | 키우기 · 맞춤 마케팅 | `features/marketing/Marketing.jsx` | 안내 문구 "선택한 조건으로 손익을 계산하고 우리 가게 홍보 방법과 초안을 만들어요."(11/20). 탭 두 개: 맞춤 제안(시작 모드 다섯 개 → 질문 → 결과 카드 → 고쳐서 승인) · 마케팅 보고서(주간·월간) |
+| `#/marketing` | 키우기 · 맞춤 마케팅 | `features/marketing/Marketing.jsx` | 안내 문구 "선택한 조건으로 손익을 계산하고 우리 가게 홍보 방법과 초안을 만들어요."(11/20). 탭 두 개: 맞춤 제안(시작 모드 다섯 개 → 질문 → 결과 카드 → 고쳐서 승인) · 마케팅 보고서(주간·월간). 첫 화면의 기능 카드는 흰 패널 없이 바탕 위에, 질문 칸의 비서 질문은 '마케팅 비서' 이름표가 붙은 테두리 상자 (11/20 Figma 06 M1) |
 
 - 메뉴 묶음과 순서는 `Sidebar.jsx`의 `GROUPS`입니다 (홈 / 오늘 처리 / 살펴보기 / 키우기). 760px 이하의 아래 탭·하위 탭(`components/MobileNav.jsx`)도 이 묶음을 씁니다 (11/20).
 - 추천 카드·승인할 글·처리 완료 위에는 단계 표시(`Steps.jsx`, 지금 단계에 `aria-current="step"`)가 있습니다.
@@ -2307,7 +2307,7 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | 초안 상자 '다시 만들기' | `regenDraft` | `POST /api/cards/{id}/run` `{generator, review_id?, replaces: [그 글 id], measures?(불만 카드), reply_texts?(안내문)}` | 그 글 한 건만 새 글로. 그 글의 승인·고친 내용만 버림 |
 | 진행줄 옆 '카드 전체 다시 만들기' | `rerunCard` → `runCard` | `POST /api/cards/{id}/run` `{measures?, replaces: [그 카드의 글 id, 승인한 것부터 20개까지]}` | 그 카드의 글·승인·고친 내용을 모두 버림. 승인했거나 고친 글이 있으면 첫 누름은 안내만 하고 5초(`RERUN_ARM_MS`) 안에 한 번 더 눌러야 실행 |
 | 응답에 `replace_warning` | | | 새 글은 쓰고 알림 띠에 그 문장 |
-| `#/done` 열기 | `Done.jsx` `ServerLog` | `GET /api/approvals` | 접힌 '서버 처리 기록' |
+| `#/done` 열기 | `Done.jsx` `ServerLog` | `GET /api/approvals` | 접힌 '서버 처리 기록' (버튼 줄 위. 한 줄 = "MM-DD HH:MM 승인 · 글 이름 (고침)") |
 | 완료 '홈으로' | `go("today")` | 없음 | 진행은 그대로 |
 | 완료 '처음부터 다시' | `restart` | `DELETE /api/approvals` | 브라우저 진행을 비우고(`resetFlow`·`emptyFlow`), `mktResetSeq`를 올려 맞춤 마케팅도 처음으로, `#/today`. 서버가 실패해도 화면은 비우고 알림 띠로 알림. `marketing_cleared: false`면 맞춤 마케팅 화면 위에 "기록은 지우지 못했어요" 안내 |
 | 홈 'AI 비서' 항목 | `staffGo` | 없음 | 데이터 분석 → 리뷰 분석 요약, 고객 응대 → 승인 대기가 있으면 `#/draft` 없으면 `#/cards`, 마케팅 → `#/marketing`, 상권 분석 → `#/market` |
@@ -2316,9 +2316,9 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 
 | 언제 | 함수 | 부르는 API | 결과가 가는 곳 |
 |---|---|---|---|
-| '분류하기' | `PasteTab.jsx` `paste` | `POST /api/reviews` `{text, rating}` (+ 채널을 고르면 `channel`) → 성공하면 `refresh()` | 분류 결과 칸, 홈·카드·분석 다시. 빈 글은 보내지 않음 |
+| '분류하기' | `PasteTab.jsx` `paste` | `POST /api/reviews` `{text, rating}` (+ 채널을 고르면 `channel`) → 성공하면 `refresh()` | 붙여넣기 칸 안 버튼 아래의 '분류 결과'(분류 전에는 없음), 홈·카드·분석 다시. 빈 글은 보내지 않음. 리뷰 넣기 탭은 '붙여넣기' · '캡처로 넣기' 두 칸 (11/20 Figma 06 C2) |
 | '붙여넣은 리뷰 지우기' | `resetPaste` | `DELETE /api/reviews/pasted` → `refresh()` | 위와 같음 |
-| 캡처 '캡처 읽기' | `Capture.jsx` `capRead` | `POST /api/care/reviews/capture` (multipart `file`, 최대 110초) | 후보 목록 (저장하지 않음). 파일은 png·jpg·webp, 10MB 이하만 보냄. 오류는 캡처 칸 안에만 |
+| 캡처 '파일 고르기'(점선 상자 안, 끌어 놓기는 칸 전체) → '캡처 읽기' | `Capture.jsx` `capRead` | `POST /api/care/reviews/capture` (multipart `file`, 최대 110초) | 후보 목록 (저장하지 않음). 파일은 png·jpg·webp, 10MB 이하만 보냄. 오류는 캡처 칸 안에만 |
 | '선택한 리뷰 저장' | `capSave` | 고른 후보마다 `POST /api/reviews` `{text, rating, source: "capture"}` (`careApi`) → 하나라도 저장되면 `refresh()` | 후보마다 저장 표시 또는 그 후보 아래 오류 |
 
 **종합 리포트** (`features/report/state.js`. 이 화면은 AI를 새로 부르지 않음: `/api/cards`·`/api/briefing`·글 만들기·서랍을 부르지 않음)
@@ -2494,7 +2494,7 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
 | 홈 `.flow-dash` (오늘 할 일 · AI 비서) | 759px 이하 | 한 칸 (공통 639px보다 먼저) |
 | 홈 시간대 막대 `.flow-hours` | 479px 이하 | 막대 사이 3px, 시각 글자 한 칸 걸러 숨김(자리는 그대로, 모든 숫자는 `aria-label`에) |
 | 흐름 화면 | 479px 이하 | 진행줄 버튼 왼쪽 여백 없앰, 완료 목록 줄바꿈 허용, 할 일 아래 버튼 꽉 채움 |
-| 리뷰 분석 `.an-paste-grid` | 759px 이하 | 붙여넣기 · 분류 결과 한 칸 |
+| 리뷰 분석 `.an-paste-grid` | 759px 이하 | 붙여넣기 · 캡처로 넣기 한 칸 |
 | 리뷰 분석 | 639px 이하 | 흐름 숫자·시간대 줄·키워드 간격 좁게 |
 | 리뷰 분석 `.an-paste-opts` (채널 · 별점) | 419px 이하 | 한 칸 (그 위에서는 공통 639px 규칙보다 우선해 두 칸) |
 | 종합 리포트 `.rp-praise-body` | 759px 이하 | 세 칸 → 한 칸씩 |

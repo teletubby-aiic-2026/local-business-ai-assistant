@@ -11,7 +11,8 @@ export const REPLACES_MAX = 20;
 export function homeStats(b) {
   if (!b) return null;
   const c = b.counts || {};
-  const days = Math.round((new Date(b.period?.end) - new Date(b.period?.start)) / 86400000) + 1;
+  // 리뷰가 0건인 새 가게는 기간이 비어 있다 (new Date(null) 끼리 빼면 0 → '1일'로 보이지 않게)
+  const days = b.period?.start && b.period?.end ? Math.round((new Date(b.period.end) - new Date(b.period.start)) / 86400000) + 1 : NaN;
   const repeated = (b.groups || []).filter((g) => g.is_repeated);
   return {
     reviews: c.review_count,

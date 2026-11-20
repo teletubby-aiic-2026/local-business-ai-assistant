@@ -24,6 +24,11 @@ describe("홈", () => {
     expect(s.repeated).toBe(3);
     expect(s.repeatedSub).toBe("포장 누락");
   });
+  it("리뷰 0건인 새 가게: 기간이 비어도 '1일 동안'이 나오지 않는다", () => {
+    const s = homeStats({ period: { start: null, end: null }, counts: { review_count: 0, complaint_count: 0 }, groups: [] });
+    expect(s).toMatchObject({ reviews: 0, reviewsSub: "", complaints: 0, complaintsSub: "", repeated: 0, repeatedSub: "없음" });
+    expect(homeStats({ counts: {} }).reviewsSub).toBe("");
+  });
   it("상권 칸 범위 칩: 상권명 · 업종 · 시간대 (지표 이름에서)", () => {
     const snap = { area_name: "장승배기역 4번", metric_name: "저녁 시간대(17~24시) 추정매출 전년 동기 대비 변화율 · 두 분기 공통 업종" };
     expect(scopeChips(snap)).toEqual(["장승배기역 4번", "공통 업종", "17~24시"]);

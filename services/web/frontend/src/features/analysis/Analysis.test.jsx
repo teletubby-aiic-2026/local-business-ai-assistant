@@ -111,4 +111,33 @@ describe("리뷰 분석 화면", () => {
     expect(calls.find((c) => c[0] === "/api/reviews")[1]).toBe(JSON.stringify({ text: "맛있어요", rating: 5, source: "capture" }));
     expect(screen.getByText("저장함")).toBeTruthy();
   });
+
+  // Figma 06 C1·C2 배치 (11/20)
+  it("리뷰 넣기: 붙여넣기 | 캡처로 넣기 두 칸, 분류 결과는 붙여넣기 칸 안 (분류 전에는 없음), 캡처는 점선 상자 안에서 파일 고르기", () => {
+    const { container } = render(<Analysis />);
+    fireEvent.click(screen.getByRole("tab", { name: "리뷰 넣기" }));
+    const grid = container.querySelector(".an-paste-grid");
+    expect([...grid.children].map((x) => x.querySelector("h2").textContent)).toEqual(["붙여넣기", "캡처로 넣기"]);
+    expect(container.querySelector(".an-result")).toBeNull();
+    expect(screen.queryByText("분류 결과")).toBeNull();
+    // 개인정보 안내는 글 칸 설명으로 이어지고 (화면에는 버튼 아래 한 줄)
+    expect(document.getElementById("paste-text").getAttribute("aria-describedby")).toBe("paste-pii");
+    const drop = container.querySelector(".an-cap .an-cap-drop");
+    expect(drop.textContent).toContain("AI가 배달앱 리뷰 캡처에서 글과 별점을 읽어 와요.");
+    expect(drop.querySelector("button").textContent).toBe("파일 고르기");
+    expect(screen.getByRole("button", { name: "캡처 읽기" }).closest(".an-cap-drop")).toBeNull();
+    // 탭 줄과 요약 패널 이름
+    fireEvent.click(screen.getByRole("tab", { name: "요약" }));
+    expect(screen.getByRole("region", { name: "칭찬·불만 주제" })).toBeTruthy();
+  });
+
+  it("리뷰 0건인 새 가게: 기간 대신 짧은 안내, 타일·주제·묶음이 깨지지 않는다", () => {
+    setState({ me: null, insight: { period_start: null, period_end: null, review_count: 0, complaint_count: 0, sentiment_counts: {},
+      topic_counts: {}, group_count: 0, single_complaint_count: 0, top_issue_id: null, groups: [], single_complaints: [], data_origin: null } });
+    const { container } = render(<Analysis />);
+    expect(container.querySelector(".an-period").textContent).toBe("아직 들어온 리뷰가 없어요.");
+    expect(container.textContent).not.toMatch(/undefined|null|NaN|1일/);
+    fireEvent.click(screen.getByRole("tab", { name: "불만 묶음" }));
+    expect(screen.getByText("묶인 불만이 없어요.")).toBeTruthy();
+  });
 });

@@ -3,60 +3,62 @@
 /* ── 공통 ── */
 .flow-more summary { cursor: pointer; color: var(--accent-text); font-weight: 500; min-height: 32px; display: inline-flex; align-items: center; }
 .flow-more[open] > * + * { margin-top: var(--s-12); }
-.flow-track { display: block; flex: 1; height: 6px; border-radius: var(--r-full); background: var(--chip); overflow: hidden; }
-.flow-track i { display: block; height: 100%; border-radius: var(--r-full); background: var(--brand); }
 
-/* 3단계 표시 */
-.flow-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); font-size: var(--fs-small); color: var(--muted); }
+/* 3단계 표시 (Figma 06 B2~B4): 단계마다 회색 알약, 지금 단계는 초록 알약 */
+.flow-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); font-size: var(--fs-small); color: var(--ink-2); }
 .flow-steps li { display: inline-flex; align-items: center; gap: var(--s-8); }
-.flow-step-sep { color: var(--bar-strong); padding-right: 2px; }
-.flow-step-n { width: 24px; height: 24px; border-radius: var(--r-full); display: inline-grid; place-items: center; background: var(--chip); color: var(--ink-2); font-weight: 700; font-size: 13px; }
-.flow-steps li.past .flow-step-n { background: var(--brand-soft); color: var(--accent-text); }
-.flow-steps li.on { color: var(--ink); font-weight: 700; }
-.flow-steps li.on .flow-step-n { background: var(--accent); color: var(--accent-ink); }
+.flow-step-sep { color: var(--muted); padding: 0 4px; }
+.flow-step-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 12px; border-radius: var(--r-full); background: var(--chip); line-height: 1.6; }
+.flow-step-n { font-variant-numeric: tabular-nums; }
+.flow-steps li.on .flow-step-pill { background: var(--brand-soft); color: var(--accent-text); font-weight: 700; }
 
 /* ── 홈 ── */
 .flow-eyebrow { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .flow-eyebrow span + span::before { content: "·"; margin-right: 12px; color: var(--bar-strong); }
 /* 좁은 본문에서는 줄이 꺾이며 "·"가 줄 맨 앞에 오므로, 기간 줄을 따로 세우고 구분점을 뺀다 */
 @container content (max-width: 479px) { .flow-eyebrow { flex-direction: column; } .flow-eyebrow span + span::before { content: none; } }
-.flow-hero { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; background: var(--bad-bg); border-radius: var(--r-md); padding: var(--s-12) var(--s-16); }
-.flow-hero-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-small); font-weight: 700; color: var(--bad); }
-.flow-hero-label::before { content: ""; width: 8px; height: 8px; border-radius: var(--r-full); background: var(--hot); }
+/* 오늘의 핵심 문제: 옅은 빨간 띠 안에 흰 알약 이름표 + 굵은 한 줄 */
+.flow-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; background: var(--bad-bg); border-radius: var(--r-md); padding: var(--s-16) var(--s-20); }
+.flow-hero-label { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: var(--r-full); background: var(--panel); font-size: var(--fs-small); font-weight: 500; color: var(--bad); white-space: nowrap; }
+.flow-hero strong { font-size: var(--fs-panel); line-height: var(--lh-panel); }
 .flow-unit { font-size: var(--fs-body); font-weight: 500; margin-left: 2px; color: var(--ink-2); }
-.flow-dash { align-items: start; }
+/* 오늘 할 일(넓은 칸) · 담당 비서 현황(320px 칸) */
+.flow-dash { grid-template-columns: minmax(0, 1fr) minmax(0, 320px); align-items: start; }
 
 /* '상권 저녁 매출' 칸의 범위 칩 (상권명 · 업종 · 시간대) + 비교 기준 한 줄 */
 .flow-scope { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .flow-scope-chip { display: inline-flex; align-items: center; max-width: 100%; padding: 1px 8px; border-radius: var(--r-full); background: var(--panel); color: var(--ink-2); font-size: 13px; line-height: 1.6; font-weight: 500; }
 .flow-scope-base { display: block; margin-top: 4px; }
 
-.flow-todo { display: grid; gap: 4px; margin: 0 calc(var(--s-12) * -1); }
+/* 할 일 한 줄 = 테두리 상자: 동그라미 · 글 · 오른쪽 버튼 모양의 상태 (줄 전체가 버튼 하나) */
+.flow-todo { display: grid; gap: var(--s-12); }
 .flow-todo-item {
-  width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: var(--s-12); align-items: start; text-align: left;
-  padding: var(--s-12); border: 0; border-radius: var(--r-md); background: transparent; color: inherit; font: inherit; cursor: pointer;
+  width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: var(--s-12); align-items: center; text-align: left;
+  padding: var(--s-16); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); color: inherit; font: inherit; cursor: pointer;
 }
 .flow-todo-item:hover:not(:disabled) { background: var(--hover); }
 .flow-todo-item:disabled { cursor: progress; opacity: .7; }
-.flow-todo-check { width: 22px; height: 22px; margin-top: 2px; display: grid; place-items: center; border: 1.5px solid var(--field-line); border-radius: var(--r-full); font-size: 13px; font-weight: 700; }
+.flow-todo-check { width: 22px; height: 22px; display: grid; place-items: center; border: 1.5px solid var(--field-line); border-radius: var(--r-full); font-size: 13px; font-weight: 700; }
 .flow-todo-item.done .flow-todo-check { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .flow-todo-item.done strong { color: var(--muted); text-decoration: line-through; }
 .flow-todo-text { display: grid; gap: 2px; min-width: 0; }
 .flow-todo-text .small { color: var(--ink-2); }
 .flow-todo-text .small.muted { color: var(--muted); }
-.flow-urgent { display: inline-block; margin-right: 8px; padding: 0 8px; border-radius: var(--r-sm); background: var(--bad-bg); color: var(--bad); font-size: var(--fs-small); font-weight: 700; }
-.flow-todo-st { padding: 3px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-full); color: var(--ink-2); font-size: var(--fs-small); font-weight: 500; white-space: nowrap; }
-.flow-todo-item.urgent .flow-todo-st { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.flow-urgent { display: inline-block; margin-right: 8px; padding: 0 10px; border-radius: var(--r-full); background: var(--bad-bg); color: var(--bad); font-size: var(--fs-small); font-weight: 500; }
+/* 상태는 버튼처럼 보이게 (급한 일은 초록 주 버튼 모양) */
+.flow-todo-st { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 18px; border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: var(--panel); color: var(--ink); font: 500 var(--fs-button)/1.4 var(--font); white-space: nowrap; }
+.flow-todo-item.urgent .flow-todo-st { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .flow-todo-item.done .flow-todo-st { background: var(--ok-bg); border-color: var(--ok-bg); color: var(--ok); }
-.flow-todo-foot { border-top: 1px solid var(--line); padding-top: var(--s-16); }
 .flow-todo-foot .btn { min-width: 160px; }
 
 .flow-staff { display: grid; gap: 4px; margin: 0 calc(var(--s-12) * -1); }
 .flow-staff-go {
-  width: 100%; display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: var(--s-12); align-items: center; text-align: left;
+  width: 100%; display: grid; grid-template-columns: 8px 28px minmax(0, 1fr) auto; gap: var(--s-12); align-items: center; text-align: left;
   padding: var(--s-12); border: 0; border-radius: var(--r-md); background: transparent; color: inherit; font: inherit; cursor: pointer; min-height: 44px;
 }
 .flow-staff-go:hover { background: var(--hover); }
+.flow-staff-av { width: 28px; height: 28px; border-radius: var(--r-full); display: grid; place-items: center; background: var(--chip); color: var(--accent-text); font-size: 12px; font-weight: 700; }
 .flow-staff-text { display: grid; gap: 2px; min-width: 0; }
 .flow-staff-arrow { color: var(--muted); font-size: var(--fs-panel); }
 
@@ -81,18 +83,22 @@
 .flow-ask:hover { border-color: var(--field-line); }
 .flow-ask[aria-expanded="true"] { border-color: var(--accent); }
 .flow-ask-ph { flex: 1; min-width: 0; }
-.flow-ask-go { width: 32px; height: 32px; border-radius: var(--r-full); display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.flow-ask { padding-right: var(--s-12); }
+.flow-ask-go { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 8px 20px; border-radius: var(--r-md); background: var(--accent); color: var(--accent-ink); font: 500 var(--fs-button)/1.4 var(--font); }
+.flow-ask:hover .flow-ask-go { background: var(--accent-hover); }
 
-/* ── 추천 카드 ── */
-.flow-card-grid { align-items: stretch; }
+/* ── 추천 카드 (Figma 06 B2: 카드를 위아래로 한 장씩) ── */
 .flow-card { display: flex; flex-direction: column; gap: var(--s-12); }
 .flow-card > * + * { margin-top: 0; }
 .flow-card-kind { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); font-size: var(--fs-small); color: var(--ink-2); }
-.flow-card-go { margin-top: auto; align-self: flex-start; }
+.flow-card-kind .strong { color: var(--accent-text); font-size: var(--fs-body); }
+.flow-card-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8) var(--s-12); margin-top: var(--s-4); }
+.flow-more-toggle { font-weight: 500; }
 .flow-ev { display: grid; gap: var(--s-8); }
 .flow-ev li { background: var(--surface); border-radius: var(--r-sm); padding: var(--s-8) var(--s-12); }
-.flow-measures { margin: 0; padding: var(--s-12) 0 0; border: 0; border-top: 1px solid var(--line); min-width: 0; display: grid; gap: 6px; }
-.flow-measures legend { float: left; width: 100%; padding: 0; margin: 0 0 4px; color: var(--ink); }
+/* 점검 수칙: 회색 상자 안 */
+.flow-measures { margin: 0; padding: var(--s-16); border: 0; border-radius: var(--r-md); background: var(--surface); min-width: 0; display: grid; gap: 6px; }
+.flow-measures legend { float: left; width: 100%; padding: 0; margin: 0 0 4px; color: var(--ink-2); font-weight: 500; }
 .flow-measures label { display: flex; align-items: flex-start; gap: var(--s-8); clear: both; min-height: 28px; cursor: pointer; }
 .flow-measures input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
 
@@ -100,40 +106,59 @@
 .flow-seg { display: inline-flex; gap: 4px; max-width: 100%; overflow-x: auto; padding: 4px; border-radius: var(--r-md); background: var(--chip); justify-self: start; }
 .flow-seg button { min-height: 40px; padding: 6px 16px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink-2); font: 500 var(--fs-button)/1.4 var(--font); white-space: nowrap; cursor: pointer; }
 .flow-seg button[aria-current="true"] { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: var(--shadow-card); }
-.flow-progress { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-12); font-size: var(--fs-small); font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.flow-progress .flow-track { min-width: 120px; }
+.flow-progress { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-12); font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.flow-progress-text { flex: 1 1 200px; min-width: 0; }
 .flow-progress .btn { font-weight: 500; margin-left: auto; }
 .flow-warn { color: var(--warn); font-weight: 500; }
 
+/* 손님 리뷰: 리뷰마다 회색 상자 (별점 · 채널 · 시각 / 글) */
 .flow-rv-list { display: grid; gap: var(--s-12); }
-.flow-rv-list li + li { padding-top: var(--s-12); border-top: 1px solid var(--line); }
+.flow-rv-box { display: grid; gap: 4px; padding: var(--s-12) var(--s-16); border-radius: var(--r-md); background: var(--surface); }
 .flow-rv-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: center; }
+.flow-rv-meta span:not(.flow-stars) + span::before { content: "·"; margin-right: 8px; }
 .flow-stars { color: var(--warn); letter-spacing: 1px; }
 
 .flow-draft-box.approved { border-color: var(--green-200); }
 .flow-reply-label { font-size: var(--fs-small); font-weight: 700; color: var(--ink); }
 .flow-textarea { min-height: 180px; }
 .flow-textarea[readonly] { background: var(--surface); }
-.flow-issues { margin: 0; padding: var(--s-12) 0 0 var(--s-20); border-top: 1px solid var(--line); color: var(--warn); font-size: var(--fs-small); display: grid; gap: 4px; }
-.flow-issues.bad { color: var(--bad); }
-.flow-issues + .flow-issues { border-top: 0; padding-top: 0; margin-top: var(--s-8); }
+/* 점검 칩 줄: 색과 함께 모양으로도 (● 통과 · ▲ 확인 필요 · ■ 실패) */
+.flow-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.flow-chk.ok::before, .flow-chk.warn::before, .flow-chk.bad::before { content: ""; flex: none; width: 8px; height: 8px; background: currentColor; }
+.flow-chk.ok::before { border-radius: 50%; }
+.flow-chk.warn::before { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.flow-chk.bad::before { border-radius: 1px; }
+/* 고칠 곳: 노란(확인 필요) · 빨간(점검 실패) 상자 */
+.flow-issues { display: grid; gap: 6px; font-size: var(--fs-small); }
+.flow-issues li { padding: var(--s-8) var(--s-12); border-radius: var(--r-md); background: var(--warn-bg); color: var(--warn); }
+.flow-issues.bad li { background: var(--bad-bg); color: var(--bad); }
+.flow-issues + .flow-issues { margin-top: var(--s-8); }
 
 .flow-list { display: grid; gap: 4px; }
+.flow-list { gap: var(--s-8); }
 .flow-list button {
-  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--s-12); min-height: 44px; padding: var(--s-8) var(--s-12);
-  border: 1px solid transparent; border-radius: var(--r-md); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--s-12); min-height: 48px; padding: var(--s-8) var(--s-12);
+  border: 1px solid transparent; border-radius: var(--r-md); background: var(--surface); color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .flow-list button:hover { background: var(--hover); }
 .flow-list button[aria-current="true"] { border-color: var(--accent); background: var(--brand-soft); font-weight: 700; }
 .flow-list-name { min-width: 0; }
 .flow-list-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; font-weight: 500; }
 
-/* ── 처리 완료 ── */
-.flow-log { display: grid; }
-.flow-log-item { display: flex; align-items: center; justify-content: space-between; gap: var(--s-12); padding: var(--s-12) 0; }
-.flow-log-item + .flow-log-item { border-top: 1px solid var(--line); }
-.flow-log-text { display: grid; gap: 2px; min-width: 0; }
-.flow-rules { margin: 0; padding-left: var(--s-20); display: grid; gap: 4px; }
+/* ── 처리 완료 (Figma 06 B4) ── */
+/* 승인한 글: 글마다 회색 상자 (이름 · 시각 / 글 앞부분 한 줄) + 복사 */
+.flow-log { display: grid; gap: var(--s-12); }
+.flow-log-item { display: flex; align-items: center; justify-content: space-between; gap: var(--s-12); padding: var(--s-12) var(--s-16); border-radius: var(--r-md); background: var(--surface); }
+.flow-log-text { display: grid; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.flow-log-excerpt { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; overflow-wrap: normal; }
+.flow-log-item .btn { flex: none; }
+.flow-rules { display: grid; gap: 4px; }
+.flow-rules li::before { content: "✓"; margin-right: 8px; color: var(--accent-text); font-weight: 700; }
+/* 서버 처리 기록: 패널 모양의 접힌 칸 (제목을 누르면 펼침) */
+.flow-server > summary { display: flex; align-items: center; gap: var(--s-8); cursor: pointer; list-style: none; min-height: 32px; }
+.flow-server > summary::-webkit-details-marker { display: none; }
+.flow-server > summary::after { content: "▾"; color: var(--muted); font-size: var(--fs-small); }
+.flow-server[open] > summary::after { content: "▴"; }
 .flow-server-log { display: grid; gap: 4px; color: var(--ink-2); }
 
 /* ── 본문 실제 폭(@container content)에 맞춘 줄바꿈. 타일 칸 수·두 칸 패널·여백은 base.css 의 공통 규칙(679·639·479px)을 따르고,
@@ -143,8 +168,12 @@
 }
 @container content (max-width: 479px) {
   .flow-progress .btn { margin-left: 0; }
-  .flow-log-item { flex-wrap: wrap; }
   .flow-todo-foot .btn { width: 100%; }
+  .flow-todo-item { padding: var(--s-12); gap: var(--s-8) var(--s-12); }
+  .flow-todo-st { min-height: 36px; padding: 6px 12px; font-size: var(--fs-small); }
+  .flow-hero { padding: var(--s-12) var(--s-16); }
+  .flow-hero strong { font-size: 18px; }
+  .flow-ask-go { padding: 8px 14px; }
 }
 
 /* 카드 이유 문장의 줄바꿈(\n)을 살린다 (서버가 문장마다 줄을 나눠 보냄) */

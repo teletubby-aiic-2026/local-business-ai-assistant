@@ -24,7 +24,8 @@ export const periodLine = (d) => `${d.period_start} ~ ${d.period_end}${d.data_or
 // 요약 타일 세 개 (예전 renderAnSummary). d 가 없으면 '–'
 export function summaryTiles(d) {
   if (!d) return { reviews: "–", reviewsSub: "", complaints: "–", complaintsSub: "", repeated: "–", repeatedSub: "" };
-  const days = Math.round((new Date(d.period_end) - new Date(d.period_start)) / 86400000) + 1;
+  // 리뷰가 0건인 새 가게는 기간이 비어 있다 (new Date(null) 끼리 빼면 0 → '1일'로 보이지 않게)
+  const days = d.period_start && d.period_end ? Math.round((new Date(d.period_end) - new Date(d.period_start)) / 86400000) + 1 : NaN;
   const s = d.sentiment_counts || {};
   const rep = (d.groups || []).filter((g) => g.is_repeated);
   return {

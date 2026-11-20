@@ -114,6 +114,10 @@ describe("맞춤 마케팅 화면", () => {
     render(<Marketing />);
     expect(await screen.findByText("무엇을 도와드릴까요?")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "처음부터" })).toBeNull();   // 첫 화면(기능 카드)에는 없음
+    // 첫 화면의 기능 카드는 흰 패널로 감싸지 않고 바탕 위에 바로 (Figma 06 M1)
+    const start = document.querySelector(".mkt-start");
+    expect(start.classList.contains("panel")).toBe(false);
+    expect(start.querySelector(".feature-grid")).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByText("광고비 점검")); });
     // 아직 step 응답 전: 질문 칸 제목이 고른 모드, 내 답 말풍선, '처음부터' 버튼
     const title = document.getElementById("mkt-ask-title");
@@ -122,6 +126,8 @@ describe("맞춤 마케팅 화면", () => {
     expect(screen.getByRole("button", { name: "처음부터" })).toBeTruthy();
     expect(screen.getByText("승인한 기록은 그대로 남아요")).toBeTruthy();
     expect(screen.queryByText("질문")).toBeNull();   // '질문' 제목 + '질문 n' 배지가 따로 있지 않음
+    // 비서 질문은 '마케팅 비서' 이름표가 붙은 상자, 사장님 답은 말풍선 (Figma 06 M1)
+    expect([...document.querySelectorAll("#mkt-log .mkt-msg.bot")].map((x) => x.querySelector(".mkt-who").textContent)).toEqual(["마케팅 비서"]);
     await act(async () => { release({ state: { node: "DECISION", raw: {}, confirms: {}, mode: "adspend" }, done: true }); });
     expect(await screen.findByText("광고비 점검 결과")).toBeTruthy();
   });
