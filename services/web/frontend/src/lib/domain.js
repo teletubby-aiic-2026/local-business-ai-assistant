@@ -62,6 +62,9 @@ export function healthProblems(h) {
 // 이 띠가 '실제 AI 결과가 아님'을 알리는 화면 공통의 한 곳이다 (바닥 줄에서 다시 말하지 않음)
 export const MODE_BAND_MOCK = "시험용 예시 화면 · 실제 AI 생성 결과가 아니에요";
 export const modeBandText = (h) => (h?.mode_notice ? MODE_BAND_MOCK : "");
+// 시험용 실행(mock)인지: 안내 띠와 같은 기준 (서버는 mock 일 때만 mode_notice 를 준다). 상태를 못 받았으면 실제 서버로 본다.
+// 로그인 화면의 '시연 사장님으로 시작'은 시험용 실행에서만 보인다 (6차 회의)
+export const isTestRun = (h) => !!modeBandText(h);
 
 // 바닥 줄 (자료 출처·AI 생성 여부). 리뷰가 합성 데이터인지는 늘, AI 가 실시간으로 쓰는지는 시험용 띠가 없을 때만 적는다.
 // 분류 방식·규칙·모델 분담 같은 안쪽 사정은 적지 않는다
