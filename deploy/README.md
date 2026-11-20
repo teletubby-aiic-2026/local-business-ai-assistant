@@ -279,7 +279,7 @@ DB를 만들고 ACG에서 WAS → DB 5432를 연 뒤에 합니다. 서버가 여
 - DB에 닿지 못하는 동안에는 승인은 되고(경고가 붙고, 서버가 들고 있다가 DB가 돌아오면 저장), 브리핑, 카드, 리뷰 분석, 붙여넣기는 503입니다. DB가 돌아오면 서비스를 다시 켜지 않아도 이어집니다.
 - 맞춤 마케팅 서비스(`ic26-marketing`)도 같은 `DB_HOST`를 읽습니다. DB에 닿지 못하는 동안 마케팅 기록 쓰기는 건너뛰고(화면은 그대로), 마케팅 보고서는 데모로 바꾸지 않고 `503`입니다(기록이 있는 사장님에게 '기록 없음' 화면이 나가지 않게).
 - DB 없이 되돌리려면 `DB_HOST`를 비우고 서비스를 다시 시작합니다.
-- 표 정의는 `db/schema.sql`입니다. 칸을 **더하는** 변경은 `schema.sql` 끝의 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 명령이 처리합니다. 칸 이름·형식을 바꾸거나 지우는 변경은 따로 옮깁니다.
+- 표 정의는 `db/schema.sql`입니다. 칸을 **더하는** 변경은 `schema.sql` 끝의 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`로 이 명령이 처리합니다. 칸 이름·형식을 바꾸거나 지우는 변경은 따로 옮깁니다. 11/20 `reports` 표의 바뀜(`visitor_id` 칸 더하기 + 옛 유일 조건을 방문자가 든 유일 색인 `reports_one_per_period`로 바꾸기)도 `schema.sql` 안의 `ALTER … ADD COLUMN IF NOT EXISTS`와 `DO` 블록이라 이 명령이 처리합니다 (여러 번 돌려도 안전, 이미 바꿨으면 아무것도 안 함).
 - 선택 변수: `DB_SSLMODE`, `DB_CONNECT_TIMEOUT`(3초), `DB_QUERY_TIMEOUT`(5초), `DB_POOL_MAX`(5). 설명은 `shared/storage/config.py`에 있습니다.
 - 2번 명령과 실제 Cloud DB 연결은 11/18 `ic26-was1`에서 확인했습니다(표 6개). 처음에 `no pg_hba.conf entry for host …`가 나왔는데, 네트워크가 아니라 콘솔 DB User 관리의 **접근 제어(Client CIDR)**에 WAS 대역이 없어서였습니다.
 - DB Failover 직후 약 30초 동안 DB 도메인이 옛 서버(읽기 전용 standby)를 가리킵니다(11/18 시험). 그때 연결 풀이 standby에 붙으면 최대 30분 저장이 실패할 수 있어 env에 `PGTARGETSESSIONATTRS=read-write`를 둡니다(틀에 들어 있음).
@@ -320,7 +320,7 @@ bash ic26-<새 커밋>/deploy/smoke_test.sh
 - 코드만 바뀌었으면 `--skip-pip`으로 빠르게 할 수 있습니다. requirements가 바뀐 갱신(예: DB 코드가 처음 들어온 묶음은 `psycopg`가 더해짐)에는 붙이지 않습니다.
 - **PR #49(리뷰 캡처·응대 점수·보고서)와 비서 화면 연결(`feat/connect-care-ui`)이 처음 들어가는 갱신은 `--skip-pip` 없이 돌립니다.** 리뷰 분석 서비스가 `pillow`와 `python-multipart`를 새로 씁니다. `python-multipart`가 없으면 리뷰 분석 서비스(`ic26-review`)가 **아예 켜지지 않고**, 비서 화면의 브리핑·카드·리뷰 분석도 모두 `503`이 됩니다. 갱신 뒤 `curl -s http://127.0.0.1:8020/api/health`와 `curl -s http://127.0.0.1:8000/api/care/status`(`"state":"ready"`)를 봅니다.
 - **맞춤 마케팅(`ic26-marketing`)이 처음 들어가는 갱신**은 `install_was.sh`가 서비스 파일을 넣고 enable·시작하며 `/var/lib/ic26/marketing`을 만듭니다. 새 패키지는 없습니다. 갱신 뒤 `curl -s http://127.0.0.1:8030/health`를 봅니다(10-2절).
-- `db/schema.sql`에 새 표나 새 칸이 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다. **11/18 묶음(`approvals` 칸 4개)과 11/19 묶음(마케팅 표 2개)이 그렇습니다. 표 만들기를 먼저, 서버 갱신은 그 뒤에 합니다.** 돌리기 전에도 승인 기록은 저장됩니다(새 칸이 없으면 칸 없이 예전처럼 쓰고 `journalctl -u ic26-was`에 'init_db 를 다시 돌리세요' 경고). 표 만들기를 돌린 뒤부터 새 칸이 채워집니다.
+- `db/schema.sql`에 새 표나 새 칸이 생긴 갱신이고 DB를 쓰고 있으면 6-1절의 표 만들기를 한 번 더 돌립니다. **11/18 묶음(`approvals` 칸 4개)과 11/19 묶음(마케팅 표 2개), 11/20 종합 리포트 묶음(`reports` 표의 `visitor_id` 칸·유일 색인)이 그렇습니다. 표 만들기를 먼저, 서버 갱신은 그 뒤에 합니다.** 11/20 묶음을 표 만들기 전에 올리면 종합 리포트는 계산한 보고서를 그대로 보이고 저장만 못 합니다(화면 안내 '지금은 보고서를 저장하지 못했어요', 응답 `storage: "unavailable"`). 돌리기 전에도 승인 기록은 저장됩니다(새 칸이 없으면 칸 없이 예전처럼 쓰고 `journalctl -u ic26-was`에 'init_db 를 다시 돌리세요' 경고). 표 만들기를 돌린 뒤부터 새 칸이 채워집니다.
 - 상권 자료(`/opt/ic26/services/market-analysis/data/`)는 갱신 때 그대로입니다. 자료가 깔려 있으면 `install_was.sh`가 `ic26-market`도 새 코드로 다시 시작합니다. 자료 묶음이 새로 나오면 4-1절(`--replace`).
 - 환경 파일 틀에 새 변수가 생기면 스크립트가 빠진 변수 이름을 알려 줍니다. 편집기로 줄을 추가합니다.
 - 단계 15(Auto Scaling) 뒤에는 그룹 서버를 직접 고치지 않습니다(체크리스트 단계 13-A).

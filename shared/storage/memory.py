@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone
 
 from .errors import DuplicateLogin
 from .times import now_kst, to_date, to_kst_iso
+from .visitor import COMMON_VISITOR
 
 
 STYLES = ("haeyo", "hamnida", "mixed")     # 답글 말투 (c6.output._VALID_STYLES 와 같음)
@@ -105,37 +106,62 @@ class MemoryCardReasons:
 
 
 class MemoryReports:
+    """가게 주간·월간 보고서. 보고서는 방문자마다 다르므로(붙여넣은 리뷰·답글 기록이 다름) (가게, 방문자)로 나눈다 (11/20).
+    visitor_id 를 안 주면 공용('common') 자리다 (예전 호출과 같은 동작)."""
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._rows: list[dict] = []
 
     def save(self, store_id: str, period_kind: str, period_start: date | str, period_end: date | str, *, numbers: dict,
-             body_text: str, evidence_ids: list[str], prompt_version: str, created_at: datetime | None = None) -> dict:
+             body_text: str, evidence_ids: list[str], prompt_version: str, created_at: datetime | None = None,
+             visitor_id: str = COMMON_VISITOR) -> dict:
         check_period(period_kind, to_date(period_start), to_date(period_end))
-        row = {"store_id": store_id, "period_kind": period_kind, "period_start": to_date(period_start).isoformat(),
-               "period_end": to_date(period_end).isoformat(), "numbers": dict(numbers), "body_text": body_text,
+        row = {"store_id": store_id, "visitor_id": visitor_id, "period_kind": period_kind,
+               "period_start": to_date(period_start).isoformat(),
+               "period_end": to_date(period_end).isoformat(), "numbers": json.loads(json.dumps(numbers)), "body_text": body_text,
                "evidence_ids": list(evidence_ids), "prompt_version": prompt_version,
                "created_at": to_kst_iso(created_at) if created_at else now_kst()}
-        with self._lock:   # 같은 (가게, 종류, 기간, 프롬프트 버전)은 덮어쓴다
-            same = lambda r: all(r[k] == row[k] for k in ("store_id", "period_kind", "period_start", "period_end", "prompt_version"))
-            self._rows = [r for r in self._rows if not same(r)] + [row]
+        with self._lock:   # 같은 (가게, 방문자, 종류, 기간, 프롬프트 버전)은 덮어쓴다
+            keys = ("store_id", "visitor_id", "period_kind", "period_start", "period_end", "prompt_version")
+            self._rows = [r for r in self._rows if any(r[k] != row[k] for k in keys)] + [row]
         return dict(row)
 
-    def get(self, store_id: str, period_kind: str, period_start: date | str, period_end: date | str) -> dict | None:
+    def get(self, store_id: str, period_kind: str, period_start: date | str, period_end: date | str,
+            visitor_id: str = COMMON_VISITOR) -> dict | None:
         """그 기간 보고서 중 가장 늦게 만든 것."""
         start, end = to_date(period_start).isoformat(), to_date(period_end).isoformat()
         with self._lock:
-            found = [r for r in self._rows if (r["store_id"], r["period_kind"], r["period_start"], r["period_end"]) ==
-                     (store_id, period_kind, start, end)]
+            found = [r for r in self._rows if (r["store_id"], r["visitor_id"], r["period_kind"], r["period_start"], r["period_end"]) ==
+                     (store_id, visitor_id, period_kind, start, end)]
         # 같은 초 안에 만든 것끼리는 나중에 저장한 것이 이긴다 (DB 는 마이크로초까지 비교)
         return dict(max(enumerate(found), key=lambda t: (t[1]["created_at"], t[0]))[1]) if found else None
 
-    def list(self, store_id: str, period_kind: str | None = None, limit: int = 20) -> list[dict]:
+    def list(self, store_id: str, period_kind: str | None = None, limit: int = 20, visitor_id: str = COMMON_VISITOR) -> list[dict]:
         """기간이 늦은 것부터, 같은 기간이면 늦게 만든 것부터."""
         with self._lock:
-            rows = [r for r in self._rows if r["store_id"] == store_id and (period_kind is None or r["period_kind"] == period_kind)]
+            rows = [r for r in self._rows if r["store_id"] == store_id and r["visitor_id"] == visitor_id
+                    and (period_kind is None or r["period_kind"] == period_kind)]
         order = sorted(enumerate(rows), key=lambda t: (t[1]["period_start"], t[1]["created_at"], t[0]), reverse=True)
         return [dict(r) for _, r in order[:limit]]
+
+    def count(self, store_ids, visitor_id: str) -> dict:
+        """가게 여러 곳의 이 방문자 보고서 수 {"weekly": n, "monthly": n}. 같은 기간은 프롬프트 버전이 여럿이어도 하나로 센다."""
+        wanted = set(store_ids or ())
+        with self._lock:
+            seen = {(r["store_id"], r["period_kind"], r["period_start"], r["period_end"]) for r in self._rows
+                    if r["store_id"] in wanted and r["visitor_id"] == visitor_id}
+        return {kind: sum(1 for s in seen if s[1] == kind) for kind in REPORT_KINDS}
+
+    def delete(self, store_id: str, visitor_id: str) -> int:
+        """이 가게·이 방문자의 보고서를 모두 지우고 지운 수를 돌려준다 (계정 초기화·탈퇴). 다른 방문자·가게는 그대로."""
+        with self._lock:
+            kept = [r for r in self._rows if (r["store_id"], r["visitor_id"]) != (store_id, visitor_id)]
+            deleted, self._rows = len(self._rows) - len(kept), kept
+        return deleted
+
+
+REPORT_KINDS = ("weekly", "monthly")
 
 
 def check_period(period_kind: str, start: date, end: date) -> None:

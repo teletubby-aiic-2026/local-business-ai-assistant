@@ -1,16 +1,46 @@
-/* 종합 리포트 (#/report): Figma 화면 10. 공통 부품(.panel .tile .topic-bar .badge)은 base.css, 여기는 이 화면에만 필요한 모양 */
+/* 종합 리포트 (#/report): Figma 06 'D1 종합 리포트' (11/20). 공통 부품(.panel .tile .topic-bar .badge .tabs)은 base.css, 여기는 이 화면에만 필요한 모양 */
 
-/* 머리 아래: 구역 바로가기 칩 줄 + PDF 안내 */
+/* 탭(주간·월간) + 기간 이동 줄 */
 .rp-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-12) var(--s-16); }
-.rp-jump ul { display: flex; flex-wrap: wrap; gap: var(--s-8); }
-.rp-chip {
-  min-height: 36px; padding: 6px 14px; border-radius: var(--r-full); border: 1px solid var(--line-strong);
-  background: var(--panel); color: var(--ink-2); font: 500 var(--fs-small)/1.4 var(--font); cursor: pointer;
-}
-.rp-chip:hover { background: var(--hover); color: var(--ink); }
-.rp-sec { scroll-margin-top: calc(var(--top-h) + var(--s-16)); }   /* 바로가기로 갔을 때 상단 바에 가리지 않게 */
+.rp-period-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s-8); }
+.rp-period-nav strong { min-width: 6.5em; text-align: center; font-variant-numeric: tabular-nums; }
+.rp-pdf-msg { margin-top: calc(-1 * var(--s-12)); }
+.rp-sec { scroll-margin-top: calc(var(--top-h) + var(--s-16)); }
 .rp-pair { align-items: start; }
 .rp-pair > .panel { min-width: 0; }
+.rp-tabpanel { min-width: 0; }
+
+/* 오늘 요약 · 응대 점수 한 줄 */
+.rp-today { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 15rem); gap: var(--s-16); padding: var(--s-16) var(--s-20);
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow-card); }
+.rp-today-cell { display: grid; gap: var(--s-8); align-content: start; min-width: 0; }
+.rp-today-score { padding-left: var(--s-16); border-left: 1px solid var(--line); }
+.rp-today-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--s-8); }
+.rp-today-nums { font-variant-numeric: tabular-nums; }
+.rp-today .rp-big-n { font-size: 40px; }
+
+/* 저장 안내 띠 (만든 시각 · 낡았는지) */
+.rp-saved { padding: var(--s-12) var(--s-16); border-radius: var(--r-md); background: var(--surface); color: var(--ink-2); font-size: var(--fs-small); }
+.rp-saved:empty { display: none; }
+.rp-saved.ok { background: var(--brand-soft); color: var(--accent-text); }
+.rp-saved.warn { background: var(--warn-bg); color: var(--warn); font-weight: 500; }
+.rp-busy > :not(.rp-saved) { opacity: .55; transition: opacity .15s; }
+
+/* 고칠 것: 번호 동그라미 + 제목 · 근거 · 할 일 */
+.rp-fixes { display: grid; gap: var(--s-16); }
+.rp-fixes li { display: flex; gap: var(--s-12); align-items: flex-start; }
+.rp-num { flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--brand-soft);
+  color: var(--accent-text); font-size: var(--fs-small); font-weight: 700; }
+.rp-fix-body { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.rp-fix-title { font-weight: 700; }
+
+/* 저장된 보고서 목록 */
+.rp-saved-list { display: grid; gap: var(--s-8); }
+.rp-saved-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8) var(--s-12); padding: var(--s-12) var(--s-16);
+  border-radius: var(--r-md); background: var(--surface); }
+.rp-saved-list li.on { box-shadow: inset 0 0 0 2px var(--accent); }
+.rp-saved-name { flex: 1 1 10rem; min-width: 0; font-variant-numeric: tabular-nums; }
+.rp-made { white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* 칸 위 상태 글 (불러오는 중 · 오류) */
 .rp-state { color: var(--muted); font-size: var(--fs-small); }
@@ -26,10 +56,8 @@
 .rp-h3 { font-size: var(--fs-body); font-weight: 700; }
 .rp-h3 .small { font-weight: 400; }
 
-/* 오늘 요약 */
-.rp-summary { font-weight: 700; }
+/* 타일 4개 · 내일 먼저 할 일 */
 .rp-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.rp-line b { font-variant-numeric: tabular-nums; }
 .rp-todo { display: grid; gap: 2px; padding: var(--s-12) var(--s-16); border-radius: var(--r-md); background: var(--brand-soft); }
 .rp-todo-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-small); font-weight: 500; color: var(--accent-text); }
 .rp-todo-label::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); }
@@ -65,7 +93,7 @@
 .rp-counts > div { display: flex; gap: var(--s-8); align-items: baseline; }
 .rp-counts dt { color: var(--muted); font-size: var(--fs-small); }
 .rp-counts dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
-.rp-praise-body { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-24) var(--s-32); }
+.rp-praise-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-24) var(--s-32); }
 .rp-praise-body > div { min-width: 0; display: grid; gap: var(--s-12); align-content: start; }
 .rp-menus { display: grid; gap: var(--s-8); }
 .rp-menus li { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -77,9 +105,7 @@
 .rp-quote footer { margin-top: 4px; }
 
 
-/* 월간 보고서 */
-.rp-month-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s-8); }
-.rp-month-nav strong { min-width: 6.5em; text-align: center; font-variant-numeric: tabular-nums; }
+/* 응대 기록 (점수 추이·반복 불만) · 마케팅 숫자 */
 .rp-nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-12); margin: 0; }
 .rp-nums > div { padding: var(--s-12) var(--s-16); border-radius: var(--r-md); background: var(--surface); min-width: 0; }
 .rp-nums dt { color: var(--muted); font-size: var(--fs-small); font-weight: 500; }
@@ -100,11 +126,6 @@
 .rp-table thead th { border-top: 0; background: var(--surface); color: var(--muted); font-weight: 500; white-space: nowrap; }
 .rp-table tbody th { font-weight: 700; }
 .rp-table .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.rp-sugg { display: grid; gap: var(--s-8); margin-top: var(--s-8); }
-.rp-sugg li { display: flex; gap: 10px; align-items: flex-start; }
-/* 체크 표시 (그림만, 누르는 칸 아님) */
-.rp-check { flex: none; width: 20px; height: 20px; margin-top: 3px; border-radius: 6px; background: var(--brand-soft); position: relative; }
-.rp-check::after { content: ""; position: absolute; left: 7px; top: 3px; width: 5px; height: 10px; border: solid var(--accent-text); border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .rp-more summary { cursor: pointer; color: var(--ink-2); font-weight: 500; }
 
 /* 상권 요약 */
@@ -122,10 +143,10 @@
 
 .rp-print-head { display: none; }   /* 인쇄에서만 보인다 */
 
-/* ── 종합 리포트 인쇄: '전체 리포트 PDF 저장' = 브라우저 인쇄 → 'PDF로 저장' ──
+/* ── 종합 리포트 인쇄: [PDF 저장] = 브라우저 인쇄 → 'PDF로 저장' ──
    리포트 화면이 보일 때만 먹는다 (Report.jsx 가 그동안 <html class="rp-view"> 를 달아 둠). 왼쪽 메뉴·상단 바·서랍·바닥은 layout.css 가 숨긴다.
-   A4 세로 · 버튼과 화면 안 이동 링크 없이 여섯 칸만 · 칸이 쪽 사이에서 잘리지 않게 · 맨 위에 가게 이름·출력한 날·기간 한 줄.
-   두 쪽 안에 들게 글자 크기는 두고 칸 안 여백·간격·그래프 높이(Report.jsx RP_PRINT_H)를 줄인다. 화면에만 보일 글은 class="rp-screen" */
+   A4 세로 · 버튼·탭·기간 이동·저장 목록 없이 지금 탭의 보고서와 아래 칸들만 · 칸이 쪽 사이에서 잘리지 않게 ·
+   맨 위에 가게 이름·출력한 날·기간·만든 시각 한 줄. 화면에만 보일 글은 class="rp-screen" */
 @media print {
   @page { size: A4 portrait; margin: 12mm; }
   html.rp-view, html.rp-view body { background: #ffffff !important; color: #111111; }
@@ -134,9 +155,10 @@
   html.rp-view .content > :not(.rp) { display: none !important; }   /* 맨 위 알림 띠 등 리포트 밖의 것 */
   html.rp-view .rp { width: 100%; display: block; line-height: 1.45; }
   html.rp-view .rp, html.rp-view .rp * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  /* 화면에서만 쓰는 것: 제목 줄과 버튼, 바로가기, 달 옮기기, 인쇄용 보기 링크, 서랍 열기, 다른 화면으로 가는 링크 */
+  /* 화면에서만 쓰는 것: 제목 줄과 버튼, 탭·기간 이동, 저장 안내 띠(만든 시각은 머리글에), 인쇄용 링크, 서랍 열기, 다른 화면으로 가는 링크 */
   html.rp-view .rp .page-head, html.rp-view .rp .rp-bar, html.rp-view .rp button, html.rp-view .rp-print, html.rp-view .rp-mkt-st a,
-  html.rp-view .rp-screen, html.rp-view .rp a[href^="#"], html.rp-view .rp a:not([href]), html.rp-view .rp [role="button"] { display: none !important; }
+  html.rp-view .rp-saved, html.rp-view .rp-screen, html.rp-view .rp a[href^="#"], html.rp-view .rp a:not([href]),
+  html.rp-view .rp [role="button"] { display: none !important; }
   html.rp-view .rp details > summary { list-style: none; color: var(--ink-2); font-weight: 700; }
   html.rp-view .rp details > summary::-webkit-details-marker { display: none; }
   html.rp-view .rp a { color: inherit; text-decoration: none; }
@@ -147,34 +169,34 @@
   html.rp-view .rp-print-title strong:empty { display: none; }
   html.rp-view .rp-print-meta, html.rp-view .rp-print-note { margin-top: 2px; color: #4a4d52; font-size: 12px; }
   html.rp-view .rp-print-note:empty { display: none; }
-  /* 여섯 칸을 한 줄기로 위에서 아래로 */
-  html.rp-view .rp-pair { display: block; }
-  html.rp-view .rp .panel { margin: 0 0 8px; padding: 10px 14px; border-color: var(--line-strong); border-radius: 10px; box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
+  /* 칸들을 한 줄기로 위에서 아래로 */
+  html.rp-view .rp-pair, html.rp-view .rp-tabpanel, html.rp-view .rp-body { display: block; }
+  html.rp-view .rp-body > * + * { margin-top: 8px; }
+  html.rp-view .rp .panel, html.rp-view .rp-today { margin: 0 0 8px; padding: 10px 14px; border-color: var(--line-strong); border-radius: 10px; box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
   html.rp-view .rp .panel > * + * { margin-top: 8px; }
   html.rp-view .rp .stack-16 { gap: 8px; }
   html.rp-view .rp .panel-head, html.rp-view .rp-h3 { break-after: avoid; page-break-after: avoid; }
   html.rp-view .rp h2 { font-size: 17px; }
   html.rp-view .rp-tiles, html.rp-view .rp-nums, html.rp-view .rp-chart, html.rp-view .rp-todo, html.rp-view .rp-p, html.rp-view .rp-table tr,
-  html.rp-view .rp-snaps li, html.rp-view .rp-sugg li, html.rp-view .rp-menus li, html.rp-view .rp-quote { break-inside: avoid; page-break-inside: avoid; }
-  html.rp-view .rp-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  html.rp-view .rp-snaps li, html.rp-view .rp-fixes li, html.rp-view .rp-menus li, html.rp-view .rp-quote { break-inside: avoid; page-break-inside: avoid; }
+  html.rp-view .rp-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
   html.rp-view .rp .tile { padding: 6px 10px; border-color: var(--line); }
   html.rp-view .rp .tile .num { font-size: 18px; }
   html.rp-view .rp-nums { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
   html.rp-view .rp-nums > div { padding: 5px 10px; }
   html.rp-view .rp-nums dd { margin: 0; font-size: 15px; }
-  html.rp-view .rp-praise-body { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 16px; }
+  html.rp-view .rp-praise-body { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
   html.rp-view .rp-praise-body .stack-16 { gap: 6px; }
   html.rp-view .rp .topic-bar { gap: 2px; }
-  html.rp-view .rp-big-n { font-size: 36px; }
+  html.rp-view .rp-big-n, html.rp-view .rp-today .rp-big-n { font-size: 32px; }
   html.rp-view .rp-reasons { gap: 2px; margin-top: 4px; }
   html.rp-view .rp-todo { padding: 6px 12px; }
   html.rp-view .rp-peak { padding: 5px 10px; }
   html.rp-view .rp-p { padding: 4px 0; }
-  html.rp-view .rp-month-nav strong { min-width: 0; }
   html.rp-view .rp-table-wrap { overflow: visible; }
   html.rp-view .rp-table { min-width: 0; }
   html.rp-view .rp-table th, html.rp-view .rp-table td { padding: 4px 8px; }
-  html.rp-view .rp-sugg { gap: 2px; }
+  html.rp-view .rp-fixes { gap: 6px; }
   html.rp-view .rp-snaps { gap: 6px; }
   html.rp-view .rp-snap-v { font-size: 18px; }
 }
@@ -183,25 +205,23 @@
 .rp-sugg-note { margin-top: var(--s-8); }
 
 /* ── 본문 실제 폭(@container content)에 맞춘 줄바꿈 (창 폭 @media 대신). 두 칸 패널(.rp-pair = .grid-2)·타일 여백은 base.css 공통 규칙.
-   인쇄에서는 layout.css 가 컨테이너를 꺼서 이 규칙이 먹지 않고, 종이 모양은 아래 인쇄 덩어리가 정한다 ── */
+   인쇄에서는 layout.css 가 컨테이너를 꺼서 이 규칙이 먹지 않고, 종이 모양은 위 인쇄 덩어리가 정한다 ── */
 @container content (max-width: 759px) {
-  .rp-praise-body { grid-template-columns: minmax(0, 1fr); }   /* 칭찬 주제 · 인기 메뉴 · 대표 한 줄 세 칸 → 한 줄씩 */
+  .rp-praise-body { grid-template-columns: minmax(0, 1fr); }   /* 인기 메뉴 · 대표 한 줄 두 칸 → 한 줄씩 */
 }
 @container content (max-width: 639px) {
   .rp-tiles, .rp-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .rp-bar { align-items: flex-start; }
+  .rp-bar { display: grid; justify-content: stretch; }
+  .rp-bar .tabs { justify-self: start; }
+  .rp-period-nav { justify-content: space-between; }
+  .rp-today { grid-template-columns: minmax(0, 1fr); }
+  .rp-today-score { padding-left: 0; padding-top: var(--s-12); border-left: 0; border-top: 1px solid var(--line); }
 }
 @container content (max-width: 479px) {
   .rp-big-n { font-size: 44px; }
   .rp-snap-v { min-width: 4.5em; font-size: 20px; }
-  .rp-month-nav strong { min-width: 0; }
+  .rp-period-nav strong { min-width: 0; flex: 1 1 100%; order: -1; text-align: left; }
 }
 
-/* 좁은 본문(휴대폰): 구역 바로가기 칩은 한 줄로 두고 옆으로 밀어 보기 (두세 줄로 꺾이면 첫 화면이 칩으로 찼음) */
-@container content (max-width: 639px) {
-  .rp-bar { display: grid; justify-content: stretch; }
-  .rp-jump { min-width: 0; }
-  .rp-jump ul { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
-  .rp-jump ul::-webkit-scrollbar { display: none; }
-  .rp-chip { flex: none; white-space: nowrap; }
-}
+/* 사장님 프로필 '보관한 보고서' (SavedReportCounts.jsx) */
+.rp-counts-tiles { display: grid; gap: var(--s-8); }

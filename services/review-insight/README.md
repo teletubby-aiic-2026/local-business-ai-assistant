@@ -92,6 +92,7 @@ reviews = json.load(open("services/review-insight/data/synthetic/store_ongi/revi
 | GET | `/api/review-insight/report/daily?store_id=&date=` | 일일 요약: 리뷰·불만 수, 기한 안 답글, 점수 변동과 이유, 내일 먼저 할 일 1개 |
 | GET | `/api/review-insight/report/monthly?store_id=&month=` | 월간 보고서: 날마다 점수, 반복 불만별 건수·재발 여부, 다음 달 개선 제안 (최대 3개). 일일·월간 모두 `praise`(손님 칭찬 요약: 별점 4~5점·긍정 리뷰 수, 칭찬 주제 상위, 인기 메뉴 TOP 3, 대표 칭찬 한 줄. 코드 집계, `docs/handoff.md` 2-6) |
 | GET | `/api/review-insight/report/monthly/print?month=` | 월간 보고서 인쇄용 A4 (개선 제안은 체크 칸 할 일 목록). 브라우저 인쇄 → PDF |
+| GET | `/api/review-insight/report/weekly?store_id=&week=` | 주간 보고서 (11/20): 그 날이 든 월~일, 월간과 같은 칸 + 불만 비율·지난주 비교·주제별 건수·이번 주에 고칠 것(근거와 함께). 월간은 `compare=true` 로 같은 비교 칸을 더함 (`docs/handoff.md` 2-6) |
 
 확인 화면(`http://127.0.0.1:8020/`)에 **캡처 입력 · 응대 기한·점수 · 보고서** 탭을 시안으로 붙였습니다 (통합 화면에는 넣지 않음).
 

@@ -25,9 +25,10 @@ from psycopg_pool import ConnectionPool
 
 from .config import DbConfig
 from .errors import DuplicateLogin, StorageError
-from .memory import (COUPON_RUNS, MARKETING_SESSIONS, check_period, clean_detail, clean_marketing_row, margin_value,
-                     with_visitor)
+from .memory import (COUPON_RUNS, MARKETING_SESSIONS, REPORT_KINDS, check_period, clean_detail, clean_marketing_row,
+                     margin_value, with_visitor)
 from .times import to_date, to_datetime, to_kst_iso
+from .visitor import COMMON_VISITOR
 
 log = logging.getLogger("shared.storage")
 T = TypeVar("T")
@@ -378,7 +379,8 @@ class PgCardReasons:
 
 
 # ── 주간·월간 보고서 ────────────────────────────────────────────────
-_REPORT_COLUMNS = "store_id, period_kind, period_start, period_end, numbers, body_text, evidence_ids, prompt_version, created_at"
+_REPORT_COLUMNS = ("store_id, visitor_id, period_kind, period_start, period_end, numbers, body_text, evidence_ids, prompt_version, "
+                   "created_at")
 
 
 def _report(row: dict) -> dict:
@@ -388,44 +390,65 @@ def _report(row: dict) -> dict:
 
 
 class PgReports:
+    """MemoryReports 와 같은 이름·인자·돌려주는 모양. (가게, 방문자)로 나눈다 (11/20). visitor_id 를 안 주면 공용('common')."""
+
     def __init__(self, db: Database):
         self._db = db
 
     def save(self, store_id: str, period_kind: str, period_start: date | str, period_end: date | str, *, numbers: dict,
-             body_text: str, evidence_ids: list[str], prompt_version: str, created_at: datetime | None = None) -> dict:
+             body_text: str, evidence_ids: list[str], prompt_version: str, created_at: datetime | None = None,
+             visitor_id: str = COMMON_VISITOR) -> dict:
         start, end = to_date(period_start), to_date(period_end)
         check_period(period_kind, start, end)
 
         def work(conn):
             row = conn.execute(
-                "INSERT INTO reports (store_id, period_kind, period_start, period_end, numbers, body_text, evidence_ids, "
-                "prompt_version, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now())) "
-                "ON CONFLICT (store_id, period_kind, period_start, period_end, prompt_version) DO UPDATE SET "
+                "INSERT INTO reports (store_id, visitor_id, period_kind, period_start, period_end, numbers, body_text, evidence_ids, "
+                "prompt_version, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now())) "
+                "ON CONFLICT (store_id, visitor_id, period_kind, period_start, period_end, prompt_version) DO UPDATE SET "
                 "numbers = EXCLUDED.numbers, body_text = EXCLUDED.body_text, evidence_ids = EXCLUDED.evidence_ids, "
                 "created_at = EXCLUDED.created_at "
                 f"RETURNING {_REPORT_COLUMNS}",
-                (store_id, period_kind, start, end, Jsonb(numbers), body_text, list(evidence_ids), prompt_version,
+                (store_id, visitor_id, period_kind, start, end, Jsonb(numbers), body_text, list(evidence_ids), prompt_version,
                  to_datetime(created_at) if created_at else None)).fetchone()
             return _report(row)
         return self._db.run(work)
 
-    def get(self, store_id: str, period_kind: str, period_start: date | str, period_end: date | str) -> dict | None:
+    def get(self, store_id: str, period_kind: str, period_start: date | str, period_end: date | str,
+            visitor_id: str = COMMON_VISITOR) -> dict | None:
         """그 기간 보고서 중 가장 늦게 만든 것."""
         def work(conn):
             row = conn.execute(
-                f"SELECT {_REPORT_COLUMNS} FROM reports WHERE store_id = %s AND period_kind = %s AND period_start = %s "
-                "AND period_end = %s ORDER BY created_at DESC LIMIT 1",
-                (store_id, period_kind, to_date(period_start), to_date(period_end))).fetchone()
+                f"SELECT {_REPORT_COLUMNS} FROM reports WHERE store_id = %s AND visitor_id = %s AND period_kind = %s "
+                "AND period_start = %s AND period_end = %s ORDER BY created_at DESC, id DESC LIMIT 1",
+                (store_id, visitor_id, period_kind, to_date(period_start), to_date(period_end))).fetchone()
             return _report(row) if row else None
         return self._db.run(work)
 
-    def list(self, store_id: str, period_kind: str | None = None, limit: int = 20) -> list[dict]:
+    def list(self, store_id: str, period_kind: str | None = None, limit: int = 20, visitor_id: str = COMMON_VISITOR) -> list[dict]:
         """기간이 늦은 것부터, 같은 기간이면 늦게 만든 것부터."""
         def work(conn):
             rows = conn.execute(
-                f"SELECT {_REPORT_COLUMNS} FROM reports WHERE store_id = %s AND (%s::text IS NULL OR period_kind = %s) "
-                "ORDER BY period_start DESC, created_at DESC LIMIT %s", (store_id, period_kind, period_kind, limit)).fetchall()
+                f"SELECT {_REPORT_COLUMNS} FROM reports WHERE store_id = %s AND visitor_id = %s "
+                "AND (%s::text IS NULL OR period_kind = %s) ORDER BY period_start DESC, created_at DESC, id DESC LIMIT %s",
+                (store_id, visitor_id, period_kind, period_kind, limit)).fetchall()
             return [_report(r) for r in rows]
+        return self._db.run(work)
+
+    def count(self, store_ids, visitor_id: str) -> dict:
+        """가게 여러 곳의 이 방문자 보고서 수 {"weekly": n, "monthly": n}. 같은 기간은 프롬프트 버전이 여럿이어도 하나로 센다."""
+        def work(conn):
+            rows = conn.execute(
+                "SELECT period_kind, count(DISTINCT (store_id, period_start, period_end)) AS n FROM reports "
+                "WHERE store_id = ANY(%s) AND visitor_id = %s GROUP BY period_kind", (list(store_ids or ()), visitor_id)).fetchall()
+            found = {r["period_kind"]: int(r["n"]) for r in rows}
+            return {kind: found.get(kind, 0) for kind in REPORT_KINDS}
+        return self._db.run(work)
+
+    def delete(self, store_id: str, visitor_id: str) -> int:
+        """이 가게·이 방문자의 보고서를 모두 지우고 지운 수를 돌려준다 (계정 초기화·탈퇴). 다른 방문자·가게는 그대로."""
+        def work(conn):
+            return conn.execute("DELETE FROM reports WHERE store_id = %s AND visitor_id = %s", (store_id, visitor_id)).rowcount
         return self._db.run(work)
 
 
