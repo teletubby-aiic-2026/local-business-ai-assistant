@@ -45,3 +45,7 @@ button.nmap-area:hover { background: var(--hover); }
 .nmap-area.off { color: var(--muted); border-style: dotted; }
 .nmap-note { color: var(--muted); font-weight: 400; }
 .nmap-area.selected .nmap-note { color: var(--accent-text); }
+
+/* 지도 안의 확대 단추 등은 z-index 가 커서, 화면을 내리면 위에 붙어 있는 상단 줄 위로 올라온다.
+   지도 칸을 따로 쌓임 묶음으로 만들어 그 안에서만 겹치게 한다 */
+.nmap-canvas { position: relative; z-index: 0; isolation: isolate; }

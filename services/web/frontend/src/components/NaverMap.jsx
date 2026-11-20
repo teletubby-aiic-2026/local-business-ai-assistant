@@ -205,7 +205,9 @@ export default function NaverMap({
       try {
         const { marker: mk, center: ct, zoom: zm } = drawn.current;
         const start = okPoint(mk) ? mk : okPoint(ct) ? ct : SEOUL;
-        const opts = { center: new maps.LatLng(start.lat, start.lng), zoom: zm, zoomControl: true, mapTypeControl: false, scaleControl: true };
+        const opts = { center: new maps.LatLng(start.lat, start.lng), zoom: zm, zoomControl: true, mapTypeControl: false, scaleControl: true,
+          // 지도가 긴 화면 가운데에 있어, 휠은 화면을 내리는 데 쓰이게 둔다 (확대·축소는 오른쪽 위 단추와 두 손가락으로)
+          scrollWheel: false };
         if (maps.Position && maps.Position.TOP_RIGHT != null) opts.zoomControlOptions = { position: maps.Position.TOP_RIGHT };
         mapRef.current = new maps.Map(el, opts);
         mapsRef.current = maps;
