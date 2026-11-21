@@ -294,6 +294,7 @@ class WithPostgres(unittest.TestCase):
         self.assertEqual(client.get("/api/reports/counts").json()["weekly"], 1)
         res = client.post("/api/auth/reset", json={"scope": "store"})
         self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["reports"], 2)          # 지운 보고서 수 (화면 결과 띠, 11/21 QA)
         self.assertEqual(client.get("/api/reports/counts").json(), {"storage": "saved", "weekly": 0, "monthly": 0})
         self.assertEqual(other.get("/api/reports/counts").json()["weekly"], 1)
         res = other.post("/api/auth/withdraw", json={})

@@ -56,6 +56,8 @@
 .auth-or { text-align: center; }
 .auth-switch { text-align: center; color: var(--muted); }
 .auth-switch .btn.text { padding: 4px 4px; min-height: 32px; vertical-align: baseline; }
+/* 회원가입 카드 맨 위 '로그인으로 돌아가기': 화살표가 카드 글줄에 맞게 왼쪽 안쪽 여백만큼 당긴다 (11/21 QA) */
+.auth-back { margin-left: -8px; gap: 4px; }
 
 @media (max-width: 760px) {
   .auth-split { grid-template-columns: minmax(0, 1fr); }
@@ -67,6 +69,8 @@
   .stage-top { padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); min-height: 56px; }
   .stage-page .mode-band { padding: 8px 16px; }
   .stage-main { padding: var(--s-20) var(--s-16) var(--s-32); }
+  /* 누르는 높이 40px: 로그인·가입의 체크 칸 줄, 아래 '로그인'·'회원가입' 글자 버튼 (11/21 QA) */
+  .auth-check, .auth-switch .btn.text { min-height: 40px; }
 }
 @media (max-width: 480px) { .stage-who { display: none; } }
 @media (max-width: 400px) { .stage-brand-name { display: none; } }
@@ -129,6 +133,8 @@
 .prof-store-main { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-12); }
 .prof-move { display: flex; gap: 4px; flex: none; }
 .prof-move .icon-btn { width: 36px; min-height: 36px; }
+/* 휴대폰: 순서 [위로]·[아래로]를 40×40 으로 키우고 서로 8px 띄운다 (붙어 있어 잘못 눌렸다, 11/21 QA) */
+@media (max-width: 760px) { .prof-move { gap: var(--s-8); } .prof-move .icon-btn { width: 40px; min-height: 40px; } }
 .prof-store-text { flex: 1 1 180px; min-width: 0; display: grid; }
 .prof-store-btns { flex: none; }
 .prof-confirm { display: grid; gap: var(--s-8); padding-top: var(--s-12); border-top: 1px solid var(--line); }

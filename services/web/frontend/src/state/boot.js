@@ -70,8 +70,9 @@ async function loadAll() {
 }
 
 // 부팅: 신원 → 단계. 신원을 못 받았거나(네트워크·5xx) 서버가 notice 를 주면 error([다시 시도]),
-// 로그인 전이면 login, 로그인했으면 이 탭에서 들어갔던 가게가 그대로일 때 app(새로고침해도 보던 화면), 아니면 pick
-export async function boot() {
+// 로그인 전이면 login, 로그인했으면 이 탭에서 들어갔던 가게가 그대로일 때 app(새로고침해도 보던 화면), 아니면 pick.
+// toPick: X1 오류 카드의 [가게 선택으로]. 들어갔던 가게로 바로 가지 않고 가게 선택에서 멈춘다 (11/21 QA)
+export async function boot({ toPick = false } = {}) {
   setState({ stage: "boot", stageError: "" });
   loadHealth();
   let me;
@@ -80,7 +81,7 @@ export async function boot() {
   setState({ me });
   if (me.notice) { setStage("error", { stageError: me.notice }); return; }
   if (!me.authenticated) { setStage("login"); return; }
-  if (canResumeEntered(me)) { await enterApp(); return; }
+  if (!toPick && canResumeEntered(me)) { await enterApp(); return; }
   setStage("pick");
 }
 

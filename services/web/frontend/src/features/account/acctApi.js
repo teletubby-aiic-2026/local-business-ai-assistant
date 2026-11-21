@@ -58,11 +58,14 @@ export function storeName(me) {
 }
 
 const MKT = { cleared: "지움", off: "꺼져 있어 지울 것 없음", failed: "못 지움" };
-// 결과 한 줄: 가게별 지운 건수 (못 지운 칸은 '못 지움')
+// 결과 한 줄: 가게별 지운 건수 (못 지운 칸은 '못 지움') + 보관한 보고서 수.
+// 보고서는 서버가 가게를 합쳐 한 숫자(r.reports)로 준다. null 이면 못 지움, 키가 없으면(옛 서버) 뺀다 (11/21 QA)
 export function summary(r) {
   const n = (v, unit) => (v === null || v === undefined ? "못 지움" : `${v}${unit}`);
-  return (Array.isArray(r && r.stores) ? r.stores : []).map((s) =>
-    `${s.name || s.store_id}: 승인 기록 ${n(s.approvals, "건")} · 붙여넣은 리뷰 ${n(s.reviews, "건")} · 맞춤 마케팅 ${MKT[s.marketing] || "확인 못 함"}`).join(" / ");
+  const parts = (Array.isArray(r && r.stores) ? r.stores : []).map((s) =>
+    `${s.name || s.store_id}: 승인 기록 ${n(s.approvals, "건")} · 붙여넣은 리뷰 ${n(s.reviews, "건")} · 맞춤 마케팅 ${MKT[s.marketing] || "확인 못 함"}`);
+  if (r && Object.prototype.hasOwnProperty.call(r, "reports")) parts.push(`보관한 보고서 ${n(r.reports, "개")}`);
+  return parts.join(" / ");
 }
 
 // 상권 대화 지우기: 실패해도·꺼져 있어도 계속 (8초에서 끊음).

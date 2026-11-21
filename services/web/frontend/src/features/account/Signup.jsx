@@ -3,7 +3,7 @@
 // 입력 규칙은 서버와 같게 미리 본다 (docs/api/contract.md 1.13): 아이디 영문 소문자·숫자로 시작 3~32자(. _ - 가능), 비밀번호 8자 이상, 이름 1~20자
 import { useRef, useState } from "react";
 import { setStage } from "../../state/stage.js";
-import { Button } from "../../components/ui.jsx";
+import { Button, Icon } from "../../components/ui.jsx";
 import { StageTitle } from "./Stage.jsx";
 import { AuthLayout, useAuthRun } from "./Login.jsx";
 import "./account.css";
@@ -55,6 +55,10 @@ export default function Signup() {
 
   return (
     <AuthLayout intro={intro} introLabel="가입 순서">
+      {/* 돌아갈 길이 맨 아래 링크뿐이라 휴대폰에서는 끝까지 내려야 했다: 제목 위에 뒤로 버튼 (11/21 QA) */}
+      <Button variant="text" size="small" className="auth-back" disabled={busy} onClick={() => setStage("login")}>
+        <Icon name="뒤로" size={18} />로그인으로 돌아가기
+      </Button>
       <StageTitle>계정 만들기</StageTitle>
       <p className="acct-error" role="alert" hidden={!err}>{err}</p>
       <form id="auth-signup" className="stack-16" noValidate onSubmit={onSignup} aria-busy={busy || undefined}>
@@ -70,9 +74,10 @@ export default function Signup() {
           <input ref={refs.pw2} name="password_confirm" type="password" autoComplete="new-password" maxLength={128} required
             placeholder="한 번 더" value={pw2} onChange={(e) => setPw2(e.target.value)} />
         </label>
+        {/* 예시는 '사장'이 붙지 않는 이름으로: 화면이 이름 뒤에 '사장님'을 붙인다 (11/21 QA) */}
         <label className="field">이름
           <input ref={refs.name} name="display_name" autoComplete="name" maxLength={20} required
-            placeholder="화면에 보일 이름 (예: 김사장)" value={name} onChange={(e) => setName(e.target.value)} />
+            placeholder="화면에 보일 이름 (예: 김온기)" value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <div className="stack-8">
           <label className="auth-check"><input ref={refs.agree} type="checkbox" name="agree" checked={agree} aria-describedby="auth-agree-note"

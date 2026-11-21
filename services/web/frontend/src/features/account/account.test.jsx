@@ -8,6 +8,10 @@ import Login from "./Login.jsx";
 import Signup from "./Signup.jsx";
 import PickStore from "./PickStore.jsx";
 import Profile from "./Profile.jsx";
+import Topbar from "../../components/Topbar.jsx";
+import Sidebar from "../../components/Sidebar.jsx";
+import { ownerTitle } from "../../state/account.js";
+import { summary } from "./acctApi.js";
 
 // 시험용 값 (실제 계정 아님)
 const TEST_ID = "owner_test";
@@ -130,6 +134,57 @@ describe("A2 회원가입", () => {
     await waitFor(() => expect(getState().stage).toBe("store-new"));
     expect(sent("POST", "/api/auth/signup")[0].body).toEqual({ login_id: "new_owner", password: TEST_PW, display_name: "새사장", stores: [] });
     expect(getState().storeNew).toEqual({ mode: "signup" });
+  });
+
+  it("제목 위 '로그인으로 돌아가기'로 A1 (11/21 QA: 아래 링크까지 내려야만 나갈 수 있었음)", () => {
+    setState({ stage: "signup", me: GUEST });
+    render(<Signup />);
+    const back = screen.getByRole("button", { name: "로그인으로 돌아가기" });
+    // 카드 안에서 제목보다 앞 (위쪽)
+    expect(back.compareDocumentPosition(screen.getByRole("heading", { level: 1, name: "계정 만들기" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.activeElement.textContent).toBe("계정 만들기");   // 여는 포커스는 그대로 제목
+    fireEvent.click(back);
+    expect(getState().stage).toBe("login");
+  });
+
+  it("이름 칸 예시는 '사장'이 붙지 않는 이름 (11/21 QA)", () => {
+    setState({ stage: "signup", me: GUEST });
+    render(<Signup />);
+    const ph = document.querySelector('#auth-signup input[name="display_name"]').placeholder;
+    expect(ph).toBe("화면에 보일 이름 (예: 김온기)");
+    expect(ph).not.toMatch(/사장/);
+  });
+});
+
+describe("이름 뒤 '사장님' (11/21 QA: '큐에이 사장 사장님')", () => {
+  it("'사장'으로 끝나면 '님'만, '사장님'으로 끝나면 그대로, 비었으면 '사장님'", () => {
+    expect(ownerTitle("김시험")).toBe("김시험 사장님");
+    expect(ownerTitle("큐에이 사장")).toBe("큐에이 사장님");
+    expect(ownerTitle("김사장")).toBe("김사장님");
+    expect(ownerTitle("시연 사장님")).toBe("시연 사장님");
+    expect(ownerTitle("  김온기  ")).toBe("김온기 사장님");
+    expect(ownerTitle("")).toBe("사장님");
+    expect(ownerTitle(null)).toBe("사장님");
+  });
+
+  it("상단 바·왼쪽 메뉴·가게 선택·프로필 제목 모두 같은 규칙", async () => {
+    const me = { ...ME, user: { ...ME.user, display_name: "큐에이 사장" } };
+    server({ "/api/account/stores": { stores: STORES }, "/api/reports/counts": { storage: "saved", weekly: 0, monthly: 0 } });
+    setState({ stage: "app", me, entered: "store_basak" });
+    const top = render(<><Topbar /><Sidebar route="today" /></>);
+    expect(document.getElementById("acct-user").textContent).toBe("큐에이 사장님");
+    expect(document.querySelector(".side .account b").textContent).toBe("큐에이 사장님");
+    top.unmount();
+    act(() => setState({ stage: "pick" }));
+    const pick = render(<PickStore />);
+    expect(document.querySelector(".pick-owner").textContent).toContain("큐에이 사장님");
+    expect(document.body.textContent).not.toMatch(/사장 사장님/);
+    pick.unmount();
+    act(() => setState({ stage: "profile" }));
+    render(<Profile />);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("큐에이 사장님");
+    expect(document.body.textContent).not.toMatch(/사장 사장님/);
+    await screen.findByText("우리분식");
   });
 });
 
@@ -311,6 +366,31 @@ describe("A5 사장님 프로필", () => {
     await waitFor(() => expect(sent("GET", "/api/reports/counts")).toHaveLength(2));
     await waitFor(() => expect(screen.queryByText("4개")).toBeNull());
     expect(within(document.getElementById("saved-report-counts")).getAllByText("0개")).toHaveLength(2);
+  });
+
+  it("모든 가게 기록을 지우면 결과 띠에 보관한 보고서 수도 (11/21 QA: 서버는 지우는데 띠에 빠져 있었음)", async () => {
+    profileServer({
+      "POST /api/auth/reset": { scope: "account", complete: true, message: null, reports: 3, stores: [
+        { store_id: "store_ongi", name: "온기한식", approvals: 0, reviews: 0, marketing: "cleared" },
+        { store_id: "st_mine", name: "새벽분식", approvals: 1, reviews: 4, marketing: "cleared" }] },
+    });
+    act(() => setState({ entered: null }));
+    const dlg = document.getElementById("acct-dialog");
+    fireEvent.click(screen.getByRole("button", { name: "모든 가게 기록 지우기" }));
+    // 확인 창의 '지워지는 것'에 보고서가 이미 있다
+    expect(within(dlg).getByText("모든 가게의 저장된 주간·월간 보고서")).toBeTruthy();
+    fireEvent.click(within(dlg).getByRole("button", { name: "모두 지우기" }));
+    await waitFor(() => expect(getState().acctNotice).toBe(
+      "기록을 지웠어요. 온기한식: 승인 기록 0건 · 붙여넣은 리뷰 0건 · 맞춤 마케팅 지움 / 새벽분식: 승인 기록 1건 · 붙여넣은 리뷰 4건 · 맞춤 마케팅 지움 / 보관한 보고서 3개"));
+    expect(sent("POST", "/api/auth/reset")[0].body).toEqual({ scope: "account" });
+  });
+
+  it("결과 줄의 보고서: 숫자면 'n개', null 이면 '못 지움', 옛 서버(키 없음)면 뺀다", () => {
+    const store = { store_id: "store_ongi", name: "온기한식", approvals: 2, reviews: 0, marketing: "off" };
+    expect(summary({ stores: [store], reports: 0 })).toBe("온기한식: 승인 기록 2건 · 붙여넣은 리뷰 0건 · 맞춤 마케팅 꺼져 있어 지울 것 없음 / 보관한 보고서 0개");
+    expect(summary({ stores: [store], reports: null })).toMatch(/ \/ 보관한 보고서 못 지움$/);
+    expect(summary({ stores: [store] })).not.toMatch(/보고서/);
+    expect(summary(null)).toBe("");
   });
 
   it("탈퇴하면 로그인 화면으로, 들어간 가게를 지우고 결과 띠", async () => {

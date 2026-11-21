@@ -70,10 +70,17 @@ export async function openStore(storeId) {
   await enterApp();
 }
 
-export const displayName = (me) => {
-  const name = String(me?.user?.display_name || "");
-  return name.endsWith("사장님") ? name : `${name} 사장님`;
-};
+// 이름 뒤 '사장님'은 여기 한 곳에서만 붙인다 (상단 바·왼쪽 메뉴·가게 선택·프로필·단계 화면 위쪽 줄).
+// '사장'으로 끝나는 이름에 또 붙이면 '김사장 사장님'이 돼서 '님'만 더한다. 이름이 비었으면 '사장님'만 (11/21 QA)
+export function ownerTitle(raw) {
+  const name = String(raw || "").trim();
+  if (!name) return "사장님";
+  if (name.endsWith("사장님")) return name;
+  if (name.endsWith("사장")) return `${name}님`;
+  return `${name} 사장님`;
+}
+
+export const displayName = (me) => ownerTitle(me?.user?.display_name);
 
 // 이름 첫 글자 (동그라미)
 export const initialOf = (name) => String(name || "").trim().slice(0, 1) || "사";

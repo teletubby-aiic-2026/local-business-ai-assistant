@@ -191,7 +191,7 @@ curl -s http://localhost:8000/api/health
 | 4 | `GET /api/cards` | 오늘의 추천 카드 최대 2장 | 추천 카드 `#/cards`, 홈 '오늘 할 일' | 200 |
 | 5 | `POST /api/cards/{card_id}/run` | 카드에 맞는 글 만들기. 본문에 `generator`가 있으면 그 글 한 건만. `replaces`(옛 글 id)를 보내면 만든 뒤 그 승인 기록을 지움 (11/16) | 카드 버튼, 홈 '오늘 할 일', 초안 '카드 전체 다시 만들기' · 초안 상자의 '다시 만들기'(한 건) | 200 |
 | 6 | `POST /api/drafts/{draft_id}/approve` | 글 승인 기록 | 초안 `#/draft` '승인' | 200 |
-| 7 | `GET /api/approvals` | 서버의 승인 기록 목록 | 처리 완료 `#/done` '서버 처리 기록' | 200 |
+| 7 | `GET /api/approvals` | 서버의 승인 기록 목록 | 처리 완료 `#/done` '승인한 글'(새로고침 뒤에도)·'서버 처리 기록' | 200 |
 | 7-1 | `DELETE /api/approvals` | 이 방문자의 승인 기록 지우기 (11/16) | 처리 완료 `#/done` '처음부터 다시' | 200 |
 | 8 | `POST /api/reviews` | 리뷰 한 건 붙여넣기, 바로 분류 | 리뷰 분석 '리뷰 넣기' 탭 (붙여넣기·캡처 저장) | 201 |
 | 9 | `DELETE /api/reviews/pasted` | 붙여넣은 리뷰 모두 지우기 | 같은 탭 '붙여넣은 리뷰 지우기' | 200 |
@@ -1205,7 +1205,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 ### 1.7 `GET /api/approvals`
 
 **하는 일**: 서버 메모리에 있는 승인 기록을 줍니다.
-**쓰는 화면**: 처리 완료 `#/done`의 '서버 처리 기록'(접어 둔 목록). 완료 화면을 열 때 부릅니다.
+**쓰는 화면**: 처리 완료 `#/done`의 '서버 처리 기록'(접어 둔 목록)과 '승인한 글'. 완료 화면을 열 때 한 번 부릅니다. 11/21부터 '승인한 글'은 이 브라우저의 승인 목록과 이 응답을 합쳐 그립니다(같은 `draft_id`는 한 번, 차례는 서버 차례). 그래서 새로고침해도 승인한 글이 남습니다. 응답에 글 종류(`kind`)가 없어 서버에만 있는 글의 이름은 `mkt-`면 '맞춤 마케팅 글', 아니면 '글'입니다.
 
 **요청**: `GET /api/approvals`. 본문 없음.
 
@@ -1236,7 +1236,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 | 칸 | 뜻 | 화면 |
 |---|---|---|
-| `items[]` | 승인 기록 목록 (승인한 순서. 같은 글을 다시 승인하면 그 글이 맨 뒤로) | '서버 처리 기록' |
+| `items[]` | 승인 기록 목록 (승인한 순서. 같은 글을 다시 승인하면 그 글이 맨 뒤로) | '승인한 글'·'서버 처리 기록' |
 | `items[].draft_id` · `edited` · `approved_at` | 글 id, 고쳤는지, 승인 시각 | "MM-DD HH:MM 승인 · 글 이름 (고침)" (11/20. 글 이름은 화면의 승인 목록에서 찾고, 못 찾으면 '글'·'맞춤 마케팅 글'. 글 id 는 보이지 않음) |
 | `items[].status` · `text` · `mode` · `warning` | `1.6` 응답과 같음 | 안 씀 |
 
@@ -1819,7 +1819,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 서비스가 `2xx`이고 `edit_failed`가 없을 때만 글마다 이 서버의 승인 기록(1.6과 같은 저장, `demo.approve`)에 남기고, 응답에 `recorded`를 더합니다.
 
 ```json
-{"follow_up": true, "state": {…}, "bot_messages": ["공지 뒤에 재주문 쿠폰도 해 볼까요? …", "월 마케팅 예산은 얼마로 생각하시나요?"], "options": […], "multi": false,
+{"follow_up": true, "state": {…}, "bot_messages": ["안내문 승인은 끝났어요. 여기부터는 이어서 해 볼 수 있는 선택이에요.", "월 마케팅 예산은 얼마로 생각하시나요?"], "options": […], "multi": false,
  "recorded": [{"draft_id": "mkt-09f5d3dc59-notice", "kind": "공지", "approved_at": "2026-11-16T15:27:53+09:00", "edited": true},
               {"draft_id": "mkt-09f5d3dc59-reply", "kind": "답글", "approved_at": "2026-11-16T15:27:53+09:00", "edited": false}]}
 ```
@@ -1895,7 +1895,8 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 ```json
 {"scope": "store", "complete": true, "message": null,
- "stores": [{"store_id": "store_ongi", "name": "온기한식", "approvals": 3, "reviews": 2, "marketing": "cleared"}]}
+ "stores": [{"store_id": "store_ongi", "name": "온기한식", "approvals": 3, "reviews": 2, "marketing": "cleared"}],
+ "reports": 2}
 ```
 
 - `scope`: `store` = 지금 보는 가게 하나, `account` = 그 사장님이 가진 가게 모두. 계정·가게 목록·세션은 남습니다.
@@ -1907,6 +1908,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
   - 맞춤 마케팅 기록. `marketing`: `cleared`(지웠거나 지울 것이 없음) · `off`(이 서버에서 맞춤 마케팅을 꺼 둠 = 기록이 없음) · `failed`(연결 못 함·거절·주소 설정이 틀림).
   - 못 지운 칸은 `approvals`·`reviews` 가 `null`, `marketing` 이 `failed`. 하나라도 있으면 `complete: false` 와 `message`(어느 가게의 무엇이 남았는지). 그래도 200 이고, 지울 수 있는 것은 지웁니다. 여러 번 해도 안전합니다(이미 지운 것은 0).
 - 카드 추천 이유(`card_reasons`)는 가게 공용이라 지우지 않습니다. 보고서(`reports`)는 11/20부터 계정별 저장이라(1.17) 초기화·탈퇴 때 그 사장님 것을 같이 지웁니다(`account.AccountData.clear` → `ReportBook.erase`, 못 지우면 `complete: false`).
+  초기화 응답 맨 위 `reports` (11/21) = 지운 저장 보고서 수. 가게 모두를 합한 수이고, 프로필 '보관한 보고서'처럼 같은 기간은 하나로 셉니다(지우기 전에 셈. 세지 못하면 지운 줄 수). 못 지웠으면 `null`. 탈퇴 응답에는 없습니다.
 - 상권 대화·조건: 상권 세션 쿠키(`market_onboarding_session`)의 경로가 `/api/assistant`·`/api/market` 이라 이 요청에는 오지 않습니다. 화면이 먼저 `DELETE /api/assistant/conversation` 을 부르고(대화), 이 응답이 두 쿠키를 만료시킵니다. 상권 서비스에 남은 분석 조건(업종·위치)은 세션이 끊겨 다시 쓰이지 않고 상권 서비스가 30일 뒤 치웁니다.
 - 시연 계정도 같습니다(브라우저마다 다른 시연 사장님이라 그 브라우저 몫만 지워짐).
 - 게스트의 `DELETE /api/approvals`('처음부터 다시', `marketing_cleared` true·false·null)와 `DELETE /api/reviews/pasted`(분류 결과는 남김)는 예전 그대로입니다.
@@ -2509,7 +2511,7 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | 초안 상자 '다시 만들기' | `regenDraft` | `POST /api/cards/{id}/run` `{generator, review_id?, replaces: [그 글 id], measures?(불만 카드), reply_texts?(안내문)}` | 그 글 한 건만 새 글로. 그 글의 승인·고친 내용만 버림. 안내 한 줄(`calc.js` `regenNote`): 새 글이 예전 글과 같거나 또 기본 문장이면 '다시 만들었지만 같은 기본 문장이 나왔어요. 리뷰와 맞게 직접 고쳐서 승인해 주세요.' 같이 사실대로 (11/21) |
 | 진행줄 옆 '카드 전체 다시 만들기' | `rerunCard` → `runCard` | `POST /api/cards/{id}/run` `{measures?, replaces: [그 카드의 글 id, 승인한 것부터 20개까지]}` | 그 카드의 글·승인·고친 내용을 모두 버림. 승인했거나 고친 글이 있으면 첫 누름은 안내만 하고 5초(`RERUN_ARM_MS`) 안에 한 번 더 눌러야 실행 |
 | 응답에 `replace_warning` | | | 새 글은 쓰고 알림 띠에 그 문장 |
-| `#/done` 열기 | `Done.jsx` `ServerLog` | `GET /api/approvals` | 접힌 '서버 처리 기록' (버튼 줄 위. 한 줄 = "MM-DD HH:MM 승인 · 글 이름 (고침)") |
+| `#/done` 열기 | `Done.jsx` `useServerApprovals` | `GET /api/approvals` | '승인한 글'(브라우저 목록과 합침, 11/21)과 접힌 '서버 처리 기록' (버튼 줄 위. 한 줄 = "MM-DD HH:MM 승인 · 글 이름 (고침)") |
 | 완료 '홈으로' | `go("today")` | 없음 | 진행은 그대로 |
 | 완료 '처음부터 다시' | `restart` | `DELETE /api/approvals` | 브라우저 진행을 비우고(`resetFlow`·`emptyFlow`), `mktResetSeq`를 올려 맞춤 마케팅도 처음으로, `#/today`. 서버가 실패해도 화면은 비우고 알림 띠로 알림. `marketing_cleared: false`면 맞춤 마케팅 화면 위에 "기록은 지우지 못했어요" 안내 |
 | 홈 'AI 비서' 항목 | `staffGo` | 없음 | 데이터 분석 → 리뷰 분석 요약, 고객 응대 → 승인 대기가 있으면 `#/draft` 없으면 `#/cards`, 마케팅 → `#/marketing`, 상권 분석 → `#/market` |
@@ -2542,7 +2544,7 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | 언제 | 부르는 API | 결과가 가는 곳 |
 |---|---|---|
 | 처음 열기 · '다시 확인' | `GET health` → (`ready`면) `GET meta`(기다리지 않음) → `POST step` `{state: null, answer: null}` | `ready`가 아니면 안내 칸과 '다시 확인'만 (탭·대화 숨김). 아니면 시작 모드 카드 다섯 개 + '마케팅 보고서' |
-| 보기·입력 보내기 | `POST step` `{state, answer}` | 다음 질문. 끝(`done`)이면 아래 결과 카드 |
+| 보기·입력 보내기 | `POST step` `{state, answer}` | 다음 질문. 끝(`done`)이면 아래 결과 카드. `done`과 함께 `end: true`(11/21)면 결과 카드 없이 `bot_messages`의 안내로 끝냄(`plan`을 부르지 않음, 오류 띠·'다시 시도' 없음): 안내문 승인 뒤 재주문 쿠폰(선택) 질문에서 '여기까지 할게요'·예산 0원·할인 '아니요'·쿠폰을 만들 수 없는 가게(메뉴 가격 없음 등). 맞춤 홍보 제안의 '어떤 불만인가요?' 보기는 그 가게 리뷰의 반복 불만 주제(같은 불만 2건 이상, 많은 순 3개 + '그 외', 11/21)이고, 고른 주제로 안내문 주제와 조치를 정함 |
 | 질문이 끝남 · '다시 쓰기' | `POST plan` `{state}` (+ 맞춤 홍보 제안·재주문 쿠폰이면 `POST result` `{state}`) | '제안 결과' 칸에 결과 카드 (`role="log"`·`aria-live="polite"`라서 새 카드를 읽어 줌) |
 | 쿠폰 슬라이더 | `POST coupon-calc` (150ms 묶음, 늦은 답 버림) | 쿠폰 장수·최대 비용·본전 주문 수·예산 막대 |
 | 슬라이더 아래 '이 조건으로 쿠폰 글 만들기' · '다음 쿠폰 조건' 칸의 같은 버튼 | `POST generate` `{state, coupon_override}` · `{state}` | 카드 안 새 글 (카드를 승인할 때 같이 승인) |
@@ -2599,7 +2601,7 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | A5 내 가게 [빼기] → 확인 [빼기] | `DELETE /api/account/stores/{id}` → `GET /api/auth/me` | 확인 줄에 "가게를 빼도 그 가게의 기록은 지워지지 않아요." 들어가 있던 가게를 뺐으면 `entered`를 지움 ([가게로 돌아가기] → A3) |
 | A5 [위로]·[아래로] | `PUT /api/account/stores/order` `{store_ids}` | 순서 = 가게 선택 화면 순서. 포커스는 누른 버튼(끝으로 가 잠기면 반대 버튼) |
 | A5 [정보 고치기] (직접 등록한 가게만, 예시 가게는 '예시 가게' 표시) · '+ 새 가게 등록' | 없음 | 새 가게 등록 (`edit` + `storeId` · `add`) |
-| A5 '기록 지우기'(지금 가게·모든 가게) → [지우기] | `DELETE /api/assistant/conversation`(실패·꺼짐 무시, 8초) → `POST /api/auth/reset` `{scope}` → (들어가 있던 가게가 있으면) `storeChanged()` | `complete: false`면 창을 열어 둔 채 오류와 '다시 지우기'. 성공이면 창을 닫고 오른쪽 아래 결과 띠 |
+| A5 '기록 지우기'(지금 가게·모든 가게) → [지우기] | `DELETE /api/assistant/conversation`(실패·꺼짐 무시, 8초) → `POST /api/auth/reset` `{scope}` → (들어가 있던 가게가 있으면) `storeChanged()` | `complete: false`면 창을 열어 둔 채 오류와 '다시 지우기'. 성공이면 창을 닫고 오른쪽 아래 결과 띠(가게별 지운 건수 + '보관한 보고서 n개', 11/21) |
 | A5 '회원 탈퇴' → [탈퇴하기] | 위 대화 지우기 → `POST /api/auth/withdraw` `{password}` (시연 계정은 `{}`) | A1, 결과 띠. 비밀번호 칸은 보낸 뒤 늘 비움. `bad_password`면 칸으로 포커스 |
 | 로그아웃 (A3 위쪽 줄·사장님 칸, 왼쪽 메뉴 '프로필 · 로그아웃', X2 권한 없음) | `POST /api/auth/logout` | A1 (401 이면 이미 끝난 것으로 보고 같음) |
 

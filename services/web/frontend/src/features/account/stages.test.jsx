@@ -110,12 +110,38 @@ describe("부팅 분기", () => {
     await start();
     expect(getState().stage).toBe("error");
     expect(h1()).toBe("잠시 문제가 생겼어요");
+    // 이 탭에서 가게에 들어간 적이 없으면(로그인했는지 모름) [가게 선택으로]는 없다 (11/21 QA)
+    expect(screen.queryByRole("button", { name: "가게 선택으로" })).toBeNull();
     routes["/api/auth/me"] = { ...GUEST, notice: "로그인 정보를 확인하지 못했어요. 잠시 뒤 다시 해 주세요." };
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "다시 시도" })); });
     await waitFor(() => expect(screen.getByText("로그인 정보를 확인하지 못했어요. 잠시 뒤 다시 해 주세요.")).toBeTruthy());
     expect(getState().stage).toBe("error");
     routes["/api/auth/me"] = GUEST;
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "다시 시도" })); });
+    await waitFor(() => expect(getState().stage).toBe("login"));
+  });
+
+  it("X1 오류: 이 탭에서 가게에 들어가 있었으면 [다시 시도] 옆에 [가게 선택으로] (그림 X1). 누르면 들어갔던 가게로 가지 않고 가게 선택 (11/21 QA)", async () => {
+    sessionStorage.setItem("ic26.entered", "store_basak");
+    server({ "/api/auth/me": [503, { error: { message: "잠시 뒤 다시", state: "down" } }] });
+    await start();
+    expect(getState().stage).toBe("error");
+    const btns = [...document.querySelectorAll(".stage-card-btns button")].map((b) => b.textContent);
+    expect(btns).toEqual(["다시 시도", "가게 선택으로"]);
+    expect(document.body.textContent).not.toMatch(/오류 번호/);   // 서버가 요청 번호를 주지 않아 지어내지 않음
+    routes["/api/auth/me"] = meOf("store_basak");                 // [다시 시도]였으면 바로 메인 화면으로 갈 상태
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "가게 선택으로" })); });
+    await waitFor(() => expect(getState().stage).toBe("pick"));
+    expect(h1()).toBe("어느 가게를 볼까요?");
+    STORE_DATA.forEach((p) => expect(paths()).not.toContain(p));
+  });
+
+  it("X1 [가게 선택으로]를 눌렀는데 로그인이 끝나 있으면 로그인 화면으로 (11/21 QA)", async () => {
+    sessionStorage.setItem("ic26.entered", "store_basak");
+    server({ "/api/auth/me": [503, { error: { message: "잠시 뒤 다시", state: "down" } }] });
+    await start();
+    routes["/api/auth/me"] = GUEST;
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "가게 선택으로" })); });
     await waitFor(() => expect(getState().stage).toBe("login"));
   });
 });
