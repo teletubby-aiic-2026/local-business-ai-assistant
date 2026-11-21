@@ -230,6 +230,27 @@ def get_insight(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ):
     return service.analyze(classifier(), store_id, visitor_id).to_dict()
 
 
+class AskIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=500, description="사장님 질문 (리뷰·불만·답글·문의·별점·응대 점수)")
+    store_id: str = Field(service.DEFAULT_STORE, description="가게 ID")
+    visitor_id: Optional[str] = Field(None, pattern=VISITOR_PATTERN, description=VISITOR_DESC)
+    now: Optional[str] = Field(None, description="계산 기준 시각 ISO 8601 (시연·시험용). 비우면 지금")
+
+
+@router.post("/ask")
+def ask_question(body: AskIn):
+    """고객응대 질문 답하기 (11/21, app/ask.py): 질문 나누기 → 이 가게 리뷰로 근거 카드(F1…) → 답(틀 문장, live 면 HCX-005) → 숫자 점검.
+    통합 화면의 'AI에게 묻기' 서랍이 리뷰·불만·답글 질문을 여기로 보낸다. 숫자는 모두 코드가 센 것."""
+    from app import ask
+    if not body.text.strip():
+        return error(400, "VALIDATION_ERROR", "질문이 비어 있어요")
+    try:
+        at = _now(body.now)
+        return ask.answer(classifier(), body.store_id, body.visitor_id, body.text.strip(), at)
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
+
+
 @router.post("/reviews", status_code=201)
 def paste_review(body: PasteIn):
     """S2 직접 붙여넣기 → 바로 분류 → 반복 묶음 다시 계산."""
