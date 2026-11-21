@@ -121,6 +121,13 @@ class Routing(unittest.TestCase):
         for q in ("맛집 상권 어디야?", "저녁 시간대 반응 어때?", "점심 매출 어때?", "직원 몇 명 뽑아야 해?"):
             self.assertNotEqual(domain_question(q), "care", q)
 
+    def test_routing_fixes_from_live_check(self):
+        """11/22 PR #75 live 확인: 상권 질문인데 고객응대로 가던 말 / 아직 상권으로 가던 손님 반응 말."""
+        for q in ("20대 반응 어때?", "맛있는 메뉴 추천해줘", "다른 가게들 반응은?"):
+            self.assertNotEqual(domain_question(q), "care", q)
+        for q in ("우리 가게 평판 어때?", "손님들 만족해?", "손님들 뭐가 제일 불편했대?"):
+            self.assertEqual(domain_question(q), "care", q)
+
     def test_market_time_and_sales_words_still_go_to_the_market_service(self):
         for q in ("점심 손님들이 많이 와?", "주말 문의 매출 어때?", "저녁 시간대 손님들이 뭐라고 해?"):
             self.assertIsNone(domain_question(q), q)
