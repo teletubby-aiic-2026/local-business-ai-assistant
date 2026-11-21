@@ -531,11 +531,52 @@ _MKT_Q = ("쿠폰", "본전", "할인", "남은재료", "남는재료", "재고"
 _MKT_NEW_MARKET = ("매출", "점심", "저녁", "시간대", "요일", "주말", "평일")
 _CARE_Q = ("리뷰", "후기", "불만", "답글", "댓글", "캡처", "캡쳐", "별점", "진상", "테러", "억울", "악플", "응대", "컴플레인", "클레임",
            "블랙컨슈머")
+# 11/21: 리뷰라는 말 없이 손님 반응·주제를 묻는 말 ("손님들이 맛에 대해 뭐라고 해?", "알레르기 문의 있어?").
+# 상권의 매출·시간대 낱말이 같이 오면 고르지 않는다 ("점심 손님들 많아?"는 상권 질문)
+_CARE_MORE = ("평점", "칭찬", "문의", "알레르기", "손님반응", "손님들이", "뭐라고", "뭐래", "누락", "빠졌", "식었", "늦게왔", "눅눅",
+              "불친절", "양이적")
+# 리뷰 주제 낱말 (11/21): "이번주 맛은 어때?", "양 적다는 말 있어?" 처럼 '리뷰' 없이 음식·포장·배달을 묻는 말. '맛집'은 빼고
+_CARE_TOPIC = re.compile(r"맛(?!집)|양이|양은|양적|포장(이|상태|불량)|식감|눅눅|위생|머리카락|이물질|친절|직원(이|태도|응대)|배달(이|시간)?(늦|느|오래)"
+                         r"|평가|반응|후기|평이|뭐래")
+_CARE_NOT = ("매출", "장사", "수입", "점포", "유동", "인구", "점심", "저녁", "시간대", "요일", "주말", "평일", "분기", "연령", "나이대")
 # 오늘 추천 카드·할 일·초안을 묻는 말 (11/20). 단독 '추천'·'카드'는 상권 질문("메뉴 추천해줘")과 겹쳐 넣지 않는다
 _CARDS_Q = ("추천카드", "오늘추천", "카드있", "오늘할일", "할일", "브리핑", "승인할글", "승인대기", "초안", "처리완료")
 # 무엇을 물을지 모르는 말 ("우리 가게", "뭐 물어볼 수 있어?") → 상권 숫자를 꺼내지 않고 물을 수 있는 것을 알려 준다 (11/20)
 _HELP_EXACT = re.compile(r"^((우리|저희|내|제|울)?(가게|매장|식당|집)|도와줘|도움말|뭐물어볼수있어|뭘물어볼수있어|무엇을물어볼수있어"
                          r"|뭐할수있어|무슨기능있어|어떤기능있어|기능알려줘)(요|야|예요|에요)?$")
+# 고객응대 질문의 답 (리뷰 분석 서비스 /ask, 11/21). 답글·안내문을 '써 달라'는 말은 예전처럼 추천 카드로 안내한다
+CARE_ANSWER = "review_insight"
+NO_INQUIRY = ("통합 화면에는 아직 손님 문의 기능(문의 받기·문의 답하기)이 들어가 있지 않아요. 그래서 이 채팅에서도 손님 문의를 확인할 수 없어요.\n"
+              "참고: 지금은 배달앱 리뷰만 볼 수 있어요. 리뷰에 남은 불만·답글은 물어보시면 바로 세어 드려요.")
+_CARE_WRITE = re.compile(r"써줘|써주|써줄|써달|만들어|작성해|올리고싶")
+_TO_CARDS = ("추천 카드에서 답글 만들기", "cards", None)
+CARE_ACTIONS = {          # 질문 종류 → 이어서 할 일 버튼 (라벨, 화면, 탭)
+    "complaints": [_TO_CARDS, ("불만 묶음 보기", "analysis", "issues")],
+    "topic": [("불만 묶음 보기", "analysis", "issues"), _TO_CARDS],
+    "time": [("불만 묶음 보기", "analysis", "issues"), _TO_CARDS],
+    "trend": [("불만 묶음 보기", "analysis", "issues"), ("종합 리포트 보기", "report", None)],
+    "unanswered": [_TO_CARDS, ("승인할 글 보기", "draft", None)],
+    "howto": [_TO_CARDS],
+    "score": [("종합 리포트 보기", "report", None), _TO_CARDS],
+    "capture": [("리뷰 캡처·붙여넣기 열기", "analysis", "paste")],
+    "inquiry": [("리뷰 분석 열기", "analysis", "summary")],
+    "overview": [("리뷰 분석 열기", "analysis", "summary"), _TO_CARDS],
+}
+for _k in ("rating", "channel", "recent", "praise"):
+    CARE_ACTIONS[_k] = [("리뷰 분석 열기", "analysis", "summary"), _TO_CARDS]
+# 마케팅 질문의 답 (맞춤 마케팅 서비스 /ask, 11/21). 홍보 글을 '써 달라'는 말은 예전처럼 맞춤 마케팅 화면으로 안내한다
+MKT_ANSWER = "marketing"
+MKT_ACTIONS = {           # 질문 종류 → 이어서 할 일 버튼 (라벨, 화면, 탭: MKT_SUBS)
+    "coupon_calc": [("맞춤 마케팅: 맞춤 홍보 제안", "marketing", "promo"), ("맞춤 마케팅: 쿠폰 결과 확인", "marketing", "repeat")],
+    "coupon_result": [("맞춤 마케팅: 쿠폰 결과 확인", "marketing", "repeat")],
+    "ads": [("맞춤 마케팅: 광고비 점검", "marketing", "ad")],
+    "leftover": [("맞춤 마케팅: 남은 재료 팔기", "marketing", "leftover")],
+    "notice_effect": [("맞춤 마케팅: 맞춤 홍보 제안", "marketing", "promo"), ("종합 리포트 보기", "report", None)],
+    "activity": [("종합 리포트 보기", "report", None), ("맞춤 마케팅: 맞춤 홍보 제안", "marketing", "promo")],
+    "overview": [("맞춤 마케팅: 맞춤 홍보 제안", "marketing", "promo"), ("종합 리포트 보기", "report", None)],
+}
+for _k in ("next", "ideas_new", "ideas_repeat", "ideas_value", "rainy", "menu_price"):
+    MKT_ACTIONS[_k] = [("맞춤 마케팅: 맞춤 홍보 제안", "marketing", "promo"), ("맞춤 마케팅: 가게 이야기 글", "marketing", "story")]
 HELP_TEXT = "어떤 것을 도와드릴까요? 상권 매출·점포 수, 우리 가게 메뉴·정보, 불만 리뷰 답글, 쿠폰·홍보 제안을 물어보실 수 있어요."
 HELP_SUGGESTIONS = [BACK_TO_MARKET[0], "우리 가게 메뉴 뭐야?", "불만 리뷰 제일 많은 게 뭐야?"]     # 상권·가게·리뷰에서 하나씩
 CARDS_SUGGESTIONS = ["불만 리뷰 제일 많은 게 뭐야?", "쿠폰 2천원 할인하면 몇 개 팔아야 본전이야?", BACK_TO_MARKET[0]]
@@ -571,6 +612,8 @@ def domain_question(text: str) -> str | None:
     if any(w in c for w in _MKT_Q) and not (any(w in c for w in _MKT_NEW) and any(w in c for w in _MKT_NEW_MARKET)):
         return "marketing"
     if any(w in c for w in _CARE_Q):
+        return "care"
+    if (any(w in c for w in _CARE_MORE) or _CARE_TOPIC.search(c)) and not any(w in c for w in _CARE_NOT):
         return "care"
     return None
 
@@ -739,6 +782,7 @@ class AssistantProxy:
         view.home = None
         view.read_store = None
         view.demo = None
+        view.marketing = None
         return view
 
     @property
@@ -967,6 +1011,12 @@ class AssistantProxy:
                 status += f" 가장 많은 불만은 '{top['topic_name']}' {top['review_count']}건{band}."
         else:
             status = f"{shop}의 리뷰 현황을 지금 불러오지 못했어요."
+        if domain == "care" and "문의" in c:     # 손님 문의는 통합 화면에 없는 기능 (리뷰 분석 서비스를 부르지 않고 바로 알린다)
+            return self._no_inquiry()
+        if domain == "care" and not _CARE_WRITE.search(c):
+            answered = self._care_ask(text, visitor)
+            if answered is not None:
+                return answered
         if domain == "care":
             if any(w in c for w in ("억울", "진상", "테러", "악플", "블랙컨슈머")):
                 tip = ("가게 잘못이 아닌 별점에는 사과 없이 사실과 가게 원칙을 담담하게 쓰는 답글이 좋아요. "
@@ -979,6 +1029,10 @@ class AssistantProxy:
                                  [nav("추천 카드에서 답글·안내문 만들기", "cards"), nav("리뷰 캡처·붙여넣기 열기", "analysis", "paste"),
                                   nav("불만 묶음 보기", "analysis", "issues")],
                                  ["억울한 별점 답글은 어떻게 달아?", "불만 리뷰 제일 많은 게 뭐야?", *BACK_TO_MARKET[:1]])
+        if domain == "marketing" and not _CARE_WRITE.search(c):
+            answered = self._marketing_ask(text, visitor)
+            if answered is not None:
+                return answered
         if domain == "marketing":
             sub = marketing_sub(text)
             # 질문에 대한 안내가 먼저, 가게 현황은 그다음 (11/21: 남은 재료를 물었는데 칭찬 메뉴 문장이 먼저 나왔다)
@@ -1007,6 +1061,66 @@ class AssistantProxy:
         tip = "종합 리포트에서 오늘 요약·응대 점수·손님 칭찬 요약·월간 보고서·상권·마케팅 요약을 한 번에 보고 PDF로 저장할 수 있어요."
         return _domain_reply([status, tip], "report_guide", "report", [nav("종합 리포트·PDF 저장 열기", "report")],
                              ["불만 리뷰 제일 많은 게 뭐야?", *BACK_TO_MARKET[:1]])
+
+    def attach_marketing(self, marketing) -> None:
+        """마케팅 질문을 물을 곳 (marketing_proxy.MarketingProxy, 그 가게 것). create_app·StoreHub 가 붙인다 (11/21)."""
+        self.marketing = marketing
+
+    def _marketing_ask(self, text: str, visitor: str | None) -> dict | None:
+        """마케팅 질문을 맞춤 마케팅 서비스(POST /api/marketing-survey/ask)에 묻는다 (11/21). 고객응대(_care_ask)와 같은 모양.
+        못 물으면 None (예전 안내로 답함)."""
+        proxy = getattr(self, "marketing", None)
+        ask = getattr(proxy, "ask", None)
+        if ask is None:
+            return None
+        try:
+            got = ask(visitor, text)
+        except Exception as exc:              # 꺼져 있음·느림·예전 판(/ask 없음) → 예전 안내
+            log.warning("서랍 마케팅 답: 맞춤 마케팅 서비스에 묻지 못함 (%s)", exc.__class__.__name__)
+            return None
+        return self._service_reply(got, "marketing_answer", "marketing", MKT_ACTIONS, MKT_ANSWER)
+
+    def _service_reply(self, got, kind: str, domain: str, table: dict, answered_by: str) -> dict | None:
+        """질문 답하기 서비스(리뷰 분석·맞춤 마케팅)의 답 → 서랍 답 모양(assistant-reply-v1). 모양이 틀리면 None."""
+        if not isinstance(got, dict) or not isinstance(got.get("text"), str) or not got["text"].strip():
+            return None
+        cards = [c for c in got.get("cards") or [] if isinstance(c, dict) and isinstance(c.get("id"), str)]
+        ids = {c["id"] for c in cards}
+        intent = str(got.get("intent") or "overview")
+        actions = [nav(label, route, sub) for label, route, sub in table.get(intent, table["overview"])]
+        more = [q for q in got.get("suggestions") or [] if isinstance(q, str)][:2]
+        hcx = got.get("method") == "hcx"
+        return {"schema_version": REPLY_SCHEMA,
+                "reply": {"text": got["text"].strip(), "kind": kind,
+                          "cited": sorted(set(re.findall(r"\[(F\d+)\]", got["text"])) & ids),
+                          "actions": actions, "notes": [n for n in got.get("notes") or [] if isinstance(n, str)],
+                          "suggestions": [*more, BACK_TO_MARKET[0]]},
+                "model_used": hcx, "cards": cards, "topics": [],
+                "classification": {"domain": "customer" if domain == "care" else domain, "turn_type": intent, "topics": [],
+                                   "needs_user_choice": False, "needs_model": hcx,
+                                   "analyzer": f"{answered_by}+{got.get('classified_by') or 'rules'}"},
+                "pending": None, "answered_by": answered_by}
+
+    @staticmethod
+    def _no_inquiry() -> dict:
+        return _domain_reply([NO_INQUIRY], "care_no_inquiry", "customer",
+                             [nav("리뷰 분석 열기", "analysis", "summary"), nav("불만 묶음 보기", "analysis", "issues")],
+                             ["불만 리뷰 제일 많은 게 뭐야?", "답글 안 단 리뷰 몇 개야?", BACK_TO_MARKET[0]])
+
+    def _care_ask(self, text: str, visitor: str | None) -> dict | None:
+        """고객응대 질문을 리뷰 분석 서비스(POST /api/review-insight/ask)에 묻는다 (11/21). 상권 비서처럼 질문 종류마다 이 가게
+        리뷰로 센 근거 카드(F1…)와 답을 받아 서랍 답 모양(assistant-reply-v1)으로 바꾼다. 못 물으면 None (예전 안내로 답함)."""
+        ask = getattr(self.demo._src(visitor), "ask", None) if self.demo is not None else None
+        if ask is None:
+            return None
+        try:
+            got = ask(self.demo.s.store_id, text)
+        except Exception as exc:              # 리뷰 분석 서비스가 꺼져 있거나 예전 버전(/ask 없음)이면 예전 안내
+            log.warning("서랍 고객응대 답: 리뷰 분석 서비스에 묻지 못함 (%s)", exc.__class__.__name__)
+            return None
+        if isinstance(got, dict) and got.get("intent") == "inquiry":     # 통합 화면에는 손님 문의 기능이 아직 없다 (11/21)
+            return self._no_inquiry()
+        return self._service_reply(got, "care_answer", "care", CARE_ACTIONS, CARE_ANSWER)
 
     def _has_coupon_card(self, visitor: str | None) -> bool:
         """오늘 추천 카드에 쿠폰 홍보 카드(ⓑ, kind promo)가 있는지. 규칙만으로 계획한다(HCX 를 부르지 않음, _cards_status 와 같은 호출).

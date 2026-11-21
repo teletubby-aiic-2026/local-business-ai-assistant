@@ -87,11 +87,15 @@ class StoreHub:
                 self._touch(sid)
                 return found
         demo = self.demo(sid)
+        marketing = self.marketing(sid)          # 서랍의 마케팅 질문을 그 가게 마케팅 프록시로 (11/21). 잠금 밖에서 먼저 만든다
         with self._lock:
             found = self._assistant.get(sid)
             if found is None:
                 found = self._assistant[self.default_id].for_store(sid)
                 found.attach_store(demo)
+                attach = getattr(found, "attach_marketing", None)
+                if attach is not None:
+                    attach(marketing)
                 self._assistant[sid] = found
             self._touch(sid)
             return found

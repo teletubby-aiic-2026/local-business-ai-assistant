@@ -101,6 +101,7 @@ ROUTES: dict[str, Route] = {
     "coupon-calc": Route("POST"),
     "approve": Route("POST"),
     "notice-followup": Route("POST"),
+    "ask": Route("POST", long=True),     # 마케팅 질문 답하기 (11/21). live 면 HCX-005 를 두 번 부를 수 있어 길게 기다린다
 }
 QUERY_KEYS = {"report": ("period",)}              # 브라우저 쿼리 중 넘기는 것 (store·visitor_id 는 서버가 붙임)
 
@@ -282,6 +283,16 @@ class MarketingProxy:
         if detail is None and r.status_code in (404, 405):
             detail = MISSING                     # FastAPI 기본 404·405: 이 서비스 판에는 그 경로가 없다
         raise MarketingError(state, detail, r.status_code)
+
+    def ask(self, visitor_id: str | None, text: str) -> dict:
+        """서랍의 마케팅 질문 1개 → 답·근거 카드 (마케팅 서비스 POST ask, 11/21). 실패는 MarketingError."""
+        params = {"store": self.store}
+        if visitor_id and VISITOR_ID.fullmatch(visitor_id):
+            params["visitor_id"] = visitor_id
+        data = self.call("POST", "ask", params, {"text": text})
+        if not isinstance(data, dict):
+            raise MarketingError("error", http=502)
+        return data
 
     # ── '처음부터 다시' (main.py 의 DELETE /api/approvals 가 부름)·계정 초기화·탈퇴 (auth.py) ──────────────
     def _clear(self, visitor_id: str | None) -> str:

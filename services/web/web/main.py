@@ -132,6 +132,7 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     care = care or CareProxy.from_settings(demo.s)                  # 고객응대 프록시 (시험에서는 가짜 리뷰 분석 서비스)
     marketing = marketing or MarketingProxy.from_settings(demo.s)   # 맞춤 마케팅 프록시 (시험에서는 가짜 마케팅 서비스)
     market = market or MarketProxy.from_settings(demo.s)            # 상권 분석 화면(#/market) 프록시 (시험에서는 가짜 상권 서비스)
+    assistant.attach_marketing(marketing)                           # 서랍의 마케팅 질문을 물을 곳 (11/21)
     hub = StoreHub(demo, assistant, care, marketing)                # 가게마다의 Demo·프록시 (기본 가게는 위의 객체 그대로)
     auth = auth or AuthService.from_env(demo.storage, demo.s.store_id)
     # 직접 등록한 가게 찾기 (11/20): store_profiles.get·known 이 예시 세 곳 다음으로 이 저장소의 stores 표를 본다
