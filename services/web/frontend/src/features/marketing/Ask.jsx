@@ -138,11 +138,12 @@ export function Options() {
   return <div id="mkt-options" className="mkt-options" role="group" aria-label="답 고르기">{body}</div>;
 }
 
+// 대화 한 줄 (Figma 06 M1): 비서 질문 = 테두리 상자 + '마케팅 비서' 이름표, 사장님 답 = 오른쪽 연한 초록 말풍선
 function LogEntry({ e }) {
   if (e.kind === "user") return <div className="mkt-msg user"><p className="mkt-bubble">{e.text}</p></div>;
   if (e.kind === "sub") return <p className="mkt-sub">{e.text}</p>;
   if (e.kind === "example") return <p className="mkt-example">{e.text}</p>;
-  return <div className="mkt-msg bot"><p>{e.text}</p></div>;
+  return <div className="mkt-msg bot"><span className="mkt-who">마케팅 비서</span><p>{e.text}</p></div>;
 }
 
 function Foot() {
@@ -154,18 +155,21 @@ function Foot() {
   );
 }
 
-// 첫 질문 화면: "무엇을 도와드릴까요?" 아래 기능 카드 격자
+// 첫 질문 화면: "무엇을 도와드릴까요?" 한 줄 아래 기능 카드 격자. 카드가 회색 바탕 위에 바로 놓인다 (흰 패널로 감싸지 않음, Figma 06 M1)
 export function StartView() {
   const log = useMkt((s) => s.log);
   const heading = log.find((e) => e.kind === "bot")?.text || "무엇을 도와드릴까요?";
   const sub = log.find((e) => e.kind === "sub")?.text;
   return (
-    <Panel className="mkt-start" title={heading} titleId="mkt-start-title">
-      {sub && <p className="muted">{sub}</p>}
+    <section className="mkt-start" aria-labelledby="mkt-start-title">
+      <div className="mkt-start-head">
+        <h2 id="mkt-start-title">{heading}</h2>
+        {sub && <p className="muted">{sub}</p>}
+      </div>
       <Status />
       <ErrorLine />
       <Options />
-    </Panel>
+    </section>
   );
 }
 

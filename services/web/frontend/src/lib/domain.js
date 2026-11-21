@@ -1,6 +1,11 @@
 // 여러 화면이 같이 쓰는 이름·계산 (예전 app.js 맨 위와 '홈 상권 지표' 부분을 옮김)
 
 export const GEN_NAMES = { reply_draft: "답글", prevention_notice: "포장·주문 안내문", coupon_promo: "쿠폰 홍보글" };
+// 안내문 이름 (11/21): 불만 주제가 포장 누락이면 '포장·주문 안내문', 다른 주제(식감·대기 등)면 서버가 카드 제목을
+// '… → 안내문 + 답글'로 주므로 그냥 '안내문'. 카드 제목을 모르면 예전 이름 그대로.
+export const noticeName = (cardTitle) => (typeof cardTitle === "string" && cardTitle.includes("안내문") && !cardTitle.includes("포장·주문 안내문")
+  ? "안내문" : GEN_NAMES.prevention_notice);
+export const genName = (generator, cardTitle) => (generator === "prevention_notice" ? noticeName(cardTitle) : GEN_NAMES[generator] || generator);
 export const KIND_NAMES = { complaint: "불만 대응", promo: "쿠폰 홍보" };
 // AI 비서: 오늘·분석 = 데이터 분석 비서, 카드 ⓐ·초안 = 고객 응대 비서, 카드 ⓑ = 마케팅 비서
 export const KIND_AGENT = { complaint: "고객 응대 비서", promo: "마케팅 비서" };
@@ -30,8 +35,9 @@ export function marketScope(s) {
 export const SCOPE_NOT_ONE = "한 업종(예: 한식음식점)의 하루 전체 매출이 아니에요.";
 export const scopeNote = (s) => String(s?.metric_name || "").includes("공통 업종") ? SCOPE_NOT_ONE : "하루 전체 매출이 아니라 그 시간대의 매출이에요.";
 
-// 오늘의 핵심 문제 한 줄 (카드 ⓐ가 가리키는 묶음)
+// 오늘의 핵심 문제 한 줄 (카드 ⓐ가 가리키는 묶음). 리뷰가 0건이면 반복 불만이 없는 것과 구별해 '아직 들어온 리뷰가 없어요'
 export function heroProblem(b) {
+  if (b?.counts?.review_count === 0) return "아직 들어온 리뷰가 없어요";   // 새로 등록한 가게
   const top = (b?.groups || []).find((g) => g.issue_id === b.top_issue_id);
   return top
     ? `${top.topic_name} ${top.review_count}건${top.is_repeated ? " 반복" : ""}${top.main_time_band ? ` · ${top.main_time_band}에 몰림` : ""}`
@@ -50,6 +56,33 @@ export function storeLine(b) {
   return { name: b.store.name || "", sub: [b.store.business_type_name, b.store.area_name ? b.store.area_name + " 상권" : ""].filter(Boolean).join(" · ") };
 }
 
+// 지금 가게(me.store_id)가 사장님이 직접 등록한 가게인가 (me.stores 의 sample === false). 예시 가게·모름이면 false
+export function isOwnStore(me) {
+  const s = ((me && me.stores) || []).find((x) => x && x.store_id === (me && me.store_id));
+  return !!s && s.sample === false;
+}
+
+// 화면에 찍을 글자: 비었거나 서버가 빈 값을 글자로 보낸 것('null'·'undefined'·'None')은 "" (화면에 null 이 찍히지 않게)
+export const textOr = (v) => {
+  const t = v === null || v === undefined ? "" : String(v).trim();
+  return /^(null|undefined|none|nan)$/i.test(t) ? "" : t;
+};
+
+// 위치 이름을 짧게: 도로명·지번 주소 원문('서울특별시 마포구 와우산로 94 학교법인홍익학원')은 '마포구 와우산로 94'로,
+// 역·동네 이름('장승배기역')은 그대로. 주소로 등록한 가게의 위치 이름이 주소 원문이라 머리줄·서랍에 그대로 찍히지 않게
+const ROAD = /([가-힣]+구)\s+([가-힣A-Za-z0-9.·]+(?:로|길))\s*([0-9]+(?:-[0-9]+)?)?/;
+const JIBUN = /([가-힣]+구)\s+([가-힣0-9]+동[0-9]*가?)\s*([0-9]+(?:-[0-9]+)?)?/;
+export function shortPlace(v) {
+  const t = textOr(v);
+  if (!t) return "";
+  const m = ROAD.exec(t) || JIBUN.exec(t);
+  if (m) return [m[1], m[2], m[3]].filter(Boolean).join(" ");
+  return t.replace(/^서울(특별)?시\s+/, "");
+}
+
+// 서버가 ' · '로 이어 준 이름 줄('가게 · 위치 · 업종'): 빈 조각은 빼고 주소 조각은 짧게
+export const cleanLabel = (v) => textOr(v).split(" · ").map(shortPlace).filter(Boolean).join(" · ");
+
 // 맨 위 알림 띠에 띄울 서버 상태 문제 (예전 renderHealth)
 export function healthProblems(h) {
   if (!h) return "";
@@ -62,6 +95,9 @@ export function healthProblems(h) {
 // 이 띠가 '실제 AI 결과가 아님'을 알리는 화면 공통의 한 곳이다 (바닥 줄에서 다시 말하지 않음)
 export const MODE_BAND_MOCK = "시험용 예시 화면 · 실제 AI 생성 결과가 아니에요";
 export const modeBandText = (h) => (h?.mode_notice ? MODE_BAND_MOCK : "");
+// 시험용 실행(mock)인지: 안내 띠와 같은 기준 (서버는 mock 일 때만 mode_notice 를 준다). 상태를 못 받았으면 실제 서버로 본다.
+// 로그인 화면의 '시연 사장님으로 시작'은 시험용 실행에서만 보인다 (6차 회의)
+export const isTestRun = (h) => !!modeBandText(h);
 
 // 바닥 줄 (자료 출처·AI 생성 여부). 리뷰가 합성 데이터인지는 늘, AI 가 실시간으로 쓰는지는 시험용 띠가 없을 때만 적는다.
 // 분류 방식·규칙·모델 분담 같은 안쪽 사정은 적지 않는다

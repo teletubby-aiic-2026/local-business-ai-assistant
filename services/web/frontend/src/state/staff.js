@@ -1,5 +1,5 @@
 // 오늘 할 일과 AI 비서 네 명의 상태 (예전 app.js todosOf·renderStaff). 상태만 보고 계산한다 (화면을 만지지 않음).
-import { draftsOf, allDrafts, praiseOf, heroProblem, homeSnap, snapValue, marketScope } from "../lib/domain.js";
+import { draftsOf, allDrafts, praiseOf, heroProblem, homeSnap, snapValue, marketScope, noticeName } from "../lib/domain.js";
 
 // 할 일: 카드 ⓐ(불만) → 포장·주문 안내문, 답글 n개 / 카드 ⓑ(홍보) → 쿠폰 홍보글
 // st: ["none","만들기"] | ["wait","승인 1 / 3"] | ["done","완료"]
@@ -12,8 +12,9 @@ export function todosOf(s) {
     : ["wait", `승인 ${ds.filter((d) => s.approved.has(d.draft_id)).length} / ${ds.length}`];
   if (care) {
     const made = !!s.results[care.card.card_id];
-    const n = care.evidence.filter((e) => e.type === "review").length;
-    items.push({ key: "notice", cid: care.card.card_id, gen: "prevention_notice", urgent: true, title: "포장·주문 안내문 승인", sub: heroProblem(s.briefing), agent: "고객 응대 비서", st: status(of(care, "prevention_notice"), made) });
+    // 만들기 전 답글 수: 서버가 준 수(묶음 리뷰 + 함께 답글을 만드는 붙여넣은 불만 리뷰, 11/21)가 있으면 그것을 쓴다
+    const n = Number.isFinite(care.reply_count) ? care.reply_count : care.evidence.filter((e) => e.type === "review").length;
+    items.push({ key: "notice", cid: care.card.card_id, gen: "prevention_notice", urgent: true, title: `${noticeName(care.title)} 승인`, sub: heroProblem(s.briefing), agent: "고객 응대 비서", st: status(of(care, "prevention_notice"), made) });
     items.push({ key: "reply", cid: care.card.card_id, gen: "reply_draft", title: `답글 ${made ? of(care, "reply_draft").length : n}개 승인`, sub: "같은 불만을 남긴 손님에게", agent: "고객 응대 비서", st: status(of(care, "reply_draft"), made) });
   }
   if (mkt) {
@@ -33,7 +34,14 @@ export function staffOf(s) {
   const b = s.briefing, c = (b && b.counts) || {};
   const pasted = ((b && b.pasted) || []).length;
   const out = [];
-  out.push({ key: "data", name: "데이터 분석 비서", ok: !!b, text: b ? `리뷰 ${c.review_count ?? 0}건 정리 끝${pasted ? ` · 새로 붙인 리뷰 ${pasted}건` : ""}` : s.booted ? "리뷰를 불러오지 못했어요" : "리뷰 정리 중" });
+  // 리뷰 0건(새로 등록한 가게)은 '리뷰 0건 정리 끝' 대신 '아직 리뷰 없음'.
+  // 리뷰가 모두 붙여 넣은 것이면 같은 수를 두 번 말하지 않는다 ('리뷰 6건 정리 끝 · 새로 붙인 리뷰 6건' → '붙여 넣은 리뷰 6건 정리 끝')
+  const total = c.review_count ?? 0;
+  const dataText = !b ? (s.booted ? "리뷰를 불러오지 못했어요" : "리뷰 정리 중")
+    : total === 0 && !pasted ? "아직 리뷰 없음"
+    : pasted && pasted >= total ? `붙여 넣은 리뷰 ${pasted}건 정리 끝`
+    : `리뷰 ${total}건 정리 끝${pasted ? ` · 새로 붙인 리뷰 ${pasted}건` : ""}`;
+  out.push({ key: "data", name: "데이터 분석 비서", ok: !!b, text: dataText });
   const care = items.filter((t) => t.agent === "고객 응대 비서");
   const mktItems = items.filter((t) => t.agent === "마케팅 비서");
   const waitOf = (list) => list.flatMap((t) => draftsOf(s.results, t.cid).filter((d) => d.generator === t.gen && !s.approved.has(d.draft_id))).length;
@@ -43,10 +51,10 @@ export function staffOf(s) {
   const complaints = b ? [...new Set([...(b.groups || []).flatMap((g) => (g.reviews || []).map((r) => r.review_id)),
     ...(b.single_complaints || []).map((x) => x.review_id)].filter(Boolean))] : [];
   const open = complaints.filter((id) => !replied.has(id)).length;
-  const careText = !care.length ? "오늘 할 일 없음" : doneOf(care) ? "오늘 몫 끝" : madeOf(care) ? `승인 대기 ${waitOf(care)}개` : "만들 차례";
+  const careText = !care.length ? "오늘 할 일 없음" : doneOf(care) ? "오늘 승인 완료" : madeOf(care) ? `승인 대기 ${waitOf(care)}개` : "초안 만들기 전";
   out.push({ key: "care", name: "고객 응대 비서", ok: doneOf(care) && open === 0, text: b ? `${careText} · 답글 안 단 불만 ${open}건` : careText });
   const mktDone = Math.max(s.approvedLog.filter((x) => x.mkt).length, s.mktServer);
-  const mktText = !mktItems.length ? "오늘 할 일 없음" : doneOf(mktItems) ? "오늘 몫 끝" : madeOf(mktItems) ? `승인 대기 ${waitOf(mktItems)}개` : "만들 차례";
+  const mktText = !mktItems.length ? "오늘 할 일 없음" : doneOf(mktItems) ? "오늘 승인 완료" : madeOf(mktItems) ? `승인 대기 ${waitOf(mktItems)}개` : "초안 만들기 전";
   out.push({ key: "mkt", name: "마케팅 비서", ok: doneOf(mktItems) || mktDone > 0, text: `${mktText}${mktDone ? ` · 맞춤 마케팅 승인 ${mktDone}건` : ""}` });
   const m = s.staffMarket;
   out.push({ key: "market", name: "상권 분석 비서", ok: !!m && m.state === "ready", text: !m ? "확인 중" : m.state === "ready"

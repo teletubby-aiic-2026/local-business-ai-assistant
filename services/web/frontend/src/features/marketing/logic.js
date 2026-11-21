@@ -36,6 +36,16 @@ export const mktKey = (k) => String(k).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 
 // 서비스 상태 → 안내 열쇠 (예전 mktDown: 모르는 상태는 error, 시간 초과는 down)
 export const downKey = (st) => (MKT_STATES[st] ? st : st === "timeout" ? "down" : "error");
 
+// 결과 카드 → 'AI에게 이어서 묻기'로 서랍 입력칸에 미리 채울 질문. badgeOf 와 같은 순서로 가른다
+// (네 문장은 서버 라우팅 시험·서랍 첫 추천 질문과 같은 문장이라 한 글자도 바꾸지 않는다)
+export function askQuestionOf(card) {
+  const d = (card && card.data) || {};
+  if (Array.isArray(d.table)) return "주변에 같은 업종 점포는 몇 개야?";
+  if (d.coupon_card || d.usage_rate !== undefined) return "점심과 저녁 중 매출은 어디가 커?";
+  if (d.strategy_type === "fix_first") return "불만 리뷰 제일 많은 게 뭐야?";
+  return "우리 가게 상권 매출은 어때?";
+}
+
 // 판정 배지 [tone, 글자]: 서버가 준 판정(verdict·usage_rate·strategy_type)만 보고 가른다 (원본 badgeFor)
 export function badgeOf(d) {
   if (Array.isArray(d.table)) {

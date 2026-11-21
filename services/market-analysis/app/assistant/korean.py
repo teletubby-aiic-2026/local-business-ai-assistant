@@ -68,16 +68,27 @@ _AMOUNT = re.compile(r"(?<![\d,.])(\d{1,3}(?:,\d{3})+|\d{5,})(원|명)(?!\s*\()"
 
 
 def amount_words(value: int, unit: str) -> str:
-    """976474889, '원' -> '약 9억 7,647만 원'; exact multiples drop '약' (100000000 -> '1억 원')."""
-    jo, rest = divmod(value, 10 ** 12)
-    eok, rest = divmod(rest, 10 ** 8)
-    man, below = divmod(rest, 10 ** 4)
-    if jo:
-        parts, exact = [f"{jo:,}조"] + ([f"{eok:,}억"] if eok else []), not (man or below)
-    elif eok:
-        parts, exact = [f"{eok:,}억"] + ([f"{man:,}만"] if man else []), not below
+    """976474889, '원' -> '약 9억 7,647만 원'; exact multiples drop '약' (100000000 -> '1억 원').
+
+    Rounded half up at the last unit shown, like the market screen (frontend features/market/format.js wonShort:
+    1,455,756,067원 -> '14억 5,576만 원'). Rounding down made the drawer say 14억 5,575만 next to the screen's
+    14억 5,576만 (live 2026-11-21).
+    """
+    if value >= 10 ** 12:
+        step = 10 ** 8
     else:
-        parts, exact = [f"{man:,}만"], not below
+        step = 10 ** 4
+    rounded = (value + step // 2) // step * step
+    exact = rounded == value
+    jo, rest = divmod(rounded, 10 ** 12)
+    eok, rest = divmod(rest, 10 ** 8)
+    man = rest // 10 ** 4
+    if jo:
+        parts = [f"{jo:,}조"] + ([f"{eok:,}억"] if eok else [])
+    elif eok:
+        parts = [f"{eok:,}억"] + ([f"{man:,}만"] if man else [])
+    else:
+        parts = [f"{man:,}만"]
     return ("" if exact else "약 ") + " ".join(parts) + " " + unit
 
 

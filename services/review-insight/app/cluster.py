@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.models import IssueGroup, Review, ReviewClassification, ReviewInsight
 from app.topics import TOPICS, topic_name
@@ -25,6 +25,13 @@ MIN_COUNT = 3          # 이 건수 이상이면 반복
 WINDOW_DAYS = 28       # 최근 4주
 MAIN_BAND_SHARE = 0.6  # 한 시간대에 60% 이상 몰리면 '주로 이 시간대'
 _ORDER = {t: i for i, t in enumerate(TOPICS)}
+KST = timezone(timedelta(hours=9))
+
+
+def has_order_time(review: Review) -> bool:
+    """작성 시각을 시간대 통계에 써도 되는 리뷰인가. 합성 샘플은 작성 시각이 있고, 붙여넣기·캡처·매장 메모로 받은 리뷰는
+    받은 시각뿐이라 시간대를 모른다 (받은 날짜로 세는 응대 기한·최근 2주 건수는 그대로 created_at 을 쓴다)."""
+    return getattr(review, "input_method", "sample") != "paste"
 
 
 def time_band(iso: str) -> str:
@@ -40,7 +47,9 @@ def build_insight(store_id: str, reviews: list[Review], classes: list[ReviewClas
                   end: datetime | None = None, window_days: int = WINDOW_DAYS, min_count: int = MIN_COUNT,
                   group_min: int = GROUP_MIN) -> ReviewInsight:
     by_id = {r.review_id: r for r in reviews}
-    end = end or max(datetime.fromisoformat(r.created_at) for r in reviews)
+    if end is None:
+        # 리뷰가 0건이면(직접 등록한 가게에 아직 리뷰를 안 넣음, 11/20) 오늘(한국 시간)까지 4주 → 빈 결과
+        end = max(datetime.fromisoformat(r.created_at) for r in reviews) if reviews else datetime.now(KST)
     end_day = end.replace(hour=23, minute=59, second=59)
     start = (end_day - timedelta(days=window_days)).replace(hour=0, minute=0, second=0) + timedelta(days=1)
     mid = start + (end_day - start) / 2
@@ -70,15 +79,18 @@ def build_insight(store_id: str, reviews: list[Review], classes: list[ReviewClas
         topics = sorted(topics, key=_ORDER.get)
         rows = sorted((cls[i] for i in ids), key=lambda c: by_id[c.review_id].created_at)
         times = [datetime.fromisoformat(by_id[c.review_id].created_at) for c in rows]
-        bands = Counter(time_band(by_id[c.review_id].created_at) for c in rows)
-        band, n = bands.most_common(1)[0]
+        # 시간대는 손님이 리뷰를 쓴 시각을 아는 리뷰만 센다. 사장님이 붙여넣거나 캡처로 넣은 리뷰(input_method="paste")의
+        # created_at 은 넣은 시각(또는 시나리오 시각)이라, 밤에 붙이면 늘 '00~06시에 몰림'이 됐다 (11/21 실시간 확인 M6).
+        timed = [c for c in rows if has_order_time(by_id[c.review_id])]
+        bands = Counter(time_band(by_id[c.review_id].created_at) for c in timed)
+        band, n = bands.most_common(1)[0] if bands else (None, 0)
         groups.append(IssueGroup(
             issue_id="iss_" + "_".join(topics), topics=topics, topic=topics[0],
             topic_name="·".join(topic_name(t) for t in topics), review_count=len(rows),
             is_repeated=len(rows) >= min_count, review_ids=[c.review_id for c in rows],
             evidence=[{"review_id": c.review_id, "quote": " / ".join(dict.fromkeys(_quote(c, t) for t in topics))} for c in rows],
-            time_bands={name: bands.get(name, 0) for name, _, _ in TIME_BANDS},
-            main_time_band=band if n / len(rows) >= MAIN_BAND_SHARE else None,
+            time_bands={name: bands.get(name, 0) for name, _, _ in TIME_BANDS} if timed else {},
+            main_time_band=band if len(timed) >= group_min and n / len(timed) >= MAIN_BAND_SHARE else None,
             channels=dict(Counter(by_id[c.review_id].channel or "unknown" for c in rows)),
             recent_count=sum(t > mid for t in times), previous_count=sum(t <= mid for t in times),
             first_at=by_id[rows[0].review_id].created_at, last_at=by_id[rows[-1].review_id].created_at,

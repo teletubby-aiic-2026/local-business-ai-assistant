@@ -11,7 +11,8 @@ export const REPLACES_MAX = 20;
 export function homeStats(b) {
   if (!b) return null;
   const c = b.counts || {};
-  const days = Math.round((new Date(b.period?.end) - new Date(b.period?.start)) / 86400000) + 1;
+  // 리뷰가 0건인 새 가게는 기간이 비어 있다 (new Date(null) 끼리 빼면 0 → '1일'로 보이지 않게)
+  const days = b.period?.start && b.period?.end ? Math.round((new Date(b.period.end) - new Date(b.period.start)) / 86400000) + 1 : NaN;
   const repeated = (b.groups || []).filter((g) => g.is_repeated);
   return {
     reviews: c.review_count,
@@ -36,8 +37,9 @@ export function scopeChips(snap) {
 // 홈 차트: 브리핑의 불만 리뷰(묶음 + 묶이지 않은 불만)만 센다. 리뷰 하나에 주제 하나 기준
 export function complaintsOf(b) {
   const list = [];
-  (b?.groups || []).forEach((g) => (g.reviews || []).forEach((r) => list.push({ topic: g.topic_name, at: r.created_at, top: g.issue_id === b.top_issue_id })));
-  (b?.single_complaints || []).forEach((x) => list.push({ topic: (x.topic_names || [])[0], at: x.created_at, top: false }));
+  const pasted = new Set((b?.pasted || []).map((r) => r.review_id));   // 붙여넣기·캡처로 넣은 리뷰 (단건 불만에는 넣은 방법 칸이 없어 id 로 본다)
+  (b?.groups || []).forEach((g) => (g.reviews || []).forEach((r) => list.push({ topic: g.topic_name, at: r.created_at, top: g.issue_id === b.top_issue_id, paste: r.input_method === "paste" || pasted.has(r.review_id) })));
+  (b?.single_complaints || []).forEach((x) => list.push({ topic: (x.topic_names || [])[0], at: x.created_at, top: false, paste: x.input_method === "paste" || pasted.has(x.review_id) }));
   return list;
 }
 
@@ -57,7 +59,8 @@ export function keywordRows(b) {
 // 불만 리뷰가 몰린 시간: 11~23시 막대. 핵심 문제 묶음의 몰린 시간대(예: 17~21시)는 hot, 같은 뜻을 글자(aria-label·note)로도 쓴다
 export function hourChart(b) {
   const by = new Map();
-  complaintsOf(b).forEach((r) => { const h = Number(String(r.at || "").slice(11, 13)); if (Number.isFinite(h) && String(r.at || "").length >= 13) by.set(h, (by.get(h) || 0) + 1); });
+  // 붙여넣기·캡처로 넣은 리뷰의 시각은 넣은 시각이지 손님이 주문한 시각이 아니라서 시간대 막대에 세지 않는다 (11/21 M6)
+  complaintsOf(b).forEach((r) => { if (r.paste) return; const h = Number(String(r.at || "").slice(11, 13)); if (Number.isFinite(h) && String(r.at || "").length >= 13) by.set(h, (by.get(h) || 0) + 1); });
   const hours = [...by.keys()];
   const from = Math.min(11, ...hours), to = Math.max(23, ...hours);
   const top = (b?.groups || []).find((g) => g.issue_id === b.top_issue_id);
@@ -114,12 +117,36 @@ export const checksOf = (d) => [...(d.needs_input || []), ...(d.c7_flags || [])]
 export const statusOf = (d, approved) => approved.has(d.draft_id) ? ["ok", "승인 완료"]
   : failedOf(d).length ? ["bad", "점검 실패"] : checksOf(d).length ? ["warn", "확인 필요"] : ["ok", "점검 통과"];
 
-// 초안 목록의 배지: 승인 상태(승인 완료 · 승인 대기)를 먼저, 승인 전이면 점검 결과(점검 실패 · 확인 필요)를 덧붙인다.
+// 점검을 못 넘어 정해 둔 기본 문장으로 바꾼 글 (checks.used_fallback). 점검 상태 규칙(statusOf)으로는 '점검 통과'지만
+// 화면은 이 글에 '점검 통과'를 붙이지 않고 '기본 문장'으로 밝힌다 (리뷰와 맞는지 사장님이 확인해야 하는 글)
+export const isFallback = (d) => d?.checks?.used_fallback === true;
+// 초안 상자의 점검 상태 한 줄 (읽기 프로그램용 이름표에도 씀): 기본 문장으로 바꾼 글은 '점검 통과' 대신 '기본 문장으로 바꿈'
+export const draftStateText = (d, approved) => {
+  const [tone, text] = statusOf(d, approved);
+  return tone === "ok" && !approved.has(d.draft_id) && isFallback(d) ? FALLBACK_CHIP : text;
+};
+export const FALLBACK_CHIP = "기본 문장으로 바꿈";
+
+// 초안 목록의 배지: 승인 상태(승인 완료 · 승인 대기)를 먼저, 승인 전이면 점검 결과(점검 실패 · 확인 필요 · 기본 문장)를 덧붙인다.
 // 진행 숫자는 위 진행줄 하나에만 두고, 목록은 글마다 상태만 보인다
 export function listBadges(d, approved) {
   if (approved.has(d.draft_id)) return [["ok", "승인 완료"]];
   const [tone, text] = statusOf(d, approved);
-  return tone === "ok" ? [["", "승인 대기"]] : [["", "승인 대기"], [tone, text]];
+  const out = tone === "ok" ? [["", "승인 대기"]] : [["", "승인 대기"], [tone, text]];
+  if (isFallback(d)) out.push(["warn", "기본 문장"]);
+  return out;
+}
+
+// 글 한 건 '다시 만들기' 뒤 안내 한 줄: 새 글이 예전 글과 같거나 또 기본 문장이면 사실대로 알린다
+export function regenNote(before, fresh, source) {
+  if (source === "seed") return "시험용 실행이라 같은 예시 글을 다시 불러왔어요. 다른 글은 그대로예요.";
+  const same = String(fresh?.text ?? "").trim() === String(before?.text ?? "").trim();
+  if (isFallback(fresh)) {
+    return same ? "다시 만들었지만 같은 기본 문장이 나왔어요. 리뷰와 맞게 직접 고쳐서 승인해 주세요."
+      : "다시 만들었지만 이번에도 기본 문장으로 바뀌었어요. 리뷰와 맞는지 확인하고 고쳐서 승인해 주세요.";
+  }
+  if (same) return "다시 만들었지만 같은 글이 나왔어요. 필요하면 직접 고쳐서 승인해 주세요.";
+  return "이 글만 새로 만들었어요. 다른 글은 그대로예요.";
 }
 
 export const regenKey = (cardId, d) => [cardId, d.generator, d.target_review_id || ""].join("|");

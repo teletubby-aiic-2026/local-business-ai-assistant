@@ -42,7 +42,7 @@ ALWAYS_FORBIDDEN = ("사장님 가게의 매출은", "사장님 가게 매출은
 # Descriptions no card can support ('개성 있는 가게들이 많아 매력적인 곳', 'HCX-005 2026-11-08 server test').
 UNSUPPORTED = ("개성", "매력", "분위기", "트렌디", "핫플", "유명", "입점해", "선택의 폭", "다양한 업종", "감성",
                # Meanings read into a count ('그만큼 수요가 많은 업종이라는 뜻이기도 해요', 2026-11-08 replay).
-               "수요가 많", "의미일 수", "뜻이기도",
+               "수요가 많", "의미일 수", "뜻이기도", "의미해", "의미합", "의미하",
                # The population figure is a quarterly source index, not people per day ('하루 유동 인구 35,911명').
                "하루 유동", "하루 방문", "일평균 유동", "일일 유동",
                # Nothing on the cards counts offices, homes, workers, students or tourists.
@@ -57,7 +57,26 @@ HEDGES = ("것으로 보", "가능성이 있", "가능성이 커", "가능성이
 WORLD = ("아울렛", "산업 단지", "산업단지", "IT ", "IT단지", "대학가", "관광지", "주택가", "아파트 단지", "아파트단지",
          "오피스 상권", "오피스 밀집", "유흥가", "학원가", "번화가")
 FORBIDDEN = ALWAYS_FORBIDDEN + HEDGES  # the strictest set, for short replies without cards
-_CHANGE_WORDS = re.compile(r"감소|증가|줄었|늘었|줄어|늘어|줄면|늘면|떨어|올랐|하락|상승|변화")
+# Where a figure stands, read with no yardstick on the cards, and advice about what to sell (live 2026-11-21:
+# '분식 전문점을 찾는 사람이 많은 편', '매출 규모가 큰 편이라 할 만한 상권', '경쟁해야 할 점포가 많다는 걸 의미해요',
+# '젊은 층에게 인기 있는 아이템을 추가하면'). Any line, interpretation included; an opinion answer has its own
+# yardstick (서울 안 위치) and is checked by tier_problems instead.
+RELATIVE = ("많은 편", "큰 편", "높은 편", "적은 편", "작은 편", "낮은 편", "편이라", "편이에요", "편이네요", "규모가 큰",
+            "경쟁해야", "경쟁이 치열", "경쟁이 심", "경쟁이 많", "인기", "아이템", "메뉴", "나아진", "좋아진", "나빠진",
+            "괜찮", "소규모", "대규모", "전략", "집중하", "집중해",
+            # second live round (2026-11-21, after the first fix): '이는 긍정적인 신호일 수 있어요', '안정적인 매출 규모',
+            # '꽤 큰 상권임을 알 수 있어요', '젊은 층이 주로 찾는 품목 위주로 구성하면'
+            "긍정적", "부정적", "신호", "안정적", "큰 상권", "작은 상권", "품목",
+            # '매출 자체는 나쁘지 않아 보여요', '저녁 영업을 강화하면', '퇴근 후 방문객을 타깃으로', '장사가 잘 될 가능성'
+            "나쁘지 않", "강화하면", "타깃", "효과적", "장사가 잘", "재료 준비",
+            # third round: '주변에 경쟁 업체가 꽤 많다는 걸 의미해요', '근처 분식집 매출은 좋아요',
+            # '인스타그램 마케팅이 효과를 냈다고 볼 수도 있겠어요'
+            "경쟁 업체", "경쟁업체", "경쟁 점포", "매출은 좋", "매출액은 좋", "매출이 좋", "효과를 냈", "효과가 있었",
+            # fourth round, on the merged branch: '고객들이 올해 우리 가게 음식을 더 찾았다는 의미일 수 있어요' (the
+            # figure is the whole area's industry, not this shop), '더 많은 손님을 끌어들일 가능성이 높아요',
+            # '주말은 외출하는 사람이 많아 상대적으로 매출이 높아지는 것으로 보여요'
+            "우리 가게 음식", "우리 가게를", "우리 가게 손님", "더 찾았", "끌어들", "외출", "상대적으로")
+_CHANGE_WORDS = re.compile(r"감소|증가|줄었|늘었|줄어|늘어|줄면|늘면|떨어|올랐|하락|상승|변화|높아졌|낮아졌|많아졌|적어졌|유입")
 
 
 def is_insight(line: str) -> bool:
@@ -416,11 +435,181 @@ def comparison_problems(text: str, cards: list[dict]) -> list[dict]:
     return problems
 
 
+# 평일 against 주말, and items listed in an order ('토, 금, 일 순'). The comparison checks above leave both
+# alone: the 평일/주말 values are aggregates (kept out of single-day comparisons on purpose) and a list
+# has no '보다' or '가장'. HCX-005 live answers 2026-11-19: 14 of 29 wrong in one of these two ways, all published.
+_WEEKPARTS = ("평일", "주말")
+_WEEK_MORE = re.compile(_MORE.pattern + r"|좋|몰리|붐비|활발|강(?:해|하|세)")
+_BRACKETED = re.compile(r"\([^)]*\)")
+_AMOUNT = re.compile(r"[+-]?\d[\d,.]*\s*(?:원|%)")  # amounts only: 20대 and 11~14시 are labels
+_TOTAL_WORDS = re.compile(r"합계|총|합쳐|합친|합하|더해|더한")
+_AVERAGE_WORDS = re.compile(r"평균|하루")
+_ADVICE_WORDS = re.compile(r"도록|려면|하시면|해\s*보|보세요|좋겠|어떨까|볼까")
+_EXAGGERATED = re.compile(r"훨씬|압도적|월등|크게|두드러지|확연|몇\s*배")
+_BIG_GAP = 1.5  # '훨씬' only when the larger day average is at least half again the smaller one
+_ORDER_MARK = re.compile(r"순서|순(?=이에요|이네요|이었|이고|이며|이라|입니다|으로|서로|\s*[.!,]|\s*$)")
+_DAY_TOKEN = re.compile(r"(?<![가-힣\d])([월화수목금토일])(?:요일)?"
+                        r"(?=(?:에는|에|이랑|랑|[은는이가과와도의])?(?:[\s,.·)]|$)|\s*(?:매출|순))")
+
+
+def _week_direction(after: str) -> int:
+    more, less = _WEEK_MORE.search(after), _LESS.search(after)
+    if not more and not less:
+        return 0
+    first = min((m for m in (more, less) if m), key=lambda m: m.start())
+    if _NEGATED.search(after[first.end():first.end() + 8]):
+        return 0
+    return 1 if first is more else -1
+
+
+def _weekpart_values(cards) -> dict | None:
+    """{'average': {'평일': n, '주말': n}, 'total': {...}} when exactly one market's weekday card has them."""
+    found = {}
+    for card in cards:
+        if card.get("topic") != "sales_weekday":
+            continue
+        for value in card.get("values", []):
+            label, number = value.get("label"), value.get("value")
+            if type(number) is not int or not isinstance(label, str):
+                continue
+            for part in _WEEKPARTS:
+                if label == f"{part} 합계":
+                    found.setdefault(value.get("market"), {}).setdefault("total", {})[part] = number
+                elif label == f"{part} 하루 평균" and value.get("average_basis") == "calendar_day":
+                    found.setdefault(value.get("market"), {}).setdefault("average", {})[part] = number
+    if len(found) != 1:
+        return None  # several markets in one answer: which one a sentence means is not settled here
+    values = next(iter(found.values()))
+    return values if len(values.get("average", {})) == 2 else None
+
+
+def _weekpart_claim(piece: str) -> str | None:
+    """The part a sentence says is larger: '평일보다 주말에 더 많아요' -> 주말, '평일에 더 잘 팔려요' -> 평일."""
+    clean = _AMOUNT.sub(" ", _BRACKETED.sub(" ", _CITATION.sub(" ", piece)))
+    tokens = [(m.start(), m.group(0)) for m in re.finditer("평일|주말", clean)]
+    if not tokens:
+        return None
+    other = {"평일": "주말", "주말": "평일"}
+    at = clean.find("보다")
+    if at >= 0:
+        before = [token for token in tokens if token[0] < at and at - token[0] <= 25]
+        if not before or len({word for _pos, word in tokens}) != 2:
+            return None  # '주말보다 금요일이 높아요': an aggregate against one day is not judged here
+        reference = before[-1][1]
+        direction = _week_direction(clean[at + 2:])
+        return (other[reference] if direction > 0 else reference) if direction else None
+    if _ADVICE_WORDS.search(clean):
+        return None  # '주말에 손님을 더 많이 받을 수 있도록': advice, not a statement about the figures
+    for index, (pos, word) in enumerate(tokens):
+        end = tokens[index + 1][0] if index + 1 < len(tokens) else len(clean)
+        match = re.match(r"[^,.]{0,16}?더\s*", clean[pos + len(word):end])
+        if match:
+            direction = _week_direction(clean[pos + len(word) + match.end():][:12])
+            if direction:
+                return word if direction > 0 else other[word]
+    return None
+
+
+def weekpart_problems(text: str, cards: list[dict]) -> list[dict]:
+    """'평일에 더 잘 팔려요' while the weekend day is the larger one, or totals compared the wrong way round.
+
+    A sentence that names totals ('합계는 평일이 더 커요') is held to the totals; every other one is held to the
+    calendar-day averages, the only like-for-like comparison of 65 weekdays with 26 weekend days.
+    """
+    values = _weekpart_values(cards)
+    if not values:
+        return []
+    problems = []
+    by_average = False
+    for line in text.splitlines():
+        for piece in _SENTENCES.split(line):
+            if not piece or piece.rstrip().endswith("?"):
+                continue
+            claimed = _weekpart_claim(piece)
+            if not claimed:
+                continue
+            by_total = bool(_TOTAL_WORDS.search(piece)) and not _AVERAGE_WORDS.search(piece) and "total" in values
+            basis = values["total"] if by_total and len(values["total"]) == 2 else values["average"]
+            by_average = by_average or basis is values["average"]
+            if basis["평일"] == basis["주말"]:
+                continue
+            actual = "평일" if basis["평일"] > basis["주말"] else "주말"
+            if claimed != actual:
+                average = values["average"]
+                bigger = "평일" if average["평일"] > average["주말"] else "주말"
+                problems.append({"type": "wrong_weekpart_comparison", "sentence": line.strip(),
+                                 "detail": f"하루 평균은 {bigger}이 더 커요"})
+            elif _EXAGGERATED.search(piece) and max(basis.values()) < min(basis.values()) * _BIG_GAP:
+                # '주말 매출이 평일보다 훨씬 높아요' for 1,913만 against 1,474만 원 a day (+30%, live 2026-11-21).
+                problems.append({"type": "weekpart_exaggerated", "sentence": line.strip(),
+                                 "detail": _EXAGGERATED.search(piece).group(0)})
+    if by_average:
+        # '주말 매출이 더 높아요' followed by the two totals only (주말 4.97억, 평일 9.58억): the reader sees the
+        # opposite of the sentence. A comparison by day needs both day averages written out.
+        shown = {kind: {part for part, number in values.get(kind, {}).items()
+                        if any(abs(amount[2] - number) < max(amount[3], 0.5) and not amount[4]
+                               for line in text.splitlines() for amount in _shown_amounts(_CITATION.sub(" ", line)))}
+                 for kind in ("average", "total")}
+        if (shown["average"] or shown["total"]) and len(shown["average"]) < 2:
+            problems.append({"type": "weekpart_average_missing",
+                             "detail": "평일·주말 하루 평균", "sentence": ""})
+    return problems
+
+
+def _listed(sentence: str, aliases: list) -> list[tuple[int, int, str, str]]:
+    """Distribution members a sentence names, in order. Days are matched as whole tokens: the alias search
+    would find '일' inside 요일별 or 평일."""
+    found = [m for m in _mentions(sentence, aliases) if m[3] in ("time", "age")]
+    known = {member for _alias, member, kind in aliases if kind == "day"}
+    found += [(m.start(), m.end(), m.group(1), "day") for m in _DAY_TOKEN.finditer(sentence) if m.group(1) in known]
+    return sorted(found)
+
+
+def order_problems(text: str, cards: list[dict]) -> list[dict]:
+    """'토, 다음으로 금, 일 순이에요' while 일 is larger than 금: a listed order the card values contradict."""
+    groups, aliases = _comparables(cards)
+    if not groups:
+        return []
+    problems = []
+    for line in text.splitlines():
+        clean = _AMOUNT.sub(" ", _BRACKETED.sub(" ", _CITATION.sub(" ", line)))
+        for sentence in re.split(r"(?<=[.!?])\s+", clean):
+            mark = _ORDER_MARK.search(sentence)
+            if not mark or sentence.rstrip().endswith("?"):
+                continue
+            more, less = _MORE.search(sentence), _LESS.search(sentence)
+            if (more and less) or not (more or less or _SUPERLATIVE.search(sentence)):
+                # '월, 화, 수 순으로 볼게요' is an order of telling, not of size; with both directions
+                # named, which one the list follows is unclear.
+                continue
+            listed = _listed(sentence[:mark.start()], aliases)
+            members = list(dict.fromkeys(m[2] for m in listed))
+            kinds = {m[3] for m in listed}
+            if len(members) < 2 or len(kinds) != 1:
+                continue
+            group = _group_for(next(iter(kinds)), sentence, groups, _mentions(sentence, aliases))
+            values = groups.get(group) or {}
+            if not all(member in values for member in members):
+                continue
+            ascending = bool(less)
+            numbers = [values[member] for member in members]
+            pairs = zip(zip(members, numbers), zip(members[1:], numbers[1:]))
+            for (a, x), (b, y) in pairs:
+                if (x > y) if ascending else (x < y):
+                    problems.append({"type": "wrong_order", "sentence": line.strip(),
+                                     "detail": f"{b} {y:,} {'<' if ascending else '>'} {a} {x:,}"})
+                    break
+    return problems
+
+
 _ADVICE = {
     "number_not_on_card": "'{detail}'은 카드에 없는 숫자예요. 카드에 적힌 숫자만 그대로 쓰세요.",
     "uncited_number": "숫자가 있는 줄 끝에 그 숫자가 적힌 카드 번호를 붙이세요.",
     "wrong_comparison": "비교가 카드 값과 반대예요({detail}). 값이 큰 쪽을 크다고 쓰세요.",
     "wrong_superlative": "'가장'이라고 한 항목이 카드에서 가장 크거나 작은 값이 아니에요({detail}).",
+    "wrong_weekpart_comparison": "평일과 주말의 비교가 카드와 달라요({detail}). 카드의 '하루 평균'으로만 견주고, "
+                                 "합계끼리는 견주지 마세요.",
+    "wrong_order": "나열한 순서가 카드 값의 크기와 달라요({detail}). 카드에 적힌 '큰 순서'를 그대로 따르세요.",
     "forbidden_phrase": "'{detail}' 같은 표현은 쓰지 마세요.",
     "promised_card_left_out": "{detail} 카드의 내용도 꼭 함께 말하세요.",
     "opinion_without_numbers": "근거 줄마다 카드의 숫자를 넣으세요.",
@@ -441,6 +630,12 @@ _ADVICE = {
     "term_not_on_card": "'{detail}'은 카드에 없는 항목이에요. 카드의 항목 이름과 숫자만 함께 쓰세요.",
     "industry_list_not_on_card": "다른 업종의 자료가 카드에 없어요. 이 업종 이야기만 하세요.",
     "per_store_misnamed": "'{detail}'은 점포 1곳당 값이에요. '점포당' 또는 '1곳당'이라고 밝혀서 쓰세요.",
+    "change_amount_not_delta": "'{detail}'은 늘거나 준 금액이 아니에요. 늘거나 준 양은 카드의 '차이' 값을, 비율은 '변화율' 값을 그대로 쓰세요.",
+    "average_misnamed": "'{detail}'은 하루 평균이 아니에요. 하루 평균은 카드의 '하루 평균' 값을 그대로 쓰세요.",
+    "total_misnamed": "'{detail}'은 하루 평균 값이에요. 합계라고 쓰지 마세요.",
+    "weekpart_average_missing": "평일과 주말을 견줄 때는 두 쪽의 '하루 평균'을 모두 쓰세요. 합계만 나란히 쓰지 마세요.",
+    "weekpart_exaggerated": "평일과 주말의 하루 평균 차이가 크지 않아요. '{detail}' 같은 말 없이 '더 많아요'라고만 쓰세요.",
+    "repeated_line": "같은 문장을 두 번 쓰지 마세요.",
 }
 
 
@@ -579,27 +774,170 @@ def _card_with_number(shown: str, cards: list[dict]) -> str | None:
 
 
 # '5,030억 5,832만 원', '210억', '743만 명': the model's own readings of card numbers (2026-11-08 export).
-_KOREAN_AMOUNT = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*조(?:\s*(\d[\d,]*)\s*억)?(?:\s*(\d[\d,]*)\s*만)?"
-                            r"|(\d[\d,]*(?:\.\d+)?)\s*억(?:\s*(\d[\d,]*)\s*만)?"
-                            r"|(\d[\d,]*(?:\.\d+)?)\s*만")
+# A part may carry 천·백 ('13억 5천만 원', '3천 5백만'): without them '13억' matched the previous year's 13억 2,065만
+# within 1억 and the '5' of '5천만' was taken for another figure on the card, so a 10x wrong increase passed
+# (HCX-005 live 2026-11-21, 동네맛김밥 '작년보다 매출이 늘었어?').
+_KPART = r"\d[\d,]*(?:\.\d+)?(?:\s*천(?:\s*\d+\s*백)?|\s*백)?"
+_KOREAN_AMOUNT = re.compile(rf"({_KPART})\s*조(?:\s*({_KPART})\s*억)?(?:\s*({_KPART})\s*만)?"
+                            rf"|({_KPART})\s*억(?:\s*({_KPART})\s*만)?"
+                            rf"|({_KPART})\s*만"
+                            r"|(\d[\d,]*(?:\.\d+)?\s*천(?:\s*\d+\s*백)?|\d+\s*백)(?=\s*(?:원|명))")
+_KPART_PARSE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(?:(천)(?:\s*(\d+)\s*백)?|(백))?")
+
+
+def _korean_part(text: str) -> tuple[float, float]:
+    """'5천' -> (5000, 1000), '3천 5백' -> (3500, 100), '3,511' -> (3511, 1), '1.5' -> (1.5, 0.1)."""
+    match = _KPART_PARSE.fullmatch(text.strip())
+    head = match.group(1).replace(",", "")
+    number = float(head)
+    if match.group(2):
+        if match.group(3):
+            return number * 1000 + float(match.group(3)) * 100, 100.0
+        return number * 1000, 1000.0
+    if match.group(4):
+        return number * 100, 100.0
+    decimals = len(head.split(".")[1]) if "." in head else 0
+    return number, 1.0 / (10 ** decimals)
 
 
 def _korean_value(match) -> tuple[float, float]:
     """(value, smallest unit) of one Korean-unit amount."""
-    def number(text):
-        return float(text.replace(",", "")) if text else 0.0
-
     if match.group(1):
         parts = [(match.group(1), 10 ** 12), (match.group(2), 10 ** 8), (match.group(3), 10 ** 4)]
     elif match.group(4):
         parts = [(match.group(4), 10 ** 8), (match.group(5), 10 ** 4)]
-    else:
+    elif match.group(6):
         parts = [(match.group(6), 10 ** 4)]
-    used = [(text, unit) for text, unit in parts if text]
-    value = sum(number(text) * unit for text, unit in used)
-    smallest = used[-1][1]
-    decimals = len(used[-1][0].split(".")[1]) if "." in used[-1][0] else 0
-    return value, smallest / (10 ** decimals)
+    else:
+        parts = [(match.group(7), 1)]
+    used = [(_korean_part(text), unit) for text, unit in parts if text]
+    value = sum(number * unit for (number, _step), unit in used)
+    (_number, step), unit = used[-1]
+    return value, step * unit
+
+
+_RAW_AMOUNT = re.compile(r"(?<![\w.,])([+-]?\d[\d,]*(?:\.\d+)?)\s*(원|명|개|곳|%)")
+
+
+def _shown_amounts(line: str) -> list[tuple[int, int, float, float, bool]]:
+    """(start, end, value, tolerance, is_percent) of every amount in a line: Korean-unit readings first
+    ('약 1억 3,511만 원', tolerance = its smallest unit), then plain figures with a unit ('135,106,067원')."""
+    found, taken = [], set()
+    for match in _KOREAN_AMOUNT.finditer(line):
+        value, step = _korean_value(match)
+        end = match.end()
+        unit = re.match(r"\s*(?:원|명|개|곳)", line[end:])
+        found.append((match.start(), end + (unit.end() if unit else 0), value, step, False))
+        taken.update(range(match.start(), match.end()))
+    for match in _RAW_AMOUNT.finditer(line):
+        if taken.intersection(range(match.start(), match.end())):
+            continue
+        try:
+            value = abs(float(match.group(1).replace(",", "")))
+        except ValueError:
+            continue
+        found.append((match.start(), match.end(), value, 0.5 if match.group(2) != "%" else 0.005, match.group(2) == "%"))
+    return sorted(found)
+
+
+def _numeric_entries(cards: list[dict]) -> list[dict]:
+    """Every number on the cards with its label and role: [{'label', 'role', 'value', 'percent'}]."""
+    entries = []
+    for card in cards:
+        for value in card.get("values", []):
+            for key in ("value", "share_percent"):
+                number = value.get(key)
+                if isinstance(number, bool) or not isinstance(number, (int, float)):
+                    continue
+                percent = key == "share_percent" or value.get("unit") == "%"
+                entries.append({"label": value.get("label") or "", "role": value.get("role") if key == "value" else None,
+                                "value": abs(float(number)), "percent": percent, "topic": card.get("topic")})
+    return entries
+
+
+def _matching(amount, entries) -> list[dict]:
+    _start, _end, value, tolerance, percent = amount
+    return [entry for entry in entries if entry["percent"] == percent and abs(entry["value"] - value) < tolerance]
+
+
+# '13억 5천만 원 정도 매출이 늘었어요': an amount told as the change itself must be the card's 차이 (or 변화율),
+# not this period's or last period's figure, nor a figure the model worked out on its own.
+_CHANGE_AFTER = re.compile(r"\s*(?:\([^)]*\))?\s*(?:정도|가량|쯤|안팎|남짓)?\s*(?:이나|나|이|가|만큼)?\s*(?:더\s*)?"
+                           r"(?:늘|증가|줄|감소|올랐|올라|오른|상승|떨어|하락|내렸|내려)")
+_CHANGE_BEFORE = re.compile(r"(?:증가|감소|늘어난|줄어든|오른|떨어진|차이|증감)(?:액|폭|분|한\s*금액|난\s*금액|한\s*것)?\s*"
+                            r"(?:은|는|이|가|도|만)?\s*(?:약\s*)?$")
+
+
+def change_amount_problems(text: str, cards: list[dict]) -> list[dict]:
+    """An amount said to be the increase or decrease that is not a 차이/변화율 value on the change cards."""
+    entries = _numeric_entries(cards)
+    if not any(entry["role"] in ("delta", "percent") for entry in entries):
+        return []
+    problems = []
+    for line in text.splitlines():
+        if line.strip().startswith("참고:") or is_insight(line):
+            continue
+        clean = _CITATION.sub(" ", line)
+        for amount in _shown_amounts(clean):
+            start, end = amount[0], amount[1]
+            if not (_CHANGE_AFTER.match(clean, end) or _CHANGE_BEFORE.search(clean[max(0, start - 16):start])):
+                continue
+            matched = _matching(amount, entries)
+            if not matched or any(entry["role"] in ("delta", "percent") for entry in matched):
+                continue  # a number on no card is number_not_on_card already
+            problems.append({"type": "change_amount_not_delta", "detail": clean[start:end].strip(), "sentence": line.strip()})
+    return problems
+
+
+# '주말 하루 평균 497,302,466원' with the weekend total: the right number under the wrong name.
+_AVERAGE_NAME = re.compile(r"평균|하루")
+_TOTAL_NAME = re.compile(r"합계|합쳐|합친|합하면|모두\s*더|더하면")
+
+
+def average_total_problems(text: str, cards: list[dict]) -> list[dict]:
+    entries = [entry for entry in _numeric_entries(cards) if not entry["percent"]]
+    averages = [entry for entry in entries if "평균" in entry["label"]]
+    if not averages:
+        return []
+    problems = []
+    for line in text.splitlines():
+        if line.strip().startswith("참고:") or is_insight(line):
+            continue
+        for sentence in re.split(r"(?<=[.!?])\s+", _CITATION.sub(" ", line)):
+            previous_end = 0
+            for amount in _shown_amounts(sentence):
+                if amount[4]:
+                    continue
+                window = sentence[max(previous_end, amount[0] - 20):amount[0]]
+                previous_end = amount[1]
+                said_average = max((m.end() for m in _AVERAGE_NAME.finditer(window)), default=-1)
+                said_total = max((m.end() for m in _TOTAL_NAME.finditer(window)), default=-1)
+                if said_average < 0 and said_total < 0:
+                    continue
+                matched = _matching(amount, entries)
+                if not matched:
+                    continue
+                is_average = [("평균" in entry["label"]) for entry in matched]
+                shown = sentence[amount[0]:amount[1]].strip()
+                if said_average > said_total and not any(is_average):
+                    problems.append({"type": "average_misnamed", "detail": shown, "sentence": line.strip()})
+                elif said_total > said_average and all(is_average):
+                    problems.append({"type": "total_misnamed", "detail": shown, "sentence": line.strip()})
+    return problems
+
+
+def repeated_line_problems(text: str) -> list[dict]:
+    """The same sentence twice in one answer (온기한식 '주말 매출은?', live 2026-11-21: a paragraph written twice)."""
+    seen, problems = set(), []
+    for line in text.splitlines():
+        for sentence in re.split(r"(?<=[.!?])\s+", _CITATION.sub(" ", line)):
+            key = re.sub(r"\s+", "", sentence)
+            if len(key) < 12:
+                continue
+            if key in seen:
+                problems.append({"type": "repeated_line", "sentence": sentence.strip()})
+            seen.add(key)
+    return problems
 
 
 def _matches_korean(value: float, unit: float, cards: list[dict]) -> bool:
@@ -743,7 +1081,9 @@ def check_answer(text: str, cards: list[dict], *, opinion: bool = False) -> dict
     every number, citation, comparison and place is checked the same way."""
     by_id = {card["id"]: card for card in cards}
     names = _names(cards)
-    problems = comparison_problems(text, cards) + _context_period_problems(text, cards)
+    problems = (comparison_problems(text, cards) + weekpart_problems(text, cards) + order_problems(text, cards)
+                + _context_period_problems(text, cards) + change_amount_problems(text, cards)
+                + average_total_problems(text, cards) + repeated_line_problems(text))
     if opinion:
         problems += tier_problems(text, cards) + median_problems(text, cards) + verdict_problems(text, cards)
     known_periods = _card_periods(cards)
@@ -795,6 +1135,10 @@ def check_answer(text: str, cards: list[dict], *, opinion: bool = False) -> dict
         for phrase in PROFIT_WORDS:
             if phrase in line and phrase not in card_words:
                 problems.append({"type": "forbidden_phrase", "detail": phrase})
+        if not opinion:
+            for phrase in RELATIVE:
+                if phrase in line and phrase not in card_words:
+                    problems.append({"type": "forbidden_phrase", "detail": phrase})
         for phrase in WORLD:
             if phrase in line and phrase not in _card_words(cards):
                 problems.append({"type": "forbidden_phrase", "detail": phrase.strip()})

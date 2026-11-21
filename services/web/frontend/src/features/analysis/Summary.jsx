@@ -1,4 +1,4 @@
-// 요약 탭: 숫자 타일 3개(리뷰 · 불만 · 반복 불만) → 칭찬·불만 키워드 (주제별 긍정·부정 수 topic_counts). 예전 renderAnSummary
+// 요약 탭: 숫자 타일 3개(리뷰 · 불만 · 반복 불만) → 칭찬·불만 주제 (주제별 긍정·부정 수 topic_counts, 두 칸). 예전 renderAnSummary
 import { Button, Panel, StatTile, TopicBar } from "../../components/ui.jsx";
 import { summaryTiles, topTopics } from "./calc.js";
 import { showTab } from "./state.js";
@@ -25,7 +25,7 @@ export default function Summary({ d }) {
         <StatTile label="불만 리뷰" value={withUnit(t.complaints)} sub={t.complaintsSub} />
         <StatTile label="반복 불만" value={withUnit(t.repeated)} sub={t.repeatedSub} />
       </div>
-      <Panel title="칭찬·불만 키워드" titleId="an-kw-title"
+      <Panel title="칭찬·불만 주제" titleId="an-kw-title"
         actions={<Button size="small" onClick={() => showTab("issues", true)}>불만 묶음 보기</Button>}>
         <div className="grid-2 an-kw">
           <TopicColumn title="불만이 많은 주제" list={topTopics(d, "negative")} kind="complaint" />

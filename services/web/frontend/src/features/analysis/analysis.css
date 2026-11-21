@@ -1,4 +1,4 @@
-/* 리뷰 분석 화면 (Figma 08·09). 공통 모양은 styles/base.css, 색·글자는 tokens.css 변수만 */
+/* 리뷰 분석 화면 (Figma 06 C1·C2). 공통 모양은 styles/base.css, 색·글자는 tokens.css 변수만 */
 .an-period { margin-top: calc(var(--s-16) * -1); }   /* 화면 머리 바로 아래 한 줄 */
 .an-tabpanel:focus-visible { outline-offset: 6px; border-radius: var(--r-sm); }
 
@@ -29,13 +29,14 @@
 .an-quote { padding-left: var(--s-12); border-left: 2px solid var(--line-strong); color: var(--ink-2); font-size: var(--fs-small); }
 .an-rid { white-space: nowrap; }
 
-/* 리뷰 넣기 */
+/* 리뷰 넣기: 붙여넣기 | 캡처로 넣기 두 칸. 분류 결과는 붙여넣기 칸 안 버튼 아래 */
 .an-paste-grid { align-items: start; }
+.an-result { display: grid; gap: var(--s-12); padding-top: var(--s-16); border-top: 1px solid var(--line); }
+.an-result > * { margin: 0; }
 .an-paste-opts { gap: var(--s-12); }
 .an-samples { gap: 6px; }
 .an-samples .btn { color: var(--ink-2); }
 .an-msg:empty, .an-cap-save-msg:empty { display: none; }
-.an-result-empty { font-size: var(--fs-small); }
 .an-rv-text { white-space: pre-wrap; }
 .an-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .an-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: var(--r-full); background: var(--chip); color: var(--ink); font-size: var(--fs-small); }
@@ -46,10 +47,12 @@
 .an-warns summary { cursor: pointer; }
 .an-warns ul { margin: var(--s-8, 8px) 0 0; padding-left: 18px; }
 
-/* 캡처로 넣기 */
+/* 캡처로 넣기: 점선 상자 안 설명 + 파일 고르기 */
 .an-cap.drop { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus); }   /* 파일을 끌어 올렸을 때 */
-.an-cap-pick { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8) var(--s-12); }
-.an-cap-file { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-cap-drop { display: grid; justify-items: center; gap: var(--s-12); padding: var(--s-20) var(--s-16); border: 1px dashed var(--line-strong); border-radius: var(--r-md); text-align: center; }
+.an-cap.drop .an-cap-drop { border-color: var(--focus); background: var(--brand-soft); }
+.an-cap-pick { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--s-8) var(--s-12); max-width: 100%; }
+.an-cap-file { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .an-cap-status { color: var(--ink-2); font-size: var(--fs-small); }
 .an-cap-status:empty, .an-cap-error:empty { display: none; }
 .an-cap-status.busy { display: flex; align-items: flex-start; gap: 10px; }
@@ -93,7 +96,7 @@
 /* 채널·별점 고르기는 짧아서 본문이 좁아도 두 칸으로 둔다 (공통 .grid-2 의 639px 한 줄 규칙보다 우선) */
 .grid-2.an-paste-opts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @container content (max-width: 759px) {
-  .an-paste-grid { grid-template-columns: minmax(0, 1fr); }   /* 붙여넣기 칸 안에 두 칸 고르기가 있어 공통보다 먼저 한 줄로 */
+  .an-paste-grid { grid-template-columns: minmax(0, 1fr); }   /* 붙여넣기 · 캡처로 넣기: 붙여넣기 칸 안에 두 칸 고르기가 있어 공통보다 먼저 한 줄로 */
 }
 @container content (max-width: 639px) {
   .an-kw { gap: var(--s-24); }

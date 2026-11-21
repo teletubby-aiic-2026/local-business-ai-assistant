@@ -20,8 +20,8 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -31,10 +31,11 @@ from marketing_survey import (
 )
 from marketing_survey.coupon_calc import calc as coupon_calc
 from marketing_survey.decide import build_follow_up_strategy, decide
-from marketing_survey.execute import COUPON_DAYS, _card_by_kind, _idea_entry, build_plan, execute_strategy
+from marketing_survey.execute import COUPON_DAYS, MissingCard, _card_by_kind, _idea_entry, build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
 from marketing_survey.models import Strategy
 from marketing_survey.survey import answers_from_raw
+from shared import store_header
 
 _SURVEY_MODES = ("survey", "follow_up")
 
@@ -87,8 +88,29 @@ async def _lifespan(_: FastAPI):
 
 
 app = FastAPI(title="설문 맞춤 마케팅", dependencies=[Depends(_visitor_query)], lifespan=_lifespan)
+
+
+@app.middleware("http")
+async def _registered_store(request: Request, call_next):
+    """6차 회의(11/20): 비서 화면 서버가 직접 등록한 가게의 프로필을 X-IC26-Store-Profile 헤더로 보내면 검사해서 가게 목록에 넣는다
+    (stores.register). 값이 틀리면(모양·크기·예시 가게 id) 400 이고 요청을 처리하지 않는다. 헤더가 없으면 예전 그대로."""
+    value = request.headers.get(store_header.HEADER)
+    if value is not None:
+        try:
+            profile = store_header.decode(value)
+        except store_header.BadProfile as exc:
+            return JSONResponse({"detail": f"가게 프로필 헤더가 맞지 않아요: {exc}"}, status_code=400)
+        if profile is not None:
+            stores.register(profile)
+    return await call_next(request)
 if WEB_DIR.is_dir():
     app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
+
+
+@app.exception_handler(MissingCard)
+async def _missing_card(_: Request, exc: MissingCard):
+    """그 가게에 카드가 없어 만들 수 없는 글 (직접 등록한 가게, 11/20: 리뷰·상권 지표가 아직 없음). 500 이 아니라 409 + 안내 문장."""
+    return JSONResponse({"detail": exc.message, "state": f"no_{exc.kind}_card"}, status_code=409)
 
 
 class FlowState(BaseModel):

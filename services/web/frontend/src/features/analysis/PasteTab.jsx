@@ -1,4 +1,4 @@
-// 리뷰 넣기 탭: 리뷰 붙여넣기(+ 분류 결과) · 캡처로 넣기. 예전 paste·resetPaste·renderPasteResult
+// 리뷰 넣기 탭: 붙여넣기(+ 분류 결과) | 캡처로 넣기 두 칸 (Figma 06 C2). 예전 paste·resetPaste·renderPasteResult
 // 붙여넣기는 POST /api/reviews → 결과(감정·주제·들어간 묶음)를 보이고, 홈 숫자·추천 카드·요약·묶음을 모두 다시 불러온다 (refresh).
 // 끝난 뒤 안내는 '저장하고 분석 결과를 갱신했어요' 한 줄 (다시 불러온 화면을 하나하나 늘어놓지 않음)
 import { Badge, Button, Panel } from "../../components/ui.jsx";
@@ -44,16 +44,18 @@ async function resetPaste() {
   finally { if (alive()) setPaste({ resetBusy: false }); }
 }
 
+// 분류 결과: 붙여넣기 칸 안, 버튼 아래 (분류하기 전에는 그리지 않음)
 function PasteResult({ r }) {
   const insightGroups = useStore((s) => s.insight?.groups);
-  if (!r) return <p className="muted an-result-empty">분류하면 감정·주제·근거 문장이 여기 보여요.</p>;
+  if (!r) return null;
   const c = r.classification || {};
   const topics = c.topics || [];
   const { joined, negative } = pasteJoin(r, insightGroups);
   const method = methodName(c.method);
   const warns = (c.warnings || []).filter((w) => typeof w === "string" && w.trim());
   return (
-    <>
+    <section className="an-result" aria-labelledby="an-result-title">
+      <h3 id="an-result-title">분류 결과</h3>
       {(method || r.review?.pii_masked) && (
         <p className="small muted an-result-meta">
           {method && <Badge className="an-method">{method}</Badge>}
@@ -81,51 +83,48 @@ function PasteResult({ r }) {
           <ul>{warns.map((w, i) => <li key={i}>{w}</li>)}</ul>
         </details>
       )}
-    </>
+    </section>
   );
 }
 
 export default function PasteTab() {
   const p = useMod((m) => m.paste);
   return (
-    <div className="stack">
-      <div className="grid-2 an-paste-grid">
-        <Panel title="리뷰 붙여넣기" titleId="an-paste-title">
-          <div className="field">
-            <label htmlFor="paste-text"><b>리뷰 글</b> <span className="muted">· 전화번호·이메일·링크는 저장 전에 가려요.</span></label>
-            <textarea id="paste-text" className="input" rows={4} maxLength={1000} placeholder="배달앱에서 받은 리뷰 글을 붙여넣으세요."
-              value={p.text} onChange={(e) => setPaste({ text: e.target.value })} />
-          </div>
-          <div className="grid-2 an-paste-opts">
-            <label className="field" htmlFor="paste-channel">채널
-              <select id="paste-channel" className="input" value={p.channel} onChange={(e) => setPaste({ channel: e.target.value })}>
-                {CHANNELS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
-              </select>
-            </label>
-            <label className="field" htmlFor="paste-rating">별점
-              <select id="paste-rating" className="input" value={p.rating} onChange={(e) => setPaste({ rating: e.target.value })}>
-                {RATINGS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
-              </select>
-            </label>
-          </div>
-          <div className="btn-row an-samples">
-            <span className="small muted">예시:</span>
-            {PASTE_SAMPLES.map((s, i) => (
-              <Button key={i} size="small" title={s.text} onClick={() => { setPaste({ text: s.text, rating: String(s.rating) }); focusText(); }}>
-                {s.text.slice(0, 16)}…
-              </Button>
-            ))}
-          </div>
-          <div className="btn-row">
-            <Button variant="primary" onClick={paste} disabled={p.busy}>분류하기</Button>
-            <Button onClick={resetPaste} disabled={p.resetBusy}>붙여넣은 리뷰 지우기</Button>
-          </div>
-          <p className="small muted an-msg" role="status">{p.msg}</p>
-        </Panel>
-        <Panel title="분류 결과" titleId="an-result-title" className="an-result">
-          <PasteResult r={p.result} />
-        </Panel>
-      </div>
+    <div className="grid-2 an-paste-grid">
+      <Panel title="붙여넣기" titleId="an-paste-title" className="an-paste">
+        <div className="field">
+          <label htmlFor="paste-text" className="sr">리뷰 글</label>
+          <textarea id="paste-text" className="input" rows={4} maxLength={1000} placeholder="리뷰 글을 붙여 넣으세요 (1000자까지)"
+            aria-describedby="paste-pii" value={p.text} onChange={(e) => setPaste({ text: e.target.value })} />
+        </div>
+        <div className="grid-2 an-paste-opts">
+          <label className="field" htmlFor="paste-channel">채널
+            <select id="paste-channel" className="input" value={p.channel} onChange={(e) => setPaste({ channel: e.target.value })}>
+              {CHANNELS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+            </select>
+          </label>
+          <label className="field" htmlFor="paste-rating">별점
+            <select id="paste-rating" className="input" value={p.rating} onChange={(e) => setPaste({ rating: e.target.value })}>
+              {RATINGS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="btn-row an-samples">
+          <span className="small muted">예시:</span>
+          {PASTE_SAMPLES.map((s, i) => (
+            <Button key={i} size="small" title={s.text} onClick={() => { setPaste({ text: s.text, rating: String(s.rating) }); focusText(); }}>
+              {s.text.slice(0, 16)}…
+            </Button>
+          ))}
+        </div>
+        <div className="btn-row">
+          <Button variant="primary" onClick={paste} disabled={p.busy}>분류하기</Button>
+          <Button onClick={resetPaste} disabled={p.resetBusy}>붙여넣은 리뷰 지우기</Button>
+        </div>
+        <p id="paste-pii" className="small muted">개인정보(전화번호·이메일·링크)는 저장 전에 가려요.</p>
+        <p className="small muted an-msg" role="status">{p.msg}</p>
+        <PasteResult r={p.result} />
+      </Panel>
       <Capture />
     </div>
   );

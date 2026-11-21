@@ -80,8 +80,10 @@ class FakeSource:
         self.pasted.append(review)
         return {"review": review, "classification": {"sentiment": "negative", "negative_topics": []}}
 
-    def reset_pasted(self, store_id):
-        n = len(self.pasted); self.pasted.clear(); return {"deleted": n}
+    def reset_pasted(self, store_id, forget_labels=False):
+        # 실제 소스(sources.ReviewSource.reset_pasted)와 같은 모양: 계정 초기화·탈퇴는 forget_labels 로 부르고 labels_deleted 를 받는다
+        n = len(self.pasted); self.pasted.clear()
+        return {"deleted": n, "labels_deleted": n} if forget_labels else {"deleted": n}
 
 
 def settings(tmp: Path, **kw) -> Settings:
@@ -227,6 +229,38 @@ class CardRules(unittest.TestCase):
         self.assertEqual([m["id"] for m in pick_measures(["M1"])], ["M1"])
         with self.assertRaises(GenerateError):
             pick_measures(["M9"])
+
+    @staticmethod
+    def _texture_insight():
+        """포장 누락 대신 식감 불만 4건이 반복인 묶음 (바삭치킨 모양, 11/21 실시간 확인 3번)."""
+        insight = copy.deepcopy(fixture("insight_ongi.json"))
+        g = insight["groups"][0]
+        g.update(issue_id="iss_texture", topics=["texture"], topic="texture", topic_name="식감", review_count=3)
+        insight["top_issue_id"] = "iss_texture"
+        return insight
+
+    def test_complaint_title_and_todo_follow_the_topic(self):
+        plan = plan_cards(self._texture_insight(), [], "store_ongi")[0]
+        self.assertEqual(plan.title, "식감 3건 반복 → 안내문 + 답글")
+        self.assertNotIn("포장", plan.todo)
+        ongi = plan_cards(fixture("insight_ongi.json"), [], "store_ongi")[0]
+        self.assertEqual((ongi.topics, ongi.todo), (["missing_item"], ""))     # 포장 누락 카드는 예전 할 일 그대로
+
+    @unittest.skipUnless(HAS_C6, "C6 저장본 없음")
+    def test_measure_options_follow_the_topic(self):
+        """조치 고르기 목록: 포장 누락은 포장 조치(M1~M4)만, 맞는 조치가 없는 주제는 빈 목록 (화면이 칸을 그리지 않음)."""
+        from web.generate import measure_catalog
+        self.assertEqual([m["id"] for m in measure_catalog(["missing_item"])], ["M1", "M2", "M3", "M4"])
+        self.assertEqual([m["id"] for m in measure_catalog(["temperature"])], ["M5"])
+        self.assertEqual(measure_catalog(["texture"]), [])
+        with tempfile.TemporaryDirectory() as tmp:
+            demo = Demo(settings(Path(tmp)), source=FakeSource())
+            real = demo._state
+            with mock.patch.object(demo, "_state", lambda visitor=None: {**real(visitor), "insight": self._texture_insight()}):
+                card_a = demo.cards()["cards"][0]
+        self.assertEqual(card_a["title"], "식감 3건 반복 → 안내문 + 답글")
+        self.assertEqual(card_a["measures"], {"options": [], "default": []})
+        self.assertEqual(card_a["reply_count"], 3)
 
     def test_percent_point_is_rejected(self):
         """변화율(%)을 %p로 쓰면 탈락 (11/10 live 4차)."""
@@ -599,7 +633,8 @@ class FrontendSource(unittest.TestCase):
         self.assertEqual(sorted(mkt - set(marketing_proxy.ROUTES) - {"health"}), [],
                          "맞춤 마케팅 화면이 부르는데 marketing_proxy.ROUTES 에 없는 경로")
         care = {m for t in texts for m in re.findall(r"""[`"']/api/care(/[^`"'\s$?#]*)""", t)}
-        self.assertIn("/report/monthly", care)
+        # 종합 리포트(11/20)의 주간·월간 보고서는 /api/reports/* (저장). /api/care 로는 오늘 요약·응대 점수·월간 A4 인쇄용 페이지만
+        self.assertTrue({"/report/daily", "/response", "/report/monthly/print"} <= care, sorted(care))
         blocked = sorted(p for p in care if not p.endswith("/") and not any(rx.fullmatch(p) for _, rx in care_proxy.ALLOWED))
         self.assertEqual(blocked, [], "고객응대 화면이 부르는데 care_proxy.ALLOWED 에 없는 경로")
 

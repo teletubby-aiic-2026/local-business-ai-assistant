@@ -1,0 +1,93 @@
+/* A4 새 가게 등록 · 가게 정보 고치기 (features/stores/StoreNew.jsx, Figma '06 설계 기준 화면' A4).
+   색·간격은 tokens.css 변수만 (밝게·어둡게 모두). 본문(.stage-main)은 크기 컨테이너 content 라서 폭 구간은 @container content 로 가른다 */
+.sn { gap: var(--s-20); }
+.sn-head .sn-step { justify-self: start; }
+.sn-form { gap: var(--s-20); }
+.sn-sec > h2 { font-size: 18px; line-height: 1.4; }
+/* 구역 안 칸 사이 (ul.plain·ol.plain 의 margin: 0 이 .panel > * + * 를 이기므로 한 단계 세게) */
+.panel.sn-sec > * + * { margin-top: var(--s-16); }
+
+/* 칸 묶음 (배달 채널 · 위치 · 상권): 테두리 없는 fieldset */
+/* 위 여백은 .panel > * + * 그대로 (margin 을 통째로 0 으로 두면 칸 사이가 붙음) */
+.sn-fieldset { margin-inline: 0; margin-bottom: 0; padding: 0; border: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-8); }
+.sn-fieldset:focus { outline: none; }
+.sn-legend { padding: 0; margin-bottom: var(--s-8); font-size: var(--fs-small); font-weight: 500; color: var(--ink-2); }
+
+/* 오류·안내 한 줄 (칸 바로 아래) */
+.sn-err { margin: 0; color: var(--bad); font-size: var(--fs-small); line-height: var(--lh-small); font-weight: 500; }
+.sn-hint { color: var(--ink-2); }
+.sn-place { color: var(--ink-2); }
+.sn-note {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-8) var(--s-12);
+  padding: var(--s-12) var(--s-16); border-radius: var(--r-md); background: var(--surface); color: var(--ink-2);
+  font-size: var(--fs-small); line-height: var(--lh-small);
+}
+.sn-note > span { flex: 1 1 220px; min-width: 0; }
+.sn-note.bad { background: var(--bad-bg); color: var(--bad); }
+
+/* 고르는 칩 (배달 채널): 체크 상자는 글자 칩 안에 숨기고 칩 테두리로 포커스를 보인다 */
+.sn-chips { display: flex; flex-wrap: wrap; gap: var(--s-8); }
+.sn-chip {
+  position: relative; display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 6px 14px; border-radius: var(--r-full);
+  background: var(--chip); color: var(--ink-2); font-size: var(--fs-small); font-weight: 500; cursor: pointer; border: 1px solid transparent;
+}
+.sn-chip input, .sn-seg-opt input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.sn-chip-check { display: none; }
+.sn-chip.on { background: var(--brand-soft); color: var(--accent-text); border-color: var(--accent); }
+.sn-chip.on .sn-chip-check { display: inline; }
+.sn-chip:focus-within, .sn-seg-opt:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+.sn-chip:has(input:disabled), .sn-seg-opt:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+
+/* 위치를 정하는 방법 (주소로 찾기 · 가까운 역으로): 탭 줄과 같은 모양의 라디오 */
+.sn-seg { justify-self: start; display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: var(--r-md); background: var(--chip); }
+.sn-seg-opt {
+  position: relative; display: inline-flex; align-items: center; min-height: 40px; padding: 8px 16px; border-radius: var(--r-sm);
+  font: 500 var(--fs-button)/1.4 var(--font); color: var(--ink-2); cursor: pointer;
+}
+.sn-seg-opt.on { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: var(--shadow-tab); }
+
+/* 주소 찾기: 글 칸 + [찾기] */
+.sn-search { display: flex; gap: var(--s-8); min-width: 0; }
+.sn-search .input { flex: 1 1 auto; min-width: 0; }
+.sn-search .btn { flex: none; }
+
+/* 고치기: 저장한 위치 한 줄 + [위치 바꾸기] */
+.sn-saved { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-12); }
+.sn-saved-text { display: grid; min-width: 0; flex: 1 1 200px; }
+
+.sn-map { margin-top: var(--s-4); }
+/* 범례는 지도 위의 선 모양 설명이라 지도가 안 뜨면 통째로 숨긴다 (아래 라디오는 이 모양을 쓰지 않음) */
+.sn-map .nmap-box[hidden] ~ .nmap-legend { display: none; }
+
+/* 상권·주소 후보 라디오 (그림의 초록 테두리 칸) */
+.sn-areas, .sn-addr-list { display: grid; gap: var(--s-8); }
+.sn-area {
+  display: flex; align-items: flex-start; gap: var(--s-12); padding: var(--s-12) var(--s-16); min-width: 0;
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); cursor: pointer;
+}
+.sn-area input { flex: none; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
+.sn-area-text { display: grid; gap: 2px; min-width: 0; }
+.sn-area-text b { overflow-wrap: anywhere; }
+.sn-area:hover:not(.off) { background: var(--hover); }
+.sn-area.on { border-color: var(--accent); background: var(--brand-soft); box-shadow: 0 0 0 1px var(--accent) inset; }
+.sn-area.off { cursor: not-allowed; background: var(--surface); }
+.sn-area.off b { color: var(--muted); }
+
+/* 메뉴 줄: 이름 · 가격 · 지우기 (좁으면 이름 한 줄, 가격·지우기 다음 줄) */
+.sn-menus { display: grid; gap: var(--s-12); }
+.sn-menu { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 10rem) auto; gap: var(--s-4) var(--s-12); align-items: end; }
+.sn-menu-err { grid-column: 1 / -1; }
+.sn-menu-del { width: 44px; padding: 0; }
+.sn-won { position: relative; display: block; }
+.sn-won input { padding-right: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.sn-won > span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: var(--fs-body); pointer-events: none; }
+@container content (max-width: 479px) {
+  .sn-menu { grid-template-columns: minmax(0, 1fr) auto; padding-bottom: var(--s-12); border-bottom: 1px solid var(--line); }
+  .sn-menu-name { grid-column: 1 / -1; }
+  .sn-search { flex-wrap: wrap; }
+  .sn-search .btn { flex: 1 1 auto; }
+}
+
+/* 아래 버튼 줄: 오른쪽 (그림), 좁으면 둘이 반씩 */
+.sn-actions { justify-content: flex-end; }
+@container content (max-width: 479px) { .sn-actions .btn { flex: 1 1 0; } }

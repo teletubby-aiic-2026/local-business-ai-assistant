@@ -74,6 +74,12 @@ describe("홈", () => {
     expect(screen.getByText("불러오지 못했어요", { selector: "li" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "불러오지 못했어요" }).disabled).toBe(true);
   });
+  it("브리핑을 못 받으면(등록 가게를 리뷰 분석이 아직 모를 때 등) 핵심 문제·기간 줄이 '정리하고 있어요'·'불러오는 중'으로 남지 않음", () => {
+    setState({ cards: [], briefing: null, bootError: "리뷰 분석 서비스 오류 404" });
+    const { container } = render(<Home />);
+    expect(screen.getByText("리뷰를 불러오지 못했어요", { selector: "strong" })).toBeTruthy();
+    expect(container.querySelector(".flow-eyebrow").textContent).toBe("밤 11시 브리핑");
+  });
 });
 
 describe("추천 카드", () => {
@@ -206,5 +212,202 @@ describe("카드 → 초안 → 승인 → 완료 → 처음부터 다시", () =
     expect(getState().mktResetSeq).toBe(1);
     expect(getState().mktCleared).toBe(false);
     expect(window.location.hash).toBe("#/today");
+  });
+});
+
+// Figma 06 설계 기준 화면(B1~B4)에 맞춘 배치를 고정한다 (11/20). 글자보다 구역의 순서·자리를 본다
+describe("기준 화면 배치 (Figma 06 B1~B4)", () => {
+  const order = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it("홈: 오늘 할 일(넓은 칸) 다음 담당 비서 현황, 비서마다 첫 글자 동그라미, 할 일 줄은 상자 + 오른쪽 버튼 모양, 묻기 줄", () => {
+    const { container } = render(<Home />);
+    const dash = container.querySelector(".flow-dash");
+    expect([...dash.children].map((x) => x.querySelector("h2").textContent)).toEqual(["오늘 할 일", "담당 비서 현황"]);
+    expect([...container.querySelectorAll(".flow-staff-av")].map((x) => x.textContent)).toEqual(["데", "고", "마", "상"]);
+    const todo = container.querySelector(".flow-todo-item");
+    expect(todo.lastElementChild.className).toBe("flow-todo-st");
+    expect(todo.lastElementChild.textContent).toBe("만들기");
+    // 오늘 할 일 · 비서 → 차트 두 칸(시간 · 주제) → 묻기 줄 순서
+    const charts = container.querySelector(".flow-charts");
+    expect(order(dash, charts)).toBe(true);
+    expect([...charts.children].map((x) => x.querySelector("h2").textContent)).toEqual(["불만 리뷰가 몰린 시간", "주제별 불만"]);
+    expect(screen.getByText("상위 1개")).toBeTruthy();
+    const ask = screen.getByRole("button", { name: /AI에게 묻기 · 예\)/ });
+    expect(order(charts, ask)).toBe(true);
+    expect(ask.querySelector(".flow-ask-go").textContent).toBe("묻기");
+    // 오늘의 핵심 문제는 이름표 + 굵은 한 줄
+    expect(container.querySelector(".flow-hero .flow-hero-label").textContent).toBe("오늘의 핵심 문제");
+  });
+
+  it("홈: 리뷰 0건이면 빈 안내 아래 다음에 할 일 두 개 ([리뷰 넣기] → 리뷰 분석의 리뷰 넣기 탭, [상권 분석 보기])", () => {
+    setState({ cards: [], briefing: { store: { name: "새 가게" }, period: { start: null, end: null },
+      counts: { review_count: 0, complaint_count: 0 }, top_issue_id: null, groups: [], single_complaints: [], pasted: [], snapshots: [] } });
+    const { container } = render(<Home />);
+    const foot = container.querySelector(".flow-todo-foot");
+    expect([...foot.querySelectorAll("button")].map((x) => x.textContent)).toEqual(["리뷰 넣기", "상권 분석 보기"]);
+    expect(screen.queryByRole("button", { name: "무엇을 할까요?" })).toBeNull();
+    expect(container.querySelector(".flow-staff-text").textContent).toBe("데이터 분석 비서아직 리뷰 없음");
+    act(() => { fireEvent.click(screen.getByRole("button", { name: "리뷰 넣기" })); });
+    expect(window.location.hash).toBe("#/analysis");
+    expect(getState().nav).toMatchObject({ name: "analysis", sub: "paste" });
+    act(() => { fireEvent.click(screen.getByRole("button", { name: "상권 분석 보기" })); });
+    expect(window.location.hash).toBe("#/market");
+  });
+
+  it("홈: 리뷰가 있는 가게는 그대로 ('무엇을 할까요?' 하나, 다음 할 일 버튼 없음)", () => {
+    const { container } = render(<Home />);
+    expect([...container.querySelector(".flow-todo-foot").querySelectorAll("button")].map((x) => x.textContent)).toEqual(["무엇을 할까요?"]);
+    expect(screen.queryByRole("button", { name: "리뷰 넣기" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "상권 분석 보기" })).toBeNull();
+  });
+
+  it("홈: 리뷰 0건인 새 가게도 깨지지 않고 짧은 빈 안내 (로그인 정보가 없어도)", () => {
+    setState({ me: null, cards: [], briefing: { store: { name: "새 가게" }, period: { start: null, end: null },
+      counts: { review_count: 0, complaint_count: 0 }, top_issue_id: null, groups: [], single_complaints: [], pasted: [], snapshots: [] } });
+    const { container } = render(<Home />);
+    expect(container.textContent).not.toMatch(/undefined|null|NaN/);
+    expect(container.querySelector(".flow-eyebrow").textContent).toBe("밤 11시 브리핑");
+    expect(screen.getByText("아직 들어온 리뷰가 없어요", { selector: "strong" })).toBeTruthy();
+    expect(screen.queryByText("1일 동안")).toBeNull();
+    expect(screen.getByText("리뷰가 들어오면 할 일을 골라 드려요.")).toBeTruthy();
+    expect(container.querySelector(".flow-hours")).toBeNull();   // 빈 막대 대신 한 줄
+    expect(screen.getAllByText("불만 리뷰가 없어요.")).toHaveLength(2);   // 시간 · 주제 두 칸
+  });
+
+  it("추천 카드: 카드를 위아래로 한 장씩, 만들기 버튼 옆 '근거 보기'가 근거를 펼친다", () => {
+    const { container } = render(<Cards />);
+    const grid = container.querySelector(".flow-card-grid");
+    expect(grid.classList.contains("grid-2")).toBe(false);
+    const foot = container.querySelector(".flow-card .flow-card-foot");
+    expect([...foot.children].map((x) => x.textContent)).toEqual(["포장·주문 안내문·답글 만들기", "근거 보기 ▾"]);
+    const toggle = screen.getByRole("button", { name: "근거 보기" });
+    const ev = container.querySelector(".flow-more");
+    expect(toggle.getAttribute("aria-controls")).toBe(ev.id);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(ev.hidden).toBe(true);
+    expect(order(foot, ev)).toBe(true);   // 펼친 근거는 버튼 줄 아래
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(ev.hidden).toBe(false);
+    // 점검 수칙은 회색 상자 안, 버튼 줄보다 위
+    expect(order(container.querySelector(".flow-measures"), foot)).toBe(true);
+  });
+
+  it("추천 카드: 리뷰 0건인 새 가게는 짧은 빈 안내", () => {
+    setState({ cards: [], briefing: { ...briefing, counts: { review_count: 0, complaint_count: 0 }, groups: [] } });
+    render(<Cards />);
+    expect(screen.getByText("리뷰가 들어오면 추천 카드를 골라 드려요.")).toBeTruthy();
+  });
+
+  it("승인할 글: 진행줄은 글자 + 지금 글 이름 (막대 없음), 리뷰마다 회색 상자, 점검 칩 줄은 글 칸과 버튼 사이", () => {
+    const run = { ...runA, drafts: [runA.drafts[0], { ...runA.drafts[1], model: "HCX-005", elapsed_ms: 7400, checks: { used_fallback: true } }] };
+    setState({ results: { card_a: run }, current: "card_a", draftId: "d2" });
+    const { container } = render(<Draft />);
+    const progress = container.querySelector(".flow-progress");
+    expect(progress.querySelector(".flow-track")).toBeNull();
+    expect(progress.querySelector(".flow-progress-text").textContent).toBe("승인 0 / 2 · 포장·주문 안내문");
+    // 손님 리뷰: 근거 건수는 패널 오른쪽, 리뷰마다 상자
+    const rv = screen.getByRole("region", { name: "손님 리뷰" });
+    expect(rv.querySelector(".panel-head .sub").textContent).toBe("근거 리뷰 2건");
+    expect(rv.querySelectorAll(".flow-rv-box")).toHaveLength(2);
+    // 초안 상자: 글 칸 → 칩 줄 → 고칠 곳 → 버튼 줄
+    const box = screen.getByLabelText(/AI 포장·주문 안내문 초안/);
+    const chips = container.querySelector(".flow-checks");
+    const issues = container.querySelector(".flow-issues");
+    const approveBtn = screen.getByRole("button", { name: "승인" });
+    expect(order(box, chips) && order(chips, issues) && order(issues, approveBtn)).toBe(true);
+    expect([...chips.querySelectorAll(".badge")].map((b) => b.textContent)).toEqual(["확인 필요 1", "기본 문장으로 바꿈"]);
+    // 기본 문장으로 바꾼 글: 이유 한 줄이 칩 아래에 있고, 모델 이름·걸린 시간은 보이지 않는다
+    const draftBox = container.querySelector(".flow-draft-box");
+    // 11/21: 기본 문장은 리뷰와 안 맞을 수 있어 확인·고침 안내를 덧붙임 (실시간 확인 M2)
+    expect(draftBox.querySelector(".flow-fallback-note").textContent).toBe("AI 글이 점검을 넘지 못해 기본 문장으로 바꿨어요. 리뷰 내용과 맞는지 확인하고 고쳐서 승인해 주세요.");
+    expect(draftBox.textContent).not.toContain("HCX-005");
+    expect(draftBox.textContent).not.toContain("7.4초");
+    expect(container.querySelector(".flow-draft-box .panel-head .badge")).toBeNull();   // 머리 오른쪽에는 배지 없음
+  });
+
+  it("처리 완료: 타일 → 승인한 글 → 점검 수칙 → 서버 처리 기록 → 버튼, 기록은 글 이름으로", async () => {
+    mockFetch(() => ({ items: [
+      { draft_id: "d2", edited: true, approved_at: "2026-11-19T21:00:05+09:00" },
+      { draft_id: "mkt-x-promo", edited: false, approved_at: "2026-11-19T21:02:00+09:00" },
+    ] }));
+    setState({ results: { card_a: runA }, approved: new Set(["d2"]), approvedLog: [
+      { id: "d2", edited: true, kind: "prevention_notice", name: "포장·주문 안내문", card: "포장 누락을 막아요", at: "2026-11-19T21:00:05+09:00", text: "안내문 고침" },
+    ] });
+    let container;
+    await act(async () => { ({ container } = render(<Done />)); });
+    const col = container.querySelector(".flow-done");
+    const tiles = col.querySelector(".flow-done-tiles");
+    const list = screen.getByRole("region", { name: "승인한 글" });
+    const rules = screen.getByRole("region", { name: "오늘부터 실천할 주방 점검 수칙" });
+    const server = col.querySelector("details.flow-server");
+    const home = screen.getByRole("button", { name: "홈으로" });
+    expect(order(tiles, list) && order(list, rules) && order(rules, server) && order(server, home)).toBe(true);
+    expect(tiles.querySelector(".num").textContent).toBe("1개");
+    // 승인한 글: 이름 · 시각 / 글 앞부분, 승인 완료 배지는 없음 (모두 승인한 글이라)
+    const item = list.querySelector(".flow-log-item");
+    expect(item.querySelector(".strong").textContent).toBe("포장·주문 안내문");
+    expect(item.querySelector(".flow-log-excerpt").textContent).toBe("안내문 고침");
+    expect(list.querySelector(".badge")).toBeNull();
+    expect(server.querySelector("summary h2").textContent).toBe("서버 처리 기록");
+    expect([...server.querySelectorAll("li")].map((x) => x.textContent)).toEqual([
+      "11-19 21:00 승인 · 포장·주문 안내문 (고침)", "11-19 21:02 승인 · 맞춤 마케팅 글"]);
+    expect(server.textContent).not.toContain("d2");   // 내부 글 id 는 보이지 않음
+  });
+});
+
+describe("11/21 실시간 확인에서 고친 것", () => {
+  const own = { authenticated: true, store_id: "u1", stores: [{ store_id: "u1", name: "동네맛김밥", sample: false, area_name: "홍대입구역(홍대)", business_type_name: "분식전문점" }] };
+  it("홈: 직접 등록한 가게는 상권 지표가 없으면 '없음' 대신 '상권 분석에서 보기' → 상권 분석 (M3)", () => {
+    setState({ me: own });
+    const { container } = render(<Home />);
+    const tile = container.querySelector(".tile.tint-sage");
+    expect(tile.textContent).not.toMatch(/지표 없음|–/);
+    expect(tile.querySelector(".tile-sub").textContent).toBe("홍대입구역(홍대) 상권");
+    fireEvent.click(screen.getByRole("button", { name: "상권 분석에서 보기" }));
+    expect(window.location.hash).toBe("#/market");
+  });
+  it("홈: 예시 가게는 그대로 (지표가 있으면 숫자, 없으면 '상권 지표 없음')", () => {
+    setState({ me: { ...own, stores: [{ ...own.stores[0], sample: true }] } });
+    const { container } = render(<Home />);
+    expect(container.querySelector(".tile.tint-sage").textContent).toContain("상권 지표 없음");
+    expect(screen.queryByRole("button", { name: "상권 분석에서 보기" })).toBeNull();
+  });
+  it("추천 카드: 쿠폰 홍보 카드(ⓑ)가 없으면 그 자리에 까닭과 맞춤 마케팅 버튼 (빈 화면이 아님, 12)", () => {
+    setState({ noCardB: "우리 가게 상권 지표가 아직 없어 쿠폰 홍보 카드는 만들지 않았어요." });
+    render(<Cards />);
+    const panel = screen.getByRole("region", { name: "오늘은 쿠폰 홍보 카드가 없어요" });
+    expect(panel.textContent).toContain("ⓑ 쿠폰 홍보");
+    expect(screen.getAllByText(/상권 지표가 아직 없어/)).toHaveLength(1);   // 아래 작은 줄로 또 말하지 않음
+    fireEvent.click(screen.getByRole("button", { name: "맞춤 마케팅에서 홍보 제안 받기" }));
+    expect(window.location.hash).toBe("#/marketing");
+    expect(getState().nav).toMatchObject({ name: "marketing", sub: "promo" });
+  });
+  it("추천 카드: ⓑ 카드가 있으면 빈 자리 칸이 없다", () => {
+    setState({ cards: [cardA, { ...cardA, title: "쿠폰", card: { card_id: "card_b", kind: "promo", reason_text: "칭찬", review_ids: [] }, evidence: [], measures: null }] });
+    render(<Cards />);
+    expect(screen.queryByText("오늘은 쿠폰 홍보 카드가 없어요")).toBeNull();
+  });
+  it("승인할 글: 기본 문장으로 바꾼 글은 '점검 통과' 없이 '기본 문장으로 바꿈'(주의)과 확인 안내, 목록 배지도 '기본 문장' (M2)", () => {
+    const run = { ...runA, drafts: [{ ...runA.drafts[0], checks: { used_fallback: true } }, runA.drafts[1]] };
+    setState({ results: { card_a: run }, current: "card_a", draftId: "d1" });
+    const { container } = render(<Draft />);
+    const chips = [...container.querySelectorAll(".flow-checks .badge")];
+    expect(chips.map((b) => b.textContent)).toEqual(["기본 문장으로 바꿈"]);
+    expect(chips[0].className).toContain("warn");
+    expect(container.querySelector(".flow-checks").textContent).not.toContain("점검 통과");
+    expect(screen.getByLabelText(/AI 답글 초안/).labels[0].textContent).toBe("AI 답글 초안 (기본 문장으로 바꿈)");
+    const row = [...container.querySelectorAll(".flow-list button")].find((b) => b.textContent.includes("답글"));
+    expect([...row.querySelectorAll(".badge")].map((b) => b.textContent)).toEqual(["승인 대기", "기본 문장"]);
+  });
+  it("승인할 글: '다시 만들기'에 같은 기본 문장이 다시 오면 '새로 만들었어요' 대신 사실대로 (M2)", async () => {
+    const fb = { ...runA.drafts[0], text: "주문하신 품목이 빠져 있었다니 정말 죄송해요.", checks: { used_fallback: true } };
+    setState({ results: { card_a: { ...runA, source: "live", drafts: [fb, runA.drafts[1]] } }, current: "card_a", draftId: "d1" });
+    mockFetch(() => ({ source: "live", drafts: [{ ...fb, draft_id: "d9" }] }));
+    render(<Draft />);
+    fireEvent.click(screen.getByRole("button", { name: "다시 만들기" }));
+    expect(await screen.findByText("다시 만들었지만 같은 기본 문장이 나왔어요. 리뷰와 맞게 직접 고쳐서 승인해 주세요.")).toBeTruthy();
+    expect(screen.queryByText(/이 글만 새로 만들었어요/)).toBeNull();
+    expect(getState().draftId).toBe("d9");
   });
 });

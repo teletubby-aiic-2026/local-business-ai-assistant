@@ -24,10 +24,11 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from .config import DbConfig
-from .errors import DuplicateLogin, StorageError
-from .memory import (COUPON_RUNS, MARKETING_SESSIONS, check_period, clean_detail, clean_marketing_row, margin_value,
-                     with_visitor)
+from .errors import DuplicateLogin, DuplicateStore, StorageError, StoreLimit
+from .memory import (COUPON_RUNS, MARKETING_SESSIONS, REGISTERED, REPORT_KINDS, check_period, clean_detail, clean_marketing_row,
+                     clean_store_profile, margin_value, with_visitor)
 from .times import to_date, to_datetime, to_kst_iso
+from .visitor import COMMON_VISITOR
 
 log = logging.getLogger("shared.storage")
 T = TypeVar("T")
@@ -54,6 +55,7 @@ class Database:
         self.reports = PgReports(self)
         self.users = PgUsers(self)
         self.auth_sessions = PgAuthSessions(self)
+        self.registered_stores = PgRegisteredStores(self)
         self.marketing = PgMarketingRecords(self)
 
     def __repr__(self) -> str:   # 비밀번호는 넣지 않는다
@@ -378,7 +380,8 @@ class PgCardReasons:
 
 
 # ── 주간·월간 보고서 ────────────────────────────────────────────────
-_REPORT_COLUMNS = "store_id, period_kind, period_start, period_end, numbers, body_text, evidence_ids, prompt_version, created_at"
+_REPORT_COLUMNS = ("store_id, visitor_id, period_kind, period_start, period_end, numbers, body_text, evidence_ids, prompt_version, "
+                   "created_at")
 
 
 def _report(row: dict) -> dict:
@@ -388,44 +391,65 @@ def _report(row: dict) -> dict:
 
 
 class PgReports:
+    """MemoryReports 와 같은 이름·인자·돌려주는 모양. (가게, 방문자)로 나눈다 (11/20). visitor_id 를 안 주면 공용('common')."""
+
     def __init__(self, db: Database):
         self._db = db
 
     def save(self, store_id: str, period_kind: str, period_start: date | str, period_end: date | str, *, numbers: dict,
-             body_text: str, evidence_ids: list[str], prompt_version: str, created_at: datetime | None = None) -> dict:
+             body_text: str, evidence_ids: list[str], prompt_version: str, created_at: datetime | None = None,
+             visitor_id: str = COMMON_VISITOR) -> dict:
         start, end = to_date(period_start), to_date(period_end)
         check_period(period_kind, start, end)
 
         def work(conn):
             row = conn.execute(
-                "INSERT INTO reports (store_id, period_kind, period_start, period_end, numbers, body_text, evidence_ids, "
-                "prompt_version, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now())) "
-                "ON CONFLICT (store_id, period_kind, period_start, period_end, prompt_version) DO UPDATE SET "
+                "INSERT INTO reports (store_id, visitor_id, period_kind, period_start, period_end, numbers, body_text, evidence_ids, "
+                "prompt_version, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now())) "
+                "ON CONFLICT (store_id, visitor_id, period_kind, period_start, period_end, prompt_version) DO UPDATE SET "
                 "numbers = EXCLUDED.numbers, body_text = EXCLUDED.body_text, evidence_ids = EXCLUDED.evidence_ids, "
                 "created_at = EXCLUDED.created_at "
                 f"RETURNING {_REPORT_COLUMNS}",
-                (store_id, period_kind, start, end, Jsonb(numbers), body_text, list(evidence_ids), prompt_version,
+                (store_id, visitor_id, period_kind, start, end, Jsonb(numbers), body_text, list(evidence_ids), prompt_version,
                  to_datetime(created_at) if created_at else None)).fetchone()
             return _report(row)
         return self._db.run(work)
 
-    def get(self, store_id: str, period_kind: str, period_start: date | str, period_end: date | str) -> dict | None:
+    def get(self, store_id: str, period_kind: str, period_start: date | str, period_end: date | str,
+            visitor_id: str = COMMON_VISITOR) -> dict | None:
         """그 기간 보고서 중 가장 늦게 만든 것."""
         def work(conn):
             row = conn.execute(
-                f"SELECT {_REPORT_COLUMNS} FROM reports WHERE store_id = %s AND period_kind = %s AND period_start = %s "
-                "AND period_end = %s ORDER BY created_at DESC LIMIT 1",
-                (store_id, period_kind, to_date(period_start), to_date(period_end))).fetchone()
+                f"SELECT {_REPORT_COLUMNS} FROM reports WHERE store_id = %s AND visitor_id = %s AND period_kind = %s "
+                "AND period_start = %s AND period_end = %s ORDER BY created_at DESC, id DESC LIMIT 1",
+                (store_id, visitor_id, period_kind, to_date(period_start), to_date(period_end))).fetchone()
             return _report(row) if row else None
         return self._db.run(work)
 
-    def list(self, store_id: str, period_kind: str | None = None, limit: int = 20) -> list[dict]:
+    def list(self, store_id: str, period_kind: str | None = None, limit: int = 20, visitor_id: str = COMMON_VISITOR) -> list[dict]:
         """기간이 늦은 것부터, 같은 기간이면 늦게 만든 것부터."""
         def work(conn):
             rows = conn.execute(
-                f"SELECT {_REPORT_COLUMNS} FROM reports WHERE store_id = %s AND (%s::text IS NULL OR period_kind = %s) "
-                "ORDER BY period_start DESC, created_at DESC LIMIT %s", (store_id, period_kind, period_kind, limit)).fetchall()
+                f"SELECT {_REPORT_COLUMNS} FROM reports WHERE store_id = %s AND visitor_id = %s "
+                "AND (%s::text IS NULL OR period_kind = %s) ORDER BY period_start DESC, created_at DESC, id DESC LIMIT %s",
+                (store_id, visitor_id, period_kind, period_kind, limit)).fetchall()
             return [_report(r) for r in rows]
+        return self._db.run(work)
+
+    def count(self, store_ids, visitor_id: str) -> dict:
+        """가게 여러 곳의 이 방문자 보고서 수 {"weekly": n, "monthly": n}. 같은 기간은 프롬프트 버전이 여럿이어도 하나로 센다."""
+        def work(conn):
+            rows = conn.execute(
+                "SELECT period_kind, count(DISTINCT (store_id, period_start, period_end)) AS n FROM reports "
+                "WHERE store_id = ANY(%s) AND visitor_id = %s GROUP BY period_kind", (list(store_ids or ()), visitor_id)).fetchall()
+            found = {r["period_kind"]: int(r["n"]) for r in rows}
+            return {kind: found.get(kind, 0) for kind in REPORT_KINDS}
+        return self._db.run(work)
+
+    def delete(self, store_id: str, visitor_id: str) -> int:
+        """이 가게·이 방문자의 보고서를 모두 지우고 지운 수를 돌려준다 (계정 초기화·탈퇴). 다른 방문자·가게는 그대로."""
+        def work(conn):
+            return conn.execute("DELETE FROM reports WHERE store_id = %s AND visitor_id = %s", (store_id, visitor_id)).rowcount
         return self._db.run(work)
 
 
@@ -496,6 +520,150 @@ class PgUsers:
         def work(conn):
             return conn.execute("DELETE FROM users WHERE user_id = %s", (user_id,)).rowcount > 0
         return self._db.run(work)
+
+    # ── 사장님 프로필과 가게 목록 고치기 (6차 회의 11/20). MemoryUsers 와 같은 동작 ──
+    def rename(self, user_id: str, display_name: str) -> dict | None:
+        def work(conn):
+            row = conn.execute(f"UPDATE users SET display_name = %s WHERE user_id = %s RETURNING {_USER_COLUMNS}",
+                               (display_name, user_id)).fetchone()
+            return _kst(row, "created_at") if row else None
+        return self._db.run(work)
+
+    def set_password(self, user_id: str, password_hash: str) -> bool:
+        def work(conn):
+            return conn.execute("UPDATE users SET password_hash = %s WHERE user_id = %s",
+                                (password_hash, user_id)).rowcount > 0
+        return self._db.run(work)
+
+    def add_store(self, user_id: str, store_id: str) -> list[str]:
+        """목록 맨 뒤에 붙인다 (이미 있으면 그대로). 바뀐 목록."""
+        def work(conn):
+            conn.execute("SELECT 1 FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
+            conn.execute("INSERT INTO user_stores (user_id, store_id, position) "
+                         "SELECT %s, %s, COALESCE(MAX(position), -1) + 1 FROM user_stores WHERE user_id = %s "
+                         "ON CONFLICT (user_id, store_id) DO NOTHING", (user_id, store_id, user_id))
+        self._db.run(work)
+        return self.stores(user_id)
+
+    def remove_store(self, user_id: str, store_id: str) -> bool:
+        def work(conn):
+            return conn.execute("DELETE FROM user_stores WHERE user_id = %s AND store_id = %s",
+                                (user_id, store_id)).rowcount > 0
+        return self._db.run(work)
+
+    def reorder(self, user_id: str, store_ids: list[str]) -> bool:
+        """가진 가게 전부를 새 순서로. 겹치는 id 가 있거나 가진 가게 집합과 다르면 바꾸지 않고 False."""
+        ids = list(store_ids)
+
+        def work(conn):
+            conn.execute("SELECT 1 FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
+            have = [r["store_id"] for r in conn.execute("SELECT store_id FROM user_stores WHERE user_id = %s",
+                                                        (user_id,)).fetchall()]
+            if len(set(ids)) != len(ids) or set(ids) != set(have):
+                return False
+            with conn.cursor() as cur:
+                cur.executemany("UPDATE user_stores SET position = %s WHERE user_id = %s AND store_id = %s",
+                                [(i, user_id, s) for i, s in enumerate(ids)])
+            return True
+        return self._db.run(work)
+
+
+# ── 사장님이 직접 등록한 가게 (6차 회의 11/20) ──────────────────────────
+_STORE_COLUMNS = "store_id, owner_user_id, name, business_type_name, profile, created_at, updated_at"
+
+
+class PgRegisteredStores:
+    """stores 표의 직접 등록한 가게 (data_origin 'registered'). MemoryRegisteredStores 와 같은 이름·인자·돌려주는 모양."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    def _run(self, work):
+        """stores 표에 11/20 칸(owner_user_id·profile·updated_at)이 아직 없으면(init_db 를 다시 돌리기 전) 500 대신 StorageError."""
+        try:
+            return self._db.run(work)
+        except psycopg.errors.UndefinedColumn:
+            log.warning("stores 표에 등록 가게 칸이 없어요. python -m shared.storage.init_db 를 다시 돌리세요")
+            raise StorageError("stores 표에 등록 가게 칸이 없습니다. python -m shared.storage.init_db 를 다시 실행하세요") from None
+
+    def create(self, store_id: str, owner_user_id: str, name: str, business_type_name: str, profile: dict, *,
+               limit: int) -> dict:
+        """가게 행과 가게 목록(맨 뒤)을 한 트랜잭션으로. 사장님 줄을 잠가 두 서버가 동시에 등록해도 한도를 넘지 않는다."""
+        clean = clean_store_profile(profile)
+
+        def work(conn):
+            if conn.execute("SELECT 1 FROM users WHERE user_id = %s FOR UPDATE", (owner_user_id,)).fetchone() is None:
+                raise KeyError("없는 사장님이에요")
+            have = conn.execute("SELECT COUNT(*) AS n, COALESCE(MAX(position), -1) AS last FROM user_stores WHERE user_id = %s",
+                                (owner_user_id,)).fetchone()
+            if have["n"] >= limit:
+                raise StoreLimit("가게 목록이 가득 찼어요")
+            try:
+                row = conn.execute(
+                    "INSERT INTO stores (store_id, owner_user_id, name, business_type_name, profile, data_origin) "
+                    f"VALUES (%s, %s, %s, %s, %s, '{REGISTERED}') RETURNING {_STORE_COLUMNS}",
+                    (store_id, owner_user_id, name, business_type_name, Jsonb(clean))).fetchone()
+            except psycopg.errors.UniqueViolation:
+                raise DuplicateStore("이미 있는 가게 id 예요") from None
+            conn.execute("INSERT INTO user_stores (user_id, store_id, position) VALUES (%s, %s, %s)",
+                         (owner_user_id, store_id, have["last"] + 1))
+            return _kst(row, "created_at", "updated_at")
+        return self._run(work)
+
+    def get(self, store_id: str) -> dict | None:
+        def work(conn):
+            row = conn.execute(f"SELECT {_STORE_COLUMNS} FROM stores WHERE store_id = %s AND data_origin = '{REGISTERED}'",
+                               (store_id,)).fetchone()
+            return _kst(row, "created_at", "updated_at") if row else None
+        return self._run(work)
+
+    def get_many(self, store_ids) -> dict[str, dict]:
+        ids = list(dict.fromkeys(store_ids))
+        if not ids:
+            return {}
+
+        def work(conn):
+            rows = conn.execute(f"SELECT {_STORE_COLUMNS} FROM stores WHERE store_id = ANY(%s) AND data_origin = '{REGISTERED}'",
+                                (ids,)).fetchall()
+            return {r["store_id"]: _kst(r, "created_at", "updated_at") for r in rows}
+        return self._run(work)
+
+    def update(self, store_id: str, *, name: str | None = None, business_type_name: str | None = None,
+               profile: dict | None = None) -> dict | None:
+        clean = Jsonb(clean_store_profile(profile)) if profile is not None else None
+
+        def work(conn):
+            row = conn.execute(
+                "UPDATE stores SET name = COALESCE(%s, name), business_type_name = COALESCE(%s, business_type_name), "
+                "profile = COALESCE(%s, profile), updated_at = now() "
+                f"WHERE store_id = %s AND data_origin = '{REGISTERED}' RETURNING {_STORE_COLUMNS}",
+                (name, business_type_name, clean, store_id)).fetchone()
+            return _kst(row, "created_at", "updated_at") if row else None
+        return self._run(work)
+
+    def list_by_owner(self, owner_user_id: str) -> list[dict]:
+        def work(conn):
+            rows = conn.execute(f"SELECT {_STORE_COLUMNS} FROM stores WHERE owner_user_id = %s AND data_origin = '{REGISTERED}' "
+                                "ORDER BY created_at, store_id", (owner_user_id,)).fetchall()
+            return [_kst(r, "created_at", "updated_at") for r in rows]
+        return self._run(work)
+
+    def delete(self, store_id: str) -> bool:
+        def work(conn):
+            conn.execute("DELETE FROM user_stores WHERE store_id = %s", (store_id,))
+            return conn.execute(f"DELETE FROM stores WHERE store_id = %s AND data_origin = '{REGISTERED}'",
+                                (store_id,)).rowcount > 0
+        return self._run(work)
+
+    def delete_by_owner(self, owner_user_id: str) -> int:
+        def work(conn):
+            gone = [r["store_id"] for r in conn.execute(
+                f"DELETE FROM stores WHERE owner_user_id = %s AND data_origin = '{REGISTERED}' RETURNING store_id",
+                (owner_user_id,)).fetchall()]
+            if gone:
+                conn.execute("DELETE FROM user_stores WHERE store_id = ANY(%s)", (gone,))
+            return len(gone)
+        return self._run(work)
 
 
 class PgAuthSessions:

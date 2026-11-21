@@ -46,6 +46,8 @@ class CardPlan:
     problems: list[dict] = field(default_factory=list)   # 모델 문장이 걸린 이유 (있으면)
     rounds: int = 0                                       # live 에서 모델에게 이유를 쓰게 한 횟수 (재시도 라운드)
     measures: dict = field(default_factory=dict)          # 불만 카드: 재발 방지 조치 {options, default} (C6 목록)
+    topics: list[str] = field(default_factory=list)       # 불만 카드: 묶음의 주제 id (예: ["missing_item"]). 조치 목록·제목을 고른다
+    todo: str = ""                                        # 불만 카드: 이유 문장의 '할 일'. 비면 demo.REASON_TODO (포장 누락과 같음)
     # 카드 ⓑ + 손님 칭찬 근거일 때만 채운다: 모델은 상권 지표(model_facts)만 보고 model_fixed 를 참고해 쓰고, 칭찬 근거 한 줄
     # (code_line)은 코드가 끼워 넣는다 (apply_writer). 비어 있으면 facts·checked_text 전체를 모델에게 준다.
     model_facts: list[dict] | None = None
@@ -123,8 +125,19 @@ def _complaint_plan(insight: dict, store_id: str) -> CardPlan | None:
         reason_text=strip_citations(fixed), review_ids=list(group["review_ids"]),
     )
     # 강조점: 같은 불만이 다시 안 생기게 하는 공지가 먼저, 답글은 함께 나오는 것 (결정안 덧붙임 2, 11/10)
-    return CardPlan(card=card, title=f"{name} {count}건 반복 → 배달앱 포장·주문 안내문 + 답글", facts=[fact],
-                    checked_text=fixed, reason_source="고정 문장", evidence=evidence)
+    # 포장 누락이 아닌 불만(식감·대기 등)에는 '포장·주문 안내문'이 맞지 않아 중립 제목과 할 일을 쓴다 (11/21 실시간 확인 3번)
+    topics = list(group.get("topics") or ([group["topic"]] if group.get("topic") else []))
+    if not topics and str(top_id).startswith("iss_"):
+        topics = [str(top_id)[len("iss_"):]]
+    missing = MISSING_TOPIC in topics
+    title = f"{name} {count}건 반복 → " + ("배달앱 포장·주문 안내문 + 답글" if missing else "안내문 + 답글")
+    return CardPlan(card=card, title=title, facts=[fact], checked_text=fixed, reason_source="고정 문장", evidence=evidence,
+                    topics=topics, todo="" if missing else GENERAL_TODO)
+
+
+MISSING_TOPIC = "missing_item"
+# 포장 누락이 아닌 불만 카드의 '할 일' (이유 문장 둘째 문장). 포장 누락 카드는 demo.REASON_TODO 그대로다.
+GENERAL_TODO = "같은 불만이 다시 안 생기게 배달앱 안내문을 올리고, 답글도 함께 달아요."
 
 
 # ── 카드 ⓑ ──────────────────────────────────────────────────────────

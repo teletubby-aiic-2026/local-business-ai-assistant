@@ -10,6 +10,7 @@
 | POST   | /api/care/reviews/{id}/status     | /api/review-insight/reviews/{id}/status      | 리뷰 상태·답글 기록 (JSON 64KB 까지) |
 | GET    | /api/care/response                | /api/review-insight/response                 | 응대 점수·답글 기다리는 불만의 기한 |
 | GET    | /api/care/report/daily            | /api/review-insight/report/daily             | 일일 요약 (?date=YYYY-MM-DD) |
+| GET    | /api/care/report/weekly           | /api/review-insight/report/weekly            | 주간 보고서 (?week=YYYY-MM-DD, 그 날이 든 월~일. 11/20) |
 | GET    | /api/care/report/monthly          | /api/review-insight/report/monthly           | 월간 보고서 (?month=YYYY-MM) |
 | GET    | /api/care/report/monthly/print    | /api/review-insight/report/monthly/print     | 월간 보고서 인쇄용 A4 HTML |
 
@@ -25,7 +26,7 @@
 넘길 때 하는 일
 - store_id 는 늘 DEMO_STORE_ID, visitor_id 는 이 서버의 방문자 쿠키(request.state.visitor_id)로 **덮어쓴다** (쿼리·JSON 본문 모두.
   캡처 업로드는 본문을 고치지 않고 쿼리에 싣는다: 서비스가 쿼리 값을 폼보다 먼저 씀). 브라우저가 다른 가게·방문자를 고를 수 없다.
-- 쿼리는 date·month·now 만 넘긴다. X-Access-Token(REVIEW_INSIGHT_TOKEN)은 서버가 붙인다 (브라우저는 토큰을 모름).
+- 쿼리는 date·week·month·now 만 넘긴다. X-Access-Token(REVIEW_INSIGHT_TOKEN)은 서버가 붙인다 (브라우저는 토큰을 모름).
 - 실패는 {"error": {"message": "한국어 안내", "state": "…"}} 이고 500 은 없다. 서비스가 준 오류(400·404·422·502 등)는 본문을 그대로 두고
   state 만 더한다 (message 는 서비스 문장 그대로). 이 서버가 만드는 state: off·down·slow·busy·too_big·not_found·invalid·error.
 - 막히지 않게: 서비스 호출(동기 httpx)은 스레드에서 돈다(run_in_threadpool). 캡처 하나가 20초 걸려도 다른 화면 요청은 기다리지 않는다.
@@ -59,6 +60,8 @@ from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from shared import store_header
+
 log = logging.getLogger("web.care")
 
 DEFAULT_URL = "http://127.0.0.1:8020"
@@ -73,7 +76,7 @@ REPLY_TIMEOUT = 2.0                            # 승인 기록 한 번에 기다
 
 REVIEW_ID = re.compile(r"[A-Za-z0-9_-]{1,100}")
 VISITOR_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")      # 서비스의 VISITOR_PATTERN 과 같은 규칙
-QUERY_KEYS = ("date", "month", "now")
+QUERY_KEYS = ("date", "week", "month", "now")
 
 # 사장님용으로 넘기는 것: (메서드, 경로). 경로는 /api/care 뒤 부분이고 fullmatch 로만 본다
 ALLOWED: list[tuple[str, re.Pattern]] = [(m, re.compile(p)) for m, p in [
@@ -81,6 +84,7 @@ ALLOWED: list[tuple[str, re.Pattern]] = [(m, re.compile(p)) for m, p in [
     ("POST", r"/reviews/[A-Za-z0-9_-]{1,100}/status"),
     ("GET", r"/response"),
     ("GET", r"/report/daily"),
+    ("GET", r"/report/weekly"),
     ("GET", r"/report/monthly"),
     ("GET", r"/report/monthly/print"),
 ]]
@@ -103,6 +107,14 @@ TOKEN_MESSAGE = "리뷰 분석 서비스가 이 서버의 요청을 받지 않�
 UPSTREAM_STATE = {400: "invalid", 404: "not_found", 413: "too_big", 422: "invalid", 429: "busy", 502: "upstream", 503: "unavailable"}
 # 인쇄용 페이지는 이 서버 주소에서 열리므로, 스크립트·외부 주소를 막는다 (서비스가 글자를 html.escape 하지만 한 겹 더)
 PRINT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+
+class CareError(Exception):
+    """fetch_json 의 실패. state·message 는 fail() 이 만드는 것과 같은 값."""
+
+    def __init__(self, state: str, message: str, http: int = 503):
+        super().__init__(message)
+        self.state, self.message, self.http = state, message, http
 
 
 def fail(state: str, http: int = 503, message: str | None = None) -> JSONResponse:
@@ -225,6 +237,8 @@ class CareProxy:
                 headers["X-Forwarded-For"] = client_ip      # 서비스의 손님 횟수 제한이 이 값의 맨 앞을 쓴다 (값 하나만 보냄)
         elif self.token:
             headers["X-Access-Token"] = self.token
+        if not public:
+            headers.update(store_header.headers_for(self.store))  # 직접 등록한 가게면 가게 프로필 (11/20). 예시 가게는 그대로
         timeout = httpx.Timeout(connect=2.0, read=self.timeout if multipart else min(READ_TIMEOUT, self.timeout),
                                 write=30.0 if multipart else 10.0, pool=2.0)
         try:
@@ -268,6 +282,45 @@ class CareProxy:
             headers.update({"Content-Security-Policy": PRINT_CSP, "X-Content-Type-Options": "nosniff"})
         return Response(r.content, status_code=r.status_code, media_type=ctype, headers=headers)
 
+    # ── 이 서버가 직접 읽기 (종합 리포트 저장, reports.py, 11/20) ─────────────────
+    def fetch_json(self, path: str, params: dict) -> dict:
+        """서비스의 GET {SERVICE_PREFIX}{path} 를 이 서버가 불러 JSON 을 돌려준다. 가게 id 는 이 프록시의 가게로 덮어쓴다.
+        실패는 CareError(state, message, http) — 브라우저에 보이는 문장·상태는 forward 와 같다 (서비스가 준 오류 문장은 그대로)."""
+        problem = self._unavailable()
+        if problem is not None:
+            body = json.loads(problem.body)["error"]
+            raise CareError(body["state"], body["message"], problem.status_code)
+        if not self.slots.acquire(timeout=1.0):
+            raise CareError("busy", MESSAGES["busy"], 503)
+        headers = {"Accept": "application/json"}
+        if self.token:
+            headers["X-Access-Token"] = self.token
+        try:
+            r = self.client.get(SERVICE_PREFIX + path, params={**params, "store_id": self.store}, headers=headers,
+                                timeout=httpx.Timeout(connect=2.0, read=min(READ_TIMEOUT, self.timeout), write=10.0, pool=2.0))
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            log.warning("리뷰 분석 서비스에 연결하지 못함 (GET %s: %s)", path, exc.__class__.__name__)
+            raise CareError("down", MESSAGES["down"], 503) from None
+        except httpx.TimeoutException:
+            log.warning("리뷰 분석 서비스가 제한 시간 안에 답하지 않음 (GET %s)", path)
+            raise CareError("slow", MESSAGES["slow"], 503) from None
+        except httpx.HTTPError as exc:
+            log.warning("리뷰 분석 서비스 호출 오류 (GET %s: %s)", path, exc.__class__.__name__)
+            raise CareError("error", MESSAGES["error"], 503) from None
+        finally:
+            self.slots.release()
+        relayed = self._relay(r, path, html=False)
+        if relayed.status_code != 200:
+            body = json.loads(relayed.body)["error"]
+            raise CareError(body.get("state") or "error", body["message"], relayed.status_code)
+        try:
+            data = json.loads(relayed.body)
+        except ValueError:
+            raise CareError("error", MESSAGES["error"], 503) from None
+        if not isinstance(data, dict):
+            raise CareError("error", MESSAGES["error"], 503)
+        return data
+
     # ── 답글 승인 기록 ────────────────────────────────────────────────────
     def mark_replied(self, visitor_id: str | None, review_id: str, text: str, at: str | None = None) -> bool:
         """서비스에 '답글 달았음'을 기록. 실패해도 예외를 내지 않고 False (로그만)."""
@@ -280,6 +333,7 @@ class CareProxy:
         if visitor_id and VISITOR_ID.fullmatch(visitor_id):
             body["visitor_id"] = visitor_id
         headers = {"X-Access-Token": self.token} if self.token else {}
+        headers.update(store_header.headers_for(self.store))      # 직접 등록한 가게면 가게 프로필 (11/20)
         try:
             r = self.client.post(f"{SERVICE_PREFIX}/reviews/{review_id}/status", json=body, headers=headers,
                                  timeout=httpx.Timeout(self.reply_timeout))

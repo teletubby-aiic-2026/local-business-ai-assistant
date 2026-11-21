@@ -13,7 +13,7 @@ export function initialState() {
     noCardB: "",         // GET /api/cards 의 no_card_b
     insight: null,       // GET /api/insight
     insightError: "",
-    me: null,            // GET /api/auth/me (null 이면 게스트로 봄)
+    me: null,            // GET /api/auth/me (null 이면 아직 모름. 로그인 전이면 authenticated: false)
     // 오늘 할 일 진행 (브라우저 메모리에만. 새로고침하면 사라짐, docs/api/contract.md 2.6)
     results: {},         // card_id → POST /api/cards/{id}/run 응답
     approved: new Set(), // 승인한 draft_id
@@ -22,13 +22,19 @@ export function initialState() {
     current: null,       // 초안 화면에 보이는 카드 id
     draftId: null,       // 초안 화면에 크게 보이는 글 id
     joined: [],          // 방금 붙여넣은 리뷰가 들어간 묶음 id
+    // 단계 (state/stage.js, docs/api/contract.md 2.2). 해시 주소(#/today …)는 app 단계 안에서만 쓴다
+    // boot · login · signup · pick(가게 선택) · store-new(새 가게 등록) · profile(사장님 프로필) · app(메인 화면) · error · expired · forbidden
+    stage: "boot",
+    stageError: "",      // error 단계에 보일 한 줄 (서버가 준 notice 등)
+    storeNew: null,      // store-new 단계의 {mode: "signup"|"add"|"edit", storeId?}
+    storeNewFrom: "pick", // store-new 의 [취소]가 돌아갈 단계 (pick · profile)
+    entered: null,       // app 단계에서 자료를 불러온 가게 id (sessionStorage ic26.entered 와 같음)
+    resume: null,        // 로그인이 끝나 expired 로 갈 때 {userId, storeId}: 같은 사장님·같은 가게로 다시 로그인하면 app 으로 바로
     // 화면 공통
-    booted: false, bootError: "",
+    booted: false, bootError: "",   // booted: 들어간 가게의 자료를 한 번 다 불러옴 (실패 포함)
     alert: "",           // 맨 위 알림 띠
-    acctBusy: false,     // 로그인·가게 바꾸기 등 다시 읽는 중 (상단 바 계정 버튼 잠금)
-    acctNotice: "",      // 내 계정에서 지운 결과 띠
-    authOpen: false,     // 로그인 창
-    acctOpen: false,     // 내 계정 창
+    acctBusy: false,     // 로그인·가게 열기 등 다시 읽는 중 (상단 바 계정 버튼 잠금)
+    acctNotice: "",      // 기록 지우기·탈퇴 결과 띠 (모든 단계에서 오른쪽 아래)
     drawerOpen: false,   // AI에게 묻기 서랍
     staffMarket: null,   // GET /api/market/status (AI 비서 칸의 상권 분석 비서)
     mktServer: 0,        // 서버에 남은 맞춤 마케팅 승인 수
@@ -62,3 +68,10 @@ export function resetStore() { state = initialState(); listeners.forEach((l) => 
 
 export const setAlert = (msg) => setState({ alert: msg || "" });
 export const openDrawer = (open = true) => setState((s) => ({ drawerOpen: open === "toggle" ? !s.drawerOpen : !!open }));
+// 'AI에게 묻기' 버튼: 닫혀 있으면 열고, 열려 있으면 닫지 않고 입력칸으로 (입력칸이 준비 전이면 닫기 버튼으로). 닫기는 서랍의 닫기·Esc 가 맡는다
+export function focusOrOpenDrawer() {
+  if (!state.drawerOpen) { openDrawer(true); return; }
+  const q = document.getElementById("assistant-q");
+  const target = q && !q.disabled ? q : document.getElementById("assistant-close");
+  target?.focus({ preventScroll: true });
+}

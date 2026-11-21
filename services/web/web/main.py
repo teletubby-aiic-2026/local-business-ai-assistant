@@ -16,7 +16,9 @@
 | *      | /api/care/*                   | 캡처 입력·응대 점수·보고서. 리뷰 분석 서비스의 고객응대 API 를 대신 불러 줌 (care_proxy.py) |
 | *      | /api/marketing-survey/*       | 맞춤 마케팅(#/marketing). 마케팅 서비스(김수현 님 설문형)를 대신 불러 줌 (marketing_proxy.py) |
 | *      | /api/auth/*                   | 로그인·회원가입·로그아웃·가게 바꾸기·시연 로그인 (auth.py, 5차 회의 11/18), 계정 초기화 (11/19, account.py) |
+| *      | /api/account/*                | 계정 안의 가게 등록·고치기·빼기·순서, 이름·비밀번호 바꾸기 (account_api.py, 6차 회의 11/20) |
 | *      | /api/market/*                 | 상권 분석 화면(#/market). 상권 서비스의 분석·서울시 자료 확인·문화행사를 대신 불러 줌 (market_proxy.py) |
+| *      | /api/reports/*                | 종합 리포트의 주간·월간 보고서: 열면 저장·다시 열면 저장본·다시 만들기·목록·수 (reports.py, 11/20) |
 
 리뷰 답글을 승인하면(④) 리뷰 분석 서비스에 '답글 달았음'을 따로 기록한다 (care_proxy.mark_replied_later, 승인 응답은 기다리지 않음).
 캡처 후보 저장은 붙여넣기와 같은 POST /api/reviews 에 source="capture" 를 붙여 보낸다.
@@ -28,6 +30,13 @@
 로그인(쿠키 `ic26_session`)하면 방문자 id 는 'u-<user_id>', 가게는 세션의 고른 가게가 된다 (auth.py). 로그인하지 않으면
 예전과 똑같이 기본 가게(DEMO_STORE_ID)와 쿠키 visitor_id 다. 가게마다의 Demo·프록시는 stores.StoreHub 가 고른다.
 저장: 환경 변수 DB_HOST 가 있으면 PostgreSQL, 없으면 서버 메모리·파일 (shared/storage).
+
+로그인 상태 지키기 (6차 회의 11/20, 미들웨어 _visitor)
+- 화면이 로그인 상태라고 믿을 때 모든 /api/* 요청에 X-IC26-Signed-In: 1 을 붙인다. 이 헤더가 있는데 세션이 없거나 끝났으면
+  /api/auth/* 를 뺀 /api/* 는 401 login_needed (세션 저장소에 닿지 못했으면 503 down). 헤더가 없으면 예전처럼 게스트다.
+- 로그인했지만 가게가 0곳이면 가게가 있어야 하는 /api/* 는 409 no_store. 가게 없이 되는 것: /api/auth/*·/api/account/*·
+  /api/health·/api/market/* (가게 등록 화면이 지도·주소 검색·상권 고르기에 씀). 로그인한 사장님에게 기본 가게(온기한식)
+  자료를 말없이 보여 주지 않는다.
 """
 from __future__ import annotations
 
@@ -47,13 +56,18 @@ from pydantic import BaseModel, Field
 
 from shared.storage import new_visitor_id, open_store, visitor_from_cookie
 
+from shared import store_profiles
+
 from .account import AccountData
+from .account_api import create_account_router
 from .assistant_proxy import AssistantProxy, create_assistant_router, validation_error_response
+from .auth import MESSAGES as AUTH_MESSAGES
 from .auth import SESSION_COOKIE, AuthService, create_auth_router
 from .care_proxy import CareProxy, create_care_routers
 from .demo import Demo, DemoError
 from .market_proxy import MarketProxy, create_market_router
 from .marketing_proxy import MARKETING_CARD_ID, MarketingProxy, create_marketing_router
+from .reports import ReportBook, create_reports_router
 from .settings import Settings
 from .stores import StoreHub
 
@@ -71,6 +85,10 @@ NO_BUILD_HTML = """<!doctype html>
 </body></html>
 """
 VISITOR_COOKIE = "visitor_id"
+SIGNED_IN_HEADER = "x-ic26-signed-in"     # 화면이 로그인 상태라고 믿을 때 붙이는 헤더 (값 "1", 11/20)
+# 로그인했지만 가게가 0곳이어도 되는 /api 경로 (나머지 /api/* 는 409 no_store)
+STORE_FREE_PREFIXES = ("/api/auth/", "/api/account/", "/api/market/")
+STORE_FREE_PATHS = ("/api/health", "/api/account", "/api/market")
 VISITOR_COOKIE_SECONDS = 60 * 60 * 24 * 30   # 30일
 log = logging.getLogger("web.main")
 
@@ -116,6 +134,9 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     market = market or MarketProxy.from_settings(demo.s)            # 상권 분석 화면(#/market) 프록시 (시험에서는 가짜 상권 서비스)
     hub = StoreHub(demo, assistant, care, marketing)                # 가게마다의 Demo·프록시 (기본 가게는 위의 객체 그대로)
     auth = auth or AuthService.from_env(demo.storage, demo.s.store_id)
+    # 직접 등록한 가게 찾기 (11/20): store_profiles.get·known 이 예시 세 곳 다음으로 이 저장소의 stores 표를 본다
+    registered = getattr(auth.storage, "registered_stores", None)
+    store_profiles.set_registered_lookup(registered.get if registered is not None else None)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -141,6 +162,18 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     def store_demo(request: Request) -> Demo:
         return hub.demo(sid(request))
 
+    def market_store(request: Request) -> str:
+        """상권 분석 화면의 가게. 로그인했지만 가게가 0곳이면 빈 값 (기본 가게 조건으로 맞추거나 기본 가게 이름을 보이지 않게)."""
+        who = getattr(request.state, "who", None)
+        if who is not None and who.needs_store:
+            return ""
+        return sid(request)
+
+    def refuse(key: str, status: int, message: str) -> JSONResponse:
+        out = JSONResponse({"error": {"message": message, "state": key}}, status_code=status)
+        out.headers["Cache-Control"] = "no-store"
+        return out
+
     @app.middleware("http")
     async def _visitor(request: Request, call_next):
         """방문자마다 임의의 id 를 쿠키로 준다. 쿠키가 없거나 형식이 틀리면 새로 만들어 이 요청에도 쓰고 응답에 싣는다.
@@ -154,8 +187,21 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
             who = await run_in_threadpool(auth.resolve, request.cookies.get(SESSION_COOKIE), guest)
         request.state.who = who
         request.state.visitor_id = who.visitor_id
-        request.state.store_id = who.store_id if hub.known(who.store_id) else demo.s.store_id
-        response = await call_next(request)
+        if who.authenticated:      # 로그인한 사장님은 세션의 가게 그대로 (가게 0곳이면 None. 기본 가게로 바꾸지 않는다)
+            request.state.store_id = who.store_id
+        else:
+            request.state.store_id = who.store_id if hub.known(who.store_id) else demo.s.store_id
+        response = None
+        path = request.url.path
+        if path.startswith("/api/") or path == "/api":
+            if (request.headers.get(SIGNED_IN_HEADER) or "").strip() == "1" and not who.authenticated \
+                    and not path.startswith("/api/auth/"):
+                response = (refuse("down", 503, AUTH_MESSAGES["down"]) if who.unavailable
+                            else refuse("login_needed", 401, AUTH_MESSAGES["signed_out"]))
+            elif who.needs_store and not (path.startswith(STORE_FREE_PREFIXES) or path in STORE_FREE_PATHS):
+                response = refuse("no_store", 409, AUTH_MESSAGES["no_store"])
+        if response is None:
+            response = await call_next(request)
         if found is None and not request.url.path.startswith(ASSET_PREFIXES):
             secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"
             response.set_cookie(VISITOR_COOKIE, guest, max_age=VISITOR_COOKIE_SECONDS, path="/",
@@ -174,7 +220,14 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
 
     @app.get("/api/health")
     def health(request: Request):
-        return store_demo(request).health()
+        out = store_demo(request).health()
+        if request.state.who.needs_store:          # 가게 0곳: 기본 가게 id 를 보이지 않는다
+            out["store_id"] = None
+        bundle = store_profiles.get(out["store_id"]) if out["store_id"] else None
+        if bundle is not None and bundle.registered:
+            # 직접 등록한 가게는 상권 지표 파일이 아직 없다 (다음 단계). 막힘 띠에 서버 파일 경로를 띄우지 않는다
+            out["blocking"] = [b for b in out["blocking"] if not b.startswith("상권 지표 파일을 찾지 못해")]
+        return out
 
     @app.get("/api/briefing")
     def briefing(request: Request):
@@ -234,7 +287,8 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
     app.state.account = AccountData(hub)              # 계정 초기화·탈퇴가 사장님 기록을 지우는 곳 (account.py, 11/19)
     app.include_router(create_auth_router(auth, who_of=lambda request: request.state.who, erase=app.state.account.clear))
     app.include_router(create_assistant_router(assistant, proxy_of=lambda request: hub.assistant(sid(request))))
-    app.include_router(create_market_router(market, store_of=sid))
+    app.include_router(create_account_router(auth, hub, who_of=lambda request: request.state.who))
+    app.include_router(create_market_router(market, store_of=market_store))
 
     def record_marketing(visitor: str | None, item: dict, store: str) -> dict:
         # 맞춤 마케팅에서 승인한 글을 이 방문자·이 가게의 승인 기록에 (리뷰 답글이 아니므로 '답글 달았음'은 부르지 않는다)
@@ -243,6 +297,9 @@ def create_app(demo: Demo | None = None, assistant: AssistantProxy | None = None
 
     app.include_router(create_marketing_router(marketing, proxy_of=lambda request: hub.marketing(sid(request)),
                                                record_store=record_marketing))
+    app.state.reports = ReportBook(hub, demo.storage)         # 주간·월간 보고서 저장 (reports.py, 11/20)
+    app.state.account.reports = app.state.reports             # 계정 초기화·탈퇴가 저장된 보고서도 지우게
+    app.include_router(create_reports_router(app.state.reports))
     # 손님용 문의 페이지는 CARE_PUBLIC=1 일 때만 들어 있다 (기본 가게 하나)
     for router in create_care_routers(care, proxy_of=lambda request: hub.care(sid(request))):
         app.include_router(router)

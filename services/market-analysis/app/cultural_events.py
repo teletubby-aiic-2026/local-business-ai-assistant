@@ -1,8 +1,10 @@
 """서울시 문화행사 정보(culturalEventInfo)를 자치구별로 짧게 보여 준다.
 
-서울 열린데이터광장 실시간 API가 주는 목록의 앞 40건을 받아 끝나지 않은 행사만
-고른다(목록 순서는 서울시가 정한다). 응답은 메모리에 10분 보관하고(서울시 호출 1번을 모든 자치구가 함께 씀)
-실패하면 1분 동안 다시 부르지 않는다. 인증키가 없거나 응답을 쓸 수 없으면
+서울 열린데이터광장 실시간 API가 주는 목록의 앞 2,000건(1,000건씩 두 쪽)을 받아 끝나지 않은 행사만
+고른다. 목록은 시작일이 늦은 순서로 오고 자치구로 거르는 요청 인자가 없어서, 앞 40건만 받으면 먼 미래 행사뿐이라
+동네 행사가 거의 걸리지 않는다(11/19 실제 목록: 앞 40건에 동작구 0건, 앞 2,000건에 7건, 그 뒤 1,000건에 0건).
+두 번째 쪽을 받지 못하면 첫 쪽만으로 답한다. 응답은 메모리에 10분 보관하고(서울시 호출을 모든 자치구가 함께 씀)
+첫 쪽이 실패하면 1분 동안 다시 부르지 않는다. 인증키가 없거나 응답을 쓸 수 없으면
 실제 행사로 오해하지 않도록 '예시' 표시를 단 가짜 목록과 안내를 돌려준다.
 인증키는 SeoulClient가 환경 변수에서 읽으며 응답·로그에 넣지 않는다.
 """
@@ -19,7 +21,8 @@ from app.seoul_client import SeoulApiError, SeoulClient
 
 SCHEMA = "onboarding-cultural-events-v1"
 SERVICE = "culturalEventInfo"
-FETCH_COUNT = 40
+PAGE_SIZE = 1000        # 서울시 API가 한 번에 주는 가장 많은 건수
+MAX_PAGES = 2           # 앞 2,000건까지. 그 뒤는 거의 다 끝난 행사다
 MAX_EVENTS = 20
 CACHE_TTL_SECONDS = 600
 FAILURE_TTL_SECONDS = 60
@@ -119,30 +122,38 @@ def _code(value) -> str:
     return value if isinstance(value, str) and re.fullmatch(r"[A-Z]+-\d{3}", value) else "invalid"
 
 
-def parse_events(payload) -> list[dict]:
-    """서울시 응답 봉투를 확인한다. 잘못된 응답은 CulturalEventsUnavailable."""
+def parse_page(payload) -> tuple[list[dict], int]:
+    """서울시 응답 한 쪽을 확인한다. (읽은 행사, 원본 행 수). 잘못된 응답은 CulturalEventsUnavailable.
+
+    원본 행 수는 다음 쪽이 더 있는지 보는 데 쓴다(읽지 못해 버린 행도 센다).
+    """
     if not isinstance(payload, dict):
         raise CulturalEventsUnavailable("invalid response: expected a JSON object")
     if SERVICE not in payload:
         code = payload["RESULT"].get("CODE") if isinstance(payload.get("RESULT"), dict) else None
         if code == "INFO-200":
-            return []
+            return [], 0
         raise CulturalEventsUnavailable(f"provider result {_code(code)}")
     body = payload[SERVICE]
     if not isinstance(body, dict) or not isinstance(body.get("RESULT"), dict):
         raise CulturalEventsUnavailable("invalid response: missing service envelope")
     code = body["RESULT"].get("CODE")
     if code == "INFO-200":
-        return []
+        return [], 0
     if code != "INFO-000":
         raise CulturalEventsUnavailable(f"provider result {_code(code)}")
     rows = body.get("row")
-    if not isinstance(rows, list) or len(rows) > FETCH_COUNT:
-        raise CulturalEventsUnavailable("invalid response: row must be a short list")
+    if not isinstance(rows, list) or len(rows) > PAGE_SIZE:
+        raise CulturalEventsUnavailable("invalid response: row must be a list of at most one page")
     events = [event for event in map(normalize_event, rows) if event is not None]
     if rows and not events and not any(isinstance(row, dict) for row in rows):
         raise CulturalEventsUnavailable("invalid response: rows are not objects")
-    return events
+    return events, len(rows)
+
+
+def parse_events(payload) -> list[dict]:
+    """서울시 응답 한 쪽에서 읽은 행사만 돌려준다. 잘못된 응답은 CulturalEventsUnavailable."""
+    return parse_page(payload)[0]
 
 
 def demo_events(today: date, district: str | None) -> list[dict]:
@@ -186,18 +197,30 @@ class CulturalEventsService:
                 return None, None, False, "unavailable"
             if getattr(client, "sample_only", True):
                 return None, None, False, "missing_key"
-            try:
-                payload, _redacted_url = client.fetch_auxiliary(SERVICE, 1, FETCH_COUNT)
-                events = parse_events(payload)
-            except (SeoulApiError, CulturalEventsUnavailable) as error:
-                # 두 예외 모두 요청 주소나 키를 담지 않는다.
-                _log.warning("cultural events unavailable: %s", error)
-                self._failed_until = moment + self._failure_ttl
-                return None, None, False, "unavailable"
-            except Exception as error:  # noqa: BLE001 - 어떤 실패도 500으로 올리지 않는다.
-                _log.warning("cultural events unavailable: %s", type(error).__name__)
-                self._failed_until = moment + self._failure_ttl
-                return None, None, False, "unavailable"
+            events, seen = [], set()
+            for page in range(MAX_PAGES):
+                try:
+                    payload, _redacted_url = client.fetch_auxiliary(SERVICE, page * PAGE_SIZE + 1, PAGE_SIZE)
+                    page_events, row_count = parse_page(payload)
+                except Exception as error:  # noqa: BLE001 - 어떤 실패도 500으로 올리지 않는다.
+                    # SeoulApiError·CulturalEventsUnavailable 은 요청 주소나 키를 담지 않는다. 그 밖의 예외는 이름만 남긴다.
+                    detail = error if isinstance(error, (SeoulApiError, CulturalEventsUnavailable)) else type(error).__name__
+                    if page == 0:
+                        _log.warning("cultural events unavailable: %s", detail)
+                        self._failed_until = moment + self._failure_ttl
+                        return None, None, False, "unavailable"
+                    # 뒤쪽을 못 받아도 첫 쪽은 쓴다(오래 이어지는 행사 일부가 빠질 뿐, 예시로 돌아가지 않는다).
+                    _log.warning("cultural events page %d unavailable, answering from %d page(s): %s",
+                                 page + 1, page, detail)
+                    break
+                for event in page_events:
+                    # 두 쪽을 받는 사이 목록이 밀리면 같은 행사가 두 번 올 수 있다.
+                    key = (event["title"], event["start"], event["end"], event["place"], event["district"])
+                    if key not in seen:
+                        seen.add(key)
+                        events.append(event)
+                if row_count < PAGE_SIZE:
+                    break
             fetched_at = self._now().astimezone(KST).isoformat(timespec="seconds")
             self._cache = (moment + self._ttl, events, fetched_at)
             self._failed_until = None
@@ -225,7 +248,8 @@ class CulturalEventsService:
         elif fallback:
             notice = f"{district}에서 진행 중이거나 예정된 행사를 찾지 못해 서울 전체 주요 행사를 보여 드려요."
         else:
-            notice = "서울시 문화행사 정보에서 받은 40건 중 끝나지 않은 행사만 보여 드려요. 일정과 요금은 주최 측 안내를 꼭 확인해 주세요."
+            where = f"{district}의 " if district else ""
+            notice = f"서울시 문화행사 정보에서 {where}끝나지 않은 행사만 보여 드려요. 일정과 요금은 주최 측 안내를 꼭 확인해 주세요."
         return {**base, "status": "available", "demo": False, "scope": "district" if matched else "seoul",
                 "fallback": fallback, "events": chosen, "count": len(chosen), "fetched_at": fetched_at,
                 "cached": cached, "notice": notice}

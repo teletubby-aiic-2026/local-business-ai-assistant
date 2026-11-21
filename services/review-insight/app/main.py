@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
-from app import report, service, storage  # noqa: E402  (.env 를 먼저 읽어야 함)
+from app import registered, report, service, storage  # noqa: E402  (.env 를 먼저 읽어야 함)
 from app.classify import Classifier  # noqa: E402
 from app.sources import capture  # noqa: E402
 
@@ -200,12 +200,26 @@ def print_monthly(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
 
 @router.get("/report/monthly")
 def get_monthly(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
-                month: Optional[str] = Query(None, description="YYYY-MM. 비우면 이번 달"), now: Optional[str] = NowQ):
+                month: Optional[str] = Query(None, description="YYYY-MM. 비우면 이번 달"), now: Optional[str] = NowQ,
+                compare: bool = Query(False, description="true 면 비교 칸(complaint_rate·previous·topics)을 더함 (종합 리포트 저장용, 11/20)")):
     """월간 보고서: 날마다 점수 추이, 반복 불만별 건수와 답글 뒤 재발 여부, 다음 달 개선 제안 (최대 3개)."""
     try:
         at = _now(now)
         y, m = report.parse_month(month, at)
-        return report.monthly(service.Timeline(classifier(), store_id, visitor_id), y, m, at)
+        build = report.monthly_compare if compare else report.monthly
+        return build(service.Timeline(classifier(), store_id, visitor_id), y, m, at)
+    except ValueError as e:
+        return error(400, "VALIDATION_ERROR", str(e))
+
+
+@router.get("/report/weekly")
+def get_weekly(store_id: str = StoreQ, visitor_id: Optional[str] = VisitorQ,
+               week: Optional[str] = Query(None, description="YYYY-MM-DD. 그 날이 든 주(월~일). 비우면 이번 주"),
+               now: Optional[str] = NowQ):
+    """주간 보고서 (11/20): 월간과 같은 칸 + 불만 비율·지난주 숫자·주제별 건수, 이번 주에 고칠 것 (최대 3개, 근거 숫자와 함께)."""
+    try:
+        at = _now(now)
+        return report.weekly(service.Timeline(classifier(), store_id, visitor_id), report.parse_week(week, at), at)
     except ValueError as e:
         return error(400, "VALIDATION_ERROR", str(e))
 
@@ -299,12 +313,25 @@ app.include_router(_care)
 app.include_router(_public)
 
 
+STORE_HEADER = "X-IC26-Store-Profile"     # shared/store_header.py 의 HEADER 와 같은 이름
+
+
 @app.middleware("http")
 async def _with_request_id(request: Request, call_next):
-    """규격 6절: 모든 응답에 X-Request-Id, 오류 본문의 request_id 와 같은 값."""
+    """규격 6절: 모든 응답에 X-Request-Id, 오류 본문의 request_id 와 같은 값.
+    6차 회의(11/20): 화면 서버가 직접 등록한 가게의 프로필을 X-IC26-Store-Profile 헤더로 실어 보내면 검사해서 등록 가게 목록에 넣는다
+    (app/registered.py). 값이 틀리면(모양·크기·예시 가게 id) 400 VALIDATION_ERROR 이고 요청을 처리하지 않는다."""
     rid = f"req_{uuid.uuid4().hex[:6]}"
     token = _request_id.set(rid)
     try:
+        value = request.headers.get(STORE_HEADER)
+        if value is not None:
+            try:
+                registered.accept(value)
+            except ValueError as e:
+                response = error(400, "VALIDATION_ERROR", f"가게 프로필 헤더가 맞지 않습니다: {e}")
+                response.headers["X-Request-Id"] = rid
+                return response
         response = await call_next(request)
     finally:
         _request_id.reset(token)

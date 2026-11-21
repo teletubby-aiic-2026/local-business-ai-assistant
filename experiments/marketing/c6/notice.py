@@ -12,9 +12,9 @@ import uuid
 import clova
 from c6 import checks
 from c6 import parsing
-from c6.measures import MEASURE_FALLBACK_SENTENCES
+from c6.measures import MEASURE_FALLBACK_SENTENCES, MISSING_TOPIC, TOPIC_LABELS, TOPIC_PHRASES
 from c6.output import CALL_FAILED_NOTE, DraftOutput, CardResult
-from c6.reply import _missing_items
+from c6.reply import _missing_items, reply_topic
 from common.korean import display_name, eul, join_item_groups, josa
 
 _MAX_REWRITES = 2  # 답글(c6.reply) 과 같은 한도 — 이만큼 다시 써도 점검을 못 넘으면 코드 템플릿으로 바꿔 넣는다
@@ -26,8 +26,34 @@ NOTICE_FEWSHOT = (
     "이외에도 필요한 게 있으면 요청사항에 적어 주세요."
 )
 
-_TOPIC_LABELS = {"missing_item": "포장 누락"}
+_TOPIC_LABELS = dict(TOPIC_LABELS)   # 주제 id → 이름 (c6.measures, 리뷰 분석과 같은 이름). 예전에는 포장 누락만 있었다
 _DEFAULT_TOPIC = "운영 개선"
+
+# 포장 누락이 아닌 불만의 공지 예시·본문 순서·템플릿 (11/21). 포장 누락 공지는 예전 그대로다.
+# 실시간 확인: 식감 불만 공지에 "배달 과정에서 시간이 지체되어"(지어낸 원인), 대기 불만 공지에 "물품은 요청사항에 적어 주세요"
+# (불만과 무관)가 나왔다 → 무슨 일이었는지는 리뷰의 말로만, 4번째 문장은 요청사항 대신 '말씀해 달라'는 안내.
+NOTICE_FEWSHOT_GENERAL = (
+    "최근 음식 식감이 아쉬웠다는 말씀이 이어졌습니다.\n"
+    "불편을 드려 죄송합니다.\n"
+    "오늘부터 말씀해 주신 점을 매장에서 더 꼼꼼히 살피겠습니다.\n"
+    "다른 불편한 점이 있으면 리뷰로 알려 주세요."
+)
+NOTICE_FALLBACK_GENERAL_TMPL = (
+    "최근 {phrase} 말씀이 이어졌습니다.\n"
+    "불편을 드려 죄송합니다.\n"
+    "{start_label} {measure_sentence}\n"
+    "다른 불편한 점이 있으면 리뷰로 알려 주세요."
+)
+GENERAL_NOTICE_MEASURE = "말씀해 주신 점을 매장에서 더 꼼꼼히 살피겠습니다."
+_ORDER_1 = {
+    "missing": '최근 있었던 일을 한 문장으로: 아래 리뷰들에서 빠졌던 품목을 묶어서, 특정 손님을 가리키지 않고 서술. "-습니다"로 끝날 것',
+    "general": ('최근 있었던 일을 한 문장으로: 아래 리뷰들이 말한 불편({label})을 리뷰에 적힌 말로만 묶어서, 특정 손님을 가리키지 않고 서술. '
+                '리뷰에 없는 원인(배달 지체·주방 사정 등)은 짐작해 쓰지 말 것. "-습니다"로 끝날 것'),
+}
+_ORDER_4 = {
+    "missing": '손님이 도와줄 수 있는 것: 다음 주문 때 요청사항에 적어 주시면 챙기겠다는 안내. "-세요"로 끝날 것',
+    "general": '다른 불편한 점이 있으면 리뷰로 알려 달라는 안내 한 문장. "-세요"로 끝날 것',
+}
 
 # 두 번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿 (c6.reply 의 used_fallback 과 같은 방식).
 # {item}{particle} 은 리뷰 사실(F)에서 뽑은 빠진 품목 + 조사, {measure_sentence} 는 고른 조치의
@@ -137,10 +163,10 @@ SYSTEM_TMPL = """\
 {fewshot}
 
 ## 본문 순서 (4문장, 줄바꿈으로 구분) — 위 예시와 같은 구조
-1. 최근 있었던 일을 한 문장으로: 아래 리뷰들에서 빠졌던 품목을 묶어서, 특정 손님을 가리키지 않고 서술. "-습니다"로 끝날 것
+1. {order_1}
 2. 짧은 사과 한 문장. "-습니다"로 끝날 것
 3. 반드시 "{start_label}"로 시작하는 문장 1개. 개선 조치를 알릴 것: {measure_rule}. "-겠습니다"로 끝날 것
-4. 손님이 도와줄 수 있는 것: 다음 주문 때 요청사항에 적어 주시면 챙기겠다는 안내. "-세요"로 끝날 것
+4. {order_4}
 
 ## 길이·금지
 한 문장(줄)마다 60자 안팎, 총 4줄. 아래 리뷰 원문을 그대로 베끼지 말고 새로 쓸 것. 금전 보상 약속·고객 개인정보 금지.
@@ -154,15 +180,28 @@ SYSTEM_TMPL = """\
 """
 
 
-def _notice_topic(target_reviews):
+def _notice_topic_id(target_reviews):
+    """묶음 리뷰들의 가장 많은 불만 주제 id. 분류가 없으면 None."""
     counts: dict[str, int] = {}
     for rv in target_reviews:
         for t in (rv.negative_topics or rv.topics or []):
             counts[t] = counts.get(t, 0) + 1
     if not counts:
-        return _DEFAULT_TOPIC
-    top = max(counts, key=counts.get)
-    return _TOPIC_LABELS.get(top, _DEFAULT_TOPIC)
+        return None
+    return max(counts, key=counts.get)
+
+
+def _notice_topic(target_reviews):
+    top = _notice_topic_id(target_reviews)
+    return _TOPIC_LABELS.get(top, _DEFAULT_TOPIC) if top else _DEFAULT_TOPIC
+
+
+def _is_missing_notice(target_reviews):
+    """포장 누락 공지인가. 분류가 있으면 가장 많은 주제로, 없으면 답글과 같은 규칙(c6.reply.reply_topic)으로 본다."""
+    top = _notice_topic_id(target_reviews)
+    if top is not None:
+        return top == MISSING_TOPIC
+    return any(reply_topic(rv) == MISSING_TOPIC for rv in target_reviews) or not target_reviews
 
 
 def assemble_notice(title: str, start_line: str, body: str, closing: str) -> str:
@@ -191,7 +230,17 @@ def _notice_fallback_item_groups(target_reviews, menu_names):
 
 def _notice_fallback_text(target_reviews, menu_names, chosen_measures, start_label):
     """두 번 다시 써도 점검을 못 넘으면 쓰는 코드 템플릿 본문 (c6.reply._fallback_sentence 와 같은 방식).
-    "주문하신" 처럼 손님 한 명을 가리키는 말은 notice_not_personal 에 걸리니 기본값으로 쓰지 않는다."""
+    "주문하신" 처럼 손님 한 명을 가리키는 말은 notice_not_personal 에 걸리니 기본값으로 쓰지 않는다.
+    포장 누락이 아닌 불만은 그 주제의 말(c6.measures.TOPIC_PHRASES)로 쓰고, 품목 빠짐·요청사항 문장을 넣지 않는다 (11/21)."""
+    if not _is_missing_notice(target_reviews):
+        top = _notice_topic_id(target_reviews)
+        phrase = TOPIC_PHRASES.get(top, {}).get("notice", "이용하시면서 불편하셨다는")
+        if chosen_measures:
+            measure_sentence = MEASURE_FALLBACK_SENTENCES.get(chosen_measures[0]["id"], chosen_measures[0]["text"])
+        else:
+            measure_sentence = GENERAL_NOTICE_MEASURE
+        return NOTICE_FALLBACK_GENERAL_TMPL.format(
+            phrase=phrase, start_label=start_label, measure_sentence=_drop_leading_time_phrase(measure_sentence))
     groups = [g for g in _notice_fallback_item_groups(target_reviews, menu_names) if g]
     item = join_item_groups(groups) if groups else "포장 품목"
     particle = josa(item, "이", "가")
@@ -218,6 +267,8 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
 
     store_display = display_name(store.name)
     topic = _notice_topic(target_reviews)
+    missing_notice = _is_missing_notice(target_reviews)
+    order_kind = "missing" if missing_notice else "general"
     title = f"[안내] {topic} 관련"
     start_line = f"{store_display}{eul(store_display)} 찾아 주시는 분들께"
     closing_line = f"늘 찾아 주셔서 감사합니다. {store_display} 드림"
@@ -237,7 +288,8 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
 
     system = SYSTEM_TMPL.format(
         store_name=store_display,
-        fewshot=NOTICE_FEWSHOT,
+        fewshot=NOTICE_FEWSHOT if missing_notice else NOTICE_FEWSHOT_GENERAL,
+        order_1=_ORDER_1[order_kind].format(label=topic), order_4=_ORDER_4[order_kind],
         start_label=start_label,
         measure_rule=measure_rule,
         measures_section=measures_section,
@@ -274,7 +326,26 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         }
         if forbidden_phrases:
             result["no_forbidden_phrase"] = not checks.forbidden_phrase(text, forbidden_phrases)
+        if not missing_notice:   # 포장 누락이 아닌 공지: 리뷰에 없는 원인을 짐작해 쓰지 않았는가 (11/21, 포장 누락 공지는 예전 점검 그대로)
+            result["no_guessed_cause"] = not checks.guessed_cause(body)
         return result
+
+    # 포장 누락이 아니고 사장님이 고른 조치도 없는 공지: '오늘부터' 줄(조치)을 코드가 쓴다 (11/21 실시간: 대기 불만 공지에
+    # "대기 예상 시간을 미리 안내하고 주문을 유도하여"처럼 사장님이 정하지 않은 조치를 지어냄. 고른 조치가 없으면 답글처럼
+    # 무엇을 바꾸겠다는 약속 대신 지킬 수 있는 문장만 둔다).
+    pin_line = f"{start_label} {GENERAL_NOTICE_MEASURE}" if (not missing_notice and not chosen_measures) else ""
+
+    def _pin_measure(body_):
+        if not pin_line or not body_:
+            return body_
+        lines = [ln.strip() for ln in body_.splitlines() if ln.strip()]
+        # '오늘부터' 대신 '앞으로'·'다음부터'로 시작한 조치 줄도 조치 줄로 본다 (실시간: "앞으로 …" 줄이 코드 줄과 같이 남았다)
+        def is_measure(ln):
+            return ln.startswith(start_label) or any(ln.startswith(p + " ") for p in _LEADING_TIME_PHRASES)
+        at = next((i for i, ln in enumerate(lines) if is_measure(ln)), None)
+        if at is None:
+            return _insert_measure_line(body_, pin_line)
+        return "\n".join(lines[:at] + [pin_line] + [ln for ln in lines[at + 1:] if not is_measure(ln)])
 
     retry_exempt = ("length_ok",)
     evidence_ids = _compute_evidence()
@@ -297,6 +368,8 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
     raw = resp.get("content", "")
     body = parsing.extract_body(raw)  # JSON이든 평문이든 본문을 절대 버리지 않는다
     body = _dedupe_start_label_line(body, start_label)
+    hcx_body = body
+    body = _pin_measure(body)
 
     needs = []
     if call_errors and not body:   # 호출이 끝내 실패 → 코드가 쓴 기본 문장으로 채우고 사장님께 알린다 (다시 쓰기 호출 없음)
@@ -315,7 +388,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
                     return fixed, text2, chk2, failed2
         return body_, text_, chk_, failed_
 
-    last_ai_body = "" if needs else body   # HCX 가 마지막으로 쓴 본문 — 최종 본문이 이와 다르면 코드가 고친 것(ai_part_repaired)
+    last_ai_body = "" if needs else hcx_body   # HCX 가 마지막으로 쓴 본문 — 최종 본문이 이와 다르면 코드가 고친 것(ai_part_repaired)
     body, text, check_results, failed = _check_with_word_fix(body)
 
     rewrite_call_failed = False
@@ -355,6 +428,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
         if body2:
             body = _dedupe_start_label_line(body2, start_label)
             last_ai_body = body
+            body = _pin_measure(body)
         body, text, check_results, failed = _check_with_word_fix(body)
 
     # 딱딱한 표현이 남으면 본문에만 사전대로 단어를 바꾼다 (추가 호출 없음). 공지는 합니다체라 formal=True —

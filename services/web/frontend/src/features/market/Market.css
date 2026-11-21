@@ -1,34 +1,42 @@
-/* 상권 분석 (#/market, Figma 화면 11). 본문 + 오른쪽 280px 옆 칸.
-   폭은 창이 아니라 본문 실제 폭(@container content, layout.css)으로 가른다: 980px 아래(1280px 노트북 + 서랍 등)면 옆 칸을 아래로.
-   지표 칸(.mk-main)도 크기 컨테이너라 지표 4칸·탭은 그 칸의 폭을 본다. 공통 CSS(main.jsx)가 먼저 읽히지만, 공통 클래스는 두 클래스로 덮어 순서에 기대지 않는다 */
+/* 상권 분석 (#/market, 6차 회의 11/20 Figma '06 설계 기준 화면' F1). 한 줄기: 머리 · 분석 조건 · 지도 · 지표 4칸 · 탭 · (그림에 없는) 서울시 자료 최신화와 문화행사.
+   폭은 창이 아니라 본문 실제 폭(@container content, layout.css)으로 가른다. 탭 칸(.mk-main)도 크기 컨테이너라 탭은 그 칸의 폭을 본다.
+   공통 CSS(main.jsx)가 먼저 읽히지만, 공통 클래스는 두 클래스로 덮어 순서에 기대지 않는다. 지도 모양은 components/NaverMap.css */
 .mk { word-break: keep-all; overflow-wrap: break-word; }
 
-/* 분석 조건: 넓으면 고르기 3개와 버튼이 한 줄, 아니면 버튼은 아랫줄 */
+/* 분석 조건: 고르기 3개와 [이 조건으로 보기]가 한 줄 (좁으면 버튼이 아랫줄 전체), 그 아래 지금 조건 · 우리 가게 기준으로 */
 .mk-cond-row { display: flex; flex-wrap: wrap; gap: var(--s-12); align-items: flex-end; }
 .mk-field { min-width: 0; flex: 1 1 160px; }
 .mk-field select { min-width: 0; max-width: 100%; }
-.mk-cond-btns { flex: 1 1 100%; }
-@container content (min-width: 1000px) { .mk-cond-btns { flex: 0 1 auto; } }
+.mk-apply { flex: 0 0 auto; }
+@container content (max-width: 679px) { .mk-apply { flex: 1 1 100%; } }
+.panel.mk-cond > .mk-cond-row { margin-top: 0; }   /* 앞의 제목(h2.sr)은 읽기 프로그램용이라 위 여백을 주지 않음 */
+.panel.mk-cond > .mk-cond-now, .panel.mk-cond > .mk-cond-note { margin-top: var(--s-8); }
+/* 새 조건의 숫자를 불러오는 동안 보던 숫자는 흐리게 (라벨·숫자가 섞여 보이지 않게) */
+.mk-dim { opacity: .45; transition: opacity .15s; }
+@media (prefers-reduced-motion: reduce) { .mk-dim { transition: none; } }
+.mk-cond-now { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 var(--s-12); }
+.mk-cond-now .btn.text { margin-left: auto; }
 
-/* 본문 두 칸 → 좁으면 위아래 (아래로 간 옆 칸의 두 패널은 나란히) */
-.mk-body { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--s-24); align-items: start; }
-/* 한 칸 격자도 minmax(0, 1fr): 줄바꿈 없는 비교 표의 폭이 칸을 밀어 휴대전화에서 가로 스크롤이 생기지 않게 (표는 .mk-table-wrap 안에서만 밀림) */
-.mk-main, .mk-side { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-16); min-width: 0; }
-.mk-main { container: mk-main / inline-size; }
-@container content (max-width: 979px) {
-  .mk-body { grid-template-columns: minmax(0, 1fr); gap: var(--s-16); }
-  .mk-side { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); align-items: start; }
-}
+/* 지도 칸: 제목 줄 오른쪽 출처, 지도, 범례, 주변 상권 목록 */
+.mk-map .panel-head .sub { overflow-wrap: anywhere; }
 
-/* 핵심 지표 4칸은 2×2: 한 줄 4칸이면 1280px 노트북(지표 칸 약 950px)에서도 '117억 7,727만 원'의 '원'이 혼자 다음 줄로 꺾인다.
-   지표 칸이 아주 넓을 때(1100px 이상)만 한 줄 */
+/* 핵심 지표 4칸: 본문이 넓으면(900px 이상) 한 줄 4칸에 숫자를 조금 작게, 그보다 좁으면 2×2 (공통 .tiles 규칙이 480px 아래는 숫자 24px).
+   잰 값: '117억 7,727만 원'은 28px 에서 184px, 26px 에서 171px. 칸 안쪽 폭은 본문 900px 에서 171px, 1000px 이상에서 190px 이상 */
 .tiles.mk-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@container mk-main (min-width: 1100px) { .tiles.mk-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container content (min-width: 900px) {
+  .tiles.mk-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tiles.mk-tiles .num { font-size: 26px; }
+}
+@container content (min-width: 1000px) { .tiles.mk-tiles .num { font-size: 28px; } }
 .mk-tiles .num { overflow-wrap: anywhere; }
 .mk-neg { color: var(--bad); }
 
-/* 탭: 지표 칸이 좁으면 2×2 */
-.mk-tabbar .tabs { display: flex; }
+/* 탭 칸. 한 칸 격자도 minmax(0, 1fr): 줄바꿈 없는 비교 표의 폭이 칸을 밀어 휴대전화에서 가로 스크롤이 생기지 않게 (표는 .mk-table-wrap 안에서만 밀림) */
+.mk-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-16); min-width: 0; container: mk-main / inline-size; }
+/* 서울시 자료 최신화 · 문화행사: 맨 아래에 나란히 (좁으면 위아래) */
+.mk-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--s-16); align-items: start; min-width: 0; }
+
+/* 탭: 넓으면 글자 폭만큼(base.css 의 inline-flex 그대로), 탭 칸이 좁으면 2×2 로 칸을 채움 */
 @container mk-main (max-width: 779px) {
   .mk-tabbar .tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mk-tabbar .tabs [role="tab"] { white-space: normal; line-height: 1.3; }

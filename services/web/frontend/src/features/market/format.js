@@ -1,5 +1,6 @@
 // 상권 분석 화면의 숫자·글 표기 (예전 app.js 의 qLabel·wonShort·numKo·pctKo·mkvBars 계산·chatUrl).
 // 서버 숫자는 원 단위 그대로를 '억·만'으로만 줄여 보인다 (반올림 표기). 사람이 읽는 칸은 손대지 않는다.
+import { shortPlace, textOr } from "../../lib/domain.js";
 
 // 분기: 코드('20262') 또는 상권 서비스의 {code, label} 둘 다 받는다
 export const qLabel = (p) => p && typeof p === "object" ? (p.label || qLabel(p.code))
@@ -44,14 +45,21 @@ export const safeUrl = (v) => { try { const u = new URL(String(v)); return u.pro
 // 서버 시각 '2026-11-18T21:09:00+09:00' → '2026-11-18 21:09'
 export const shortTime = (t) => String(t).slice(0, 16).replace("T", " ");
 
-// 적재된 자료 상태 한 줄 (예전 mkvDataStatus)
+// 자료 상태 한 줄 (예전 mkvDataStatus). 볼 수 있는 분기 범위('2024년 3분기~2026년 2분기 자료를 볼 수 있어요.')와
+// 서울시에 최신 자료를 확인한 때만 사장님 말로. 원본 파일 수·'서버에 준비' 같은 안쪽 사정은 적지 않는다.
+// 자료가 모자라면(관리자 확인 필요 등) 서버 문장 그대로
 export function dataStatusText(d) {
-  if (!d) return "적재된 자료 상태를 불러오지 못했어요.";
-  const parts = [d.message || ""];
-  if (d.verified_files != null) parts.push(`검증한 원본 파일 ${numKo(d.verified_files, "개")}`);
-  parts.push(d.last_synced_at ? `마지막 서울시 확인 ${shortTime(d.last_synced_at)}` : "서울시 확인 기록 없음");
-  return parts.filter(Boolean).join(" · ");
+  if (!d) return "자료 상태를 불러오지 못했어요.";
+  const ps = (Array.isArray(d.periods) ? d.periods : []).map(String).filter((p) => /^[0-9]{4}[1-4]$/.test(p)).sort();
+  const ready = d.status ? d.status === "ready" : !d.missing_files;
+  const head = ready && ps.length ? `${qLabel(ps[0])}${ps.length > 1 ? `~${qLabel(ps[ps.length - 1])}` : ""} 자료를 볼 수 있어요.` : textOr(d.message);
+  return [head, d.last_synced_at ? `서울시 최신 자료 확인 ${shortTime(d.last_synced_at)}` : ""].filter(Boolean).join(" · ");
 }
+
+// 화면 머리의 가게 한 줄: 가게 이름 · 위치(역, 없으면 등록한 위치를 짧게) · 업종. 모르는 칸은 뺀다 ('null' 이 찍히지 않게)
+export const storeLineOf = (st) => (st
+  ? [textOr(st.name), textOr(st.station_name) || shortPlace(st.location_label), textOr(st.business_type_name)].filter(Boolean).join(" · ")
+  : "");
 
 // 동기화 결과 한 줄 (예전 mkvSync)
 export function syncText(r) {

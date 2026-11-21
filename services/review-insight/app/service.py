@@ -8,7 +8,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app import records, storage
+from app import records, registered, storage
 from app.classify import Classifier
 from app.cluster import build_insight
 from app.models import CHANNELS, Review, ReviewInsight
@@ -51,8 +51,14 @@ def store_ids() -> list[str]:
     return sorted(ids, key=lambda s: s != DEFAULT_STORE)      # 시나리오 가게를 맨 앞에
 
 
+def is_registered(store_id: str) -> bool:
+    """사장님이 직접 등록한 가게 (합성 폴더가 없고, 화면 서버가 헤더로 알려 준 가게, app/registered.py)."""
+    return store_id not in store_ids() and registered.get(store_id) is not None
+
+
 def _dir(store_id: str) -> Path:
-    if store_id not in store_ids():
+    """가게의 합성 자료 폴더. 모르는 가게면 StoreNotFound. 등록 가게는 폴더가 없다 (합성 리뷰·정답표 없음)."""
+    if store_id not in store_ids() and registered.get(store_id) is None:
         raise StoreNotFound(store_id)
     return SYNTHETIC / store_id
 
@@ -62,14 +68,20 @@ def stores() -> list[dict]:
 
 
 def store(store_id: str = DEFAULT_STORE) -> dict:
+    if is_registered(store_id):
+        return registered.store_json(store_id)
     return json.loads((_dir(store_id) / "store.json").read_text(encoding="utf-8"))
 
 
 def sample_reviews(store_id: str = DEFAULT_STORE) -> list[Review]:
+    if is_registered(store_id):
+        return []
     return [Review.from_dict(d) for d in json.loads((_dir(store_id) / "reviews.json").read_text(encoding="utf-8"))]
 
 
 def labels(store_id: str = DEFAULT_STORE) -> dict:
+    if is_registered(store_id):
+        return {}
     return {l["review_id"]: l for l in json.loads((_dir(store_id) / "labels.json").read_text(encoding="utf-8"))}
 
 

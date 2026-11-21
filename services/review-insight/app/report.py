@@ -1,4 +1,8 @@
-"""일일 요약과 월간 보고서. 숫자는 모두 코드가 계산하고, 문장은 틀 문장에 숫자만 넣는다 (모델 호출 없음).
+"""일일 요약과 주간·월간 보고서. 숫자는 모두 코드가 계산하고, 문장은 틀 문장에 숫자만 넣는다 (모델 호출 없음).
+
+- 주간(11/20)은 월요일~일요일. 월간과 같은 계산(_span)을 쓰고, 반복 불만의 '이 기간 건수' 칸 이름만 count_this_week 다.
+  주간에는 비교 칸(불만 비율·지난주 숫자·주제별 건수)과 '이번 주에 고칠 것'(title·evidence·text)이 늘 들어 있다.
+  월간은 compare=true 로 부를 때만 같은 비교 칸을 뒤에 더한다 (안 주면 예전 응답과 같음).
 
 - 날짜는 한국 시간. 리뷰가 "그날 들어왔다"는 받은 시각(received_at) 기준이고,
   받은 시각이 없는 합성 샘플은 작성 시각(시나리오 날짜, 10/13~11/8) 기준이다.
@@ -124,12 +128,11 @@ def daily(tl: Timeline, day: date, now: datetime) -> dict:
     }
 
 
-def monthly(tl: Timeline, year: int, month: int, now: datetime) -> dict:
-    first = date(year, month, 1)
-    last = date(year, month, calendar.monthrange(year, month)[1])
-    start = datetime(year, month, 1, tzinfo=KST)
-    if start > now:
-        raise ValueError("아직 오지 않은 달입니다")
+def _span(tl: Timeline, first: date, last: date, now: datetime, count_key: str) -> dict:
+    """월간·주간 보고서가 같이 쓰는 계산: first~last(양 끝 포함) 기간을 now 까지 본다.
+    count_key 는 반복 불만 칸에서 '이 기간 건수'의 이름 (월간 count_this_month, 주간 count_this_week).
+    부르는 쪽이 기간 시작이 now 보다 늦지 않은지 먼저 본다."""
+    start = datetime(first.year, first.month, first.day, tzinfo=KST)
     days = [first + timedelta(days=i) for i in range((min(last, now.astimezone(KST).date()) - first).days + 1)]
     trend = []
     for d in days:
@@ -140,35 +143,206 @@ def monthly(tl: Timeline, year: int, month: int, now: datetime) -> dict:
     rows = [r for r in tl.rows if start <= tl.arrival(r) <= end]
     insight = tl.insight_at(end)
 
-    # 반복 불만별: 이번 달 건수, 답글 여부, 답글 뒤 재발
+    # 반복 불만별: 이 기간 건수, 답글 여부, 답글 뒤 재발
     again = [x for x in after["reasons"] if x["kind"] == "again" and start.isoformat() <= x["at"] <= end.isoformat()]
     fixed = {x["topic"] for x in after["reasons"] if x["kind"] == "fixed"}
-    month_ids = {r["review_id"] for r in rows}
+    period_ids = {r["review_id"] for r in rows}
     replied_ids = {r["review_id"] for r in tl.rows if any(h.get("status") == "replied" for h in r["history"])}
-    issues = []
+    issues, issue_topics = [], {}
     for g in (insight.groups if insight else []):
-        in_month = [i for i in g.review_ids if i in month_ids]
-        if not in_month and not g.is_repeated:
+        in_period = [i for i in g.review_ids if i in period_ids]
+        if not in_period and not g.is_repeated:
             continue
         recurred = [x for x in again if x.get("topic") in g.topics]
         replied = [i for i in g.review_ids if i in replied_ids]
         state = ("recurred_after_reply" if recurred else "no_recurrence" if any(t in fixed for t in g.topics)
                  else "replied_watching" if replied else "no_reply")
         issues.append({"issue_id": g.issue_id, "topic_name": g.topic_name, "review_count": g.review_count,
-                       "count_this_month": len(in_month), "is_repeated": g.is_repeated, "replied_count": len(replied),
+                       count_key: len(in_period), "is_repeated": g.is_repeated, "replied_count": len(replied),
                        "recurred_after_reply": len(recurred), "state": state, "main_time_band": g.main_time_band})
+        issue_topics[g.issue_id] = list(g.topics)
 
     late = sum(1 for x in after["reasons"] if x["kind"] == "late" and start.isoformat() <= x["at"] <= end.isoformat())
+    return {"start": start, "end": end, "trend": trend, "before": before, "after": after, "rows": rows,
+            "issues": issues, "issue_topics": issue_topics, "late": late}
+
+
+def monthly(tl: Timeline, year: int, month: int, now: datetime) -> dict:
+    first = date(year, month, 1)
+    last = date(year, month, calendar.monthrange(year, month)[1])
+    start = datetime(year, month, 1, tzinfo=KST)
+    if start > now:
+        raise ValueError("아직 오지 않은 달입니다")
+    p = _span(tl, first, last, now, "count_this_month")
+    rows, before, after, issues, late = p["rows"], p["before"], p["after"], p["issues"], p["late"]
     suggestions = _suggestions(issues, late)
     return {
-        "store_id": tl.store_id, "month": f"{year:04d}-{month:02d}", "until": end.isoformat(timespec="seconds"),
+        "store_id": tl.store_id, "month": f"{year:04d}-{month:02d}", "until": p["end"].isoformat(timespec="seconds"),
         "review_count": len(rows), "complaint_count": sum(1 for r in rows if tl.negative.get(r["review_id"])),
         "by_source": dict(Counter(r["source"] for r in rows)),
         "score_start": before["score"], "score_end": after["score"], "score_change": after["score"] - before["score"],
-        "score_trend": trend, "changes": response.diff(before, after), "late_count": late,
+        "score_trend": p["trend"], "changes": response.diff(before, after), "late_count": late,
         "repeated_issues": issues, "suggestions": suggestions, "summary_method": "template",
         "praise": praise(tl, rows),
     }
+
+
+# ── 비교 칸 (11/20, 종합 리포트의 주간·월간 저장 보고서) ──
+# 불만 비율·지난 기간 숫자·주제별 건수. 월간은 GET /report/monthly?compare=true 일 때만 monthly() 결과 뒤에 더한다
+# (compare 없이 부르면 월간 응답은 예전과 글자 하나 다르지 않다). 주간은 늘 들어 있다.
+def complaint_rate(complaints: int, reviews: int) -> int | None:
+    """불만 리뷰 비율(%, 정수, 반올림은 0.5 에서 올림). 리뷰가 0건이면 None."""
+    return (200 * complaints + reviews) // (2 * reviews) if reviews else None
+
+
+def _rows_in(tl: Timeline, first: date, last: date, now: datetime) -> list[dict]:
+    """first~last 기간에 (now 까지) 들어온 리뷰. 기간이 아직 시작하지 않았으면 빈 목록."""
+    start = datetime(first.year, first.month, first.day, tzinfo=KST)
+    end = _cut(last, now)
+    return [r for r in tl.rows if start <= tl.arrival(r) <= end]
+
+
+def _topic_counter(tl: Timeline, rows: list[dict]) -> Counter:
+    """(주제, 극성) → 리뷰 수. 한 리뷰는 주제·극성마다 한 번 (리뷰 분석 화면의 topic_counts 와 같은 셈법)."""
+    classes = {c.review_id: c for c in tl.classes}
+    counts: Counter = Counter()
+    for r in rows:
+        c = classes.get(r["review_id"])
+        for pol in ("negative", "positive"):
+            counts.update((t, pol) for t in {h.topic for h in (c.topics if c else []) if h.polarity == pol})
+    return counts
+
+
+def _topics(now_counts: Counter, prev_counts: Counter) -> list[dict]:
+    """주제별 흐름: 불만(negative) 먼저, 같은 극성 안에서는 이 기간 건수 많은 순 → 주제 사전 순서.
+    이 기간이나 지난 기간에 한 번이라도 나온 주제만."""
+    order = {t: n for n, t in enumerate(TOPICS)}
+    keys = {k for k, n in now_counts.items() if n} | {k for k, n in prev_counts.items() if n}
+    keys = sorted(keys, key=lambda k: (k[1] != "negative", -now_counts.get(k, 0), order.get(k[0], len(order))))
+    return [{"topic": t, "topic_name": topic_name(t), "polarity": pol, "count": now_counts.get((t, pol), 0),
+             "previous": prev_counts.get((t, pol), 0)} for t, pol in keys]
+
+
+def _compare(tl: Timeline, rows: list[dict], prev_rows: list[dict]) -> tuple[dict, list[dict]]:
+    complaints = sum(1 for r in prev_rows if tl.negative.get(r["review_id"]))
+    prev = {"review_count": len(prev_rows), "complaint_count": complaints, "complaint_rate": complaint_rate(complaints, len(prev_rows))}
+    return prev, _topics(_topic_counter(tl, rows), _topic_counter(tl, prev_rows))
+
+
+def monthly_compare(tl: Timeline, year: int, month: int, now: datetime) -> dict:
+    """monthly() + 비교 칸 (complaint_rate, previous, topics). 지난 기간 = 바로 앞 달 전체."""
+    out = monthly(tl, year, month, now)
+    first = date(year, month, 1)
+    rows = _rows_in(tl, first, date(year, month, calendar.monthrange(year, month)[1]), now)
+    prev_last = first - timedelta(days=1)
+    prev_first = prev_last.replace(day=1)
+    prev, topics = _compare(tl, rows, _rows_in(tl, prev_first, prev_last, now))
+    return out | {"complaint_rate": complaint_rate(out["complaint_count"], out["review_count"]),
+                  "previous": {"month": f"{prev_first.year:04d}-{prev_first.month:02d}"} | prev, "topics": topics}
+
+
+# ── 주간 보고서 (11/20): 월요일 0시 ~ 일요일 23:59:59 (한국 시간), 계산은 월간과 같다 ──
+WEEK_FIXES = 3
+
+
+def week_monday(d: date) -> date:
+    return d - timedelta(days=d.weekday())
+
+
+def parse_week(value: str | None, now: datetime) -> date:
+    """그 주의 월요일. 아무 날짜나 받아 그 날이 든 주로 본다. 비우면 이번 주."""
+    if not value:
+        return week_monday(now.astimezone(KST).date())
+    try:
+        return week_monday(date.fromisoformat(value))
+    except ValueError:
+        raise ValueError("week 는 YYYY-MM-DD 형식이어야 합니다") from None
+
+
+def _batchim(word: str) -> bool:
+    """마지막 글자가 받침 있는 한글이면 True (조사 고르기). 한글이 아니면 받침 없는 쪽으로."""
+    last = word.strip()[-1:] if word else ""
+    return bool(last) and "가" <= last <= "힣" and (ord(last) - 0xAC00) % 28 != 0
+
+
+def weekly(tl: Timeline, monday: date, now: datetime) -> dict:
+    """주간 보고서. 월간과 같은 기준·같은 칸(반복 불만의 이 기간 건수만 count_this_week)에 비교 칸과 '이번 주에 고칠 것'.
+    지난 기간 = 바로 앞 주 전체. 아직 시작하지 않은 주는 ValueError. 리뷰가 0건이어도 같은 모양 (비율은 None)."""
+    monday = week_monday(monday)
+    sunday = monday + timedelta(days=6)
+    if datetime(monday.year, monday.month, monday.day, tzinfo=KST) > now:
+        raise ValueError("아직 오지 않은 주입니다")
+    p = _span(tl, monday, sunday, now, "count_this_week")
+    rows, before, after, issues, late = p["rows"], p["before"], p["after"], p["issues"], p["late"]
+    complaints = sum(1 for r in rows if tl.negative.get(r["review_id"]))
+    prev_monday = monday - timedelta(days=7)
+    prev, topics = _compare(tl, rows, _rows_in(tl, prev_monday, monday - timedelta(days=1), now))
+    pr = praise(tl, rows)
+    fixes = _week_fixes(issues, p["issue_topics"], topics, late, tl.policy.sla_minutes, pr, len(rows), complaints)
+    return {
+        "store_id": tl.store_id, "week": monday.isoformat(), "week_start": monday.isoformat(), "week_end": sunday.isoformat(),
+        "until": p["end"].isoformat(timespec="seconds"),
+        "review_count": len(rows), "complaint_count": complaints, "complaint_rate": complaint_rate(complaints, len(rows)),
+        "by_source": dict(Counter(r["source"] for r in rows)),
+        "score_start": before["score"], "score_end": after["score"], "score_change": after["score"] - before["score"],
+        "score_trend": p["trend"], "changes": response.diff(before, after), "late_count": late,
+        "repeated_issues": issues, "previous": {"week": prev_monday.isoformat()} | prev, "topics": topics,
+        "suggestions": fixes, "summary_method": "template", "praise": pr,
+    }
+
+
+def _week_fixes(issues: list[dict], issue_topics: dict, topics: list[dict], late: int, sla: int, pr: dict | None,
+                review_count: int, complaint_count: int) -> list[dict]:
+    """이번 주에 고칠 것 (최대 3개). 칸마다 kind·title(한 줄)·evidence(근거 숫자)·text(확인할 일).
+    월간 제안(_suggestions)과 같은 일에 '지난주보다 는 불만'과 '칭찬이 가장 많은 메뉴'를 더했다. 원인은 단정하지 않는다.
+    차례: 답글 뒤 재발 → 이번 주에도 들어온 답글 없는 반복 불만(이번 주 건수 많은 순) → 지난주보다 는 불만(2건 이상)
+    → 기한 넘긴 답글 → 이번 주에는 없던 답글 없는 반복 불만 → 칭찬이 가장 많은 메뉴(2건 이상, 자리가 남을 때).
+    문장 속 숫자는 모두 옆 칸(repeated_issues·topics·late_count·praise)의 값이다 (시험으로 확인)."""
+    out, covered = [], set()
+    for i in issues:
+        if i["state"] == "recurred_after_reply":
+            out.append({"kind": "recurred", "issue_id": i["issue_id"],
+                        "title": f"'{i['topic_name']}' 불만이 답글 뒤에도 다시 들어왔어요",
+                        "evidence": f"이번 주 {i['count_this_week']}건 · 답글 뒤 재발 {i['recurred_after_reply']}건",
+                        "text": "답글의 약속이 매장 절차로 이어졌는지 확인해 보세요"})
+            covered.update(issue_topics.get(i["issue_id"], ()))
+    unreplied = [i for i in issues if i["is_repeated"] and i["state"] == "no_reply"]
+    covered.update(t for i in unreplied for t in issue_topics.get(i["issue_id"], ()))
+
+    def no_reply(i: dict) -> dict:
+        band = f" · {i['main_time_band']}에 많음" if i["main_time_band"] else ""
+        return {"kind": "no_reply", "issue_id": i["issue_id"],
+                "title": f"'{i['topic_name']}' 불만 {i['review_count']}건에 아직 답글이 없어요",
+                "evidence": f"이번 주 {i['count_this_week']}건 · 전체 {i['review_count']}건{band}",
+                "text": "답글로 조치를 알리고, 매장에서 확인해 보세요"}
+
+    out += [no_reply(i) for i in sorted((i for i in unreplied if i["count_this_week"]), key=lambda i: -i["count_this_week"])]
+    for t in topics:
+        if t["polarity"] == "negative" and t["count"] >= 2 and t["count"] > t["previous"] and t["topic"] not in covered:
+            out.append({"kind": "rising", "topic": t["topic"],
+                        "title": f"'{t['topic_name']}' 불만이 지난주보다 늘었어요",
+                        "evidence": f"이번 주 {t['count']}건 · 지난주 {t['previous']}건",
+                        "text": "어느 시간대·메뉴에 몰렸는지 확인해 보세요"})
+    if late:
+        out.append({"kind": "late", "title": f"기한을 넘긴 답글이 {late}건 있었어요",
+                    "evidence": f"답글 기한 {sla}분 · 이번 주 기한 넘김 {late}건",
+                    "text": f"피크가 끝난 뒤 {sla}분 안에 리뷰를 확인하는 시간을 정해 보세요"})
+    out += [no_reply(i) for i in unreplied if not i["count_this_week"]]
+    menus = (pr or {}).get("top_menus") or []
+    if menus and len(out) < WEEK_FIXES and menus[0]["count"] >= 2:
+        m = menus[0]
+        out.append({"kind": "praise_menu", "title": f"칭찬이 가장 많은 메뉴는 '{m['menu']}'{'이에요' if _batchim(m['menu']) else '예요'}",
+                    "evidence": f"칭찬 리뷰 {pr['praise_count']}건 중 {m['count']}건",
+                    "text": "홍보 글에 이 메뉴를 앞세워 보세요"})
+    if not out:
+        if review_count:
+            out.append({"kind": "none", "title": "이번 주는 크게 고칠 응대가 보이지 않아요",
+                        "evidence": f"리뷰 {review_count}건 · 불만 {complaint_count}건 · 기한 넘김 0건",
+                        "text": "지금 방식을 이어 가세요"})
+        else:
+            out.append({"kind": "empty", "title": "이번 주에 들어온 리뷰가 아직 없어요", "evidence": "리뷰 0건",
+                        "text": "리뷰가 들어오면 보고서를 다시 만들어 보세요"})
+    return out[:WEEK_FIXES]
 
 
 def _suggestions(issues: list[dict], late: int) -> list[dict]:
@@ -185,6 +359,16 @@ def _suggestions(issues: list[dict], late: int) -> list[dict]:
                                                          "답글로 조치를 알리고, 매장에서 확인해 보세요"})
     if late:
         out.append({"text": f"기한을 넘긴 답글이 {late}건 있었어요. 피크가 끝난 뒤 30분 안에 리뷰를 확인하는 시간을 정해 보세요"})
+    # 반복 불만에 답글을 달았거나, 반복은 아니어도 답글 없는 불만이 남은 달에 "크게 고칠 응대가 없다"고 하면 표와 어긋난다
+    # (11/21 실시간 확인 13번: 주간 보고서는 '포장 상태 3건 반복'인데 월간은 '고칠 응대 없음') → 그 불만을 지켜볼 일로 적는다.
+    for i in issues:
+        if i["is_repeated"] and i["state"] == "replied_watching":
+            out.append({"issue_id": i["issue_id"], "text": f"'{i['topic_name']}' 불만이 {i['review_count']}건 반복됐어요. "
+                                                         "답글은 달았으니 같은 불만이 다시 들어오는지 지켜보세요"})
+    for i in issues:
+        if not i["is_repeated"] and i["state"] == "no_reply":
+            out.append({"issue_id": i["issue_id"], "text": f"'{i['topic_name']}' 불만 {i['review_count']}건에 아직 답글이 없어요. "
+                                                         "답글을 달고 같은 불만이 이어지는지 지켜보세요"})
     if not out:
         out.append({"text": "이번 달은 크게 고칠 응대가 보이지 않아요. 지금 방식을 이어 가세요"})
     return out[:3]

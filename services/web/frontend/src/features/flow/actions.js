@@ -2,14 +2,14 @@
 // 진행 결과는 store.js(results·approved·approvedLog·pending·current·draftId), 버튼 잠금·안내는 ./state.js.
 import { api } from "../../lib/api.js";
 import { go, navTo, currentRoute } from "../../lib/router.js";
-import { draftsOf, GEN_NAMES } from "../../lib/domain.js";
+import { draftsOf, genName } from "../../lib/domain.js";
 import { getState, setState, setAlert } from "../../state/store.js";
 import { emptyFlow } from "../../state/boot.js";
 import { waitingCount } from "../../state/staff.js";
 import { getFlow, setFlow, resetFlow } from "./state.js";
 import {
   RERUN_ARM_MS, measureIds, replacesOf, regenKey, sameSlot, failedOf, checksOf,
-  textOf, touchedOf, findDraft, cardOfDraft, mapDraft,
+  textOf, touchedOf, findDraft, cardOfDraft, mapDraft, regenNote,
 } from "./calc.js";
 
 // 카드 전체 실행마다 붙이는 번호. 늦게 온 '다시 만들기' 응답이 그사이 다시 만든 카드에 끼어들지 않게 견준다
@@ -113,8 +113,8 @@ export async function regenDraft(id) {
       results: { ...n.results, [cardId]: { ...cur, drafts, flagged_count: drafts.filter((x) => failedOf(x).length || checksOf(x).length).length } },
       draftId: n.draftId === gone ? fresh.draft_id : n.draftId,
     }));
-    setFlow({ note: { id: fresh.draft_id, text: (made.source === "seed" ? "시험용 실행이라 같은 예시 글을 다시 불러왔어요." : "이 글만 새로 만들었어요.")
-      + " 다른 글은 그대로예요." } });
+    // 같은 글·또 기본 문장이면 '새로 만들었어요'라고 하지 않고 사실대로 (11/21 실시간 확인 M2)
+    setFlow({ note: { id: fresh.draft_id, text: regenNote(d, fresh, made.source) } });
   } catch (e) { setAlert(e.message); }
   finally { setFlow((f) => { const regen = new Set(f.regen); regen.delete(key); return { regen }; }); }
 }
@@ -152,7 +152,7 @@ export async function approve(id) {
       const pending = { ...now.pending };
       delete pending[id];
       const card = cardOfDraft(now.cards, now.results, id);
-      const name = GEN_NAMES[d.generator] || d.generator;
+      const name = genName(d.generator, card ? card.title : "");
       const log = now.approvedLog.filter((x) => x.id !== id);
       log.push({ id, at: entry.approved_at || new Date().toISOString(), edited: !!entry.edited, kind: d.generator, name,
         title: card ? card.title : "", card: card ? card.title : "", text: entry.text ?? text });
@@ -191,7 +191,7 @@ export async function restart() {
   if (failed) setAlert(`화면은 처음으로 돌렸지만 서버의 승인 기록은 지우지 못했어요. ${failed}`);
 }
 
-// 홈 'AI 비서' 칸: 누르면 맡은 화면으로
+// 홈 '담당 비서 현황' 칸: 누르면 맡은 화면으로
 export function staffGo(key) {
   if (key === "data") navTo("analysis", "summary");
   else if (key === "care") go(waitingCount(getState()) ? "draft" : "cards");

@@ -52,6 +52,27 @@ describe("AI 비서", () => {
     expect(st[3]).toMatchObject({ ok: true, text: "상권 자료 준비 · 2026년 2분기까지" });
   });
 
+  it("고객 응대·마케팅 비서 글: 만들기 전에는 '초안 만들기 전', 다 승인하면 '오늘 승인 완료'", () => {
+    const old = /만들 차례|오늘 몫 끝/;
+    const before = staffOf(base());
+    const careB = before.find((x) => x.key === "care"), mktB = before.find((x) => x.key === "mkt");
+    expect(careB.text).toBe("초안 만들기 전 · 답글 안 단 불만 4건");
+    expect(mktB.text).toBe("초안 만들기 전");
+    const results = {
+      card_ongi_a: { drafts: [
+        { draft_id: "d1", generator: "reply_draft", target_review_id: "r1" },
+        { draft_id: "d2", generator: "reply_draft", target_review_id: "r2" },
+        { draft_id: "d3", generator: "prevention_notice" },
+      ] },
+      card_ongi_b: { drafts: [{ draft_id: "d4", generator: "coupon_promo" }] },
+    };
+    const after = staffOf(base({ results, approved: new Set(["d1", "d2", "d3", "d4"]) }));
+    const careA = after.find((x) => x.key === "care"), mktA = after.find((x) => x.key === "mkt");
+    expect(careA.text).toBe("오늘 승인 완료 · 답글 안 단 불만 2건");
+    expect(mktA.text).toBe("오늘 승인 완료");
+    for (const x of [careB, mktB, careA, mktA]) expect(x.text).not.toMatch(old);
+  });
+
   it("상권 서비스를 아직 모르면 확인 중", () => {
     expect(staffOf(base()).find((x) => x.key === "market").text).toBe("확인 중");
   });
@@ -63,5 +84,23 @@ describe("홈 지표 도우미", () => {
     expect(snapValue(s)).toBe("-19.31%");
     expect(marketScope(s)).toBe("공통 업종 17~24시");
     expect(heroProblem(briefing)).toBe("포장 누락 3건 반복 · 17~21시에 몰림");
+  });
+
+  it("리뷰 0건(새로 등록한 가게): 핵심 문제는 '아직 들어온 리뷰가 없어요', 데이터 분석 비서는 '아직 리뷰 없음'", () => {
+    const empty = { counts: { review_count: 0, complaint_count: 0 }, top_issue_id: null, groups: [], single_complaints: [], pasted: [], snapshots: [] };
+    expect(heroProblem(empty)).toBe("아직 들어온 리뷰가 없어요");
+    expect(heroProblem({ ...briefing, groups: [] })).toBe("오늘은 반복되는 불만이 없어요");   // 리뷰는 있는데 반복 불만이 없는 것과 구별
+    expect(staffOf(base({ briefing: empty, cards: [] }))[0].text).toBe("아직 리뷰 없음");
+  });
+});
+
+describe("데이터 분석 비서 한 줄 (11/21 실시간 확인 5)", () => {
+  const text = (b) => staffOf(base({ briefing: b, cards: [] })).find((x) => x.key === "data").text;
+  it("리뷰가 모두 붙여 넣은 것이면 같은 수를 두 번 말하지 않는다", () => {
+    const pasted = Array.from({ length: 6 }, (_, i) => ({ review_id: `p${i}` }));
+    expect(text({ ...briefing, counts: { review_count: 6, complaint_count: 4 }, pasted })).toBe("붙여 넣은 리뷰 6건 정리 끝");
+    expect(text({ ...briefing, counts: { review_count: 20, complaint_count: 5 }, pasted: pasted.slice(0, 2) })).toBe("리뷰 20건 정리 끝 · 새로 붙인 리뷰 2건");
+    expect(text({ ...briefing, counts: { review_count: 20, complaint_count: 5 }, pasted: [] })).toBe("리뷰 20건 정리 끝");
+    expect(text({ ...briefing, counts: { review_count: 0, complaint_count: 0 }, pasted: [] })).toBe("아직 리뷰 없음");
   });
 });

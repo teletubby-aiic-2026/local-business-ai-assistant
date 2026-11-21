@@ -11,7 +11,8 @@ from dataclasses import dataclass
 
 from c6.contract import C6Context, build_context
 from c6.dummy import OWNER_REPLIES, POLICIES
-from shared import store_profiles
+from shared import store_header, store_profiles
+from shared.contracts import CHANNELS, StoreProfile
 from shared.sample_scenario import (
     SAMPLE_CARDS, SAMPLE_REVIEWS, SAMPLE_SNAPSHOTS, SAMPLE_STORE, SAMPLE_TONE,
 )
@@ -84,7 +85,40 @@ def list_stores() -> list[dict]:
     return stores
 
 
+# ── 사장님이 직접 등록한 가게 (6차 회의 11/20) ─────────────────────────
+# 비서 화면 서버가 등록 가게의 요청마다 X-IC26-Store-Profile 헤더(shared/store_header.py)로 가게 프로필을 보낸다.
+# server.py 의 미들웨어가 검사해서 여기 넣는다 (프로세스 메모리, 크기 상한 LRU). 서비스가 다시 켜져도 다음 요청의 헤더로 바로 안다.
+# 컨텍스트: 등록한 이름·업종·메뉴·가격 + 기본 말투·공통 정책. 리뷰·카드·상권 지표·예전 답글은 없다 (빈 목록 — 샘플로 채우지 않음).
+# 리뷰가 필요한 기능은 리뷰 0건일 때의 문구로, 상권 지표가 필요한 기능은 지표 없음 문구로 답한다.
+_registered = store_header.Registry()
+
+
+def register(profile: dict) -> None:
+    """검사한 등록 가게 프로필 (store_header.decode 의 결과)을 목록에 넣는다."""
+    _registered.put(profile)
+
+
+def _registered_ctx(profile: dict) -> C6Context:
+    bundle = store_profiles.registered_bundle({
+        "store_id": profile["store_id"], "name": profile["name"], "business_type_name": profile["business_type_name"],
+        "profile": {"industry_code": profile["industry_code"], "business_status": profile["business_status"],
+                    "channels": profile["channels"], "location": profile["location"], "area": profile["area"],
+                    "menus": profile["menus"]}})
+    data = store_header.store_json(profile, CHANNELS)
+    store = StoreProfile.from_dict({k: v for k, v in data.items() if k in StoreProfile.__dataclass_fields__}
+                                   | {"area_name": bundle.area_name or None, "menu_prices": dict(bundle.menu_prices)})
+    return build_context(store=store, reviews=[], tone=bundle.tone, cards=[], snapshots=[], owner_replies=[],
+                         policies=[dict(p) for p in store_profiles.COMMON_POLICIES])
+
+
+def is_registered(store_id: str) -> bool:
+    return store_id not in _AVAILABLE and _registered.get(store_id) is not None
+
+
 def get_ctx(store_id: str) -> C6Context | None:
-    """해당 가게의 Context. 데이터가 없는 가게면 None(서버가 에러로 바꾼다)."""
+    """해당 가게의 Context. 데이터가 없는 가게면 None(서버가 에러로 바꾼다). 등록 가게는 요청마다 새로 만든다 (값이 바뀔 수 있음)."""
     entry = _AVAILABLE.get(store_id)
-    return entry.ctx if entry else None
+    if entry:
+        return entry.ctx
+    profile = _registered.get(store_id)
+    return _registered_ctx(profile) if profile is not None else None

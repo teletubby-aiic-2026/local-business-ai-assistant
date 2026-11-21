@@ -184,7 +184,8 @@ class LoginFlow(unittest.TestCase):
         self.assertEqual(signup(self.client).status_code, 201)
         self.assertEqual(signup(TestClient(self.client.app)).status_code, 409)       # 같은 아이디
         cases = [{"login_id": "ab"}, {"login_id": "한글아이디"}, {"password": "short"},
-                 {"display_name": "x" * 25}, {"stores": ["store_unknown"]}, {"stores": []}]
+                 {"display_name": "x" * 25}, {"stores": ["store_unknown"]}]
+        # 11/20 계약 변경: 빈 목록은 가게 0곳 가입(201)이다 (tests/test_account_stores.py 가 확인)
         for case in cases:
             body = {"login_id": "owner99", "password": "pass-word-1", "display_name": "사장", "stores": ["store_ongi"], **case}
             res = TestClient(self.client.app).post("/api/auth/signup", json=body)

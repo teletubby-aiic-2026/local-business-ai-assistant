@@ -327,6 +327,95 @@ def test_auth_sessions_create_get_switch_delete_and_expire(backend):
     assert backend.auth_sessions.delete(live) is False
 
 
+# ── 사장님 프로필·가게 목록·직접 등록한 가게 (6차 회의 11/20) ─────────────
+def test_users_rename_password_and_store_list_edits(backend):
+    me = uuid.uuid4().hex[:16]
+    backend.users.create(me, "r" + me[:10], "scrypt$x", "사장", [])
+    assert backend.users.stores(me) == []
+    assert backend.users.rename(me, "새 이름")["display_name"] == "새 이름"
+    assert backend.users.get(me)["display_name"] == "새 이름" and backend.users.rename("nobody", "x") is None
+    assert backend.users.set_password(me, "scrypt$y") is True and backend.users.set_password("nobody", "z") is False
+    assert backend.users.by_login("r" + me[:10])["password_hash"] == "scrypt$y"
+    assert backend.users.add_store(me, "store_ongi") == ["store_ongi"]
+    assert backend.users.add_store(me, "store_basak") == ["store_ongi", "store_basak"]
+    assert backend.users.add_store(me, "store_ongi") == ["store_ongi", "store_basak"]           # 이미 있으면 그대로
+    assert backend.users.reorder(me, ["store_basak", "store_ongi"]) is True
+    assert backend.users.stores(me) == ["store_basak", "store_ongi"]
+    for wrong in (["store_basak"], ["store_basak", "store_ongi", "store_mongle"], ["store_ongi", "store_ongi"]):
+        assert backend.users.reorder(me, wrong) is False
+    assert backend.users.stores(me) == ["store_basak", "store_ongi"]
+    assert backend.users.remove_store(me, "store_basak") is True and backend.users.remove_store(me, "store_basak") is False
+    assert backend.users.add_store(me, "store_mongle") == ["store_ongi", "store_mongle"]         # 맨 뒤에 붙음
+
+
+def _profile(name="떡볶이"):
+    return {"industry_code": "CS100002", "business_status": "operating", "channels": ["배달의민족"],
+            "location": {"kind": "address", "label": "서울 동작구", "latitude": 37.5},
+            "area": {"area_code": "3110836", "name": "상도역 5번", "period": "20262"}, "menus": [{"name": name, "price": 5000}]}
+
+
+def test_registered_stores_create_get_update_list_delete(backend):
+    from shared.storage.errors import DuplicateStore, StoreLimit
+    me, them = uuid.uuid4().hex[:16], uuid.uuid4().hex[:16]
+    backend.users.create(me, "g" + me[:10], "scrypt$x", "사장", ["store_ongi"])
+    backend.users.create(them, "g" + them[:10], "scrypt$x", "옆집", [])
+    a, b, c = (f"store_{uuid.uuid4().hex[:12]}" for _ in range(3))
+    row = backend.registered_stores.create(a, me, "우리분식", "분식전문점", _profile(), limit=3)
+    assert {k: row[k] for k in ("store_id", "owner_user_id", "name", "business_type_name")} == (
+        {"store_id": a, "owner_user_id": me, "name": "우리분식", "business_type_name": "분식전문점"})
+    assert row["profile"] == _profile() and row["created_at"].endswith("+09:00")
+    assert backend.users.stores(me) == ["store_ongi", a]                                           # 목록 맨 뒤
+    assert backend.registered_stores.get(a) == row
+    with pytest.raises(DuplicateStore):
+        backend.registered_stores.create(a, them, "뺏기", "분식", _profile(), limit=3)
+    assert backend.users.stores(them) == []                                                        # 실패하면 아무것도 남지 않음
+    backend.registered_stores.create(b, me, "둘째", "한식", _profile(), limit=3)
+    with pytest.raises(StoreLimit):
+        backend.registered_stores.create(c, me, "셋째", "한식", _profile(), limit=3)
+    assert backend.registered_stores.get(c) is None and len(backend.users.stores(me)) == 3
+    with pytest.raises(KeyError):
+        backend.registered_stores.create(c, "nobody", "주인 없음", "한식", _profile(), limit=3)
+    assert backend.registered_stores.get_many([a, b, c, "store_ongi"]).keys() == {a, b}
+    changed = backend.registered_stores.update(a, name="우리분식 본점", profile=_profile("김밥"))
+    assert (changed["name"], changed["business_type_name"], changed["profile"]["menus"]) == (
+        "우리분식 본점", "분식전문점", [{"name": "김밥", "price": 5000}])
+    assert backend.registered_stores.update(c, name="x") is None
+    assert [r["store_id"] for r in backend.registered_stores.list_by_owner(me)] == [a, b]
+    backend.users.remove_store(me, b)                                       # 목록에서 빼도 가게 줄은 남는다
+    assert [r["store_id"] for r in backend.registered_stores.list_by_owner(me)] == [a, b]
+    assert backend.registered_stores.delete(a) is True and backend.registered_stores.get(a) is None
+    assert backend.users.stores(me) == ["store_ongi"]
+    assert backend.registered_stores.delete_by_owner(me) == 1 and backend.registered_stores.list_by_owner(me) == []
+    assert backend.registered_stores.delete_by_owner(me) == 0
+    with pytest.raises(ValueError):
+        backend.registered_stores.create(c, me, "모양", "한식", ["not", "a", "dict"], limit=3)
+
+
+def test_pg_old_stores_table_gets_owner_and_profile_columns(db):
+    """실서버 DB 에는 칸 3개가 없는 stores 표가 이미 있다 (11/20 전). init_db 를 다시 돌리면 칸이 붙고 있던 줄은 남는다."""
+    from psycopg import sql
+    from shared.storage.init_db import create_tables
+    schema = uid("oldstores").lower()
+    db.run(lambda c: c.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema))))
+    scoped = _scoped_db(schema)
+    try:
+        scoped.run(lambda c: (c.execute("CREATE TABLE stores (store_id TEXT PRIMARY KEY, name TEXT NOT NULL, business_type_name TEXT, "
+                                        "data_origin TEXT NOT NULL DEFAULT 'synthetic', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"),
+                              c.execute("INSERT INTO stores (store_id, name) VALUES ('store_old', '옛 가게')")))
+        create_tables(scoped)
+        create_tables(scoped)
+        cols = scoped.run(lambda c: {r["column_name"]: r["data_type"] for r in c.execute(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'stores' AND table_schema = %s",
+            (schema,)).fetchall()})
+        assert (cols["owner_user_id"], cols["profile"], cols["updated_at"]) == ("text", "jsonb", "timestamp with time zone")
+        old = scoped.run(lambda c: c.execute("SELECT name, owner_user_id, profile FROM stores WHERE store_id = 'store_old'").fetchone())
+        assert (old["name"], old["owner_user_id"], old["profile"]) == ("옛 가게", None, {})
+        assert scoped.registered_stores.get("store_old") is None                      # 등록 가게만 본다
+    finally:
+        scoped.close()
+        db.run(lambda c: c.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))))
+
+
 def test_card_reasons_put_get_overwrite(backend):
     sid = uid("store")
     assert backend.card_reasons.get(sid, "card_a", "k1") is None
@@ -371,6 +460,46 @@ def test_reports_list_is_newest_period_first_and_can_filter(backend):
     assert [r["period_start"] for r in backend.reports.list(sid)] == ["2026-11-02", "2026-10-26", "2026-10-01"]
     assert [r["period_kind"] for r in backend.reports.list(sid, "monthly")] == ["monthly"]
     assert len(backend.reports.list(sid, limit=2)) == 2
+
+
+def test_reports_are_kept_per_visitor(backend):
+    """같은 가게·같은 기간이어도 방문자(사장님)마다 따로 저장된다 (11/20). 방문자를 안 주면 공용 자리."""
+    sid = uid("store")
+    a, b = "u-" + uid("a"), "u-" + uid("b")
+    backend.reports.save(sid, "weekly", "2026-11-09", "2026-11-15", numbers={"n": 1}, body_text="a", evidence_ids=[],
+                         prompt_version="p1", visitor_id=a)
+    backend.reports.save(sid, "weekly", "2026-11-09", "2026-11-15", numbers={"n": 2}, body_text="b", evidence_ids=[],
+                         prompt_version="p1", visitor_id=b)
+    got_a = backend.reports.get(sid, "weekly", "2026-11-09", "2026-11-15", visitor_id=a)
+    assert got_a["numbers"] == {"n": 1} and got_a["visitor_id"] == a
+    assert backend.reports.get(sid, "weekly", "2026-11-09", "2026-11-15", visitor_id=b)["numbers"] == {"n": 2}
+    assert backend.reports.get(sid, "weekly", "2026-11-09", "2026-11-15") is None            # 공용 자리에는 없음
+    assert [r["body_text"] for r in backend.reports.list(sid, visitor_id=a)] == ["a"]
+    assert backend.reports.list(sid) == []
+    # 다시 만들기 = 같은 방문자·같은 기간 덮어쓰기 (다른 방문자는 그대로)
+    backend.reports.save(sid, "weekly", "2026-11-09", "2026-11-15", numbers={"n": 3}, body_text="a2", evidence_ids=[],
+                         prompt_version="p1", visitor_id=a)
+    assert [r["numbers"] for r in backend.reports.list(sid, visitor_id=a)] == [{"n": 3}]
+    assert backend.reports.get(sid, "weekly", "2026-11-09", "2026-11-15", visitor_id=b)["numbers"] == {"n": 2}
+
+
+def test_reports_count_across_stores_and_delete_one_store(backend):
+    s1, s2, other = uid("store"), uid("store"), uid("store")
+    me, you = "u-" + uid("me"), "u-" + uid("you")
+    for sid, kind, start, end in [(s1, "weekly", "2026-11-02", "2026-11-08"), (s1, "weekly", "2026-11-09", "2026-11-15"),
+                                  (s2, "weekly", "2026-11-09", "2026-11-15"), (s2, "monthly", "2026-10-01", "2026-10-31"),
+                                  (other, "monthly", "2026-11-01", "2026-11-30")]:
+        backend.reports.save(sid, kind, start, end, numbers={}, body_text="", evidence_ids=[], prompt_version="p1", visitor_id=me)
+    backend.reports.save(s1, "weekly", "2026-11-02", "2026-11-08", numbers={}, body_text="", evidence_ids=[], prompt_version="p2",
+                         visitor_id=me)                                  # 같은 기간의 다른 판은 하나로 센다
+    backend.reports.save(s1, "monthly", "2026-11-01", "2026-11-30", numbers={}, body_text="", evidence_ids=[], prompt_version="p1",
+                         visitor_id=you)
+    assert backend.reports.count([s1, s2], me) == {"weekly": 3, "monthly": 1}
+    assert backend.reports.count([s1, s2], you) == {"weekly": 0, "monthly": 1}
+    assert backend.reports.count([], me) == {"weekly": 0, "monthly": 0}
+    assert backend.reports.delete(s1, me) == 3
+    assert backend.reports.count([s1, s2], me) == {"weekly": 1, "monthly": 1}
+    assert backend.reports.list(s1, visitor_id=you) and backend.reports.delete(s1, me) == 0
 
 
 def test_reports_reject_bad_period_the_same_way(backend):
@@ -499,6 +628,43 @@ def test_pg_old_approvals_table_gets_the_new_columns_and_keeps_rows(db):
         rows = {r["draft_id"]: r for r in scoped.approvals.details("s", "v")}
         assert rows["d_old"]["text"] == "옛 글" and rows["d_old"]["checks"] == {} and rows["d_old"]["used_fallback"] is False
         assert rows["d_after"]["draft_text"] == "AI 원문" and rows["d_after"]["style"] == "haeyo"
+    finally:
+        scoped.close()
+        db.run(lambda c: c.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))))
+
+
+def test_pg_old_reports_table_gets_visitor_column_and_per_visitor_key(db):
+    """11/20 전에 만든 reports 표 (방문자 칸 없음, 유일 조건이 (가게, 종류, 기간, 판)): init_db 를 다시 돌리면 visitor_id 칸이 생기고,
+    옛 유일 조건이 빠져 같은 기간을 사장님마다 따로 저장할 수 있다. 있던 행은 공용('common') 자리로 남는다. 두 번째도 안전."""
+    from psycopg import sql
+    from shared.storage.init_db import create_tables
+    schema = uid("oldrep").replace("-", "_").lower()
+    db.run(lambda c: c.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema))))
+    scoped = _scoped_db(schema)
+    try:
+        def make_old(c):
+            c.execute("CREATE TABLE reports (id BIGSERIAL PRIMARY KEY, store_id TEXT NOT NULL, "
+                      "period_kind TEXT NOT NULL CHECK (period_kind IN ('weekly', 'monthly')), period_start DATE NOT NULL, "
+                      "period_end DATE NOT NULL, numbers JSONB NOT NULL DEFAULT '{}'::jsonb, body_text TEXT NOT NULL DEFAULT '', "
+                      "evidence_ids TEXT[] NOT NULL DEFAULT '{}', prompt_version TEXT NOT NULL, "
+                      "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), CHECK (period_end >= period_start), "
+                      "UNIQUE (store_id, period_kind, period_start, period_end, prompt_version))")
+            c.execute("CREATE INDEX reports_by_period ON reports (store_id, period_kind, period_start DESC)")
+            c.execute("INSERT INTO reports (store_id, period_kind, period_start, period_end, prompt_version) "
+                      "VALUES ('s', 'weekly', '2026-11-02', '2026-11-08', 'p1')")
+        scoped.run(make_old)
+        create_tables(scoped)
+        create_tables(scoped)                       # 두 번째도 안전 (DO 블록은 지울 것이 없음)
+        uniques = scoped.run(lambda c: [r["n"] for r in c.execute(
+            "SELECT pg_get_constraintdef(oid) AS n FROM pg_constraint WHERE conrelid = 'reports'::regclass AND contype = 'u'").fetchall()])
+        assert uniques == []                        # 옛 유일 조건은 빠지고, 유일 색인 reports_one_per_period 가 대신한다
+        assert scoped.reports.get("s", "weekly", "2026-11-02", "2026-11-08")["visitor_id"] == "common"   # 있던 행
+        for v, n in (("u-a", 1), ("u-b", 2), ("u-a", 3)):
+            scoped.reports.save("s", "weekly", "2026-11-02", "2026-11-08", numbers={"n": n}, body_text="", evidence_ids=[],
+                                prompt_version="p1", visitor_id=v)
+        assert scoped.reports.get("s", "weekly", "2026-11-02", "2026-11-08", visitor_id="u-a")["numbers"] == {"n": 3}
+        assert scoped.reports.get("s", "weekly", "2026-11-02", "2026-11-08", visitor_id="u-b")["numbers"] == {"n": 2}
+        assert scoped.run(lambda c: c.execute("SELECT count(*) AS n FROM reports").fetchone()["n"]) == 3
     finally:
         scoped.close()
         db.run(lambda c: c.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))))

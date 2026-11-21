@@ -1,8 +1,9 @@
 // 화면 틀: 덮는 메뉴(761~1024px)의 포커스 가두기·Esc·돌려주기, 메뉴가 안 보일 때 상단 바의 승인 대기 수,
-// 시험용 안내 띠 한 곳, 계정 줄 문구. 화면 8개와 서랍은 가짜로 바꿔 틀만 본다 (화면 시험은 각 화면 폴더에)
+// 시험용 안내 띠 한 곳, 사장님 칸 문구. 화면 8개와 서랍은 가짜로 바꿔 틀만 본다 (화면 시험은 각 화면 폴더에).
+// 11/20 단계 전환 뒤로 메인 화면(틀)은 로그인하고 가게에 들어간 app 단계에서만 그린다 (부팅·로그인 흐름 시험은 features/account/stages.test.jsx)
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
-import { resetStore, setState } from "./state/store.js";
+import { resetStore, setState, getState } from "./state/store.js";
 import App from "./App.jsx";
 
 vi.mock("./features/flow/Home.jsx", async () => { const { PageHead } = await import("./components/ui.jsx"); return { default: () => <PageHead title="홈 화면" /> }; });
@@ -24,13 +25,18 @@ function mockWidth(band) {
 
 const waitingResults = { card_a: { drafts: [{ draft_id: "d1", generator: "reply_draft" }, { draft_id: "d2", generator: "prevention_notice" }] } };
 
+// 로그인하고 가게에 들어간 사장님 (시험용 값)
+const ME = { authenticated: true, store_id: "store_ongi", demo_login: false,
+  user: { user_id: "u-test", login_id: "owner_test", display_name: "김시험", demo: false, created_at: "2026-11-15" },
+  stores: [{ store_id: "store_ongi", name: "온기한식", business_type_name: "한식음식점", area_name: "장승배기역 4번", station_name: "장승배기역", sample: true }] };
+
 beforeEach(() => {
   resetStore();
   localStorage.clear();
   window.location.hash = "#/today";
   window.scrollTo = () => {};
   globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}), headers: { get: () => "application/json" } }));
-  setState({ booted: true });
+  setState({ booted: true, stage: "app", me: ME, entered: "store_ongi" });
 });
 afterEach(() => { cleanup(); delete window.matchMedia; });
 
@@ -63,21 +69,25 @@ describe("덮는 메뉴 (761~1024px)", () => {
     expect(document.querySelector(".main").hasAttribute("inert")).toBe(false);
   });
 
-  it("메뉴 안 [로그인]으로 창을 열면 메뉴가 먼저 닫혀 창 안 키보드 이동을 막지 않는다", () => {
+  // 11/20: 예전 시험은 메뉴 안 [로그인]이 로그인 창을 여는 것이었다. 로그인 창이 없어지고(로그인은 단계 화면) 메뉴 아래에는
+  // '프로필'이 생겨서, 프로필로 가면 메뉴와 본문 inert 가 함께 사라지는지 + 창(dialog[open])이 떠 있으면 Tab 을 가로채지 않는지로 바꿈
+  it("메뉴 안 '프로필'을 누르면 메뉴째 사라지고 프로필 단계로, 창이 떠 있으면 Tab 을 가로채지 않는다", () => {
     mockWidth("mid");
     render(<App />);
     fireEvent.click(document.getElementById("menu-toggle"));
-    const side = document.getElementById("side-menu");
-    const login = [...side.querySelectorAll("button")].find((b) => b.textContent === "로그인");
-    fireEvent.click(login);
-    expect(document.querySelector(".app").classList.contains("menu-over")).toBe(false);
-    expect(document.querySelector(".main").hasAttribute("inert")).toBe(false);
-    // 창이 떠 있는 동안 Tab·Esc 는 메뉴 처리기가 가로채지 않는다 (메뉴가 다시 열려 있어도)
-    fireEvent.click(document.getElementById("menu-toggle"));
-    document.getElementById("auth-dialog")?.setAttribute("open", "");
+    const extra = document.createElement("dialog");
+    document.body.appendChild(extra);
+    extra.setAttribute("open", "");
     const ev = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
     document.body.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(false);
+    extra.remove();
+    const side = document.getElementById("side-menu");
+    const profile = [...side.querySelectorAll("button")].find((b) => b.textContent === "프로필");
+    act(() => { fireEvent.click(profile); });
+    expect(getState().stage).toBe("profile");
+    expect(document.getElementById("side-menu")).toBeNull();
+    expect(document.querySelector(".main")).toBeNull();
   });
 
   it("바깥을 누르거나 [메뉴 닫기]로 닫아도 토글 버튼으로 돌아온다", () => {
@@ -167,14 +177,40 @@ describe("안내 문구", () => {
     expect(document.querySelector("footer.honesty").textContent).toBe("리뷰: 합성 데이터글 생성: 실시간 HCX-005");
   });
 
-  it("게스트 안내는 한 번: 메뉴 아래 '게스트' + [로그인], 상단 바 [로그인] (배지·긴 안내 없음)", () => {
+  // 11/20: 게스트로는 메인 화면에 들어오지 않으므로 '게스트 + [로그인]' 시험을 사장님 칸 시험으로 바꿈 (Figma 06 B1)
+  it("사장님 칸: 메뉴 아래 첫 글자 · '{이름} 사장님' · '프로필 · 로그아웃', 상단 바 가게 칩(예시면 '(가상)')과 [바꾸기]·이름 버튼", () => {
     mockWidth("wide");
     render(<App />);
-    expect(document.body.textContent).not.toMatch(/게스트 체험|로그인하고 가게 고르기/);
-    expect(document.querySelector(".side .account b").textContent).toBe("게스트");
-    expect(document.getElementById("acct-login").textContent).toBe("로그인");
+    expect(document.body.textContent).not.toMatch(/게스트|로그인하고 가게 고르기/);
+    expect(document.getElementById("acct-login")).toBeNull();
+    expect(document.querySelector(".side .account .face").textContent).toBe("김");
+    expect(document.querySelector(".side .account b").textContent).toBe("김시험 사장님");
+    expect([...document.querySelectorAll(".side .account button")].map((b) => b.textContent)).toEqual(["프로필", "로그아웃"]);
+    expect(document.getElementById("store-name").textContent).toBe("온기한식 (가상)");
+    expect(document.querySelector(".store-pick .sp-sub").textContent).toBe("한식음식점 · 장승배기역 4번 상권");
+    expect(document.querySelector("#acct-store").tagName).toBe("BUTTON");
+    expect(document.querySelector(".top select")).toBeNull();
+    expect(document.getElementById("acct-user").textContent).toBe("김시험 사장님");
     expect(document.querySelector(".side .logo-slot")).toBeNull();
     expect(document.querySelector(".side .brand .logo svg")).toBeTruthy();
+    act(() => { fireEvent.click(document.getElementById("acct-store")); });
+    expect(getState().stage).toBe("pick");
+  });
+
+  it("상단 바 가게 칩의 아래 줄은 신원의 가게 목록 값: 브리핑이 없거나 업종·상권이 없어도 '불러오는 중'으로 남지 않음", () => {
+    mockWidth("wide");
+    const mine = { store_id: "store_new000000001", name: "우리분식", business_type_name: "분식전문점", area_name: "상도역 5번", station_name: null, sample: false };
+    // 가게를 여는 중(지금 가게가 아직 비어 있음)이어도 들어간 가게의 값으로
+    setState({ me: { ...ME, store_id: null, stores: [...ME.stores, mine] }, entered: mine.store_id, briefing: null, booted: false });
+    render(<App />);
+    expect(document.getElementById("store-name").textContent).toBe("우리분식");
+    expect(document.querySelector(".store-pick .sp-sub").textContent).toBe("분식전문점 · 상도역 5번 상권");
+    // 업종·상권이 빈 가게: 아래 줄을 비운다
+    act(() => { setState({ me: { ...ME, store_id: mine.store_id, stores: [{ ...mine, business_type_name: "", area_name: null }] } }); });
+    expect(document.querySelector(".store-pick .sp-sub")).toBeNull();
+    // 목록에도 브리핑에도 없을 때만 '불러오는 중'
+    act(() => { setState({ me: { ...ME, store_id: "store_x", stores: [] }, entered: "store_x" }); });
+    expect(document.querySelector(".store-pick .sp-sub").textContent).toBe("불러오는 중");
   });
 });
 
@@ -202,6 +238,8 @@ describe("휴대폰 (760px 이하): 아래 탭 + 묶음 하위 탭 + 한 줄 상
     expect(asks[0].closest(".tabbar")).toBeTruthy();
     fireEvent.click(asks[0]);
     expect(asks[0].getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(asks[0]);   // 한 번 더 눌러도 닫히지 않는다 (닫기는 서랍의 닫기·Esc)
+    expect(asks[0].getAttribute("aria-expanded")).toBe("true");
   });
 
   it("살펴보기 화면에서는 하위 탭(리뷰 분석·상권 분석·종합 리포트)과 현재 화면 표시, 홈에는 하위 탭 없음", async () => {
@@ -219,14 +257,18 @@ describe("휴대폰 (760px 이하): 아래 탭 + 묶음 하위 탭 + 한 줄 상
     expect(document.querySelector(".group-nav")).toBeNull();
   });
 
-  it("상단 바 계정 단추는 그림 단추지만 이름(읽기 프로그램)과 id 는 그대로", () => {
+  // 11/20: 계정 단추가 [로그인](#acct-login)에서 이름 버튼(#acct-user → 사장님 프로필) 하나로 바뀌어 그 단추를 봄
+  it("상단 바 계정 단추는 그림 단추지만 이름(읽기 프로그램)과 id 는 그대로, 누르면 사장님 프로필", () => {
     mockWidth("narrow");
     render(<App />);
-    const login = document.getElementById("acct-login");
-    expect(login.classList.contains("icon-btn")).toBe(true);
-    expect(login.querySelector(".sr").textContent).toBe("로그인");
-    expect(login.querySelector("svg")).toBeTruthy();
+    const user = document.getElementById("acct-user");
+    expect(user.classList.contains("icon-btn")).toBe(true);
+    expect(user.querySelector(".sr").textContent).toBe("김시험 사장님");
+    expect(user.querySelector("svg")).toBeTruthy();
     expect(document.querySelector(".top .top-logo")).toBeTruthy();
+    expect(document.getElementById("acct-store")).toBeTruthy();
+    act(() => { fireEvent.click(user); });
+    expect(getState().stage).toBe("profile");
   });
 
   it("넓은 화면에서는 아래 탭·하위 탭을 그리지 않는다", () => {

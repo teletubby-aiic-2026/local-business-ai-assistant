@@ -1,12 +1,20 @@
 // AI에게 묻기 서랍의 모듈 상태와 동작 (예전 app.js 의 chat 객체와 chatSend·chatChoose·chatClear·chatHome·chatStart·chatReset).
 // 서랍은 화면 밖에 늘 그려지므로 대화·조건·setup 시도 여부는 여기 둔다. 가게가 바뀌면(epoch) chatReset 으로 비운다.
-// 호출은 drawerApi 로만 한다: 오류는 서랍 안(#assistant-error·상태 안내)에만 보이고 맨 위 띠는 쓰지 않는다.
+// 호출은 call(= drawerApi + 로그인 표시 헤더)로만 한다: 오류는 서랍 안(#assistant-error·상태 안내)에만 보이고 맨 위 띠는 쓰지 않는다.
+// 401 login_needed·409 no_store·403 not_your_store 는 handleAuthError 가 단계를 바꾼다 (lib/api.js)
 import { useSyncExternalStore } from "react";
 import { openDrawer } from "../../state/store.js";
 import { navTo } from "../../lib/router.js";
+import { authHeaders, handleAuthError } from "../../lib/api.js";
+import { cleanLabel } from "../../lib/domain.js";
 import {
   CHAT_STARTERS, CHAT_STATES, CHAT_SLOW, chatQuarter, chatCondText, chatId, chatSuggest, chatSameKey, chatNavTarget, drawerApi,
 } from "./chat.js";
+
+function call(path, options = {}, slow) {
+  return drawerApi(path, { ...options, headers: { ...authHeaders(), ...(options.headers || {}) } }, slow)
+    .catch((e) => { handleAuthError(e); throw e; });
+}
 
 const NO_CHIPS = { list: [], starters: false };
 function init() {
@@ -113,7 +121,7 @@ export async function chatSend(text) {
   chatBusy(true, "자료를 확인하고 있어요");
   afterPaint(() => chatReveal(null, "end"));
   try {
-    const r = await drawerApi("/api/assistant/messages", { method: "POST", body: JSON.stringify({ text: value, client_message_id: chatId() }) }, CHAT_SLOW);
+    const r = await call("/api/assistant/messages", { method: "POST", body: JSON.stringify({ text: value, client_message_id: chatId() }) }, CHAT_SLOW);
     if (g === gen) chatAnswer(r, mine);
   } catch (e) {
     if (g !== gen) return;
@@ -162,7 +170,7 @@ export async function chatChoose(botId, index, action) {
   chatBusy(true, "자료를 확인하고 있어요");
   afterPaint(() => chatReveal(null, "end"));
   try {
-    const r = await drawerApi("/api/assistant/actions", { method: "POST", body: JSON.stringify(action.payload ?? {}) }, CHAT_SLOW);
+    const r = await call("/api/assistant/actions", { method: "POST", body: JSON.stringify(action.payload ?? {}) }, CHAT_SLOW);
     if (g === gen) chatAnswer(r, mine);
   } catch (e) {
     if (g !== gen) return;
@@ -185,13 +193,13 @@ export async function chatClear() {
   let done = false;
   chatBusy(true, "대화를 지우고 있어요");
   try {
-    await drawerApi("/api/assistant/conversation", { method: "DELETE" });
+    await call("/api/assistant/conversation", { method: "DELETE" });
     if (g !== gen) return;
     set({ items: [], latest: null, welcome: true, hl: null });
     chatConditions(null);
     chatChips(CHAT_STARTERS, true);
     done = true;
-    drawerApi("/api/assistant/conversation").then((c) => { if (g === gen) chatConditions(c.conditions); }).catch(() => {});
+    call("/api/assistant/conversation").then((c) => { if (g === gen) chatConditions(c.conditions); }).catch(() => {});
   } catch (e) { if (g === gen) set({ error: e.message }); }
   finally {
     if (g === gen) {
@@ -209,7 +217,7 @@ export async function chatHome() {
   chatBusy(true, "우리 가게 조건으로 맞추고 있어요");
   let done = false;
   try {
-    const s = await drawerApi("/api/assistant/setup?force=1", { method: "POST" });
+    const s = await call("/api/assistant/setup?force=1", { method: "POST" });
     if (g !== gen) return;
     if (s?.status === "unavailable") set({ error: s.message || (CHAT_STATES[s.state] || CHAT_STATES.error)[1] });
     else { if (s && "conditions" in s) chatConditions(s.conditions); done = true; }
@@ -273,18 +281,19 @@ export async function chatStart() {
   set({ loading: true, ready: false, started: true, error: "" }); chatDisarm();
   chatStatus("상권 비서를 확인하고 있어요", true);
   try {
-    const st = await drawerApi("/api/assistant/status");
+    const st = await call("/api/assistant/status");
     if (g !== gen) return;
-    set({ label: st?.setup?.label || "" });
+    // 서버의 기본 조건 이름('가게 · 위치 · 업종'). 주소로 등록한 가게는 위치가 주소 원문이라 짧게, 빈 조각('null')은 뺀다
+    set({ label: cleanLabel(st?.setup?.label) });
     if (st?.state !== "ready") { chatState(st?.state, st?.message); return; }
-    const conv = await drawerApi("/api/assistant/conversation");
+    const conv = await call("/api/assistant/conversation");
     if (g !== gen) return;
     const turns = Array.isArray(conv.turns) ? conv.turns : [];
     let cond = conv.conditions || null;
     if (!cond && !chat.setupTried) {
       set({ setupTried: true });
       chatStatus(`분석 조건을 맞추고 있어요${chat.label ? ` (${chat.label})` : ""}`, true);
-      const s = await drawerApi("/api/assistant/setup", { method: "POST" });
+      const s = await call("/api/assistant/setup", { method: "POST" });
       if (g !== gen) return;
       if (s?.status === "unavailable") { chatState(s.state, s.message); return; }
       cond = s?.conditions || null;

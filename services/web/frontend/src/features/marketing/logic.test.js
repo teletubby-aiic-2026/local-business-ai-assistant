@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MKT_MODES, MKT_REPORT_DESC, badgeOf, calcRange, downKey, draftLabel, initialDrafts, progressLabel, reportView, tilesOf, whyLinesOf, wonKo } from "./logic.js";
+import { MKT_MODES, MKT_REPORT_DESC, askQuestionOf, badgeOf, calcRange, downKey, draftLabel, initialDrafts, progressLabel, reportView, tilesOf, whyLinesOf, wonKo } from "./logic.js";
 
 describe("맞춤 마케팅 계산", () => {
   it("광고비 표는 가장 나쁜 판정을 배지로", () => {
@@ -60,5 +60,17 @@ describe("맞춤 마케팅 계산", () => {
     }
     expect(progressLabel(0)).toBe("");
     expect(progressLabel(3)).toBe("질문 3");
+  });
+});
+
+describe("'AI에게 이어서 묻기' 질문", () => {
+  it("광고비 표 → 쿠폰·할인 → 불만 먼저 고치기 → 그 밖 순서로 고른다", () => {
+    expect(askQuestionOf({ data: { table: [], coupon_card: {} } })).toBe("주변에 같은 업종 점포는 몇 개야?");
+    expect(askQuestionOf({ data: { coupon_card: { discount_won: 2000 } } })).toBe("점심과 저녁 중 매출은 어디가 커?");
+    expect(askQuestionOf({ data: { usage_rate: null } })).toBe("점심과 저녁 중 매출은 어디가 커?");
+    expect(askQuestionOf({ data: { usage_rate: 0.3, strategy_type: "fix_first" } })).toBe("점심과 저녁 중 매출은 어디가 커?");
+    expect(askQuestionOf({ data: { strategy_type: "fix_first" } })).toBe("불만 리뷰 제일 많은 게 뭐야?");
+    expect(askQuestionOf({ data: { title: "맞춤 홍보 제안" } })).toBe("우리 가게 상권 매출은 어때?");
+    expect(askQuestionOf({})).toBe("우리 가게 상권 매출은 어때?");
   });
 });

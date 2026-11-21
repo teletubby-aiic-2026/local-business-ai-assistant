@@ -2,7 +2,7 @@
 // - TabBar: 화면 아래 고정 탭 5칸 = 홈 · 오늘 처리 · AI에게 묻기(가운데, 초록 원) · 살펴보기 · 마케팅
 //   현재 탭은 Figma '메뉴 항목/현재'처럼 초록으로 칠하고, '오늘 처리'에는 승인 대기 수를 단다
 // - GroupNav: 묶음 안에 화면이 여럿인 탭(오늘 처리·살펴보기)에서 본문 맨 위에 보이는 하위 탭
-import { useStore, openDrawer } from "../state/store.js";
+import { useStore, focusOrOpenDrawer } from "../state/store.js";
 import { waitingCount } from "../state/staff.js";
 import { GROUPS } from "./Sidebar.jsx";
 import { Icon } from "./ui.jsx";
@@ -34,7 +34,7 @@ export function TabBar({ route }) {
     <nav className="tabbar" aria-label="메뉴">
       <Tab href="#/today" label="홈" icon="홈" on={route === "today"} />
       <Tab href={waiting > 0 ? "#/draft" : "#/cards"} label="오늘 처리" icon="추천 카드" on={FLOW.includes(route)} count={waiting} />
-      <button type="button" className="tab tab-ai" aria-controls="assistant" aria-expanded={drawerOpen} onClick={() => openDrawer("toggle")}>
+      <button type="button" className="tab tab-ai" aria-controls="assistant" aria-expanded={drawerOpen} onClick={focusOrOpenDrawer}>
         <span className="tab-icon"><Icon name="AI" size={22} /></span>
         <span className="tab-label">AI에게 묻기</span>
       </button>

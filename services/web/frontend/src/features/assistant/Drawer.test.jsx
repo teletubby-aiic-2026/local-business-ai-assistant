@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getState, openDrawer, resetStore, setState } from "../../state/store.js";
 import Drawer from "./Drawer.jsx";
+import Topbar from "../../components/Topbar.jsx";
 import { chatReset, drawerCovers } from "./state.js";
 
 const COND = { area_name: "장승배기역 4번", industry_name: "한식음식점", period: "20262", is_store_default: true };
@@ -96,6 +97,47 @@ describe("서랍 답의 선택지", () => {
   });
 });
 
+describe("상단 'AI에게 묻기' 버튼 (실제 상단 바)", () => {
+  const ask = () => screen.getByRole("button", { name: "AI에게 묻기" });
+
+  it("두 번 눌러도 서랍은 닫히지 않고 입력칸으로 간다", async () => {
+    globalThis.fetch = fakeFetch([]);
+    render(<><Topbar /><Drawer /></>);
+    ask().focus();
+    act(() => { fireEvent.click(ask()); });
+    expect(getState().drawerOpen).toBe(true);
+    await waitFor(() => expect(document.getElementById("assistant-q").disabled).toBe(false));
+    ask().focus();   // 실제로 누르면 버튼이 포커스를 가져간다
+    act(() => { fireEvent.click(ask()); });
+    expect(getState().drawerOpen).toBe(true);
+    expect(ask().getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement.id).toBe("assistant-q");
+  });
+
+  it("처음 열면 준비되는 동안 닫기 버튼에 있다가, 준비가 끝나면 입력칸으로 간다", async () => {
+    globalThis.fetch = fakeFetch([]);
+    render(<><Topbar /><Drawer /></>);
+    ask().focus();
+    act(() => { fireEvent.click(ask()); });
+    expect(document.activeElement.id).toBe("assistant-close");   // 입력칸이 아직 막혀 있음
+    await waitFor(() => expect(document.getElementById("assistant-q").disabled).toBe(false));
+    await waitFor(() => expect(document.activeElement.id).toBe("assistant-q"));
+  });
+
+  it("입력칸이 아직 막혀 있으면(준비 전) 다시 눌렀을 때 닫기 버튼으로 간다", async () => {
+    globalThis.fetch = vi.fn(() => new Promise(() => {}));   // 상태 확인이 끝나지 않음
+    render(<><Topbar /><Drawer /></>);
+    ask().focus();
+    act(() => { fireEvent.click(ask()); });
+    expect(document.getElementById("assistant-q").disabled).toBe(true);
+    ask().focus();
+    act(() => { fireEvent.click(ask()); });
+    expect(getState().drawerOpen).toBe(true);
+    expect(ask().getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement.id).toBe("assistant-close");
+  });
+});
+
 describe("서랍의 기준 범위", () => {
   it("칩은 상권 · 업종 · 분기 · 하루 전체, '우리 가게 매출 아님'은 위 안내 한 줄에만", async () => {
     await openWith([TURN]);
@@ -134,5 +176,29 @@ describe("서랍이 본문을 덮는가", () => {
     m.getBoundingClientRect = () => ({ left: 0, right: 375, top: 110, bottom: 1600, width: 375, height: 1490 });      // 휴대전화 시트: 덮음
     expect(drawerCovers()).toBe(true);
     d.remove(); m.remove();
+  });
+});
+
+describe("서랍 첫 안내 (11/21 실시간 확인 M7·9)", () => {
+  it("조건을 맞추는 동안의 안내에 주소 원문 대신 짧은 위치 (빈 조각·'null'은 빼고)", async () => {
+    let release;
+    const gate = new Promise((ok) => { release = ok; });
+    const reply = (out) => ({ ok: true, status: 200, json: async () => out });
+    globalThis.fetch = vi.fn(async (url) => {
+      const path = String(url);
+      if (path.endsWith("/status")) return reply({ state: "ready", setup: { label: "동네맛김밥 · 서울특별시 마포구 와우산로 94 학교법인홍익학원 · 분식전문점" } });
+      if (path.endsWith("/conversation")) return reply({ turns: [], conditions: null });
+      if (path.endsWith("/setup")) { await gate; return reply({ status: "ok", conditions: COND }); }
+      return reply({});
+    });
+    render(<Shell />);
+    act(() => openDrawer(true));
+    await waitFor(() => expect(document.getElementById("assistant-status").textContent).toContain("분석 조건을 맞추고 있어요"));
+    const t = document.getElementById("assistant-status").textContent;
+    expect(t).toContain("(동네맛김밥 · 마포구 와우산로 94 · 분식전문점)");
+    expect(t).not.toMatch(/학교법인|서울특별시|null/);
+    await act(async () => { release(); });
+    await waitFor(() => expect(document.getElementById("assistant-q").disabled).toBe(false));
+    expect(document.getElementById("assistant-cond-text").textContent).not.toMatch(/null|undefined/);
   });
 });
