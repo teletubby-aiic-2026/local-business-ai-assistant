@@ -80,8 +80,10 @@ class FakeSource:
         self.pasted.append(review)
         return {"review": review, "classification": {"sentiment": "negative", "negative_topics": []}}
 
-    def reset_pasted(self, store_id):
-        n = len(self.pasted); self.pasted.clear(); return {"deleted": n}
+    def reset_pasted(self, store_id, forget_labels=False):
+        # 실제 소스(sources.ReviewSource.reset_pasted)와 같은 모양: 계정 초기화·탈퇴는 forget_labels 로 부르고 labels_deleted 를 받는다
+        n = len(self.pasted); self.pasted.clear()
+        return {"deleted": n, "labels_deleted": n} if forget_labels else {"deleted": n}
 
 
 def settings(tmp: Path, **kw) -> Settings:
