@@ -294,6 +294,25 @@ describe("A5 사장님 프로필", () => {
     expect(calls.some((c) => c.path === "/api/auth/reset" || c.path === "/api/auth/withdraw")).toBe(false);
   });
 
+  it("기록을 지우면 '보관한 보고서' 수를 다시 불러온다 (11/21 실사용 QA: 지운 뒤에도 옛 숫자가 남던 것)", async () => {
+    let cleared = false;
+    profileServer({
+      "/api/reports/counts": () => (cleared ? { storage: "saved", weekly: 0, monthly: 0 } : { storage: "saved", weekly: 4, monthly: 1 }),
+      "POST /api/auth/reset": () => {
+        cleared = true;
+        return { scope: "store", complete: true, message: null, stores: [{ store_id: "store_basak", name: "바삭치킨", approvals: 2, reviews: 0, marketing: "cleared" }] };
+      },
+    });
+    act(() => setState({ entered: null }));          // 들어간 가게가 없으면 storeChanged 없이 이 칸만 다시
+    expect((await screen.findByText("4개")).closest("#saved-report-counts")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "바삭치킨 기록 지우기" }));
+    fireEvent.click(within(document.getElementById("acct-dialog")).getByRole("button", { name: "지우기" }));
+    await waitFor(() => expect(sent("POST", "/api/auth/reset")).toHaveLength(1));
+    await waitFor(() => expect(sent("GET", "/api/reports/counts")).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByText("4개")).toBeNull());
+    expect(within(document.getElementById("saved-report-counts")).getAllByText("0개")).toHaveLength(2);
+  });
+
   it("탈퇴하면 로그인 화면으로, 들어간 가게를 지우고 결과 띠", async () => {
     sessionStorage.setItem("ic26.entered", "store_basak");
     profileServer({ "POST /api/auth/withdraw": { ...GUEST, withdrawn: true } });

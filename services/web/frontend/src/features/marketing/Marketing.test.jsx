@@ -13,7 +13,7 @@ const PLAN = { title: "광고비 점검 결과", demo: true, session_id: "s1",
   steps: [{ step_id: "promo", what: "홍보 글 올리기", generator: "review_promo" }], drafts: { promo: "처음 글" } };
 
 // hold: 시작 모드를 고른 뒤의 step 응답을 붙잡아 둘 약속 (응답 전 화면을 보려고)
-function fakeFetch(calls, hold = null) {
+function fakeFetch(calls, hold = null, plan = PLAN) {
   return vi.fn(async (url, opts = {}) => {
     const path = String(url).replace("/api/marketing-survey/", "");
     const body = opts.body ? JSON.parse(opts.body) : null;
@@ -23,7 +23,7 @@ function fakeFetch(calls, hold = null) {
     else if (path === "meta") out = { store_name: "온기한식" };
     else if (path === "step" && body.answer != null && hold) out = await hold;
     else if (path === "step") out = body.answer == null ? START : { state: { node: "DECISION", raw: {}, confirms: {}, mode: "adspend" }, done: true };
-    else if (path === "plan") out = PLAN;
+    else if (path === "plan") out = plan;
     else if (path === "approve") out = { state: body.state, recorded: [{ draft_id: "mkt-x-promo", kind: "홍보 글", edited: true }] };
     else if (path.startsWith("report")) out = { period: { kind: "weekly" }, demo: true };
     else if (path === "/api/approvals") out = { items: [] };
@@ -86,6 +86,18 @@ describe("맞춤 마케팅 화면", () => {
     const log = document.getElementById("mkt-log");
     expect(log.contains(region) || region.contains(log)).toBe(false);
     expect(within(log).queryByText("광고비 점검 결과")).toBeNull();
+  });
+
+  it("결과 카드의 '측정' 줄 시계 아이콘은 16px 로 크기가 정해져 있다 (11/21 실사용 QA: 크기 없이 410px 로 커지던 것)", async () => {
+    globalThis.fetch = fakeFetch([], null, { ...PLAN, measure: "12/5(토), 같은 불만 리뷰 수 비교" });
+    prep();
+    act(() => setState({ epoch: getState().epoch + 1 }));
+    render(<Marketing />);
+    const mode = await screen.findByText("광고비 점검");
+    await act(async () => { fireEvent.click(mode); });
+    const line = (await screen.findByText("12/5(토), 같은 불만 리뷰 수 비교")).closest(".mkt-measure");
+    const icon = line.querySelector("svg");
+    expect([icon.getAttribute("width"), icon.getAttribute("height")]).toEqual(["16", "16"]);
   });
 
   it("결과 카드의 'AI에게 이어서 묻기'는 서랍을 열고 카드에 맞는 질문을 입력칸에 채우기만 한다 (보내지 않음)", async () => {
