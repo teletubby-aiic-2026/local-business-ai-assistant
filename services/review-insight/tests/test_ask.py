@@ -140,8 +140,8 @@ def _empty_timeline(self, classifier, store_id="store_ongi", visitor_id=None):
 # ④ 모델 답 점검 ───────────────────────────────────────────────
 def test_model_answer_is_used_when_it_passes_the_check():
     fixed = answer("불만 리뷰 제일 많은 게 뭐야?")
-    m = re.search(r"'(.+?)'\((\d+)건\)", fixed["text"])
-    good = f"요즘 가장 많은 불만은 '{m.group(1)}'로 {m.group(2)}건이에요 [F1]. 그 시간대 포장 확인 순서를 점검해 보세요."
+    first = ask._first_sentence(fixed["text"])               # 틀 답 첫 문장의 숫자는 답에도 있어야 한다 (11/22)
+    good = "요즘 보면 " + first + " 그 시간대 포장 확인 순서를 점검해 보세요."
     g = answer("불만 리뷰 제일 많은 게 뭐야?", chat=_chat(good))
     assert (g["method"], g["text"], g["checks"]) == ("hcx", good, [])
 
@@ -195,8 +195,8 @@ def test_model_answer_is_marked_only_in_the_response_fields():
     assert not any("AI" in n or "규칙" in n for n in plain["notes"])
     fixed = answer("손님들이 맛에 대해 뭐라고 해?")
     m = re.search(r"불만 (\d+)건, 칭찬 (\d+)건", fixed["text"])
-    good = (f"맛 이야기는 칭찬이 {m.group(2)}건으로 불만 {m.group(1)}건보다 훨씬 많아요 [F1]. "
-            "손님들은 얼큰하고 맛있다고 했고, 불만은 간이 싱겁다는 말이 있었어요 [F3].")
+    good = (f"맛 이야기는 불만 {m.group(1)}건, 칭찬 {m.group(2)}건이라 칭찬이 훨씬 많아요 [F1]. "
+            "손님들은 맛있다고 했고, 불만으로는 맛이 예전 같지 않다는 말이 있었어요 [F3].")
     g = answer("손님들이 맛에 대해 뭐라고 해?", chat=_chat(good))
     assert (g["method"], g["model"], g["text"]) == ("hcx", "HCX-005", good)
     assert not any("AI" in n for n in g["notes"])
@@ -235,14 +235,14 @@ def test_planner_picks_the_question_type_rules_missed():
 ])
 def test_planner_answer_that_fails_the_check_keeps_the_rules(bad, why):
     chat, _ = _two_step_chat(bad)
-    g = answer("불만 리뷰 제일 많은 게 뭐야?", chat=chat)
-    assert (g["intent"], g["classified_by"]) == ("complaints", "rules")
+    g = answer("요새 손님들 반응 어때?", chat=chat)
+    assert (g["intent"], g["classified_by"]) == ("overview", "rules")
     assert why in g["plan_note"]
 
 
 def test_planner_topic_and_channel_are_used():
     chat, _ = _two_step_chat('{"intent": "topic", "topic": "taste", "channels": ["baemin"]}')
-    g = answer("배민에서 음식 어떻대?", chat=chat)
+    g = answer("요새 음식 어떻대?", chat=chat)
     assert (g["intent"], g["topic"], g["channels"]) == ("topic", "taste", ["baemin"])
     assert g["text"].startswith("배민 '맛' 이야기는")
 
@@ -258,3 +258,66 @@ def test_this_week_taste_complaints():
     assert (g["intent"], g["topic"]) == ("trend", "taste")
     assert re.match(r"최근 7일\(\d+/\d+~\d+/\d+\) '맛' 불만은 \d+건", g["text"])
     assert "포장" not in answer("저녁에 맛 불만 많아?")["text"]
+
+
+# 11/22 PR #75 live 확인 반영 ────────────────────────────────────────
+def test_planner_never_overrides_what_the_rules_found():
+    """규칙이 고른 질문은 플래너가 바꾸지 않는다 (live 에서 trend → recent 같은 나빠진 바꿈 5건)."""
+    for q in ("이번주 맛에 대한 불만 리뷰는 몇 건이냐?", "배달 늦다는 리뷰 있어?", "양 적다는 말 있어?", "위생 관련 불만 있어?"):
+        chat, calls = _two_step_chat('{"intent": "recent", "topic": null, "channels": []}')
+        g = answer(q, chat=chat)
+        assert g["classified_by"] == "rules" and g["intent"] != "recent" and calls[0] == "write", q
+
+
+def test_like_questions_show_both_sides():
+    """'손님들이 우리 가게 좋아해?' 칭찬 카드만 보고 '네, 좋아해요' 하던 것 → 불만 비율·별점·칭찬·불만을 같이."""
+    for q in ("손님들이 우리 가게 좋아해?", "손님들 만족해?", "우리 가게 평판 어때?"):
+        g = answer(q)
+        assert g["intent"] == "overview", q
+        assert "불만은" in g["text"] and "평균 별점" in g["text"] and "칭찬은" in g["text"], q
+
+
+@pytest.mark.parametrize("bad,why", [
+    ("쿠팡은 8건으로 3건이 적어요 [F1].", "근거에 없는 숫자"),                    # 1·2·3 자동 허용 뺌
+    ("포장 누락이 가장 많아요 [F1]. 저녁에 주문이 많아 포장이 미흡했을 가능성이 높아요.", "틀 답 첫 문장의 숫자가 빠짐"),
+    ("요즘 보면 {first} 응대를 잘하고 계시니 충분히 좋아질 거예요.", "쓰면 안 되는 말"),
+    ("요즘 보면 {first} 포장 확인을 점검해 보시길 권장합니다. 감사합니다.", "해요체가 아님"),
+])
+def test_stricter_check(bad, why):
+    fixed = answer("불만 리뷰 제일 많은 게 뭐야?")
+    bad = bad.replace("{first}", ask._first_sentence(fixed["text"]))
+    g = answer("불만 리뷰 제일 많은 게 뭐야?", chat=_chat(bad))
+    assert g["method"] == "template" and any(why in p for p in g["checks"]), g["checks"]
+
+
+def test_direction_words_must_match():
+    """틀 답이 '같아요'인데 모델이 '늘었어요'라고 하면 숫자가 맞아도 막는다."""
+    got = answer("지난주보다 불만 늘었어?")
+    fixed = got["text"]
+    word = next(w for w, _ in ask._DIRECTION if w in fixed)
+    flipped = ask._first_sentence(fixed).replace(word, "줄었" if word == "늘었" else "늘었")
+    probs = ask.check_answer(flipped, got["cards"], fixed)
+    assert any("다른 뜻" in p for p in probs), probs
+
+
+def test_howto_never_goes_to_the_model():
+    """'억울한 별점 답글은 어떻게 달아?'에 모델이 가게 사실('주문 즉시 조리')을 지어냈다 → 숫자 없는 안내는 틀 문장만."""
+    chat, calls = _two_step_chat("{}", "저희 가게 음식은 주문 즉시 조리를 시작해요 [F1].")
+    g = answer("억울한 별점 답글은 어떻게 달아?", chat=chat)
+    assert g["method"] == "template" and "write" not in calls
+
+
+def test_bold_marks_are_removed():
+    first = ask._first_sentence(answer("불만 리뷰 제일 많은 게 뭐야?")["text"])
+    g = answer("불만 리뷰 제일 많은 게 뭐야?", chat=_chat("**요약** " + first))
+    assert g["method"] == "hcx" and "**" not in g["text"], g["checks"]
+
+
+def test_ties_are_named_together():
+    """식감 4건·포장 누락 4건처럼 동점이면 둘 다 '가장 많은'으로."""
+    tl = service.Timeline(Classifier("mock"), "store_basak", None)
+    cnt = Counter(t for c in tl.classes if c.negative_topics for t in set(c.negative_topics))
+    top = max(cnt.values())
+    g = ask.answer(Classifier("mock"), "store_basak", None, "불만 리뷰 제일 많은 게 뭐야?", NOW, chat=Chat("mock"))
+    if sum(1 for v in cnt.values() if v == top) > 1:
+        assert f"(각 {top}건)" in g["text"]

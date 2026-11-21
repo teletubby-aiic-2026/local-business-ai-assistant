@@ -33,7 +33,7 @@ _TOPIC_RX = [
     ("missing_item", r"누락|빠졌|빠진|빠져|안왔|덜왔|오배송|잘못왔"),
     ("packaging", r"포장(상태|이|불량|터|샜|새)|샜|새서|흘렀|흘러|쏟아|뚜껑"),
     ("delivery_time", r"배달(시간|이늦|늦|느|오래)|늦게와|늦게왔|오래걸|늦게도착"),
-    ("temperature", r"식어|식었|식은|미지근|온도|차가"),
+    ("temperature", r"(?<!음)식어|(?<!음)식었|(?<!음)식은|미지근|온도|차가"),      # "음식 어때"의 "식어"는 빼고 (11/22)
     ("texture", r"식감|눅눅|바삭|질기|질겨|퍽퍽|딱딱"),
     ("portion", r"양(이|은|도|적|많|부족|이적)|양$|양에대|양관련"),
     ("price", r"가격|가성비|비싸|비싼"),
@@ -55,7 +55,9 @@ _INTENT_RX = [
     ("rating", r"별점|평점|평균|몇점|만점"),
     ("channel", r"채널|앱별|앱마다|배달앱별|플랫폼|어느앱|어디가(제일|가장)?(많|좋|나)"),
     ("recent", r"최근리뷰|새리뷰|새로들어|방금|오늘들어|오늘리뷰|최신"),
-    ("praise", r"칭찬|좋아하|좋아해|만족|잘한|인기|호평|좋은리뷰|좋다고|맛있다|맛있대"),
+    # "좋아해?·만족해?·평판" 은 칭찬만 보면 안 된다 → 칭찬·불만 비율이 같이 있는 한눈에(overview) (11/22 PR #75 live 확인)
+    ("overview", r"좋아해|좋아하나|좋아할|만족해|만족하나|만족할|만족도|평판|평이어때|어떻게생각|어떤가게|괜찮은가게|잘하고있"),
+    ("praise", r"칭찬|좋아하는|잘한|인기|호평|좋은리뷰|좋다고|맛있다|맛있대"),
     ("time", r"언제|몇시|시간대|저녁|점심|주말|평일|요일"),
     ("trend", r"늘었|줄었|늘어|줄어|증가|감소|지난주|저번주|이번주|요즘|변화|추세|많아졌|적어졌|나아졌|좋아졌"),
     ("complaints", r"불만|문제|컴플레인|클레임|안좋|나쁜|별로|제일많|가장많|순위|1위"),
@@ -68,6 +70,7 @@ class Question:
     intent: str
     topic: str | None = None
     channels: list[str] = field(default_factory=list)
+    matched: bool = True        # False = 규칙이 아무것도 못 골라 기본값(overview). 이때만 플래너를 따른다
 
 
 def _squash(text: str) -> str:
@@ -79,6 +82,7 @@ def parse(text: str) -> Question:
     topic = next((t for t, rx in _TOPIC_RX if re.search(rx, c)), None)
     channels = [ch for ch, rx in _CHANNEL_RX if re.search(rx, c)]
     intent = next((i for i, rx in _INTENT_RX if re.search(rx, c)), None)
+    matched = intent is not None or bool(topic) or bool(channels)
     if intent is None:
         intent = "channel" if len(channels) >= 2 else ("topic" if topic else "overview")
     if intent == "channel" and not channels and re.search(r"차이", c) is None and not re.search(_INTENT_RX[6][1], c):
@@ -87,7 +91,7 @@ def parse(text: str) -> Question:
         intent = "topic"
     if len(channels) >= 2 and intent in ("overview", "rating", "complaints", "topic", "trend"):
         intent = "channel"
-    return Question(text=text, intent=intent, topic=topic, channels=channels)
+    return Question(text=text, intent=intent, topic=topic, channels=channels, matched=matched)
 
 
 # ── ② 근거 카드 ──────────────────────────────────────────────────
@@ -175,6 +179,24 @@ def _josa(word: str, pair: str) -> str:
     return word + (a if has else b)
 
 
+def _tops(cnt: Counter) -> tuple[list[str], int]:
+    """가장 많은 것들 (동점이면 모두). (키 목록, 건수)."""
+    if not cnt:
+        return [], 0
+    n = max(cnt.values())
+    return [k for k, v in cnt.items() if v == n], n
+
+
+def _each(band: str) -> str:
+    return "각 " if "·" in (band or "") else ""
+
+
+def _most(names: list[str], n: int, what: str = "") -> str:
+    """"'포장 누락'(4건)" 또는 동점이면 "'식감'·'포장 누락'(각 4건)" (11/22: 동점인데 '가장 많은' 하나만 말하던 것)."""
+    quoted = "·".join(f"'{x}'" for x in names[:3])
+    return f"{quoted}({n}건)" if len(names) == 1 else f"{quoted}(각 {n}건)"
+
+
 def build(q: Question, d: Data, store_id: str, visitor_id: str | None) -> tuple[list[dict], str, list[str]]:
     """카드들, 틀 답(문장마다 [F#]), 다음 질문 추천. 숫자는 모두 여기서 센다."""
     rows = [r for r in d.rows if not q.channels or r.get("channel") in q.channels]
@@ -206,8 +228,8 @@ def build(q: Question, d: Data, store_id: str, visitor_id: str | None) -> tuple[
         vals = [_v(b, n, share=_pct(n, timed)) for b, n in sorted(bands.items(), key=lambda kv: -kv[1])]
         f = add("시간대", f"{label} {timed}건의 들어온 시간대예요.", vals,
                 ["붙여넣은 리뷰처럼 쓴 시각을 모르는 리뷰는 빼고 셌어요."] if timed < len(subset) else None)
-        top = max(bands.items(), key=lambda kv: kv[1]) if bands else None
-        return f, (top[0] if top else None), (top[1] if top else 0)
+        names, n = _tops(bands)
+        return f, ("·".join(sorted(names)) if names else None), n
 
     def weeks(subset):
         end = d.base_day
@@ -302,14 +324,14 @@ def build(q: Question, d: Data, store_id: str, visitor_id: str | None) -> tuple[
             name = CHANNEL_KO.get(ch, ch)
             vals += [_v("리뷰", len(sub), group=name), _v("평균 별점", avg, "점", group=name),
                      _v("불만 비율", _pct(comp, len(sub)), "%", group=name)]
-            top = topic_counter(sub).most_common(1)
-            lines.append((ch, len(sub), avg, comp, _pct(comp, len(sub)), top[0] if top else None))
+            names, tn = _tops(topic_counter(sub))
+            lines.append((ch, len(sub), avg, comp, _pct(comp, len(sub)), (names, tn) if names else None))
         f = add("채널 비교", "배달앱(채널)별 리뷰 수·평균 별점·불만 비율이에요.", vals)
         out = []
         for ch, n, avg, comp, rate, top in lines:
             s = f"{CHANNEL_KO.get(ch, ch)}: 리뷰 {n}건, 평균 {avg}점, 불만 {comp}건({rate}%)"
             if top:
-                s += f", 많은 불만은 '{topic_name(top[0])}' {top[1]}건"
+                s += f", 많은 불만은 {_most([topic_name(x) for x in top[0]], top[1])}"
             out.append(f"- {s} [{f}]")
         worst = max(lines, key=lambda x: x[4] or 0) if lines else None
         wn = CHANNEL_KO.get(worst[0], worst[0]) if worst else ""
@@ -341,12 +363,16 @@ def build(q: Question, d: Data, store_id: str, visitor_id: str | None) -> tuple[
                 [_v(topic_name(t), n) for t, n in cnt.most_common(5)])
         lines = [f"{where}칭찬 리뷰는 {len(praised)}건이에요 [{f}]."]
         if cnt:
-            t, n = cnt.most_common(1)[0]
-            lines.append(f"가장 많이 칭찬한 건 '{topic_name(t)}'({n}건)이에요 [{f}].")
+            names, n = _tops(cnt)
+            lines.append(f"가장 많이 칭찬한 건 {_most([topic_name(x) for x in names], n)}이에요 [{f}].")
         if menus:
             g = add("칭찬 메뉴", "칭찬 리뷰에 이름이 나온 메뉴예요.", [_v(m, n) for m, n in menus.most_common(3)])
-            m, n = menus.most_common(1)[0]
-            lines.append(f"메뉴로는 {_josa(f"'{m}'", '이/가')} {n}건으로 가장 많이 나왔어요 [{g}].")
+            names, n = _tops(menus)
+            if len(names) == 1:
+                lines.append(f"메뉴로는 {_josa(f"'{names[0]}'", '이/가')} {n}건으로 가장 많이 나왔어요 [{g}].")
+            else:
+                quoted = "·".join(f"'{x}'" for x in names[:3])
+                lines.append(f"메뉴로는 {_josa(quoted, '이/가')} 각 {n}건씩 나왔어요 [{g}].")
         if praised:
             r = praised[-1]
             lines.append(f"예: \"{d.quote(r, None, 'positive')}\"")
@@ -363,7 +389,7 @@ def build(q: Question, d: Data, store_id: str, visitor_id: str | None) -> tuple[
             return cards, f"{where}{_josa(label, '은/는')} 아직 없어요 [{f}].", ["불만 리뷰 제일 많은 게 뭐야?"]
         f, band, n = time_card(subset, f"{where}{label}")
         timed = sum(v["value"] for v in cards[-1]["values"])
-        line = f"{where}{label} {len(subset)}건 중 {band}에 {n}건으로 가장 많았어요 [{f}]." if band else \
+        line = f"{where}{label} {len(subset)}건 중 {band}에 {_each(band)}{n}건으로 가장 많았어요 [{f}]." if band else \
             f"{where}{label}의 들어온 시각을 알 수 있는 리뷰가 없어요 [{f}]."
         tip = " 그 시간대 포장·확인 순서를 한 번 점검해 보세요." if band and n * 100 >= timed * 50 \
             and t in (None, "missing_item", "packaging") else ""      # 맛·양 불만에 '포장 순서'는 맞지 않다
@@ -403,8 +429,8 @@ def build(q: Question, d: Data, store_id: str, visitor_id: str | None) -> tuple[
             lines = ["답글은 ① 불편에 대한 짧은 사과 ② 확인한 사실 ③ 앞으로 바꿀 점 한 가지 순서가 읽기 좋아요.",
                      "할인·보상은 가게 원칙에 있을 때만 약속해 주세요."]
         if cnt:
-            k, n = cnt.most_common(1)[0]
-            lines.append(f"지금 가장 많은 불만은 '{topic_name(k)}'({n}건)이라 그 주제 답글부터 맞춰 두면 좋아요 [{f}].")
+            names, n = _tops(cnt)
+            lines.append(f"지금 가장 많은 불만은 {_most([topic_name(x) for x in names], n)}이라 그 주제 답글부터 맞춰 두면 좋아요 [{f}].")
         lines.append("추천 카드에서 답글을 만들면 억울한 리뷰는 설명하는 답글로 나와요." if re.search(r"억울|악플|진상|테러|블랙", c)
                      else "추천 카드에서 답글 초안을 만들고 고쳐서 승인할 수 있어요.")
         return cards, " ".join(lines), ["답글 안 단 리뷰 몇 개야?", "불만 리뷰 제일 많은 게 뭐야?"]
@@ -417,7 +443,7 @@ def build(q: Question, d: Data, store_id: str, visitor_id: str | None) -> tuple[
         if subset:
             g, band, n = time_card(subset, f"'{topic_name(t)}' 불만")
             if band:
-                lines.append(f"불만은 {band}에 {n}건으로 가장 많았어요 [{g}].")
+                lines.append(f"불만은 {band}에 {_each(band)}{n}건으로 가장 많았어요 [{g}].")
         # 손님이 실제로 쓴 말 (근거 구절). "뭐라고 해?"에 모델이 요약할 재료. 최근 것부터 불만·칭찬 3개씩
         said = [("불만", d.quote(r, t, "negative")) for r in subset[::-1][:3]] + \
                [("칭찬", d.quote(r, t, "positive")) for r in pos[::-1][:3]]
@@ -436,14 +462,17 @@ def build(q: Question, d: Data, store_id: str, visitor_id: str | None) -> tuple[
                 [_v(topic_name(k), n, share=_pct(n, len(complaints))) for k, n in cnt.most_common(6)])
         if not complaints:
             return cards, f"{where}불만 리뷰가 없어요 [{f}].", ["칭찬 리뷰 제일 많은 메뉴는?"]
-        (k, n), *rest = cnt.most_common(3)
-        lines = [f"{where}리뷰 {total}건 중 불만은 {len(complaints)}건이고, 가장 많은 불만은 '{topic_name(k)}'({n}건)이에요 [{f}]."]
+        names, n = _tops(cnt)
+        k = names[0]
+        rest = [(a, b) for a, b in cnt.most_common(len(names) + 2) if a not in names][:2]
+        lines = [f"{where}리뷰 {total}건 중 불만은 {len(complaints)}건이고, 가장 많은 불만은 "
+                 f"{_most([topic_name(x) for x in names], n)}이에요 [{f}]."]
         if rest:
             lines.append("그다음은 " + ", ".join(f"'{topic_name(a)}'({b}건)" for a, b in rest) + f"이에요 [{f}].")
         sub = [r for r in complaints if k in d.neg(r)]
         g, band, bn = time_card(sub, f"'{topic_name(k)}' 불만")
         if band:
-            lines.append(f"'{topic_name(k)}' 불만은 {band}에 {bn}건 몰렸어요 [{g}].")
+            lines.append(f"'{topic_name(k)}' 불만은 {band}에 {_each(band)}{bn}건 몰렸어요 [{g}].")
         return cards, " ".join(lines), nxt["complaints"]
 
     # overview: 한눈에
@@ -454,10 +483,19 @@ def build(q: Question, d: Data, store_id: str, visitor_id: str | None) -> tuple[
     f = add("리뷰 한눈에", f"{where}리뷰 현황이에요.",
             [_v("리뷰", total), _v("불만 리뷰", len(complaints), share=_pct(len(complaints), total)),
              _v("평균 별점", avg, "점"), _v("답글 기다리는 불만", st["pending_count"]), _v("응대 점수", st["score"], "점")])
-    lines = [f"{where}리뷰 {total}건 중 불만은 {len(complaints)}건, 평균 별점은 {avg}점이에요 [{f}]."]
+    praised = [r for r in rows if d.pos(r) and not d.neg(r)]
+    pcnt = topic_counter(rows, "pos")
+    lines = [f"{where}리뷰 {total}건 중 불만은 {len(complaints)}건({_pct(len(complaints), total)}%), "
+             f"평균 별점은 {avg}점이에요 [{f}]."]
+    if pcnt:
+        names, n = _tops(pcnt)
+        g = add("칭찬과 불만", "칭찬한 주제와 불만 주제를 같이 본 거예요.",
+                [_v("칭찬 리뷰", len(praised))] + [_v(topic_name(x), n, group="가장 많은 칭찬") for x in names[:3]]
+                + [_v(topic_name(x), c, group="가장 많은 불만") for x in _tops(cnt)[0][:3] for c in [_tops(cnt)[1]]])
+        lines.append(f"칭찬은 {_most([topic_name(x) for x in names], n)}이 가장 많아요 [{g}].")
     if cnt:
-        k, n = cnt.most_common(1)[0]
-        lines.append(f"가장 많은 불만은 '{topic_name(k)}'({n}건)이고, 응대 점수는 {st['score']}점이에요 [{f}].")
+        names, n = _tops(cnt)
+        lines.append(f"불만은 {_most([topic_name(x) for x in names], n)}이 가장 많고, 응대 점수는 {st['score']}점이에요 [{f}].")
     return cards, " ".join(lines), ["불만 리뷰 제일 많은 게 뭐야?", "별점 평균 몇 점이야?", "답글 안 단 리뷰 몇 개야?"]
 
 
@@ -465,7 +503,22 @@ def build(q: Question, d: Data, store_id: str, visitor_id: str | None) -> tuple[
 _CITE = re.compile(r"\[(F\d+)\]")
 _NUM = re.compile(r"(?<![\w.])(\d[\d,]*(?:\.\d+)?)")
 # 원인 단정·남 탓·과장 (topics.BANNED 와 같은 뜻의 짧은 목록)
-_BANNED = ("때문에", "때문이", "원인은", "원인이", "탓", "확실히", "반드시", "무조건", "틀림없", "100%")
+# + 11/22 (PR #75 live 확인): 원인 추정·약속·판정 말. 틀 답에 그 말이 있으면 허용한다
+_BANNED = ("때문에", "때문이", "원인은", "원인이", "탓", "확실히", "반드시", "무조건", "틀림없", "100%",
+           "가능성이 높", "가능성이 있", "것으로 보", "보입니다", "만족도가 높", "좋아해요", "좋아하고", "잘하고 계",
+           "있을 거예요", "될 거예요", "생길 거예요", "것입니다")
+# 방향 낱말: 틀 답에 왼쪽 말이 있으면 모델 답에도 오른쪽 중 하나가 있어야 한다 (숫자는 맞는데 뜻이 뒤집힌 답 막기, 상권 PR #67 과 같은 생각)
+_DIRECTION = (
+    ("넘기지 못했", ("넘기지 못", "못 넘", "미치지 못", "모자라")),
+    ("넘겼", ("넘겼", "넘었")),
+    ("늘었", ("늘었", "늘어", "증가", "많아졌")),
+    ("줄었", ("줄었", "줄어", "감소", "적어졌")),
+    ("같아요", ("같", "변화가 없", "변함없", "그대로")),
+    ("손해", ("손해",)),
+    ("다시 보", ("다시 보", "점검", "손해")),
+    ("없어요", ("없",)),
+)
+_FORMAL = re.compile(r"(니다|니까|십시오)[.!?]?\s*(\[F\d+\])?\s*$")
 
 
 def _numbers(text: str) -> set[str]:
@@ -479,7 +532,15 @@ def _numbers(text: str) -> set[str]:
     return out
 
 
+def _first_sentence(template: str) -> str:
+    return re.split(r"(?<=[.!?])\s+|\n", template.strip(), maxsplit=1)[0]
+
+
 def check_answer(text: str, cards: list[dict], template: str) -> list[str]:
+    """모델 답 점검. 하나라도 걸리면 틀 답을 쓴다 (11/22 PR #75 live 확인으로 강화).
+    - 숫자: 카드·틀 답에 있는 것만 (예전의 1·2·3 자동 허용은 뺐다 — 시연 가게 건수가 대부분 1~4건이라 구멍이 컸다)
+    - 틀 답 첫 문장의 숫자는 모두 답에도 (핵심 사실 빠짐 막기) · 틀 답의 방향 낱말(늘었·줄었·손해·없어요…)도 답에
+    - 없는 [F#]·근거 표시 없음·원인 추정·약속·판정 말·합쇼체가 반 넘음·700자 넘음"""
     problems = []
     if not text.strip():
         return ["빈 답"]
@@ -500,15 +561,31 @@ def check_answer(text: str, cards: list[dict], template: str) -> list[str]:
                 known |= _numbers(str(v["value"]))
             if v.get("share_percent") is not None:
                 known |= _numbers(str(v["share_percent"]))
-    known |= _numbers(template) | {"1", "2", "3"}     # 틀 답의 숫자(날짜·건수)와 '① ② ③'처럼 순서를 세는 작은 수
-    plain = _CITE.sub("", text)
-    unknown = sorted(n for n in _numbers(plain) if n not in known)
+    known |= _numbers(template)
+    said = _numbers(_CITE.sub("", text))
+    unknown = sorted(n for n in said if n not in known)
     if unknown:
         problems.append(f"근거에 없는 숫자 {', '.join(unknown)}")
-    hit = [w for w in _BANNED if w in text]
+    lost = sorted(_numbers(_CITE.sub("", _first_sentence(template))) - said)
+    if lost:
+        problems.append(f"틀 답 첫 문장의 숫자가 빠짐 {', '.join(lost)}")
+    own = re.sub(r'"[^"]*"|“[^”]*”', "", template)          # 손님 말 인용("고기 양이 줄었고…")은 틀 답의 판단이 아니다
+    for word, ok in _DIRECTION:
+        if word in own and not any(o in text for o in ok):
+            problems.append(f"틀 답의 '{word}'와 다른 뜻")
+            break
+    hit = [w for w in _BANNED if w in text and w not in template]
     if hit:
         problems.append(f"쓰면 안 되는 말 {', '.join(hit)}")
+    sentences = [x for x in re.split(r"(?<=[.!?])\s+|\n", text) if x.strip()]
+    if sentences and sum(bool(_FORMAL.search(x)) for x in sentences) * 2 > len(sentences):
+        problems.append("해요체가 아님")
     return problems
+
+
+def _plain(text: str) -> str:
+    """모델이 쓴 마크다운 굵게·기울임 표시를 지운다 (서랍은 [F#]·'- ' 목록만 그린다)."""
+    return re.sub(r"\*\*|__|(?<!\w)\*(?=\S)|(?<=\S)\*(?!\w)", "", text)
 
 
 SYSTEM = """너는 동네 음식점 사장님의 리뷰·고객응대 비서다. 사장님 질문에 [근거 카드]만 보고 답한다.
@@ -516,8 +593,11 @@ SYSTEM = """너는 동네 음식점 사장님의 리뷰·고객응대 비서다.
 1. 숫자는 [근거 카드]에 있는 것만 그대로 쓴다. 새 숫자를 계산하거나 지어내지 않는다.
 2. 숫자가 들어간 문장 끝에는 그 카드 번호를 [F1]처럼 붙인다.
 3. 불만의 원인을 단정하거나 손님·직원을 탓하지 않는다. 할 일은 '~해 보세요'처럼 권한다.
-4. 해요체로 2~5문장, 500자 이하. 답 글만 쓴다.
-5. [틀 답]의 사실은 빠뜨리지 말고 더 자연스럽게 다듬는다."""
+4. 해요체로 쓴다 ('~예요', '~이에요', '~해요', '~해 보세요'). '~습니다·~입니다'는 쓰지 않는다. 2~5문장, 500자 이하.
+5. [틀 답]의 사실·숫자·방향(늘었다·줄었다·없다 등)은 빠뜨리거나 바꾸지 말고 더 자연스럽게 다듬는다.
+6. 가게가 하는 일(조리 방식·약속)이나 결과(좋아질 거예요 등)를 지어내지 않는다. 굵게(**)·번호 목록은 쓰지 않는다.
+예) [틀 답] 최근 7일 '맛' 불만은 1건으로 그 앞 7일과 같아요 [F1].
+    좋은 답: 이번 주 맛 불만은 1건이고 지난주와 같아요 [F1]. 같은 말이 또 나오는지 지켜보세요."""
 
 
 # ── ② AI 플래너 (live 만, 11/21) ───────────────────────────────────
@@ -573,19 +653,21 @@ def answer(classifier, store_id: str, visitor_id: str | None, text: str, now: da
     chat = chat or Chat()
     rule = parse(text)
     q, plan_note = rule, None
-    if chat.available:
+    # 플래너는 규칙이 아무것도 못 고른 질문(기본값 overview)에만 따른다 (11/22 PR #75 live 확인: 고친 6번 중 나아진 건 1번)
+    if chat.available and rule.intent == "overview" and not rule.matched:
         planned, plan_note = plan(text, rule, chat)
         q = planned or rule
     d = Data.load(classifier, store_id, visitor_id, now)
     cards, fixed, suggestions = build(q, d, store_id, visitor_id)
     method, problems, out = "template", [], fixed
-    if chat.available and q.intent not in ("capture",):
+    # 숫자가 없는 안내(답글 쓰는 법·캡처 방법)는 모델이 가게 사실을 지어낼 수 있어 틀 문장만 쓴다 (11/22)
+    if chat.available and q.intent not in ("capture", "howto"):
         user = ("[근거 카드]\n" + "\n".join(
             f"{c['id']} {c['topic']}: {c['text']} " + "; ".join(
                 f"{(v.get('group') + ' ') if v.get('group') else ''}{v['label']} {v['value']}{v['unit']}" for v in c["values"])
             for c in cards) + f"\n\n[틀 답]\n{fixed}\n\n[사장님 질문]\n{text}")
         try:
-            got = chat.ask(SYSTEM, user, "care_ask").strip().strip('"')
+            got = _plain(chat.ask(SYSTEM, user, "care_ask").strip().strip('"'))
             problems = check_answer(got, cards, fixed)
             if not problems:
                 method, out = "hcx", got
