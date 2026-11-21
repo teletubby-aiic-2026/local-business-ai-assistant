@@ -511,6 +511,25 @@ def idea_try(req: IdeaTryRequest, store: str = stores.DEFAULT_STORE_ID,
     return {"need_answer": False, "draft": result["draft"], "skip": result["skip"]}
 
 
+class AskRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=500)
+
+
+@app.post("/api/marketing-survey/ask")
+def ask_endpoint(req: AskRequest, store: str = stores.DEFAULT_STORE_ID,
+                 visitor_id: str | None = Depends(_visitor_query)):
+    """마케팅 질문 답하기 (11/21, marketing_survey/ask.py): 질문 나누기(live 면 HCX-005 플래너) → 보고서·쿠폰·광고 계산으로
+    근거 카드(F1…) → 답(틀 문장, live 면 HCX-005) → 숫자 점검. 통합 화면의 'AI에게 묻기' 서랍이 마케팅 질문을 여기로 보낸다."""
+    from marketing_survey import ask
+    ctx = _get_ctx(store)
+    if not req.text.strip():
+        raise HTTPException(400, "질문이 비어 있어요.")
+    try:
+        return ask.answer(ctx, store, visitor_id, req.text.strip(), hcx_key())
+    except OSError:
+        raise HTTPException(503, "기록을 읽지 못했어요. 잠시 뒤 다시 해 주세요.") from None
+
+
 @app.post("/api/marketing-survey/coupon-calc")
 def coupon_calc_endpoint(req: CouponCalcRequest):
     """쿠폰 슬라이더(예산·할인액) 가 움직일 때마다 부른다 — 계산은 전부 coupon_calc.calc()(가게 무관)."""
