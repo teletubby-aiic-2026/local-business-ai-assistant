@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { homeStats, keywordRows, hourChart, scopeChips, sourceLine, reasonByAI, measureIds, replacesOf, statusOf, listBadges, touchedOf, mapDraft, pickCurrent, starText,
-  draftStateText, isFallback, regenNote } from "./calc.js";
+  draftStateText, isFallback, regenNote, hourNotes, cardsIntro, targetLine, mergeApprovals, serverName, whenText } from "./calc.js";
 
 const briefing = {
   period: { start: "2026-11-12", end: "2026-11-18" },
@@ -27,7 +27,8 @@ describe("홈", () => {
   });
   it("리뷰 0건인 새 가게: 기간이 비어도 '1일 동안'이 나오지 않는다", () => {
     const s = homeStats({ period: { start: null, end: null }, counts: { review_count: 0, complaint_count: 0 }, groups: [] });
-    expect(s).toMatchObject({ reviews: 0, reviewsSub: "", complaints: 0, complaintsSub: "", repeated: 0, repeatedSub: "없음" });
+    // 11/21 QA: 0건이면 '없음' 대신 반복 기준 (불만 묶음 탭과 같은 정의)
+    expect(s).toMatchObject({ reviews: 0, reviewsSub: "", complaints: 0, complaintsSub: "", repeated: 0, repeatedSub: "같은 불만 3건부터" });
     expect(homeStats({ counts: {} }).reviewsSub).toBe("");
   });
   it("상권 칸 범위 칩: 상권명 · 업종 · 시간대 (지표 이름에서)", () => {
@@ -97,7 +98,15 @@ describe("초안", () => {
     expect(listBadges(d1, s.approved)).toEqual([["ok", "승인 완료"]]);
     expect(listBadges(d2, s.approved)).toEqual([["", "승인 대기"], ["bad", "점검 실패"]]);
     expect(listBadges(d3, s.approved)).toEqual([["", "승인 대기"], ["warn", "확인 필요"]]);
-    expect(listBadges({ draft_id: "d4" }, s.approved)).toEqual([["", "승인 대기"]]);   // 점검 통과는 '승인 대기'만
+    // 11/21 QA: 점검 통과도 칩으로 (Figma 06 B3)
+    expect(listBadges({ draft_id: "d4" }, s.approved)).toEqual([["", "승인 대기"], ["ok", "점검 통과"]]);
+  });
+  it("초안 목록의 대상 리뷰: 답글이면 원 리뷰 첫 줄 앞부분, 리뷰를 모르면 빈 글", () => {
+    const reviews = { r1: { text: "공깃밥 추가했는데 안 들어 있었어요\n둘째 줄" }, r2: { text: "가".repeat(40) } };
+    expect(targetLine({ target_review_id: "r1" }, reviews)).toBe("공깃밥 추가했는데 안 들어 있었어요");
+    expect(targetLine({ target_review_id: "r2" }, reviews)).toBe(`${"가".repeat(23)}…`);
+    expect(targetLine({ target_review_id: "r9" }, reviews)).toBe("");
+    expect(targetLine({ target_review_id: null }, reviews)).toBe("");
   });
   it("승인했거나 고친 글 수", () => expect(touchedOf(s, "a")).toBe(2));
   it("보일 카드·글: 안내문이 먼저, 첫 미승인 글", () => {
@@ -152,5 +161,65 @@ describe("hourChart: 붙여넣은 리뷰는 시간대 막대에 세지 않는다
     expect(chart.cols.find((c) => c.h === 18).n).toBe(1);
     expect(chart.cols.some((c) => c.h === 0)).toBe(false);
     expect(chart.label).toBe("시간대별 불만 리뷰: 18시 1건");
+    // 11/21 QA B-2: 일부만 빠졌으면 뺀 건수를 한 줄로
+    expect(chart).toMatchObject({ total: 3, pasted: 2, timed: 1 });
+    expect(hourNotes(chart)).toEqual({ empty: "", extra: "붙여넣은 불만 2건은 주문 시각이 없어 시간대에서 뺐어요." });
+  });
+});
+
+describe("11/21 QA: 시간 차트 빈 안내 (B-2)", () => {
+  it("불만이 정말 0건일 때만 '불만 리뷰가 없어요', 붙여넣은 불만만 있으면 시각이 없어 그리지 않는다고", () => {
+    const none = hourChart({ counts: { complaint_count: 0 }, groups: [], single_complaints: [], pasted: [] });
+    expect(hourNotes(none)).toEqual({ empty: "불만 리뷰가 없어요.", extra: "" });
+    const onlyPasted = hourChart({ counts: { review_count: 4, complaint_count: 4 }, pasted: [{ review_id: "p1" }, { review_id: "p2" }],
+      groups: [{ issue_id: "g", topic_name: "맛", reviews: [{ review_id: "p1", created_at: "2026-11-21T00:03:00+09:00", input_method: "paste" }] }],
+      single_complaints: [{ review_id: "p2", topic_names: ["양"], created_at: "2026-11-21T00:04:00+09:00" }] });
+    expect(onlyPasted.cols.every((c) => !c.n)).toBe(true);
+    expect(hourNotes(onlyPasted)).toEqual({ empty: "붙여넣은 리뷰에는 주문 시각이 없어 시간대를 그리지 않아요.", extra: "" });
+    // 브리핑에 불만 수만 있고 리뷰 시각이 없을 때도 '없어요'라고 하지 않는다
+    expect(hourNotes(hourChart({ counts: { complaint_count: 2 }, groups: [], single_complaints: [] })).empty)
+      .toBe("주문 시각을 아는 불만 리뷰가 없어 시간대를 그리지 않아요.");
+    expect(hourNotes(hourChart(briefing))).toEqual({ empty: "", extra: "" });   // 합성 리뷰만: 덧붙이는 줄 없음
+    expect(hourNotes(null)).toEqual({ empty: "", extra: "" });
+  });
+});
+
+describe("11/21 QA: 추천 카드 머리 설명 (B-7)", () => {
+  const withSnap = { card: { kind: "promo" }, evidence: [{ type: "snapshot" }] };
+  const reviewsOnly = { card: { kind: "complaint" }, evidence: [{ type: "review", id: "r1" }] };
+  it("상권 지표를 쓴 카드가 있을 때만 '상권 자료', 시험용 실행은 AI 가 쓴다고 하지 않음", () => {
+    expect(cardsIntro([reviewsOnly, withSnap], false)).toBe("오늘 리뷰와 상권 자료로 고른 추천 2가지예요. 고르면 AI가 글을 써요.");
+    expect(cardsIntro([reviewsOnly], false)).toBe("오늘 리뷰로 고른 추천 1가지예요. 고르면 AI가 글을 써요.");
+    expect(cardsIntro([reviewsOnly], true)).toBe("오늘 리뷰로 고른 추천 1가지예요. 고르면 예시 글을 보여 드려요.");
+    expect(cardsIntro([], false)).toBe("");
+  });
+});
+
+describe("11/21 QA: 처리 완료의 승인한 글 = 브라우저 목록 ∪ 서버 기록 (B-1)", () => {
+  const local = [{ id: "d2", name: "포장·주문 안내문", at: "2026-11-21T21:00:05+09:00", edited: true, text: "안내문 고침" }];
+  it("새로 고침 뒤(브라우저 목록이 빔) 서버 기록으로 채우고, 이름은 draft_id 로 추정", () => {
+    const out = mergeApprovals([], [
+      { draft_id: "d_1a2b3c4d", status: "approved", edited: false, text: "답글", approved_at: "2026-11-21T20:00:00+09:00", mode: "live" },
+      { draft_id: "mkt-abc", status: "approved", edited: true, text: "홍보", approved_at: "2026-11-21T20:05:00+09:00" },
+    ]);
+    expect(out.map((a) => [a.id, a.name, a.edited, a.text, !!a.mkt])).toEqual([
+      ["d_1a2b3c4d", "글", false, "답글", false], ["mkt-abc", "맞춤 마케팅 글", true, "홍보", true]]);
+    expect(serverName("mkt-x")).toBe("맞춤 마케팅 글");
+    expect(serverName("d_ex_unfair01_001")).toBe("글");
+  });
+  it("같은 글은 한 번만 (브라우저 쪽 이름), 차례는 서버, 서버에 없는 브라우저 글은 뒤에, 서버를 못 읽으면 브라우저 목록만", () => {
+    const items = [{ draft_id: "d0", approved_at: "2026-11-20T10:00:00+09:00", text: "어제 답글" }, { draft_id: "d2", approved_at: "2026-11-21T21:00:05+09:00", edited: true, text: "안내문 고침" },
+      { draft_id: "d2", approved_at: "2026-11-21T21:00:05+09:00" }];
+    const extra = { id: "d3", name: "답글", at: "2026-11-21T21:01:00+09:00", text: "답글 하나" };
+    expect(mergeApprovals([...local, extra], items).map((a) => [a.id, a.name])).toEqual([["d0", "글"], ["d2", "포장·주문 안내문"], ["d3", "답글"]]);
+    expect(mergeApprovals(local, null)).toEqual(local);
+    expect(mergeApprovals(local, false)).toEqual(local);
+    expect(mergeApprovals([], [])).toEqual([]);
+  });
+  it("승인 시각: 오늘이면 시:분, 다른 날이면 월-일 시:분", () => {
+    const today = new Date(2026, 10, 21, 22, 0);
+    expect(whenText("2026-11-21T21:00:05+09:00", today)).toBe("21:00");
+    expect(whenText("2026-11-19T09:30:00+09:00", today)).toBe("11-19 09:30");
+    expect(whenText("", today)).toBe("");
   });
 });

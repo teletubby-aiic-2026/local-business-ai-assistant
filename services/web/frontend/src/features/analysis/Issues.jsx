@@ -1,7 +1,7 @@
 // 불만 묶음 탭: 흐름 한 줄 → 묶음 카드(반복·몰린 시간대·시간대 분포·근거 인용과 리뷰 ID) → 묶이지 않은 불만. 예전 renderAnIssues
 import { Badge, Panel } from "../../components/ui.jsx";
 import { useStore } from "../../state/store.js";
-import { bandRows, groupNote } from "./calc.js";
+import { REPEAT_NOTE, bandRows, groupNote } from "./calc.js";
 
 function Funnel({ d, groups, singles }) {
   const box = (n, label) => <div className="an-fbox"><div className="an-fn">{n ?? "–"}</div><div className="small muted">{label}</div></div>;
@@ -14,7 +14,7 @@ function Funnel({ d, groups, singles }) {
         <span className="an-arrow" aria-hidden="true">+</span>
         {box(d ? singles.length : null, "묶이지 않은 불만")}
       </div>
-      <p className="small muted">같은 불만이 2건 이상이면 묶음, 3건 이상이면 반복으로 봐요.</p>
+      <p className="small muted">{REPEAT_NOTE}.</p>
     </Panel>
   );
 }

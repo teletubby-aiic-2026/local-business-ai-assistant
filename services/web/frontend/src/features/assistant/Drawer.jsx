@@ -4,6 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore, getState, openDrawer } from "../../state/store.js";
 import { homeSnap, marketScope } from "../../lib/domain.js";
+import { useBand } from "../../lib/media.js";
 import { Button, Notice } from "../../components/ui.jsx";
 import {
   CHAT_TOPICS, CHAT_STATUS, CHAT_SCOPE_DAY, chatValue, chatQuarter, chatUrl, chatCondParts, chatScopeNote, chatBlocks, chatPieces,
@@ -151,6 +152,8 @@ export default function Drawer() {
   const wasOpen = useRef(false);
   const wantQ = useRef(false);      // 열었는데 아직 준비 중이라 입력칸이 막혀 있음 → 준비되면 입력칸으로
   const off = !c.ready || c.busy;
+  // 760px 이하 = 아래 시트. 뒤 화면과 구분되지 않고 뒤가 스크롤돼서, 열린 동안 뒤에 막(누르면 닫힘)을 깔고 스크롤을 잠근다 (11/21 QA)
+  const sheet = useBand() === "narrow";
 
   // 가게가 바뀌면 (예전 chatReset): 대화·조건을 비우고, 서랍이 열려 있으면 새 가게로 다시 시작
   useEffect(() => {
@@ -197,6 +200,14 @@ export default function Drawer() {
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
+  // 휴대폰 시트가 열린 동안만 뒤 페이지 스크롤 잠금 (닫거나 넓은 폭으로 바뀌면 바로 풂). 대화 칸 스크롤은 그대로 (11/21 QA)
+  useEffect(() => {
+    if (!open || !sheet) return undefined;
+    const root = document.documentElement;
+    root.classList.add("drawer-lock");
+    return () => root.classList.remove("drawer-lock");
+  }, [open, sheet]);
+
   // 높이 자라는 입력칸 (최대 140px)
   useLayoutEffect(() => {
     const q = qRef.current;
@@ -216,6 +227,9 @@ export default function Drawer() {
   const sc = c.stateCard;
 
   return (
+    <>
+    {/* 시트 뒤 막: 누르면 닫힘. 꾸밈이라 읽기 프로그램에는 숨긴다 (닫기는 [닫기]·Esc 로 그대로) (11/21 QA) */}
+    {open && sheet && <div className="drawer-scrim" aria-hidden="true" onClick={() => openDrawer(false)} />}
     <aside id="assistant" className={["drawer", "chat-drawer", scrolled && "scrolled"].filter(Boolean).join(" ")} aria-labelledby="assistant-title" hidden={!open}>
       <div className="chat-head">
         <h2 id="assistant-title">AI에게 묻기</h2>
@@ -302,5 +316,6 @@ export default function Drawer() {
         <span id="assistant-count">{c.draft.length >= 900 ? `${c.draft.length} / 1000자` : ""}</span>
       </p>
     </aside>
+    </>
   );
 }

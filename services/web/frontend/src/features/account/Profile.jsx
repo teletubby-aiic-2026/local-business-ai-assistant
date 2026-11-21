@@ -240,6 +240,7 @@ function Records({ me }) {
 
 export default function Profile() {
   const me = useStore((s) => s.me);
+  const reportsSeq = useStore((s) => s.reportsSeq);   // 기록 지우기 뒤 보관 수를 다시 부르게 (부품을 새로 그림)
   const u = (me && me.user) || {};
   const sub = [isDemo(me) ? "시연 계정" : u.login_id ? `아이디 ${u.login_id}` : "", u.created_at ? `${u.created_at} 가입` : ""].filter(Boolean).join(" · ");
   return (
@@ -257,7 +258,7 @@ export default function Profile() {
         <section className="panel prof-panel" aria-labelledby="prof-reports-title">
           <div className="panel-head"><h2 id="prof-reports-title">보관한 보고서</h2></div>
           <p className="small muted">주간·월간 보고서는 가게마다 이 계정에 저장돼요.</p>
-          <SavedReportCounts />
+          <SavedReportCounts key={reportsSeq} />
         </section>
         <Records me={me} />
       </div>

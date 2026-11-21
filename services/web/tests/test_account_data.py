@@ -158,7 +158,7 @@ class ResetScopes(unittest.TestCase):
         res = self.client.post("/api/auth/reset", json={"scope": "store"})
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(res.headers["cache-control"], "no-store")
-        self.assertEqual(res.json(), {"scope": "store", "complete": True, "message": None,
+        self.assertEqual(res.json(), {"scope": "store", "complete": True, "message": None, "reports": 0,
                                       "stores": [{"store_id": "store_ongi", "name": "온기한식", "approvals": 2, "reviews": 2,
                                                   "marketing": "cleared"}]})
         self.assertEqual(self.left(self.me, "store_ongi"), (0, 0))
@@ -214,6 +214,64 @@ class ResetScopes(unittest.TestCase):
         data = self.client.post("/api/auth/reset", json={"scope": "store"}).json()
         self.assertEqual(data["stores"][0]["approvals"], 3)
         self.assertEqual([p for p in self.demo._pending if p[0] == self.me], [])
+
+
+def save_report(storage, store: str, visitor: str, kind: str = "weekly", version: str = "r1") -> None:
+    """저장된 보고서 한 줄 (주간 11/9~11/15 · 월간 10월). version 이 다르면 같은 기간에 줄이 하나 더 생긴다."""
+    start, end = ("2026-11-09", "2026-11-15") if kind == "weekly" else ("2026-10-01", "2026-10-31")
+    storage.reports.save(store, kind, start, end, numbers={"version": 1}, body_text="", evidence_ids=[],
+                         prompt_version=version, visitor_id=visitor)
+
+
+class ResetReports(unittest.TestCase):
+    """초기화 응답의 reports = 지운 저장 보고서 수 (화면 결과 띠에 '보관한 보고서 n개', 11/21 QA)."""
+
+    def setUp(self):
+        self.app, self.demo, self.review, _ = build()
+        self.client = TestClient(self.app)
+        signup(self.client, stores=("store_ongi", "store_basak"))
+        self.me = visitor_of(self.client)
+        other = TestClient(self.app)
+        signup(other, login="owner02", stores=STORES)
+        self.other = visitor_of(other)
+        st = self.demo.storage
+        save_report(st, "store_ongi", self.me, "weekly")
+        save_report(st, "store_ongi", self.me, "weekly", version="r2")    # 같은 기간 다른 판: 프로필처럼 하나로 셈
+        save_report(st, "store_ongi", self.me, "monthly")
+        save_report(st, "store_basak", self.me, "weekly")
+        save_report(st, "store_ongi", self.other, "weekly")
+
+    def test_store_then_account_report_the_number_of_saved_reports_erased(self):
+        self.assertEqual(self.demo.storage.reports.count(["store_ongi", "store_basak"], self.me), {"weekly": 2, "monthly": 1})
+        data = self.client.post("/api/auth/reset", json={"scope": "store"}).json()
+        self.assertEqual((data["complete"], data["reports"]), (True, 2))
+        self.assertEqual(self.demo.storage.reports.count(["store_ongi"], self.me), {"weekly": 0, "monthly": 0})
+        data = self.client.post("/api/auth/reset", json={"scope": "account"}).json()
+        self.assertEqual((data["complete"], data["reports"]), (True, 1))
+        self.assertEqual(self.client.post("/api/auth/reset", json={"scope": "account"}).json()["reports"], 0)
+        # 다른 사장님 것은 그대로
+        self.assertEqual(self.demo.storage.reports.count(["store_ongi"], self.other), {"weekly": 1, "monthly": 0})
+
+    def test_reports_that_could_not_be_erased_are_null_and_incomplete(self):
+        with mock.patch.object(self.app.state.reports.storage.reports, "delete", side_effect=StorageError("DB 에 닿지 못함")):
+            res = self.client.post("/api/auth/reset", json={"scope": "account"})
+        self.assertEqual(res.status_code, 200, res.text)
+        data = res.json()
+        self.assertEqual((data["complete"], data["reports"]), (False, None))
+        self.assertIn("저장된 보고서", data["message"])
+        self.assertEqual([s["approvals"] for s in data["stores"]], [0, 0])               # 나머지는 지움
+
+    def test_counting_failure_falls_back_to_rows_erased(self):
+        with mock.patch.object(self.app.state.reports.storage.reports, "count", side_effect=StorageError("DB 에 닿지 못함")):
+            data = self.client.post("/api/auth/reset", json={"scope": "store"}).json()
+        self.assertEqual((data["complete"], data["reports"]), (True, 3))                  # 센 수 대신 지운 줄 수
+
+    def test_withdraw_still_answers_with_the_guest_identity(self):
+        res = self.client.post("/api/auth/withdraw", json={"password": "pass-word-1"})   # signup() 의 시험용 비밀번호
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertNotIn("reports", res.json())
+        self.assertTrue(res.json()["withdrawn"])
+        self.assertEqual(self.demo.storage.reports.count(["store_ongi", "store_basak"], self.me), {"weekly": 0, "monthly": 0})
 
 
 class ResetPartialFailure(unittest.TestCase):

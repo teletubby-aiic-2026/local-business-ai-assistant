@@ -1,5 +1,7 @@
 // 4 처리 완료 (예전 renderDone·loadApprovals·restart. 배치는 Figma 06 B4).
 // 승인 타일 → 승인한 글(이름 · 글 앞부분 · 복사) → 점검 수칙 → 서버 처리 기록(접힘) → '홈으로'(진행 그대로) · '처음부터 다시'.
+// 승인한 글 = 이 브라우저의 승인 목록 ∪ 서버 승인 기록(GET /api/approvals, 화면을 열 때). 새로 고침하면 브라우저 목록이 비어도
+// 서버 기록으로 채운다 (11/21 QA). 둘 다 비었을 때만 빈 화면
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../../state/store.js";
 import { api } from "../../lib/api.js";
@@ -8,30 +10,49 @@ import { GEN_NAMES, KIND_AGENT, allDrafts } from "../../lib/domain.js";
 import { PageHead, Panel, Button, Empty, StatTile } from "../../components/ui.jsx";
 import Steps from "./Steps.jsx";
 import { restart, copyText } from "./actions.js";
-import { RULES_TITLE } from "./calc.js";
+import { RULES_TITLE, mergeApprovals, serverName, whenText } from "./calc.js";
 import "./flow.css";
 
 const nameOf = (a) => a.name || GEN_NAMES[a.kind] || a.kind || "";
 const cardOf = (a) => a.card || a.title || "";
 
+// 서버 승인 기록: null = 읽는 중, false = 못 읽음(브라우저 목록만), [] = 기록 없음
+function useServerApprovals() {
+  const [items, setItems] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api("/api/approvals").then((d) => { if (live) setItems(Array.isArray(d?.items) ? d.items : []); })
+      .catch(() => { if (live) setItems(false); });
+    return () => { live = false; };
+  }, []);
+  return items;
+}
+
 export default function Done() {
-  const log = useStore((s) => s.approvedLog);
+  const local = useStore((s) => s.approvedLog);
   const results = useStore((s) => s.results);
   const cards = useStore((s) => s.cards);
   const approved = useStore((s) => s.approved);
+  const items = useServerApprovals();
+  const log = mergeApprovals(local, items);
 
   if (!log.length) {
     return (
       <div className="col narrow">
         <Steps at="done" />
         <PageHead title="처리 완료" />
-        <Panel><Empty title="아직 승인한 글이 없어요." action={<a className="btn primary" href="#/draft">승인할 글로</a>} /></Panel>
+        {/* 서버 기록을 읽는 동안은 '없어요'라고 하지 않는다 (새로 고침 직후 잠깐 빈 화면으로 보이지 않게) */}
+        <Panel>{items === null ? <p className="small muted" role="status">승인 기록을 불러오는 중…</p>
+          : <Empty title="아직 승인한 글이 없어요." action={<a className="btn primary" href="#/draft">승인할 글로</a>} />}</Panel>
       </div>
     );
   }
 
-  // 맞춤 마케팅에서 승인한 글(mkt)은 비서 화면이 만든 글이 아니므로 승인한 만큼 '만든 글'에도 더한다
-  const total = allDrafts(results).length + log.filter((a) => a.mkt).length;
+  // 만든 글 = 이 브라우저가 아는 초안 + 그 밖의 승인한 글(맞춤 마케팅 글·새로 고침 전에 만든 글은 승인한 만큼만 안다)
+  const known = new Set(allDrafts(results).map((d) => d.draft_id));
+  const total = known.size + log.filter((a) => !known.has(a.id)).length;
+  // 이 브라우저가 만든 글을 모르면(새로 고침 뒤) '만든 글 n개 중'을 말할 수 없어 서버 기록이라고만 적는다
+  const listSub = known.size ? `만든 글 ${total}개 중 ${log.length}개 승인` : "서버에 남은 승인 기록";
   const edited = log.filter((a) => a.edited).length;
   const editedPct = Math.round((edited / log.length) * 100);
   const kinds = new Map();
@@ -56,7 +77,7 @@ export default function Done() {
         <StatTile tint="mint" icon="고침" label="고쳐서 승인" value={<Unit n={edited} />} sub={`승인한 글 중 ${editedPct}%`} />
       </div>
 
-      <Panel title="승인한 글" titleId="flow-log-title" sub={`만든 글 ${total}개 중 ${log.length}개 승인`}>
+      <Panel title="승인한 글" titleId="flow-log-title" sub={listSub}>
         <ul className="plain flow-log">{log.map((a) => <LogItem key={a.id} a={a} />)}</ul>
       </Panel>
 
@@ -67,7 +88,7 @@ export default function Done() {
         </Panel>
       )}
 
-      <ServerLog log={log} />
+      <ServerLog log={log} items={items} />
 
       <div className="stack-8">
         <div className="btn-row">
@@ -97,7 +118,7 @@ function LogItem({ a }) {
   return (
     <li className="flow-log-item" title={cardOf(a) || undefined}>
       <div className="flow-log-text">
-        <span><span className="strong">{nameOf(a)}</span> <span className="small muted">{[String(a.at || "").slice(11, 16), a.edited && "사장님이 고침"].filter(Boolean).join(" · ")}</span></span>
+        <span><span className="strong">{nameOf(a)}</span> <span className="small muted">{[whenText(a.at), a.edited && "사장님이 고침"].filter(Boolean).join(" · ")}</span></span>
         {a.text && <span className="small flow-log-excerpt">{a.text}</span>}
       </div>
       {a.text && <Button size="small" onClick={copy} aria-label={copied ? undefined : `${nameOf(a)} 복사`}>{copied ? "복사됨" : "복사"}</Button>}
@@ -110,17 +131,11 @@ function RestartButton() {
   return <Button disabled={busy} aria-describedby="flow-restart-note" onClick={async () => { setBusy(true); await restart(); }}>{busy ? "지우는 중…" : "처음부터 다시"}</Button>;
 }
 
-// 서버 처리 기록 (GET /api/approvals, 화면을 열 때). 접힌 칸 하나. 글 이름은 이 화면의 승인 목록에서 찾는다 (못 찾으면 '글').
-// 못 읽으면 비워 둔다
-function ServerLog({ log }) {
-  const [items, setItems] = useState(null);
-  useEffect(() => {
-    let live = true;
-    api("/api/approvals").then((d) => { if (live) setItems(d.items || []); }).catch(() => {});
-    return () => { live = false; };
-  }, []);
+// 서버 처리 기록 (Done 이 화면을 열 때 읽은 GET /api/approvals). 접힌 칸 하나. 글 이름은 이 화면의 승인 목록에서 찾는다 (못 찾으면 '글').
+// 읽는 중이거나 못 읽으면 비워 둔다
+function ServerLog({ log, items }) {
   const names = new Map(log.map((a) => [a.id, nameOf(a)]));
-  const nameFor = (id) => names.get(id) || (String(id).startsWith("mkt-") ? "맞춤 마케팅 글" : "글");
+  const nameFor = (id) => names.get(id) || serverName(id);
   return (
     <details className="panel flow-server">
       <summary><h2 className="flow-server-title">서버 처리 기록</h2></summary>

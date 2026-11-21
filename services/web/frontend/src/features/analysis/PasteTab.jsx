@@ -5,7 +5,7 @@ import { Badge, Button, Panel } from "../../components/ui.jsx";
 import { api } from "../../lib/api.js";
 import { getState, setState, useStore } from "../../state/store.js";
 import { refresh } from "../../state/boot.js";
-import { CHANNELS, PASTE_SAMPLES, RATINGS, SENTIMENT_NAMES, pasteJoin, topicName, methodName } from "./calc.js";
+import { CHANNELS, PASTE_SAMPLES, RATINGS, SENTIMENT_NAMES, REPEAT_NOTE, pasteJoin, topicName, methodName } from "./calc.js";
 import { getMod, setPaste, showTab, useMod } from "./state.js";
 import Capture from "./Capture.jsx";
 
@@ -75,7 +75,7 @@ function PasteResult({ r }) {
       <p className="small an-joined">
         {joined.length
           ? <>→ 불만 묶음에 들어갔어요: <b>{joined.join(", ")}</b> <Button size="small" onClick={() => showTab("issues", true)}>불만 묶음 보기</Button></>
-          : negative ? "→ 아직 어느 묶음에도 들지 않았어요 (같은 불만이 2건 이상이면 묶여요)." : "→ 불만 주제가 없어 묶음에는 들지 않아요."}
+          : negative ? `→ 아직 어느 묶음에도 들지 않았어요 (${REPEAT_NOTE}).` : "→ 불만 주제가 없어 묶음에는 들지 않아요."}
       </p>
       {warns.length > 0 && (
         <details className="an-warns">

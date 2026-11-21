@@ -519,7 +519,7 @@ async def _json_body(request: Request) -> dict | None:
 
 def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who],
                        erase: Callable[[list[str], str], dict] | None = None) -> APIRouter:
-    """erase(가게 목록, 방문자) → {complete, message, stores}: 사장님 기록 지우기 (account.AccountData.clear, 11/19).
+    """erase(가게 목록, 방문자) → {complete, message, stores, reports}: 사장님 기록 지우기 (account.AccountData.clear, 11/19).
     안 주면 초기화·탈퇴는 503."""
     router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -603,7 +603,9 @@ def create_auth_router(auth: AuthService, who_of: Callable[[Request], Who],
             return failed(AuthError("down", 503))
         stores = [who.store_id] if scope == "store" else list(who.stores)
         result = await run_in_threadpool(erase, stores, who.visitor_id)
-        out = _json({"scope": scope, "complete": result["complete"], "message": result["message"], "stores": result["stores"]})
+        # reports: 지운 저장 보고서 수 (못 지웠으면 null). 화면 결과 띠가 보고서도 알리게 (11/21 QA)
+        out = _json({"scope": scope, "complete": result["complete"], "message": result["message"], "stores": result["stores"],
+                     "reports": result.get("reports")})
         _reset_market(out, secure_request(request))
         return out
 

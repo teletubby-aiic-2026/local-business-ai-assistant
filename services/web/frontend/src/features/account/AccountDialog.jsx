@@ -58,6 +58,7 @@ export default function AccountDialog({ act, onClose, returnFocus }) {
         return;
       }
       const r = await acctPost("/api/auth/reset", { scope: act });                 // ② 기록
+      setState((s) => ({ reportsSeq: s.reportsSeq + 1 }));                         // 프로필의 '보관한 보고서' 수를 다시 부름 (일부만 지워졌어도)
       const sum = summary(r);
       if (r.complete === false) {
         // 일부만 지웠다: 창에 남은 것을 알리고 [다시 지우기]

@@ -11,6 +11,11 @@ import { currentRoute } from "../../lib/router.js";
 import { mktApi, mktPost } from "./api.js";
 import { MKT_STATES, MKT_SUB, MKT_UNIT, askQuestionOf, badgeOf, calcRange, downKey, draftLabel, initialDrafts, mktKey } from "./logic.js";
 
+// 결과 카드 없이 끝났을 때(step 의 end) 대화 끝에 붙이는 안내 (11/21 QA)
+export const MKT_END_HINT = "다른 것도 해 보려면 아래 ‘처음부터’를 눌러 주세요.";
+// 안내문 승인 뒤 이어지는 질문 칸 제목: 승인은 끝났고 여기부터는 선택이라는 게 보이게 (11/21 QA)
+export const MKT_FOLLOW_MODE = "재주문 쿠폰 (선택)";
+
 // 대화를 처음으로 되돌릴 때 비우는 것. mode = 고른 시작 모드 글자 (질문 칸 제목에 보임)
 const blankChat = () => ({ flow: null, prompt: null, log: [], cards: [], error: "", hasRetry: false, questions: 0, mode: "" });
 // '처음부터 다시'·가게 바뀜 때 비우는 것 (예전 mktReset). gen·reportGen·카드 번호·처리한 nav 번호는 이어 간다
@@ -195,6 +200,8 @@ async function step(value, focus = true) {
   if (stale(gen)) return;
   busy("");
   set({ flow: d.state });
+  // end: 결과 카드 없이 끝 (안내문 승인 뒤 재주문 쿠폰을 만들지 않기로 함). 오류 띠·'다시 시도' 없이 서버 안내 + 처음부터 안내 (11/21 QA)
+  if (d.end) { addLog(...bots(d), entry("sub", MKT_END_HINT)); set({ prompt: null }); return; }
   if (d.done) { await decide(); return; }
   addLog(...bots(d));
   prompt(d, focus);
@@ -457,6 +464,8 @@ export async function approve(n) {
     msg: `승인했어요.${recorded.length ? ` '처리 완료'에 글 ${recorded.length}건을 기록했어요.` : ""}${a.record_warning ? ` ${a.record_warning}` : ""} 게시는 복사해서 직접 올려요.`, msgBad: false });
   set({ flow: a.state || m.flow });
   if (a.follow_up) {
+    // 승인 뒤 재주문 쿠폰은 새 선택: 질문 칸 제목을 바꾸고 질문 수를 다시 센다 (승인 완료와 이어지는 질문이 섞여 헷갈렸다, 11/21 QA)
+    set({ mode: MKT_FOLLOW_MODE, questions: 0 });
     addLog(...bots(a));
     prompt(a);
   } else {

@@ -167,4 +167,6 @@ dialog.dialog .dlg-head { display: flex; justify-content: space-between; align-i
 @media (max-width: 760px) {
   h1 { font-size: 24px; }
   dialog.dialog .dlg-body { padding: var(--s-24) var(--s-16); }
+  /* 손가락으로 누르는 작은 버튼·글자 버튼은 높이 40px 이상 (36px 이라 잘못 눌렸다). 넓은 화면은 그대로 36px (11/21 QA) */
+  .btn.small, .btn.text { min-height: 40px; }
 }

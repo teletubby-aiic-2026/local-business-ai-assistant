@@ -19,7 +19,7 @@ from __future__ import annotations
 import calendar
 from datetime import date, datetime, timedelta
 
-from marketing_survey import adspend, coupon_result, notice_followup, records, stores
+from marketing_survey import adspend, complaints, coupon_result, notice_followup, records, stores
 from marketing_survey.execute import _card_by_kind
 
 KST = records.KST
@@ -158,13 +158,17 @@ def _fixed(sessions: list[dict], ctx, start: date, end: date, today: date) -> li
         d = _row_date(r)
         if d is None or not (start - window <= d <= end) or d > today:
             continue
-        counts = notice_followup.count_before_after(ctx, card, d)
+        # 그 안내문이 다룬 불만 주제(승인 기록의 answers.complaint_topic)로 센다. 없으면(예전 기록) 불만 카드 그대로 (11/21 QA)
+        chosen = (r.get("answers") or {}).get("complaint_topic")
+        topic_card = complaints.topic_card(ctx, chosen) if chosen else None
+        name = complaints.topic_label(chosen) if topic_card is not None else COMPLAINT_TOPIC
+        counts = notice_followup.count_before_after(ctx, topic_card or card, d)
         ends = d + window  # 뒤 14일 확인이 끝나는 날(이 날까지 포함해 본다)
         complete = ends <= today
-        tile = (f"{COMPLAINT_TOPIC} 불만 재발 (공지 전·후 14일)" if complete
-                else f"{COMPLAINT_TOPIC} 불만 재발 (진행 중, {_md(ends.isoformat())} 확정)")
+        tile = (f"{name} 불만 재발 (공지 전·후 14일)" if complete
+                else f"{name} 불만 재발 (진행 중, {_md(ends.isoformat())} 확정)")
         out.append({
-            "complaint": COMPLAINT_TOPIC, "approved_on": d.isoformat(),
+            "complaint": name, "approved_on": d.isoformat(),
             "before_14d": counts["before"], "after_14d": counts["after"],
             "after_complete": complete, "window_ends": ends.isoformat(), "tile_label": tile,
         })

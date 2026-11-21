@@ -27,11 +27,11 @@ from pydantic import BaseModel, Field
 
 from c6.checks import personal_info, promises_not_in_policy
 from marketing_survey import (
-    adspend, coupon_result, flow, ideas, leftover, notice_followup, playbooks, records, report, story, stores,
+    adspend, complaints, coupon_result, flow, ideas, leftover, notice_followup, playbooks, records, report, story, stores,
 )
 from marketing_survey.coupon_calc import calc as coupon_calc
-from marketing_survey.decide import build_follow_up_strategy, decide
-from marketing_survey.execute import COUPON_DAYS, MissingCard, _card_by_kind, _idea_entry, build_plan, execute_strategy
+from marketing_survey.decide import build_follow_up_strategy, decide, follow_up_end_message
+from marketing_survey.execute import COUPON_DAYS, MissingCard, _complaint_card, _idea_entry, build_plan, execute_strategy
 from marketing_survey.explain import explain_strategy
 from marketing_survey.models import Strategy
 from marketing_survey.survey import answers_from_raw
@@ -177,14 +177,23 @@ def _input_payload(node_id: str) -> dict | None:
     return flow.NODES[node_id].get("free_input")
 
 
+def _follow_up_end(state: FlowState, ctx) -> str | None:
+    """재주문 쿠폰(승인 뒤 선택)을 만들지 않고 끝낼 상태면 그 안내 한 줄, 아니면 None (decide.follow_up_end_message)."""
+    return follow_up_end_message(ctx, answers_from_raw(state.raw), stop=bool(state.raw.get("follow_up_stop")))
+
+
 def _resolve_strategy_and_answers(state: FlowState, ctx):
     answers = answers_from_raw(state.raw)
     if state.mode == "follow_up":
+        end = _follow_up_end(state, ctx)
+        if end:
+            # 화면은 /step 의 end 로 끝내므로 여기까지 오지 않는다. 직접 부르면 오류 대신 '끝' 안내를 그대로 (11/21 QA)
+            raise HTTPException(409, end)
         strategy, note = build_follow_up_strategy(ctx, answers)
         if strategy is None:
             raise HTTPException(400, note or "재주문 쿠폰을 만들 수 없어요.")
         return strategy, answers
-    plan = decide(ctx, answers, confirms=state.confirms)
+    plan = decide(ctx, answers, confirms=state.confirms, complaint_topic=state.raw.get("complaint_topic"))
     return plan.strategies[0], answers
 
 
@@ -350,6 +359,10 @@ def step(req: StepRequest, store: str = stores.DEFAULT_STORE_ID):
     new_state = FlowState(node=node_id, raw=scratch["raw"], confirms=scratch["confirms"], mode=mode)
 
     if node_id == flow.DECISION:
+        end = _follow_up_end(new_state, ctx) if mode == "follow_up" else None
+        if end:
+            # 재주문 쿠폰은 안내문 승인 뒤의 선택 — 만들지 않으면 결과 카드·오류 없이 이 안내로 끝낸다 (end: 화면이 plan 을 부르지 않음, 11/21 QA)
+            return {"state": new_state, "bot_messages": [end], "options": [], "multi": False, "done": True, "end": True}
         return {"state": new_state, "bot_messages": [], "options": [], "multi": False, "done": True}
 
     text = flow.node_text(node_id, ctx, scratch)
@@ -528,7 +541,10 @@ def approve(req: ApproveRequest, store: str = stores.DEFAULT_STORE_ID,
             decision="approved", result={"kinds": _plan_kinds(steps)}, parent_id=req.session_id,
             visitor_id=visitor_id)
 
-    if state.mode == "survey" and strategy.source_hypothesis == "H_REPEAT":
+    # 안내문을 못 만든 가게(반복 불만 자료가 없는 새 가게)는 '안내문 승인 뒤' 질문을 잇지 않는다 — 승인한 안내문이 없는데
+    # '승인한 안내문은 처리 완료에 남아 있어요'라고 말하게 되므로 (11/21 QA)
+    notice_made = complaints.topic_card(ctx, strategy.topic or None) is not None
+    if state.mode == "survey" and strategy.source_hypothesis == "H_REPEAT" and notice_made:
         next_state = FlowState(
             node=flow.FOLLOW_UP_START, raw=dict(state.raw), confirms=dict(state.confirms), mode="follow_up",
         )
@@ -537,7 +553,8 @@ def approve(req: ApproveRequest, store: str = stores.DEFAULT_STORE_ID,
         return {
             "follow_up": True,
             "state": next_state,
-            "bot_messages": ["공지 뒤에 재주문 쿠폰도 해 볼까요? 이어서 몇 가지만 더 여쭤볼게요.", text],
+            # 승인 완료와 이어지는 질문이 섞여 '끝났는지' 헷갈렸다 → 승인은 끝났고 여기부터는 선택이라고 먼저 말한다 (11/21 QA)
+            "bot_messages": ["안내문 승인은 끝났어요. 여기부터는 이어서 해 볼 수 있는 선택이에요.", text],
             "options": _options_payload(flow.FOLLOW_UP_START, next_state, ctx),
             "multi": False,
         }
@@ -548,10 +565,12 @@ def approve(req: ApproveRequest, store: str = stores.DEFAULT_STORE_ID,
 @app.post("/api/marketing-survey/notice-followup")
 def notice_followup_endpoint(req: StateOnlyRequest, store: str = stores.DEFAULT_STORE_ID):
     """개선 인증 소식(데모) — H_REPEAT 공지(불만 카드) 기준일 앞뒤 14일의 같은 불만 리뷰 수를
-    코드로 센다. 줄었으면 코드 템플릿 소식 글을, 아니면 '원인 다시 보기' 안내만 돌려준다."""
+    코드로 센다. 줄었으면 코드 템플릿 소식 글을, 아니면 '원인 다시 보기' 안내만 돌려준다.
+    공지와 같은 불만 주제(raw.complaint_topic)의 리뷰로 세고 글의 주제 이름도 그 주제로 쓴다 (11/21 QA: 늘 '포장 누락'이었다)."""
     ctx = _get_ctx(store)
-    notice_card = _card_by_kind(ctx, "complaint")
-    return notice_followup.build_notice_followup(ctx, notice_card)
+    topic = complaints.resolve_topic(ctx, req.state.raw.get("complaint_topic"))
+    notice_card = _complaint_card(ctx, topic)
+    return notice_followup.build_notice_followup(ctx, notice_card, topic=complaints.topic_label(topic))
 
 
 @app.get("/api/marketing-survey/report")

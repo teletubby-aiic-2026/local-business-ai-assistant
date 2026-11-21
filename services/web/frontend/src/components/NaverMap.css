@@ -43,6 +43,8 @@ button.nmap-area { cursor: pointer; }
 button.nmap-area:hover { background: var(--hover); }
 .nmap-area.selected { border: 2px solid var(--accent); background: var(--brand-soft); color: var(--accent-text); font-weight: 700; }
 .nmap-area.off { color: var(--muted); border-style: dotted; }
+/* 휴대폰: 상권 목록 단추(주변 상권 고르기)도 누르는 높이 40px. 위아래 안쪽 여백으로 키워 글이 가운데에 (11/21 QA) */
+@media (max-width: 760px) { .nmap-area { min-height: 40px; padding-block: 9px; } }
 .nmap-note { color: var(--muted); font-weight: 400; }
 .nmap-area.selected .nmap-note { color: var(--accent-text); }
 

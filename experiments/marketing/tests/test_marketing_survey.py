@@ -396,7 +396,8 @@ class TestPlaybooks(unittest.TestCase):
 
     _TODAY = date(2026, 11, 15)  # 일요일
 
-    def test_h_repeat_steps_cover_notice_reply_memo_recheck(self):
+    def test_h_repeat_steps_cover_notice_reply_memo(self):
+        # 2주 뒤 다시 세기는 '이번 주 할 일'이 아니라 '측정' 줄에만 (11/21 QA)
         answers = SurveyAnswers(budget_won=100_000, goal="새 손님", discount_allowed=True, weekly_hours=5)
         plan = decide(DEFAULT_CTX, answers, confirms={"H_REPEAT": "예"})
         strategy = plan.strategies[0]
@@ -404,9 +405,9 @@ class TestPlaybooks(unittest.TestCase):
         pb = playbooks.build_playbook(DEFAULT_CTX, strategy, answers, today=self._TODAY)
 
         step_ids = [s["step_id"] for s in pb["steps"]]
-        self.assertEqual(step_ids, ["notice", "reply", "pack_memo", "recheck"])
+        self.assertEqual(step_ids, ["notice", "reply", "pack_memo"])
         self.assertEqual(pb["steps"][0]["when"], "오늘")
-        self.assertEqual(pb["steps"][3]["when"], "11/29(일)")  # 오늘 + 14일
+        self.assertIn("11/29(일)", pb["measure"])  # 오늘 + 14일
         self.assertIn("같은 불만 리뷰 수", pb["measure"])
 
     def test_h_late_steps_have_no_coupon(self):
@@ -416,7 +417,8 @@ class TestPlaybooks(unittest.TestCase):
 
         pb = playbooks.build_playbook(_late_delivery_ctx(), strategy, answers, today=self._TODAY)
 
-        self.assertEqual([s["step_id"] for s in pb["steps"]], ["notice", "peak_time", "recheck"])
+        self.assertEqual([s["step_id"] for s in pb["steps"]], ["notice", "peak_time"])   # 다시 세기는 '측정' 줄에 (11/21 QA)
+        self.assertIn("지연 관련 리뷰 수", pb["measure"])
         self.assertTrue(all(s["generator"] != "coupon_promo" for s in pb["steps"]))
 
     def test_review_promo_steps_have_naver_and_baemin_with_char_limit(self):
@@ -442,9 +444,10 @@ class TestPlaybooks(unittest.TestCase):
 
         self.assertEqual(
             [s["step_id"] for s in pb["steps"]],
-            ["coupon_values", "coupon_promo_post", "coupon_create", "measure"],
+            ["coupon_values", "coupon_promo_post", "coupon_create"],   # 14일 뒤 쿠폰 사용 수 확인은 '측정' 줄에 (11/21 QA)
         )
         self.assertIn("쿠폰 사용 수", pb["measure"])
+        self.assertIn("11/29(일)", pb["measure"])
 
     def test_channel_filter_drops_steps_tied_to_unused_channel(self):
         answers = SurveyAnswers(budget_won=0, goal="새 손님", channels=["baemin"])
@@ -475,7 +478,7 @@ class TestPlaybooks(unittest.TestCase):
 
         pb = playbooks.build_playbook(DEFAULT_CTX, strategy, answers, today=self._TODAY)
 
-        self.assertEqual(len(pb["steps"]), 4)
+        self.assertEqual(len(pb["steps"]), 3)
 
 
 class TestBuildPlan(unittest.TestCase):
@@ -762,10 +765,13 @@ class TestChatFlowPaths(unittest.TestCase):
         self.assertEqual(strategy.type, "reorder_coupon")
 
     def test_late_delivery_path(self):
+        # 11/21 QA: '어떤 불만인가요?' 보기가 가게 리뷰의 반복 불만이 됐다 — 배달 시간 불만이 반복된 바삭치킨으로 본다
+        from marketing_survey import stores
+        ctx = stores.get_ctx("store_basak")
         state = {"raw": {}, "confirms": {}}
-        _walk(DEFAULT_CTX, "repeat_complaint", state, ["예", "배달 지연"])
+        _walk(ctx, "repeat_complaint", state, ["예", "배달 지연"])
         answers = answers_from_raw(state["raw"])
-        plan = decide(DEFAULT_CTX, answers, confirms=state["confirms"])
+        plan = decide(ctx, answers, confirms=state["confirms"], complaint_topic=state["raw"].get("complaint_topic"))
 
         self.assertEqual(plan.strategies[0].type, "fix_first")
         self.assertEqual(plan.strategies[0].source_hypothesis, "H_LATE")
@@ -828,6 +834,7 @@ class TestChatFlowReachesEnd(unittest.TestCase):
                     _explore(nxt, branch, depth + 1)
 
         _explore(flow.START, {"raw": {}, "confirms": {}})
+        _explore(flow.FOLLOW_UP_START, {"raw": {}, "confirms": {}})   # 안내문 승인 뒤 재주문 쿠폰 (approve 가 여기서 시작)
 
         self.assertEqual(visited, set(flow.all_node_ids()))
 
@@ -882,10 +889,11 @@ class TestServerAPI(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.text)
         approved = res.json()
         self.assertTrue(approved["follow_up"])
-        self.assertEqual(approved["state"]["node"], "budget")
+        self.assertEqual(approved["state"]["node"], flow.FOLLOW_UP_START)
         self.assertEqual(approved["state"]["mode"], "follow_up")
         self.assertTrue(any("재주문" in m for m in approved["bot_messages"]))
         self.assertTrue(any(o["label"] == "100,000원" for o in approved["options"]))
+        self.assertTrue(any(o["label"] == flow.FOLLOW_UP_STOP for o in approved["options"]))   # 끝낼 보기 (11/21 QA)
 
     def test_discount_not_allowed_path(self):
         data = self._step(None, None)

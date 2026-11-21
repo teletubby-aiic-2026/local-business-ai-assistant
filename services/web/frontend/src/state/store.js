@@ -41,6 +41,7 @@ export function initialState() {
     nav: { name: null, sub: null, seq: 0 },   // navTo 요청 (router.js)
     mktResetSeq: 0,      // 처리 완료의 '처음부터 다시'가 1씩 올림 → 맞춤 마케팅 대화·카드·보고서를 처음으로 (예전 mktReset)
     mktCleared: null,    // 그때 서버의 marketing_cleared (true 지움 · false 서비스가 받지 않음 · null 꺼 둠·연결 못 함). false 면 맞춤 마케팅 화면 위에 안내
+    reportsSeq: 0,       // 기록 지우기(POST /api/auth/reset)가 끝나면 1씩 → 프로필 '보관한 보고서' 수를 다시 부름 (11/21 QA)
     epoch: 0,            // 가게가 바뀔 때마다 1씩 (로그인·로그아웃·가게 바꾸기·기록 지우기). 각 화면은 이 값이 바뀌면 자기 상태를 처음으로
   };
 }

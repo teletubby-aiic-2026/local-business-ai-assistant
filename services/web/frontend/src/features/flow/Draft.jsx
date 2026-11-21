@@ -9,7 +9,7 @@ import { PageHead, Panel, Badge, Button, Empty } from "../../components/ui.jsx";
 import Steps from "./Steps.jsx";
 import { useFlow, setFlow } from "./state.js";
 import { approve, regenDraft, rerunCard, copyText } from "./actions.js";
-import { RULES_TITLE, RERUN_LABEL, FALLBACK_CHIP, failedOf, checksOf, draftStateText, isFallback, listBadges, regenKey, textOf, touchedOf, pickCurrent, starText } from "./calc.js";
+import { RULES_TITLE, RERUN_LABEL, FALLBACK_CHIP, failedOf, checksOf, draftStateText, isFallback, listBadges, regenKey, textOf, touchedOf, pickCurrent, starText, targetLine } from "./calc.js";
 import "./flow.css";
 
 export default function Draft() {
@@ -90,15 +90,22 @@ export default function Draft() {
 
       <Panel title="초안 목록" titleId="flow-list-title" sub={`${drafts.length}개`}>
         <ol className="plain flow-list" aria-labelledby="flow-list-title">
-          {drafts.map((x, i) => (
-            <li key={x.draft_id}>
-              <button type="button" aria-current={x.draft_id === draftId ? "true" : undefined}
-                onClick={() => { setFlow({ note: null }); setState({ draftId: x.draft_id }); }}>
-                <span className="flow-list-name">{i + 1}. {genName(x.generator, p.title)}</span>
-                <span className="flow-list-badges">{listBadges(x, s.approved).map(([tone, text]) => <Badge key={text} tone={tone || undefined}>{text}</Badge>)}</span>
-              </button>
-            </li>
-          ))}
+          {drafts.map((x, i) => {
+            // 답글은 어느 리뷰의 답글인지 원 리뷰 첫 줄을 이름 아래에 (Figma 06 B3, 11/21 QA). 리뷰를 모르면 줄을 두지 않는다
+            const target = targetLine(x, s.reviewsById);
+            return (
+              <li key={x.draft_id}>
+                <button type="button" aria-current={x.draft_id === draftId ? "true" : undefined}
+                  onClick={() => { setFlow({ note: null }); setState({ draftId: x.draft_id }); }}>
+                  <span className="flow-list-text">
+                    <span className="flow-list-name">{i + 1}. {genName(x.generator, p.title)}</span>
+                    {target && <span className="small flow-list-target">“{target}”</span>}
+                  </span>
+                  <span className="flow-list-badges">{listBadges(x, s.approved).map(([tone, text]) => <Badge key={text} tone={tone || undefined}>{text}</Badge>)}</span>
+                </button>
+              </li>
+            );
+          })}
         </ol>
       </Panel>
     </div>

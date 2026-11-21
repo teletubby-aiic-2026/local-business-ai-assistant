@@ -179,6 +179,47 @@ describe("서랍이 본문을 덮는가", () => {
   });
 });
 
+describe("휴대폰 시트의 뒤 막과 스크롤 잠금 (11/21 QA)", () => {
+  // 760px 이하로 보이게 (lib/media.js 의 narrow 질의만 맞음)
+  const phone = () => { window.matchMedia = (q) => ({ matches: q === "(max-width: 760px)", media: q, addEventListener() {}, removeEventListener() {} }); };
+  const scrim = () => document.querySelector(".drawer-scrim");
+  const locked = () => document.documentElement.classList.contains("drawer-lock");
+
+  it("열면 뒤에 막(읽기 프로그램에는 숨김)과 스크롤 잠금, 막을 누르면 닫히고 잠금이 풀리며 연 버튼으로 포커스", async () => {
+    phone();
+    await openWith([]);
+    expect(scrim()).toBeTruthy();
+    expect(scrim().getAttribute("aria-hidden")).toBe("true");
+    expect(locked()).toBe(true);
+    expect(document.activeElement.id).toBe("assistant-q");   // 여는 포커스는 그대로
+    act(() => { fireEvent.click(scrim()); });
+    expect(getState().drawerOpen).toBe(false);
+    expect(scrim()).toBeNull();
+    expect(locked()).toBe(false);
+    expect(document.activeElement.id).toBe("opener");
+  });
+
+  it("[닫기]·Esc 로 닫아도 잠금이 풀린다", async () => {
+    phone();
+    await openWith([]);
+    fireEvent.click(screen.getByRole("button", { name: "AI에게 묻기 닫기" }));
+    expect(locked()).toBe(false);
+    act(() => openDrawer(true));
+    expect(locked()).toBe(true);
+    act(() => { fireEvent.keyDown(document, { key: "Escape" }); });
+    expect(getState().drawerOpen).toBe(false);
+    expect(locked()).toBe(false);
+    expect(scrim()).toBeNull();
+  });
+
+  it("넓은 화면은 막도 잠금도 없이 지금 배치 그대로", async () => {
+    await openWith([]);
+    expect(getState().drawerOpen).toBe(true);
+    expect(scrim()).toBeNull();
+    expect(locked()).toBe(false);
+  });
+});
+
 describe("서랍 첫 안내 (11/21 실시간 확인 M7·9)", () => {
   it("조건을 맞추는 동안의 안내에 주소 원문 대신 짧은 위치 (빈 조각·'null'은 빼고)", async () => {
     let release;

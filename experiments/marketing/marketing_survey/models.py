@@ -73,6 +73,7 @@ class Strategy:
     note: 수용력·상권 시간대처럼 서로 다른 신호가 충돌했을 때, 어느 쪽을 우선했는지 사람이 읽는 메모.
     channels: 이 전략을 알릴 채널(설문 channels 로 가게 채널을 거른 결과). 비우면 제한 없음.
     menu: 쿠폰형 전략이 쓰는 할인 메뉴 이름(coupon_promo 의 coupon_menu 로 그대로 넘어간다).
+    topic: fix_first(H_REPEAT·H_LATE) 안내문의 불만 주제 id(리뷰 분석 주제, 예: texture). 안내문·답글·조치를 이 주제로 맞춘다 (11/21 QA).
     """
 
     type: str
@@ -89,6 +90,7 @@ class Strategy:
     note: str = ""
     channels: list[str] = field(default_factory=list)
     menu: str = ""
+    topic: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -96,7 +98,7 @@ class Strategy:
             "budget_won": self.budget_won, "count": self.count, "discount_won": self.discount_won,
             "timing": self.timing, "generator": self.generator, "assumptions": list(self.assumptions),
             "source_hypothesis": self.source_hypothesis, "follow_up": self.follow_up,
-            "note": self.note, "channels": list(self.channels), "menu": self.menu,
+            "note": self.note, "channels": list(self.channels), "menu": self.menu, "topic": self.topic,
         }
 
     @classmethod

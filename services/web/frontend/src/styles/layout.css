@@ -160,9 +160,9 @@
     border-radius: var(--r-lg) var(--r-lg) 0 0; padding-bottom: env(safe-area-inset-bottom);
   }
 }
+/* 아이콘 버튼은 360px 이하에서도 40px 폭 그대로 (예전 36px). 가게 칩이 말줄임으로 줄어 자리를 내준다 (11/21 QA) */
 @media (max-width: 360px) {
   .top .top-right { gap: 2px; }
-  .top .icon-btn { width: 36px; }
   .tabbar .tab { font-size: 11px; }
 }
 
@@ -170,6 +170,8 @@
 .store-pick .sp-switch { flex: none; padding: 4px 6px; min-height: 32px; }
 .side .account .side-acct-links { gap: 0 6px; }
 .side .account .side-acct-dot { color: var(--muted); font-size: var(--fs-small); }
+/* 휴대폰: 상단 바 [바꾸기]도 누르는 높이 40px (위 32px 규칙보다 뒤에 둬야 이긴다) (11/21 QA) */
+@media (max-width: 760px) { .store-pick .sp-switch { min-height: 40px; } }
 
 @media print {
   .side, .top, .drawer, .honesty, .mode-band, .tabbar, .group-nav { display: none !important; }

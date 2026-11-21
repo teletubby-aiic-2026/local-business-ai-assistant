@@ -54,14 +54,15 @@ describe("홈", () => {
     expect(screen.getByText("포장 누락 2건 반복 · 17~21시에 몰림", { selector: "strong" })).toBeTruthy();
     expect(screen.getByText("포장·주문 안내문 승인")).toBeTruthy();
     expect(screen.getByRole("img", { name: /18시 1건/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "무엇을 할까요?" }).disabled).toBe(false);
+    // 11/21 QA B-7: 어디로 가는지 버튼에 (Figma 06 B1)
+    expect(screen.getByRole("button", { name: "무엇을 할까요? (추천 카드 보기)" }).disabled).toBe(false);
   });
   it("시작 버튼 옆 보조 문구 없이, 상권 칸 범위는 칩으로 (상권명 · 업종 · 시간대)", () => {
     setState({ briefing: { ...briefing, snapshots: [{ snapshot_id: "s1", value: -19.31, unit: "%", area_name: "장승배기역 4번",
       metric_name: "저녁 시간대(17~24시) 추정매출 전년 동기 대비 변화율 · 두 분기 공통 업종" }] } });
     const { container } = render(<Home />);
     expect(screen.queryByText(/추천 카드 2장/)).toBeNull();
-    expect(container.querySelector(".flow-todo-foot").textContent).toBe("무엇을 할까요?");
+    expect(container.querySelector(".flow-todo-foot").textContent).toBe("무엇을 할까요? (추천 카드 보기)");
     expect(screen.getByText("-19.31%")).toBeTruthy();
     expect([...container.querySelectorAll(".flow-scope-chip")].map((x) => x.textContent)).toEqual(["장승배기역 4번", "공통 업종", "17~24시"]);
     expect(screen.getByText("전년 같은 분기 대비")).toBeTruthy();
@@ -83,11 +84,12 @@ describe("홈", () => {
 });
 
 describe("추천 카드", () => {
-  it("머리말 설명 없이, 근거 보기는 리뷰·지표 출처와 원본 링크만 (검사기 표현 없음), 시험용 수칙 고지는 한 줄", () => {
+  it("머리 설명 한 줄(Figma 06 B2), 근거 보기는 리뷰·지표 출처와 원본 링크만 (검사기 표현 없음), 시험용 수칙 고지는 한 줄", () => {
     setState({ cards: [{ ...cardA, reason_source: "HCX-005 (검사기 통과)", problems: [{ type: "too_long" }],
       evidence: [...cardA.evidence, { type: "snapshot", id: "s1", text: "저녁 매출 -19.31%", basis: "서울시 상권분석서비스 2026년 2분기 · https://golmok.seoul.go.kr/x" }] }] });
     const { container } = render(<Cards />);
-    expect(container.querySelector(".page-head .ph-sub")).toBeNull();
+    // 11/21 QA B-7: 제목 아래 설명은 그림대로 두되, 시험용 실행이라 'AI가 글을 써요'라고 하지 않는다
+    expect(container.querySelector(".page-head .ph-sub").textContent).toBe("오늘 리뷰와 상권 자료로 고른 추천 1가지예요. 고르면 예시 글을 보여 드려요.");
     const more = container.querySelector(".flow-more");
     expect(more.textContent).not.toMatch(/검사기|이유 문장:|HCX/);
     expect(more.textContent).toContain("리뷰 r1: “밥이 빠졌어요”");
@@ -120,7 +122,10 @@ describe("승인할 글", () => {
     expect(screen.queryByText(/승인 안 한 글/)).toBeNull();
     const rows = () => [...screen.getByRole("list", { name: "초안 목록" }).querySelectorAll("li")]
       .map((li) => [li.querySelector(".flow-list-name").textContent, [...li.querySelectorAll(".badge")].map((b) => b.textContent)]);
-    expect(rows()).toEqual([["1. 포장·주문 안내문", ["승인 대기", "확인 필요"]], ["2. 답글", ["승인 대기"]]]);
+    // 11/21 QA B-6: 점검 통과도 칩으로, 답글은 원 리뷰 첫 줄을 이름 아래에 (공지는 대상 리뷰가 없어 줄 없음)
+    expect(rows()).toEqual([["1. 포장·주문 안내문", ["승인 대기", "확인 필요"]], ["2. 답글", ["승인 대기", "점검 통과"]]]);
+    expect([...document.querySelectorAll(".flow-list li")].map((li) => li.querySelector(".flow-list-target")?.textContent ?? null))
+      .toEqual([null, "“밥이 빠졌어요”"]);
     // 시험용 저장 예시: 수칙 줄은 짧게, 출처 배지는 머리에 그대로
     expect(screen.getByText(/예시 글이라 반영되지 않아요/)).toBeTruthy();
     expect(screen.getByText("시험용 저장 예시 (실제 AI 결과 아님)")).toBeTruthy();
@@ -245,7 +250,7 @@ describe("기준 화면 배치 (Figma 06 B1~B4)", () => {
     const { container } = render(<Home />);
     const foot = container.querySelector(".flow-todo-foot");
     expect([...foot.querySelectorAll("button")].map((x) => x.textContent)).toEqual(["리뷰 넣기", "상권 분석 보기"]);
-    expect(screen.queryByRole("button", { name: "무엇을 할까요?" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /무엇을 할까요/ })).toBeNull();
     expect(container.querySelector(".flow-staff-text").textContent).toBe("데이터 분석 비서아직 리뷰 없음");
     act(() => { fireEvent.click(screen.getByRole("button", { name: "리뷰 넣기" })); });
     expect(window.location.hash).toBe("#/analysis");
@@ -256,7 +261,7 @@ describe("기준 화면 배치 (Figma 06 B1~B4)", () => {
 
   it("홈: 리뷰가 있는 가게는 그대로 ('무엇을 할까요?' 하나, 다음 할 일 버튼 없음)", () => {
     const { container } = render(<Home />);
-    expect([...container.querySelector(".flow-todo-foot").querySelectorAll("button")].map((x) => x.textContent)).toEqual(["무엇을 할까요?"]);
+    expect([...container.querySelector(".flow-todo-foot").querySelectorAll("button")].map((x) => x.textContent)).toEqual(["무엇을 할까요? (추천 카드 보기)"]);
     expect(screen.queryByRole("button", { name: "리뷰 넣기" })).toBeNull();
     expect(screen.queryByRole("button", { name: "상권 분석 보기" })).toBeNull();
   });
@@ -343,9 +348,12 @@ describe("기준 화면 배치 (Figma 06 B1~B4)", () => {
     const server = col.querySelector("details.flow-server");
     const home = screen.getByRole("button", { name: "홈으로" });
     expect(order(tiles, list) && order(list, rules) && order(rules, server) && order(server, home)).toBe(true);
-    expect(tiles.querySelector(".num").textContent).toBe("1개");
+    // 11/21 QA B-1: 승인한 글 = 이 브라우저 목록 ∪ 서버 기록 (같은 글 d2 는 한 번만, 서버에만 있는 맞춤 마케팅 글도 들어감)
+    expect(tiles.querySelector(".num").textContent).toBe("2개");
     // 승인한 글: 이름 · 시각 / 글 앞부분, 승인 완료 배지는 없음 (모두 승인한 글이라)
-    const item = list.querySelector(".flow-log-item");
+    const items = [...list.querySelectorAll(".flow-log-item")];
+    expect(items.map((x) => x.querySelector(".strong").textContent)).toEqual(["포장·주문 안내문", "맞춤 마케팅 글"]);
+    const item = items[0];
     expect(item.querySelector(".strong").textContent).toBe("포장·주문 안내문");
     expect(item.querySelector(".flow-log-excerpt").textContent).toBe("안내문 고침");
     expect(list.querySelector(".badge")).toBeNull();
@@ -409,5 +417,93 @@ describe("11/21 실시간 확인에서 고친 것", () => {
     expect(await screen.findByText("다시 만들었지만 같은 기본 문장이 나왔어요. 리뷰와 맞게 직접 고쳐서 승인해 주세요.")).toBeTruthy();
     expect(screen.queryByText(/이 글만 새로 만들었어요/)).toBeNull();
     expect(getState().draftId).toBe("d9");
+  });
+});
+
+// 11/21 실사용 QA 에서 나온 결함 (B-1 ~ B-9, B-8 은 팀 규칙에 따라 되돌림)
+describe("11/21 실사용 QA", () => {
+  // 사장님이 붙여넣은 불만 리뷰만 있는 새 가게 (리뷰 4건 모두 불만, 2건 묶음 하나는 반복 아님)
+  const pastedOnly = {
+    store: { name: "동네맛김밥", data_origin: "registered" }, period: { start: "2026-11-21", end: "2026-11-21" },
+    counts: { review_count: 4, complaint_count: 4 }, top_issue_id: "g1",
+    pasted: ["p1", "p2", "p3", "p4"].map((id) => ({ review_id: id, text: `불만 ${id}`, created_at: "2026-11-21T00:05:00+09:00", input_method: "paste" })),
+    groups: [{ issue_id: "g1", topic_name: "식감", review_count: 2, is_repeated: false, main_time_band: null,
+      reviews: [{ review_id: "p1", created_at: "2026-11-21T00:05:00+09:00", input_method: "paste" }, { review_id: "p2", created_at: "2026-11-21T00:06:00+09:00", input_method: "paste" }] }],
+    single_complaints: [{ review_id: "p3", topic_names: ["양"], created_at: "2026-11-21T00:07:00+09:00" }, { review_id: "p4", topic_names: ["맛"], created_at: "2026-11-21T00:08:00+09:00" }],
+    snapshots: [],
+  };
+
+  it("B-2·B-3 홈: 붙여넣은 불만만 있으면 '불만 리뷰가 없어요' 대신 시각이 없어 그리지 않는다고, 반복 0건은 기준", () => {
+    setState({ cards: [], briefing: pastedOnly });
+    const { container } = render(<Home />);
+    const hour = screen.getByRole("region", { name: "불만 리뷰가 몰린 시간" });
+    expect(hour.textContent).toContain("붙여넣은 리뷰에는 주문 시각이 없어 시간대를 그리지 않아요.");
+    expect(hour.textContent).not.toContain("불만 리뷰가 없어요");
+    expect(container.querySelector(".flow-hours")).toBeNull();
+    // 같은 화면의 주제 칸은 불만을 그대로 보인다 (모순 없음)
+    expect(screen.getByRole("region", { name: "주제별 불만" }).textContent).toContain("식감");
+    // 반복 불만 0건 타일은 기준을 부제로
+    const rep = container.querySelector(".tile.tint-lime");
+    expect(rep.querySelector(".num").textContent).toBe("0건");
+    expect(rep.querySelector(".tile-sub").textContent).toBe("같은 불만 3건부터");
+  });
+
+  it("B-2 홈: 합성 리뷰와 붙여넣은 불만이 섞이면 막대는 그리고 뺀 건수를 한 줄로", () => {
+    setState({ briefing: { ...briefing, counts: { review_count: 21, complaint_count: 4 }, pasted: [{ review_id: "p1" }],
+      single_complaints: [{ review_id: "p1", topic_names: ["맛"], created_at: "2026-11-21T00:05:00+09:00" }] } });
+    const { container } = render(<Home />);
+    expect(container.querySelector(".flow-hours")).toBeTruthy();
+    expect(container.querySelector(".flow-hours-note").textContent).toBe("붙여넣은 불만 1건은 주문 시각이 없어 시간대에서 뺐어요.");
+  });
+
+  it("B-9 추천 카드: 점검 수칙은 라벨 한 줄 전체가 체크 자리 (글자를 눌러도 체크)", () => {
+    render(<Cards />);
+    const box = screen.getByRole("checkbox", { name: /수저 확인/ });
+    expect(box.closest("label").textContent).toContain("수저 확인");
+    fireEvent.click(box.closest("label"));
+    expect(box.checked).toBe(true);
+  });
+
+  it("B-1 처리 완료: 새로 고침 뒤(브라우저 승인 목록이 빔)에도 서버 승인 기록을 '승인한 글'로 보인다", async () => {
+    mockFetch(() => ({ items: [
+      { draft_id: "d_1a2b3c4d", status: "approved", edited: true, text: "고객님 죄송합니다. 다음부터 꼭 챙길게요.", approved_at: "2026-11-21T20:00:00+09:00", mode: "live" },
+      { draft_id: "mkt-77", status: "approved", edited: false, text: "제육볶음 쿠폰 드려요", approved_at: "2026-11-21T20:05:00+09:00", mode: "live" },
+    ] }));
+    let container;
+    await act(async () => { ({ container } = render(<Done />)); });
+    expect(screen.queryByText("아직 승인한 글이 없어요.")).toBeNull();
+    const list = screen.getByRole("region", { name: "승인한 글" });
+    const items = [...list.querySelectorAll(".flow-log-item")];
+    expect(items.map((x) => x.querySelector(".strong").textContent)).toEqual(["글", "맞춤 마케팅 글"]);
+    expect(items[0].querySelector(".flow-log-excerpt").textContent).toBe("고객님 죄송합니다. 다음부터 꼭 챙길게요.");
+    expect(items[0].textContent).toContain("사장님이 고침");
+    expect(screen.getByRole("button", { name: "글 복사" })).toBeTruthy();
+    // 이 브라우저가 만든 글을 모르면 '만든 글 n개 중'을 지어내지 않는다
+    expect(list.querySelector(".panel-head .sub").textContent).toBe("서버에 남은 승인 기록");
+    const tiles = container.querySelectorAll(".flow-done-tiles .tile");
+    expect(tiles[0].querySelector(".num").textContent).toBe("2개");
+    expect(tiles[1].querySelector(".num").textContent).toBe("1개");
+    // '처음부터 다시'는 그대로 있다
+    expect(screen.getByRole("button", { name: "처음부터 다시" })).toBeTruthy();
+  });
+
+  it("B-1 처리 완료: 둘 다 비었을 때만 빈 화면, 서버 기록을 읽는 동안은 '없어요'라고 하지 않음", async () => {
+    let finish;
+    globalThis.fetch = vi.fn(() => new Promise((ok) => { finish = () => ok({ ok: true, status: 200, json: async () => ({ items: [] }), headers: { get: () => "application/json" } }); }));
+    render(<Done />);
+    expect(screen.getByText("승인 기록을 불러오는 중…")).toBeTruthy();
+    expect(screen.queryByText("아직 승인한 글이 없어요.")).toBeNull();
+    await act(async () => { finish(); });
+    expect(screen.getByText("아직 승인한 글이 없어요.")).toBeTruthy();
+  });
+
+  it("B-1 처리 완료: 서버를 못 읽어도 이 브라우저의 승인 목록은 그대로", async () => {
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 503, json: async () => ({ error: { message: "DB 꺼짐" } }), headers: { get: () => "application/json" } }));
+    setState({ results: { card_a: runA }, approved: new Set(["d1"]), approvedLog: [
+      { id: "d1", edited: false, kind: "reply_draft", name: "답글", card: "포장 누락을 막아요", at: "2026-11-21T21:01:00+09:00", text: "답글 하나" }] });
+    await act(async () => { render(<Done />); });
+    const list = screen.getByRole("region", { name: "승인한 글" });
+    expect([...list.querySelectorAll(".flow-log-item .strong")].map((x) => x.textContent)).toEqual(["답글"]);
+    expect(list.querySelector(".panel-head .sub").textContent).toBe("만든 글 2개 중 1개 승인");
   });
 });

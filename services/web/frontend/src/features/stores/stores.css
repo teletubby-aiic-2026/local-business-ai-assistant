@@ -35,6 +35,8 @@
 .sn-chip-check { display: none; }
 .sn-chip.on { background: var(--brand-soft); color: var(--accent-text); border-color: var(--accent); }
 .sn-chip.on .sn-chip-check { display: inline; }
+/* 휴대폰: 배달 채널 칩도 누르는 높이 40px (11/21 QA) */
+@media (max-width: 760px) { .sn-chip { min-height: 40px; } }
 .sn-chip:focus-within, .sn-seg-opt:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
 .sn-chip:has(input:disabled), .sn-seg-opt:has(input:disabled) { opacity: .55; cursor: not-allowed; }
 

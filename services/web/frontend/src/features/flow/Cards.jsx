@@ -11,7 +11,7 @@ import { PageHead, Panel, Badge, Button } from "../../components/ui.jsx";
 import Steps from "./Steps.jsx";
 import { useFlow, setFlow } from "./state.js";
 import { choose } from "./actions.js";
-import { RULES_TITLE, sourceLine, measureIds, reasonByAI } from "./calc.js";
+import { RULES_TITLE, sourceLine, measureIds, reasonByAI, cardsIntro } from "./calc.js";
 import "./flow.css";
 
 export default function Cards() {
@@ -30,7 +30,8 @@ export default function Cards() {
   return (
     <div className="col flow-cards">
       <Steps at="cards" />
-      <PageHead owner={owners || undefined} title="무엇을 할까요?" />
+      {/* 제목 아래 설명 한 줄 (Figma 06 B2, 11/21 QA): 무엇으로 골랐고 고르면 무엇이 되는지 */}
+      <PageHead owner={owners || undefined} title="무엇을 할까요?" sub={cardsIntro(cards, mock) || undefined} />
       {!cards.length
         ? <Panel><p className="muted">{!booted ? "불러오는 중…" : bootError ? "카드를 불러오지 못했어요."
             : noReviews ? "리뷰가 들어오면 추천 카드를 골라 드려요." : "오늘은 추천할 카드가 없어요."}</p></Panel>

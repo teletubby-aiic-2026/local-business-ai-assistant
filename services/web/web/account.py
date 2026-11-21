@@ -6,7 +6,7 @@
 - 맞춤 마케팅 기록: MarketingProxy.clear_state → cleared | off | failed.
 - 상권 대화·조건은 여기서 지우지 않는다: 상권 세션 쿠키의 경로가 /api/assistant·/api/market 이라 이 요청에 오지 않는다.
   화면이 먼저 DELETE /api/assistant/conversation 을 부르고, 이 서버는 응답에서 두 쿠키를 만료시킨다 (auth._reset_market).
-- 저장된 주간·월간 보고서: 계정별 저장이라 같이 지운다 (reports.ReportBook.erase, 11/20).
+- 저장된 주간·월간 보고서: 계정별 저장이라 같이 지운다 (reports.ReportBook.erase, 11/20). 지운 수는 응답의 reports (11/21 QA).
 - 카드 이유(card_reasons)는 가게 공용이라 지우지 않는다.
 
 지우지 못한 것이 있어도 예외를 내지 않는다. 지울 수 있는 것은 지우고 complete=false 와 쉬운 문장(message)을 돌려준다.
@@ -61,7 +61,8 @@ class AccountData:
                 "marketing": marketing}
 
     def clear(self, store_ids, visitor_id: str) -> dict:
-        """가게 여러 곳. {complete, message, stores}. visitor_id 는 로그인한 사장님의 방문자(u-…)여야 한다."""
+        """가게 여러 곳. {complete, message, stores, reports}. visitor_id 는 로그인한 사장님의 방문자(u-…)여야 한다.
+        reports = 지운 저장 보고서 수(가게 모두 합, 프로필처럼 같은 기간은 하나). 못 지웠거나 보고서 저장소가 없으면 None."""
         if not (isinstance(visitor_id, str) and visitor_id.startswith("u-")):
             raise ValueError("로그인한 사장님의 방문자 id 만 지울 수 있어요")   # 게스트·공용 기록을 지우지 않게
         stores = [self.clear_store(s, visitor_id) for s in dict.fromkeys(store_ids)]
@@ -71,13 +72,21 @@ class AccountData:
                       if (row[key] == "failed" if key == "marketing" else row[key] is None)]
             if missed:
                 left.append(f"{row['name']}의 {'·'.join(missed)}")
+        reports = None
         if self.reports is not None:      # 이 사장님이 저장한 주간·월간 보고서 (계정별 저장, 11/20). 응답의 가게 줄 모양은 그대로 둔다
+            once = list(dict.fromkeys(store_ids))
             try:
-                self.reports.erase(list(dict.fromkeys(store_ids)), visitor_id)
+                # 지운 수를 응답 맨 위에 싣는다: 화면 결과 띠에 보고서가 빠져 있었다 (11/21 QA).
+                # 프로필 '보관한 보고서'와 같은 숫자가 되게 지우기 전에 기간마다 하나로 센다 (프롬프트 판이 바뀌면 같은 기간 줄이 둘일 수 있음).
+                # 세지 못하면(counts 가 None) 지운 줄 수
+                before = self.reports.counts(store_ids=once, visitor_id=visitor_id, member=True)
+                erased = int(self.reports.erase(once, visitor_id))
+                shown = (before.get("weekly"), before.get("monthly"))
+                reports = sum(shown) if all(isinstance(n, int) for n in shown) else erased
             except Exception as exc:
                 log.warning("초기화: 저장된 보고서를 지우지 못했어요 (%s)", exc.__class__.__name__)
                 left.append("저장된 보고서")
         message = None
         if left:
             message = f"{', '.join(left)}을(를) 지우지 못했어요. 나머지는 지웠어요. 잠시 뒤 다시 해 주세요."
-        return {"complete": not left, "message": message, "stores": stores}
+        return {"complete": not left, "message": message, "stores": stores, "reports": reports}

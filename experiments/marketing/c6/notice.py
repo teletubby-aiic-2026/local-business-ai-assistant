@@ -196,6 +196,32 @@ def _notice_topic(target_reviews):
     return _TOPIC_LABELS.get(top, _DEFAULT_TOPIC) if top else _DEFAULT_TOPIC
 
 
+def notice_topic(target_reviews):
+    """이 리뷰들로 쓰는 안내문의 불만 주제 id (제목 '[안내] … 관련'과 같은 기준). 분류가 없으면 포장 누락 공지면 missing_item,
+    아니면 None. 맞춤 마케팅이 사장님이 고른 주제와 안내문 주제를 맞춰 보는 데 쓴다 (11/21 QA)."""
+    top = _notice_topic_id(target_reviews)
+    if top is not None:
+        return top
+    return MISSING_TOPIC if _is_missing_notice(target_reviews) else None
+
+
+def _notice_frame(store, target_reviews):
+    """공지의 제목 줄·시작 줄·마무리 줄 (코드가 조립하는 부분). 생성기와 코드 템플릿 공지가 같이 쓴다."""
+    store_display = display_name(store.name)
+    return (f"[안내] {_notice_topic(target_reviews)} 관련", f"{store_display}{eul(store_display)} 찾아 주시는 분들께",
+            f"늘 찾아 주셔서 감사합니다. {store_display} 드림")
+
+
+def template_notice_text(ctx, card, chosen_measures=None, start_label="오늘부터"):
+    """AI 없이 코드 템플릿만으로 쓴 공지 전문 — 생성기가 점검을 끝내 못 넘을 때 쓰는 그 템플릿(_notice_fallback_text)과 같다.
+    맞춤 마케팅이 저장본(c6/replay)에 없는 카드(바삭치킨·몽글카페, 사장님이 고른 주제의 리뷰 묶음)를 시험용(mock)으로 돌릴 때 쓴다 (11/21 QA)."""
+    review_map = {r.review_id: r for r in ctx.reviews}
+    target_reviews = [review_map[rid] for rid in card.review_ids if rid in review_map]
+    title, start_line, closing_line = _notice_frame(ctx.store, target_reviews)
+    body = _notice_fallback_text(target_reviews, list(ctx.store.menu), chosen_measures, start_label)
+    return assemble_notice(title, start_line, body, closing_line)
+
+
 def _is_missing_notice(target_reviews):
     """포장 누락 공지인가. 분류가 있으면 가장 많은 주제로, 없으면 답글과 같은 규칙(c6.reply.reply_topic)으로 본다."""
     top = _notice_topic_id(target_reviews)
@@ -269,9 +295,7 @@ def generate_prevention_notice(ctx, card, key, model="HCX-005", chosen_measures=
     topic = _notice_topic(target_reviews)
     missing_notice = _is_missing_notice(target_reviews)
     order_kind = "missing" if missing_notice else "general"
-    title = f"[안내] {topic} 관련"
-    start_line = f"{store_display}{eul(store_display)} 찾아 주시는 분들께"
-    closing_line = f"늘 찾아 주셔서 감사합니다. {store_display} 드림"
+    title, start_line, closing_line = _notice_frame(store, target_reviews)
 
     review_lines = []
     for rv in target_reviews:
