@@ -46,6 +46,18 @@ QUESTIONS = ["쿠폰 2천원 할인하면 몇 개 팔아야 본전이야?", "지
              "제육볶음 정식 가격 얼마야?"]
 
 
+_REAL_SECTION = report.marketing_section
+
+
+def _with_records(store_id, period="monthly", today=None, visitor_id=None):
+    """기록이 있는 사장님처럼: 보고서의 예시 기록을 실제 기록(demo=False)인 것처럼 돌려준다."""
+    return {**_REAL_SECTION(store_id, period, today=today, visitor_id=visitor_id), "demo": False}
+
+
+def recorded():
+    return patch.object(ask.report, "marketing_section", side_effect=_with_records)
+
+
 class Ask(unittest.TestCase):
     def setUp(self):
         self.env = _env()
@@ -97,19 +109,29 @@ class Ask(unittest.TestCase):
         self.assertIn("할인 금액을 알려 주시면", g["text"])
 
     def test_report_numbers_match_the_report(self):
-        sec = report.marketing_section(STORE, "monthly")
+        sec = _with_records(STORE)
         cp = sec["cost"]["coupon"]
-        g = self.answer("지난번 쿠폰 효과 있었어?")
-        self.assertIn(f"{cp['issued']}장 중 {cp['used']}장", g["text"])
-        loss = [a for a in sec["cost"]["ads"] if a["verdict"] == "손해 광고"]
-        g = self.answer("배달앱 광고 괜찮아?")
+        with recorded():
+            g = self.answer("지난번 쿠폰 효과 있었어?")
+            self.assertIn(f"{cp['issued']}장 중 {cp['used']}장", g["text"])
+            loss = [a for a in sec["cost"]["ads"] if a["verdict"] == "손해 광고"]
+            g = self.answer("배달앱 광고 괜찮아?")
         self.assertTrue(all(a["label"] in g["text"] for a in sec["cost"]["ads"]))
         if loss:
             self.assertTrue(g["text"].startswith(loss[0]["label"]))
 
-    def test_demo_records_are_marked_on_the_card(self):
-        g = self.answer("지난번 쿠폰 효과 있었어?")      # 이 방문자는 기록이 없어 예시 기록
-        self.assertIn("예시 기록", " ".join(g["cards"][0]["warnings"]))
+    def test_example_records_are_not_read_as_real(self):
+        """기록이 없으면 보고서는 예시 기록(demo)을 준다. 종합 리포트가 '–'로 보이듯 서랍도 그 숫자를 말하지 않는다 (11/21)."""
+        cp = report.marketing_section(STORE, "monthly")["cost"]["coupon"]
+        g = self.answer("지난번 쿠폰 효과 있었어?")
+        self.assertIn("기록이 없어요", g["text"])
+        self.assertNotIn(f"{cp['issued']}장", g["text"])
+        g = self.answer("광고비 월 30만원 괜찮아?")
+        self.assertIn("광고 기록이 없어요", g["text"])
+        self.assertIn("67건 넘어야 본전", g["text"])            # 말한 금액은 가정한 값으로 계산
+        self.assertIn("가정한 값", g["text"])
+        g = self.answer("다음엔 뭐 하면 좋아?")
+        self.assertIn("아직 마케팅 기록이 없어요", g["text"])
 
     # live: HCX-005 플래너 · 답 쓰기 ─────────────────────────────
     def test_planner_and_writer_are_hcx_005(self):
@@ -122,11 +144,13 @@ class Ask(unittest.TestCase):
         self.assertEqual(g["method"], "template")                  # 빈 답은 점검에서 걸려 틀 답
 
     def test_model_answer_used_when_it_passes(self):
-        fixed = self.answer("지난번 쿠폰 효과 있었어?")
-        m = re.search(r"(\d+)장 중 (\d+)장", fixed["text"])
-        good = f"쿠폰을 {m.group(1)}장 냈고 그중 {m.group(2)}장을 손님이 썼어요 [F1]. 다음엔 조건을 조금 바꿔 보세요."
-        call, _ = _fake('{"intent": "coupon_result"}', good)
-        g = self.answer("지난번 쿠폰 효과 있었어?", key="k", call=call)
+        with recorded():
+            fixed = self.answer("지난번 쿠폰 효과 있었어?")
+            m = re.search(r"(\d+)장 중 (\d+)장이 쓰였어요 \(사용률 (\d+)%\)", fixed["text"])
+            good = (f"쿠폰을 {m.group(1)}장 냈고 그중 {m.group(2)}장을 손님이 썼어요 (사용률 {m.group(3)}%) [F1]. "
+                    "쿠폰 주문으로 본전을 넘겼어요 [F1]. 다음엔 조건을 조금 바꿔 보세요.")
+            call, _ = _fake('{"intent": "coupon_result"}', good)
+            g = self.answer("지난번 쿠폰 효과 있었어?", key="k", call=call)
         self.assertEqual((g["method"], g["model"], g["text"]), ("hcx", "HCX-005", good))
 
     def test_bad_model_answers_fall_back(self):
@@ -141,8 +165,8 @@ class Ask(unittest.TestCase):
     def test_bad_planner_keeps_the_rules(self):
         for bad in ('{"intent": "weather"}', "쿠폰 결과예요"):
             call, _ = _fake(bad, "")
-            g = self.answer("지난번 쿠폰 효과 있었어?", key="k", call=call)
-            self.assertEqual((g["intent"], g["classified_by"]), ("coupon_result", "rules"))
+            g = self.answer("요즘 장사 좀 띄우고 싶은데", key="k", call=call)   # 규칙이 못 고른 질문만 플래너에 묻는다
+            self.assertEqual((g["intent"], g["classified_by"]), ("overview", "rules"))
             self.assertTrue(g["plan_note"])
 
     def test_model_error_falls_back(self):
@@ -150,6 +174,50 @@ class Ask(unittest.TestCase):
             return {"error": "HTTP 500"}
         g = self.answer("지난번 쿠폰 효과 있었어?", key="k", call=call)
         self.assertEqual((g["method"], g["classified_by"]), ("template", "rules"))
+
+    # 11/22 PR #75 live 확인 반영 ──────────────────────────────────
+    def test_flipped_meaning_is_blocked(self):
+        """손해 광고를 '해 보세요'라고 권한 답 (숫자는 맞음) → 틀 답의 '손해·다시 보기'가 답에 없어 막힌다."""
+        with recorded():
+            fixed = self.answer("배달앱 광고 괜찮아?")
+            if "다시 보" not in fixed["text"]:
+                self.skipTest("이 가게 예시 기록에는 손해 광고가 없음")
+            nums = re.findall(r"\d[\d,]*원", fixed["text"])[:2]
+            bad = f"쿠팡이츠 광고는 주문 1건 광고비가 {nums[0]}, 남는 돈이 {nums[1]}예요 [F1]. 효과가 있어 보여 시도해 보세요."
+            call, _ = _fake('{"intent": "ads"}', bad)
+            g = self.answer("배달앱 광고 괜찮아?", key="k", call=call)
+        self.assertEqual(g["method"], "template")
+        self.assertTrue(any("다른 뜻" in p or "빠짐" in p for p in g["checks"]), g["checks"])
+
+    def test_small_numbers_are_checked_too(self):
+        """예전엔 1·2·3 은 늘 통과했다."""
+        with recorded():
+            fixed = self.answer("지난번 쿠폰 효과 있었어?")
+            bad = fixed["text"].replace("[F1].", "[F1]. 3번 더 해 보세요.", 1)
+            probs = ask.check_answer(bad, self.answer("지난번 쿠폰 효과 있었어?")["cards"], fixed["text"])
+        self.assertTrue(any("근거에 없는 숫자 3" in p for p in probs), probs)
+
+    def test_formal_style_and_bold_marks(self):
+        with recorded():
+            fixed = self.answer("지난번 쿠폰 효과 있었어?")
+            first = re.split(r"(?<=[.!?])\s+", fixed["text"])[0]
+            call, _ = _fake('{}', "**" + first.replace("쓰였어요", "사용되었습니다") + " 본전을 넘겼습니다. 감사합니다.")
+            g = self.answer("지난번 쿠폰 효과 있었어?", key="k", call=call)
+            self.assertIn("해요체가 아님", g["checks"])
+            call, _ = _fake('{}', "**" + fixed["text"] + "**")
+            g = self.answer("지난번 쿠폰 효과 있었어?", key="k", call=call)
+        self.assertEqual(g["method"], "hcx")
+        self.assertNotIn("**", g["text"])
+
+    def test_planner_only_when_rules_found_nothing(self):
+        call, calls = _fake('{"intent": "leftover"}', "")
+        g = self.answer("지난번 쿠폰 효과 있었어?", key="k", call=call)
+        self.assertEqual((g["intent"], g["classified_by"]), ("coupon_result", "rules"))
+        self.assertEqual([k for k, _ in calls], ["write"])
+
+    def test_leftover_example_is_not_a_drink(self):
+        g = self.answer("남은 재료 어떻게 팔아?")
+        self.assertNotRegex(g["text"], r"콜라|사이다|음료")
 
 
 class Endpoint(unittest.TestCase):

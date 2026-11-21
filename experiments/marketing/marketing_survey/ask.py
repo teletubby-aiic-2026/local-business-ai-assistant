@@ -69,6 +69,7 @@ class Question:
     amount_won: int | None = None          # 광고비처럼 그 밖의 금액
     menu: str | None = None
     period: str = "monthly"
+    matched: bool = True        # False = 규칙이 아무것도 못 골라 기본값(overview). 이때만 플래너를 따른다
 
 
 def _squash(text: str) -> str:
@@ -98,9 +99,11 @@ def _money_before(words: str, text: str) -> int | None:
 
 def parse(text: str, menu_names: list[str] | None = None) -> Question:
     c = _squash(text)
-    intent = next((i for i, rx in _INTENT_RX if re.search(rx, c)), "overview")
+    intent = next((i for i, rx in _INTENT_RX if re.search(rx, c)), None)
+    matched = intent is not None
+    intent = intent or "overview"
     t = text or ""
-    q = Question(text=text, intent=intent, period="weekly" if re.search(r"이번주|지난주|일주일", c) else "monthly")
+    q = Question(text=text, intent=intent, matched=matched, period="weekly" if re.search(r"이번주|지난주|일주일", c) else "monthly")
     q.discount_won = _money_before("할인|쿠폰", t) or _money_after("할인|쿠폰", t)
     q.budget_won = _money_after("예산", t) or _money_before("예산", t)
     q.avg_order_won = _money_after("객단가|평균\\s*주문(?:\\s*금액)?|주문\\s*금액", t)
@@ -164,7 +167,11 @@ def build(q: Question, ctx, store_id: str, visitor_id: str | None, today=None) -
     sec = report.marketing_section(store_id, q.period, today=today, visitor_id=visitor_id)
     per = sec.get("period") or {}
     b = Built(period=f"{per.get('start')}~{per.get('end')}" if per.get("start") else None)
-    demo_warn = ["아직 승인한 기록이 없어 예시 기록으로 보여 드려요."] if sec.get("demo") else None
+    # 기록이 없는 가게는 보고서가 예시 기록(demo)을 준다. 통합 화면의 종합 리포트는 그 값을 '–'(기록 없음)로 보이므로,
+    # 서랍 답도 같은 숫자를 말하지 않는다 (11/21 점검: 리포트는 '–'인데 서랍은 '쿠폰 50장 중 23장'이라고 했다)
+    if sec.get("demo"):
+        sec = {**sec, "activity": {}, "cost": {}, "fixed": [], "next": []}
+    demo_warn = None
     when = "이번 주" if q.period == "weekly" else "이번 달"
     cost = sec.get("cost") or {}
     intent = q.intent
@@ -230,12 +237,14 @@ def build(q: Question, ctx, store_id: str, visitor_id: str | None, today=None) -
         loss = [a for a in ads if a.get("verdict") == "손해 광고"]
         if loss:
             b.lines.insert(0, f"{_josa(loss[0].get('label') or loss[0]['app'], '은/는')} 주문 1건에 남는 돈보다 광고비가 커서 조건을 다시 보는 게 좋아요 [{f}].")
-        if q.amount_won and ads:
-            profit = ads[0]["profit_per_order"]
+        if q.amount_won:
+            profit = ads[0]["profit_per_order"] if ads else adspend.profit_per_order(ASSUME["avg_order_won"], ASSUME["margin_pct"])
             n = adspend.breakeven_orders(q.amount_won, profit)
             g = b.add("광고비 본전", f"광고비 {_w(q.amount_won)}을 주문 1건에 남는 돈 {_w(profit)}으로 나눈 값이에요.",
                       [_v("광고비", q.amount_won), _v("본전 주문 수", n, "건")])
-            b.lines.append(f"광고비 {_w(q.amount_won)}이면 광고로 들어온 주문이 {n}건 넘어야 본전이에요 [{g}].")
+            b.lines.append(f"광고비 {_w(q.amount_won)}이면 광고로 들어온 주문이 {n}건 넘어야 본전이에요 [{g}]."
+                           + ("" if ads else f" (주문 1건에 남는 돈 {_w(profit)}은 평균 주문 {_w(ASSUME['avg_order_won'])}·마진 "
+                                             f"{ASSUME['margin_pct']}%로 가정한 값이에요)"))
         b.suggestions = ["다음엔 뭐 하면 좋아?", "지난번 쿠폰 효과 있었어?"]
         return b
 
@@ -283,7 +292,8 @@ def build(q: Question, ctx, store_id: str, visitor_id: str | None, today=None) -
             b.lines.append(", ".join(f"{k} {_w(v)}" for k, v in prices.items()) + f"이에요 [{f}].")
         else:
             b.lines.append("남은 재료는 그 재료가 들어간 메뉴와 같이 묶어 할인하면 버리지 않고 팔 수 있어요.")
-            cheap = min(prices.items(), key=lambda kv: kv[1]) if prices else None
+            foods = {k: v for k, v in prices.items() if not re.search(r"콜라|사이다|음료|주스|에이드|커피|라떼|맥주|소주|막걸리|생수|물$", k)}
+            cheap = min(foods.items(), key=lambda kv: kv[1]) if foods else None      # 남은 재료 예시로 '콜라'는 맞지 않다 (11/22)
             if cheap:
                 obj = _josa(cheap[0], "을/를")[len(cheap[0]):]
                 b.lines.append(f"예를 들어 가장 싼 '{cheap[0]}'({_w(cheap[1])}){obj} 다른 메뉴와 묶는 식이에요 [{f}].")
@@ -295,9 +305,8 @@ def build(q: Question, ctx, store_id: str, visitor_id: str | None, today=None) -
     approved = act.get("approved") or {}
     nxt = sec.get("next") or []
     if intent == "next":
-        f = b.add("다음 할 일", "승인 기록·쿠폰·광고 계산으로 고른 다음 할 일이에요.",
-                  [_v(n["title"], None, "") for n in nxt], demo_warn)
         if nxt:
+            f = b.add("다음 할 일", "승인 기록·쿠폰·광고 계산으로 고른 다음 할 일이에요.", [_v(n["title"], None, "") for n in nxt])
             b.lines.append(f"지금 해 볼 만한 건 {_titles([n['title'] for n in nxt[:2]])} [{f}].")
             for n in nxt[:2]:
                 b.lines.append(f"- {n['title']}: {n['why']} [{f}]")
@@ -305,8 +314,12 @@ def build(q: Question, ctx, store_id: str, visitor_id: str | None, today=None) -
         if reps:
             g = b.add("반복 불만", "같은 불만이 두 번 넘게 나온 주제예요.", [_v(t.label, len(t.review_ids), "건") for t in reps[:3]])
             b.lines.append(f"리뷰에는 '{reps[0].label}' 불만이 {len(reps[0].review_ids)}건 반복돼, 안내문으로 먼저 알리는 것도 방법이에요 [{g}].")
-        if not nxt and not reps:
-            b.lines.append(f"지금 기록으로는 바로 할 일이 보이지 않아요 [{f}]. 맞춤 마케팅의 질문에 답하면 가게에 맞는 방법을 골라 드려요.")
+        if not nxt:          # 승인·쿠폰·광고 기록이 아직 없음 → 목표별 아이디어 첫 줄로 시작을 돕는다
+            picks = [IDEAS_BY_GOAL[g][0] for g in ("새 손님", "재주문") if IDEAS_BY_GOAL.get(g)]
+            h = b.add("시작 아이디어", "아직 승인·쿠폰·광고 기록이 없어, 목표별 첫 아이디어를 골랐어요.",
+                      [_v(i["title"], None, "") for i in picks])
+            b.lines.append("아직 마케팅 기록이 없어요. 처음이라면 " + ", ".join(f"'{i['title']}'" for i in picks) + f"부터 해 보세요 [{h}].")
+            b.lines.append("맞춤 마케팅의 질문에 답하면 가게에 맞는 방법을 골라 드려요.")
         b.suggestions = ["단골 늘리려면 뭐 해야 돼?", "배달앱 광고비 괜찮아?"]
         return b
 
@@ -333,7 +346,22 @@ def build(q: Question, ctx, store_id: str, visitor_id: str | None, today=None) -
 # ── ④ 답 점검 ─────────────────────────────────────────────────────
 _CITE = re.compile(r"\[(F\d+)\]")
 _NUM = re.compile(r"(?<![\w.])(\d[\d,]*(?:\.\d+)?)")
-_BANNED = ("무조건", "반드시", "확실히", "100%", "보장", "틀림없", "대박", "때문에", "탓")
+# + 11/22 (PR #75 live 확인): 원인 추정·약속·효과 판정 말. 틀 답에 그 말이 있으면 허용
+_BANNED = ("무조건", "반드시", "확실히", "100%", "보장", "틀림없", "대박", "때문에", "탓",
+           "가능성이 높", "가능성이 있", "것으로 보", "보입니다", "효과가 있을", "효과를 볼", "있을 거예요", "될 거예요",
+           "생길 거예요", "것입니다", "좋아질 거")
+# 방향 낱말: 틀 답에 왼쪽 말이 있으면 모델 답에도 오른쪽 중 하나 (숫자는 맞는데 뜻이 뒤집힌 답 막기 — 손해 광고를 '해 보세요')
+_DIRECTION = (
+    ("넘기지 못했", ("넘기지 못", "못 넘", "미치지 못", "모자라")),
+    ("넘겼", ("넘겼", "넘었")),
+    ("손해", ("손해",)),
+    ("다시 보", ("다시 보", "점검", "손해")),
+    ("줄었", ("줄었", "줄어", "감소")),
+    ("줄지 않았", ("줄지 않", "그대로", "같")),
+    ("기록이 없", ("기록이 없", "기록은 없", "아직")),
+    ("가정한 값", ("가정",)),
+)
+_FORMAL = re.compile(r"(니다|니까|십시오)[.!?]?\s*(\[F\d+\])?\s*$")
 
 
 def _numbers(text: str) -> set[str]:
@@ -363,14 +391,31 @@ def check_answer(text: str, cards: list[dict], template: str) -> list[str]:
         known |= _numbers(c["text"]) | {n for w in c["warnings"] for n in _numbers(w)}
         for v in c["values"]:
             known |= _numbers(str(v["label"])) | (_numbers(str(v["value"])) if v.get("value") is not None else set())
-    known |= {"1", "2", "3"}
-    unknown = sorted(n for n in _numbers(_CITE.sub("", text)) if n not in known)
+    said = _numbers(_CITE.sub("", text))           # 11/22: 예전의 1·2·3 자동 허용은 뺐다
+    unknown = sorted(n for n in said if n not in known)
     if unknown:
         problems.append(f"근거에 없는 숫자 {', '.join(unknown)}")
-    hit = [w for w in _BANNED if w in text]
+    first = re.split(r"(?<=[.!?])\s+|\n", template.strip(), maxsplit=1)[0]
+    lost = sorted(_numbers(_CITE.sub("", first)) - said)
+    if lost:
+        problems.append(f"틀 답 첫 문장의 숫자가 빠짐 {', '.join(lost)}")
+    own = re.sub(r'"[^"]*"|“[^”]*”', "", template)
+    for word, ok in _DIRECTION:
+        if word in own and not any(o in text for o in ok):
+            problems.append(f"틀 답의 '{word}'와 다른 뜻")
+            break
+    hit = [w for w in _BANNED if w in text and w not in template]
     if hit:
         problems.append(f"쓰면 안 되는 말 {', '.join(hit)}")
+    sentences = [x for x in re.split(r"(?<=[.!?])\s+|\n", text) if x.strip()]
+    if sentences and sum(bool(_FORMAL.search(x)) for x in sentences) * 2 > len(sentences):
+        problems.append("해요체가 아님")
     return problems
+
+
+def _plain(text: str) -> str:
+    """모델이 쓴 굵게 표시(**)를 지운다 (서랍은 [F#]·'- ' 목록만 그린다)."""
+    return re.sub(r"\*\*|__", "", text)
 
 
 # ── ①′ AI 플래너 · ③ 답 쓰기 (live 만) ───────────────────────────────
@@ -383,8 +428,12 @@ WRITE_SYSTEM = """너는 동네 가게 사장님의 마케팅 도우미다. 사�
 1. 숫자는 [근거 카드]와 [틀 답]에 있는 것만 그대로 쓴다. 새 숫자를 계산하거나 지어내지 않는다.
 2. 숫자가 들어간 문장 끝에는 그 카드 번호를 [F1]처럼 붙인다.
 3. 효과를 보장하거나 과장하지 않는다 ('무조건·반드시·대박' 금지). 할 일은 '~해 보세요'처럼 권한다.
-4. 가정한 값이 있으면 가정이라고 말한다. 해요체로 2~5문장, 500자 이하. 답 글만 쓴다.
-5. [틀 답]의 사실은 빠뜨리지 말고 더 자연스럽게 다듬는다."""
+4. 가정한 값이 있으면 가정이라고 말한다. 2~5문장, 500자 이하. 답 글만 쓴다.
+5. 해요체로 쓴다 ('~예요', '~해요', '~해 보세요'). '~습니다·~입니다'는 쓰지 않는다. 굵게(**)·번호 목록은 쓰지 않는다.
+6. [틀 답]의 사실·숫자·판단(손해·본전을 넘겼다/못 넘겼다·기록이 없다)은 빠뜨리거나 바꾸지 말고 더 자연스럽게 다듬는다.
+   틀 답이 '손해'·'다시 보기'라고 하면 그 일을 권하지 않는다.
+예) [틀 답] 쿠팡이츠는 주문 1건에 남는 돈보다 광고비가 커서 조건을 다시 보는 게 좋아요 [F1].
+    좋은 답: 쿠팡이츠 광고는 주문 1건 광고비가 남는 돈보다 커서 손해예요 [F1]. 광고 조건을 다시 보세요."""
 
 
 def _say(call, key, system, user) -> str:
@@ -412,7 +461,8 @@ def plan(text: str, rule: Question, key: str, call=clova.call) -> tuple[str | No
 def answer(ctx, store_id: str, visitor_id: str | None, text: str, key: str | None, call=clova.call, today=None) -> dict:
     rule = parse(text, list((ctx.store.menu_prices or {}).keys()))
     q, plan_note = rule, None
-    if key:
+    # 플래너는 규칙이 아무것도 못 고른 질문(기본값 overview)에만 따른다 (11/22 PR #75 live 확인)
+    if key and rule.intent == "overview" and not rule.matched:
         intent, plan_note = plan(text, rule, key, call)
         if intent:
             q = Question(**{**rule.__dict__, "intent": intent})
@@ -427,7 +477,7 @@ def answer(ctx, store_id: str, visitor_id: str | None, text: str, key: str | Non
             + (" (주의: " + " ".join(c["warnings"]) + ")" if c["warnings"] else "")
             for c in b.cards) + f"\n\n[틀 답]\n{fixed}\n\n[사장님 질문]\n{text}")
         try:
-            got = _say(call, key, WRITE_SYSTEM, user).strip('"')
+            got = _plain(_say(call, key, WRITE_SYSTEM, user).strip('"'))
             problems = check_answer(got, b.cards, fixed)
             if not problems:
                 method, out = "hcx", got
