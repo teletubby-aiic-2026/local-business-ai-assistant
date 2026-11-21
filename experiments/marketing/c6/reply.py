@@ -533,6 +533,24 @@ def _process_review(review, *, idx, card_id, store, store_display, menu_names, a
     return draft, won, ai_body, system, user_line, _check
 
 
+def template_reply_text(ctx, card, chosen_measures=None, idx=0):
+    """AI 없이 코드 문장만으로 쓴 답글 하나 (카드 리뷰 idx 번째) — 생성기의 기본 문장 경로와 같은 조립
+    (인사 + 주제별 기본 사과(_fallback_sentence) + 주제에 맞는 조치·요청사항(reply_measure_plan) + 끝인사, 말투는 사장님 말투 기준).
+    맞춤 마케팅이 저장본(c6/replay)에 없는 카드를 시험용(mock)으로 돌릴 때 쓴다 (11/21 QA). 카드 리뷰가 없으면 None."""
+    review_map = {r.review_id: r for r in ctx.reviews}
+    targets = [review_map[rid] for rid in card.review_ids if rid in review_map]
+    if not targets:
+        return None
+    review = targets[idx % len(targets)]
+    style = detect_register(ctx.tone)
+    store_display = display_name(ctx.store.name)
+    topic = reply_topic(review)
+    measure_line, request_line, _, _ = reply_measure_plan(review, REPLY_STYLE_REGISTER[style], idx, chosen_measures, topic)
+    ai_part = _fallback_sentence(review, list(ctx.store.menu), REPLY_AI_REGISTER[style], idx, topic)
+    body = " ".join(p.strip() for p in (ai_part, measure_line, request_line) if p and p.strip())
+    return assemble(REPLY_OPENING[style].format(store=store_display), body, REPLY_CLOSING.format(store=store_display))
+
+
 def generate_reply_draft(ctx, card, key, model="HCX-005", chosen_measures=None, reply_style="auto"):
     # chosen_measures: 포장 누락 답글은 예전처럼 쓰지 않는다(늘 M1 조치 + P1 요청사항). 다른 불만 주제의 답글은 고른 조치가
     # 그 주제에 맞을 때만(c6.measures.TOPIC_MEASURES) 그 조치 문장을 붙이고, 아니면 약속 없는 문장을 붙인다 (11/21).

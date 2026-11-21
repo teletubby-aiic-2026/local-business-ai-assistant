@@ -53,27 +53,29 @@ function CardDraft({ card, k }) {
     readOnly={card.approved} onChange={(t) => editDraft(card.n, k, t)} />;
 }
 
-// 광고비 점검: 표 + 앱마다 막대 두 개(건당 광고비 · 건당 이익, 같은 눈금). 값은 서버가 계산한 그대로
+// 광고비 점검: 표 + 앱마다 막대 두 개(건당 광고비 · 건당 이익, 같은 눈금). 값은 서버가 계산한 그대로.
+// 판정은 앱 바로 옆 둘째 열 — 맨 끝에 있을 때 칸이 좁으면 '괜'처럼 잘려 보였다. 숫자 열이 넘치면 그 칸만 옆으로 밀리고
+// 가장자리 그림자로 밀린다는 게 보인다 (Marketing.css .mkt-table-wrap, 11/21 QA)
 function Adspend({ rows }) {
   const judged = rows.filter((r) => r.cost_per_order_won != null);
   const pct = barPct(judged.flatMap((r) => [r.cost_per_order_won, r.profit_per_order_won]));
   return (
     <>
-      <div className="mkt-table-wrap">
+      <div className="mkt-table-wrap" tabIndex={0} role="region" aria-label="배달앱별 광고비 손익 표 (옆으로 밀어 볼 수 있어요)">
         <table className="mkt-table">
           <caption className="sr">배달앱별 광고비 손익</caption>
-          <thead><tr><th scope="col">앱</th><th scope="col" className="r">광고비</th><th scope="col" className="r">주문</th><th scope="col" className="r">건당 광고비</th><th scope="col" className="r">건당 이익</th><th scope="col">판정</th></tr></thead>
+          <thead><tr><th scope="col">앱</th><th scope="col">판정</th><th scope="col" className="r">광고비</th><th scope="col" className="r">주문</th><th scope="col" className="r">건당 광고비</th><th scope="col" className="r">건당 이익</th></tr></thead>
           <tbody>
             {rows.map((r, i) => {
               const v = MKT_VERDICT[r.verdict];
               return (
                 <tr key={i}>
                   <th scope="row">{r.label}</th>
+                  <td className="mkt-verdict">{v ? <Badge tone={v[0]}>{v[1]}</Badge> : "–"}</td>
                   <td className="r">{wonKo(r.spend_won)}</td>
                   <td className="r">{Number(r.orders || 0).toLocaleString("ko-KR")}건</td>
                   <td className="r">{r.cost_per_order_won == null ? "–" : wonKo(r.cost_per_order_won)}</td>
                   <td className="r">{wonKo(r.profit_per_order_won)}</td>
-                  <td>{v ? <Badge tone={v[0]}>{v[1]}</Badge> : "–"}</td>
                 </tr>
               );
             })}
@@ -227,6 +229,8 @@ export default function ResultCard({ card }) {
   const steps = Array.isArray(d.steps) ? d.steps : [];
   const todos = Array.isArray(d.todos) ? d.todos : [];
   const basics = Array.isArray(d.basic_todos) ? d.basic_todos : [];
+  // 자료가 없어 못 만든 글 (반복 불만 리뷰가 없는 새 가게 등): 그 할 일 아래에 서버가 준 이유를 보인다 (빈 칸으로 두지 않음, 11/21 QA)
+  const missing = Object.fromEntries((Array.isArray(d.unavailable_drafts) ? d.unavailable_drafts : []).map((u) => [u.step_id, u.message]));
   const nc = d.next_condition;
   return (
     <article className={card.approved ? "mkt-card approved" : "mkt-card"} id={`mkt-card-${n}`} aria-labelledby={`mkt-card-${n}-title`}>
@@ -258,6 +262,7 @@ export default function ResultCard({ card }) {
                 </div>
                 {s.where && s.where !== "-" && <p className="small muted">{s.where}</p>}
                 <CardDraft card={card} k={s.step_id} />
+                {!card.drafts[s.step_id] && missing[s.step_id] && <p className="small muted mkt-missing">{missing[s.step_id]}</p>}
                 {s.tip && <p className="small mkt-tip">체크: {s.tip}</p>}
               </li>
             ))}
@@ -305,7 +310,7 @@ export default function ResultCard({ card }) {
       {d.measure && (
         <p className="mkt-measure">
           <svg className="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" /></svg>
-          <span>{d.measure}</span>
+          <span className="mkt-measure-text">{d.measure}</span>
         </p>
       )}
       <div className="btn-row mkt-card-actions">

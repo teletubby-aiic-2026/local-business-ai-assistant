@@ -427,7 +427,10 @@ async function runStep(answer) {
   loadingRow.remove();
   state = data.state;
   clearOptions();
-  if (data.done) {
+  if (data.end) {
+    // 결과 카드 없이 끝 (안내문 승인 뒤 재주문 쿠폰을 만들지 않기로 함) — 결과를 부르지 않고 서버 안내만 (11/21 QA)
+    data.bot_messages.forEach((t) => addBotBubble(t));
+  } else if (data.done) {
     await showDecision();
   } else {
     data.bot_messages.forEach((t) => addBotBubble(t));

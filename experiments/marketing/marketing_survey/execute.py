@@ -1,8 +1,9 @@
 """MarketingPlan 의 전략을 C6 생성기로 넘겨 실제 글(초안)을 만든다. AI 호출은 c6 쪽에서만 한다.
 
-- fix_first 중 H_REPEAT 에서 나온 것만 card_sample_a 로 prevention_notice 를 실제로 만든다. 늘
-  M1(포장 마감 전 주문서 대조)을 chosen_measures 로 넘긴다 — 안 넘기면 "더 신경 쓰겠습니다"처럼
-  조치 없는 문장도 chosen_measure_included 가 그냥 통과시킨다(NOTICE_CHOSEN_MEASURES 참고).
+- fix_first 중 H_REPEAT 에서 나온 것만 prevention_notice 를 실제로 만든다. 카드는 사장님이 고른 불만 주제의
+  리뷰 묶음(complaints.topic_card, 주제가 불만 카드와 같으면 그 카드)이고, 조치는 그 주제에 맞는 것만 넘긴다
+  (포장 누락이면 M1 포장 마감 전 주문서 대조 — NOTICE_CHOSEN_MEASURES 참고, 11/21 QA).
+  저장본에 없는 카드를 key 없이 돌리면 코드 템플릿 글(c6.notice.template_notice_text·c6.reply.template_reply_text)로 채운다.
 - H_LATE 의 공지는 아직 AI 생성기가 없어 LATE_NOTICE_TEMPLATE 코드 템플릿(합니다체 4문장:
   상황·사과·조치=피크 조리 예상 시간 늘림·요청)을 그대로 쓴다. H_STORE_ONLY 의 fix_first 는
   아직 사장님 확인/운영 조치가 먼저라 글을 만들지 않는다.
@@ -25,12 +26,12 @@ run_step_generator() 로 글을 실제로 만들어 drafts 에 담는다(step_id
 import re
 
 from c6.measures import MEASURES
-from c6.notice import generate_prevention_notice
+from c6.notice import generate_prevention_notice, template_notice_text
 from c6.output import DraftOutput
 from c6.promo import generate_coupon_promo, generate_review_promo, review_promo_fallback_text
 from c6.registry import run_card
-from c6.reply import generate_reply_draft
-from marketing_survey import adspend, ideas as _ideas, playbooks
+from c6.reply import generate_reply_draft, template_reply_text
+from marketing_survey import adspend, complaints, ideas as _ideas, playbooks
 from marketing_survey.coupon_calc import calc as _coupon_calc
 from marketing_survey.decide import BUSY_TIMING
 
@@ -41,6 +42,7 @@ COUPON_DAYS = 14  # c6.promo.generate_coupon_promo 의 coupon_days 기본값과 
 # 안 넘기면 c6.notice 가 "조치를 지어내지 말고 일반적 다짐만" 모드로 돌아서, "더 신경 쓰겠습니다"처럼
 # 조치 없는 문장도 chosen_measure_included 를 그냥 통과한다(빈 chosen_measures는 True). 이 전략은
 # 항상 주문서 대조가 조치이므로 명시적으로 넘긴다.
+# 다른 불만 주제(식감·대기 등)는 그 주제에 맞는 조치만 넘긴다 — complaints.notice_measures (11/21 QA: 식감 안내문에 주문서 대조가 들어갔다).
 NOTICE_CHOSEN_MEASURES = [MEASURES[0]]
 
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
@@ -94,29 +96,64 @@ LATE_NOTICE_TEMPLATE = (
 )
 
 
-def _run_notice(ctx, key, model):
-    notice_card = _card_by_kind(ctx, "complaint")
+def _complaint_card(ctx, topic=None):
+    """고른 불만 주제의 리뷰 묶음 카드 (complaints.topic_card). topic 이 없으면 가게 불만 카드 그대로.
+    만들 수 없으면(그 주제 리뷰도 불만 카드도 없음) MissingCard — 직접 등록한 가게와 같은 안내 (11/21 QA)."""
+    card = complaints.topic_card(ctx, topic)
+    if card is None:
+        raise MissingCard("complaint")
+    return card
+
+
+def _replay_or_none(ctx, card, chosen_measures):
+    """저장본(c6/replay) 재생. 저장본에 없는 카드(바삭치킨·몽글카페, 고른 주제로 새로 만든 카드)면 None —
+    예전에는 여기서 RuntimeError 로 500 이 났다. 부르는 쪽이 코드 템플릿 글로 채운다 (11/21 QA)."""
+    try:
+        return run_card(ctx, card, None, chosen_measures=chosen_measures)
+    except RuntimeError:
+        return None
+
+
+def _template_draft(ctx, card, generator, text):
+    return DraftOutput(draft_id=f"d_demo_{card.card_id}", card_id=card.card_id, store_id=ctx.store.store_id,
+                       generator=generator, text=text, data_origin=ctx.store.data_origin)
+
+
+def _run_notice(ctx, key, model, topic=None):
+    """topic: 사장님이 고른 불만 주제 id (Strategy.topic). 그 주제의 리뷰 묶음으로 쓰고 조치도 그 주제에 맞는 것만 넘긴다."""
+    topic = complaints.resolve_topic(ctx, topic)
+    notice_card = _complaint_card(ctx, topic)
+    measures = complaints.notice_measures(topic)
     if key is None:
         # key 가 없으면 run_card 가 chosen_measures 를 쓰지 않고 저장본을 그대로 재생하지만,
-        # 생성 경로(else)와 똑같이 M1을 넘겨 둔다 — 저장본이 chosen_measures 를 쓰게 바뀌어도
+        # 생성 경로(else)와 똑같이 조치를 넘겨 둔다 — 저장본이 chosen_measures 를 쓰게 바뀌어도
         # 조용히 달라지지 않도록.
-        result = run_card(ctx, notice_card, None, chosen_measures=NOTICE_CHOSEN_MEASURES)
+        result = _replay_or_none(ctx, notice_card, measures)
+        if result is None:
+            return None, _template_draft(ctx, notice_card, "prevention_notice",
+                                         template_notice_text(ctx, notice_card, chosen_measures=measures))
     else:
         result = generate_prevention_notice(
-            ctx, notice_card, key, model=model, chosen_measures=NOTICE_CHOSEN_MEASURES,
+            ctx, notice_card, key, model=model, chosen_measures=measures,
         )
     draft = next((d for d in result.drafts if d.generator == "prevention_notice"), None)
     return result, draft
 
 
-def _run_reply(ctx, key, model):
-    notice_card = _card_by_kind(ctx, "complaint")
+def _run_reply(ctx, key, model, topic=None):
+    """topic 이 있으면 그 불만 주제 리뷰에 단 답글 (안내문과 같은 리뷰 묶음). 없으면 가게 불만 카드 그대로."""
+    notice_card = _complaint_card(ctx, topic)
+    measures = complaints.notice_measures(complaints.resolve_topic(ctx, topic))
     if key is None:
-        # reply_draft 는 chosen_measures 를 쓰지 않지만(c6.reply 참고), run_card 호출 모양은
+        # reply_draft 는 포장 누락이면 chosen_measures 를 쓰지 않지만(c6.reply 참고), run_card 호출 모양은
         # _run_notice 와 똑같이 맞춰 둔다.
-        result = run_card(ctx, notice_card, None, chosen_measures=NOTICE_CHOSEN_MEASURES)
+        result = _replay_or_none(ctx, notice_card, measures)
+        if result is None:
+            text = template_reply_text(ctx, notice_card, chosen_measures=measures)
+            return None, (_template_draft(ctx, notice_card, "reply_draft", text) if text else None)
     else:
-        result = generate_reply_draft(ctx, notice_card, key, model=model)
+        # 안내문과 같은 조치를 넘긴다 — 포장 누락 밖의 주제는 그 조치가 주제에 맞을 때만 답글에 붙는다 (c6.reply.reply_measure_plan)
+        result = generate_reply_draft(ctx, notice_card, key, model=model, chosen_measures=measures)
     draft = next((d for d in result.drafts if d.generator == "reply_draft"), None)
     return result, draft
 
@@ -191,11 +228,12 @@ def _basic_todo_drafts(ctx, answers, key, model):
 
 def run_step_generator(ctx, strategy, generator_name, key, model="HCX-005"):
     """playbooks.PlaybookStep.generator 이름 하나를 실제로 돌려 글 텍스트만 돌려준다."""
+    topic = getattr(strategy, "topic", "") or None    # 안내문·답글은 고른 불만 주제로 (11/21 QA)
     if generator_name == "prevention_notice":
-        _, draft = _run_notice(ctx, key, model)
+        _, draft = _run_notice(ctx, key, model, topic)
         return draft.text if draft else None
     if generator_name == "reply_draft":
-        _, draft = _run_reply(ctx, key, model)
+        _, draft = _run_reply(ctx, key, model, topic)
         return draft.text if draft else None
     if generator_name == "coupon_promo":
         _, draft = _run_coupon(ctx, strategy, key, model)
@@ -300,7 +338,7 @@ def _run_coupon(ctx, strategy, key, model):
 def execute_strategy(ctx, strategy, key, model="HCX-005"):
     """전략 1개 실행. (CardResult|None, DraftOutput|None, 사장님 할 일 문구|None) 를 돌려준다."""
     if strategy.type == "fix_first" and strategy.source_hypothesis == "H_REPEAT":
-        result, draft = _run_notice(ctx, key, model)
+        result, draft = _run_notice(ctx, key, model, strategy.topic or None)
         return result, draft, None
     if strategy.type in _COUPON_GENERATOR_TYPES:
         result, draft = _run_coupon(ctx, strategy, key, model)

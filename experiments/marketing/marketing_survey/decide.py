@@ -3,6 +3,7 @@
 우선순위 (위에서부터 먼저 맞는 것 하나만 적용 — H_AREA_DROP 은 이 순서에 안 들어간다, 아래 설명)
   1. H_LATE 확인 == '예'                    -> fix_first(배달 지연 안내 공지), 쿠폰 0
   2. H_REPEAT 확인 == '예'                  -> fix_first(재발 방지 공지), 쿠폰 0
+     (제목·이유·Strategy.topic 은 사장님이 고른 불만 주제로 — marketing_survey.complaints, 11/21 QA)
      (follow_up="reorder_coupon" 은 이 경우에만 붙는다 — 예산>0 이고 할인 가능할 때만)
   3. H_STORE_ONLY 확인 == '예'              -> fix_first(원인 점검 공지), 쿠폰 0
   4. discount_allowed == False 또는 예산(budget_won) == 0  -> review_promo(0원)
@@ -23,6 +24,8 @@ H_AREA_DROP (상권 저녁 매출 하락)은 "어느 전략을 고를지"가 아
   - 기대 효과(예상 매출 증가 등) 숫자는 여기서도, explain.py 에서도 절대 만들지 않는다.
 """
 
+from c6.measures import MISSING_TOPIC
+from marketing_survey import complaints
 from marketing_survey.coupon_calc import calc as _coupon_calc
 from marketing_survey.hypotheses import _area_drop_snapshot, build_hypotheses
 from marketing_survey.models import MarketingPlan, Strategy
@@ -42,13 +45,24 @@ def _active_channels(store, answers) -> list[str]:
     return list(store.channels)
 
 
-def _fix_first_strategy(title: str, reason: str, source_hypothesis: str, follow_up: str = "") -> Strategy:
+def _fix_first_strategy(title: str, reason: str, source_hypothesis: str, follow_up: str = "", topic: str = "") -> Strategy:
     return Strategy(
         type="fix_first", title=title, reason=reason,
         budget_won=0, count=0, discount_won=0, timing="즉시", generator="prevention_notice",
         assumptions=["쿠폰 예산은 운영 문제부터 해결한다고 보고 0원으로 둠"],
-        source_hypothesis=source_hypothesis, follow_up=follow_up,
+        source_hypothesis=source_hypothesis, follow_up=follow_up, topic=topic,
     )
+
+
+def _repeat_notice_title_reason(ctx, topic: str | None) -> tuple[str, str]:
+    """H_REPEAT 안내문의 제목·이유를 고른 불만 주제로 (11/21 QA: 바삭치킨 '식감'에도 '포장·주문 안내문'이 붙었다).
+    포장 누락은 예전 제목 그대로(비서 화면 domain.noticeName 과 같은 규칙), 다른 주제는 '식감 불만 안내문'처럼."""
+    label = complaints.topic_label(topic)
+    title = "배달앱 포장·주문 안내문" if topic in (None, MISSING_TOPIC) else f"{label} 불만 안내문"
+    n = complaints.topic_count(ctx, topic)
+    reason = (f"{label} 불만이 리뷰에서 {n}건 반복돼 쿠폰보다 안내문이 먼저예요" if topic and n
+              else "반복된 불만을 먼저 안내문으로 짚어야 신뢰가 회복돼요")
+    return title, reason
 
 
 def _review_promo_strategy(answers, channels: list[str]) -> Strategy:
@@ -63,10 +77,11 @@ def _review_promo_strategy(answers, channels: list[str]) -> Strategy:
     )
 
 
-def _no_action_strategy() -> Strategy:
+def _no_action_strategy(why: str | None = None) -> Strategy:
+    # why: 쿠폰을 못 만든 이유(needs_input) — 메뉴 가격이 없는 가게 등은 이유가 '왜 이 방식' 줄에 보이게 (11/21 QA)
     return Strategy(
         type="no_action", title="지금은 유지",
-        reason="조건에 맞는 뚜렷한 전략이 없어 할인 대신 유지해요",
+        reason=f"{why} — 할인 대신 지금은 유지해요" if why else "조건에 맞는 뚜렷한 전략이 없어 할인 대신 유지해요",
         budget_won=0, count=0, discount_won=0, timing="-", generator="", assumptions=[],
     )
 
@@ -137,7 +152,29 @@ def build_follow_up_strategy(ctx, answers) -> tuple[Strategy | None, str | None]
     return strategy, note
 
 
-def decide(ctx, answers, confirms: dict[str, str] | None = None) -> MarketingPlan:
+# 재주문 쿠폰은 안내문 승인 뒤 '이어서 해 볼 수 있는 선택'이다. 만들지 않고 끝낼 때도 오류가 아니라 이 안내로 끝낸다 (11/21 QA:
+# 예산 0원·할인 아니요를 고르면 '할인 메뉴 가격 정보가 없어…' 오류와 '다시 시도'만 나왔고 다시 눌러도 같았다)
+FOLLOW_UP_KEPT = "승인한 안내문은 '처리 완료'에 남아 있어요."
+
+
+def follow_up_end_message(ctx, answers, stop: bool = False) -> str | None:
+    """재주문 쿠폰을 만들지 않고 끝낼 때 사장님께 보일 한 줄. 쿠폰을 만들 수 있으면 None.
+    stop: '여기까지 할게요'를 고름. 그 밖에는 예산 0원·할인 아니요·쿠폰을 못 만드는 이유(메뉴 가격 없음 등) 순서로 본다."""
+    if stop:
+        return f"알겠어요, 재주문 쿠폰은 만들지 않을게요. {FOLLOW_UP_KEPT}"
+    if answers.budget_won <= 0:
+        return f"쿠폰은 지금 만들지 않을게요. {FOLLOW_UP_KEPT}"
+    if not answers.discount_allowed:
+        return f"할인이 어렵다고 하셔서 쿠폰은 만들지 않을게요. {FOLLOW_UP_KEPT}"
+    strategy, note = build_follow_up_strategy(ctx, answers)
+    if strategy is None:
+        return f"{note or '쿠폰 조건을 정할 수 없어요'}. 그래서 재주문 쿠폰은 만들지 않을게요. {FOLLOW_UP_KEPT}"
+    return None
+
+
+def decide(ctx, answers, confirms: dict[str, str] | None = None, complaint_topic: str | None = None) -> MarketingPlan:
+    """complaint_topic: '어떤 불만인가요?'에서 고른 주제 id (flow.complaint_type 의 raw["complaint_topic"]).
+    없으면(예전 상태) 가게 불만 카드의 주제로 본다."""
     store = ctx.store
     hypotheses = build_hypotheses(ctx, answers)
     confirms = dict(confirms or {})
@@ -151,12 +188,15 @@ def decide(ctx, answers, confirms: dict[str, str] | None = None) -> MarketingPla
     if confirmed("H_LATE"):
         strategies.append(_fix_first_strategy(
             "배달 지연 안내 공지", "배달 지연 불만이 반복돼 쿠폰보다 운영 안내가 먼저예요", "H_LATE",
+            topic=complaints.LATE_TOPIC,
         ))
     elif confirmed("H_REPEAT"):
         allow_follow_up = answers.budget_won > 0 and answers.discount_allowed
+        topic = complaints.resolve_topic(ctx, complaint_topic)
+        title, reason = _repeat_notice_title_reason(ctx, topic)
         strategies.append(_fix_first_strategy(
-            "배달앱 포장·주문 안내문", "반복된 불만을 먼저 안내문으로 짚어야 신뢰가 회복돼요", "H_REPEAT",
-            follow_up="reorder_coupon" if allow_follow_up else "",
+            title, reason, "H_REPEAT",
+            follow_up="reorder_coupon" if allow_follow_up else "", topic=topic or "",
         ))
     elif confirmed("H_STORE_ONLY"):
         strategies.append(_fix_first_strategy(
@@ -174,7 +214,7 @@ def decide(ctx, answers, confirms: dict[str, str] | None = None) -> MarketingPla
             needs_input.append(note)
 
     if not strategies:
-        strategies.append(_no_action_strategy())
+        strategies.append(_no_action_strategy(needs_input[0] if needs_input else None))
 
     used_budget = sum(s.budget_won for s in strategies)
 

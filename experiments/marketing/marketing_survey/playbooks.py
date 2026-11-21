@@ -1,7 +1,7 @@
 """결정(decide() 가 고른 전략 1개)을 "실행 계획"(할 일 목록)으로 바꾼다.
 
 사실(언제·무엇을·어디서·몇 분)은 전부 여기 코드가 정한다 — 글(초안)만 나중에 C6(AI)이 쓴다.
-AI 호출 없음, 표준 라이브러리만.
+AI 호출 없음, 표준 라이브러리 + c6.measures 의 주제별 조치 표만.
 
 build_playbook(ctx, strategy, answers, today=None) -> dict
   {title, total_minutes, steps: [...], measure}
@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+
+from c6.measures import MEASURES, MISSING_TOPIC, TOPIC_LABELS, TOPIC_MEASURES
 
 _WEEKDAY_KO = ("월", "화", "수", "목", "금", "토", "일")
 _SCREEN_NOTE = " (앱 화면은 바뀔 수 있어요)"
@@ -107,30 +109,65 @@ class PlaybookStep:
         }
 
 
+# 2주 뒤 다시 세기·쿠폰 사용 수 확인은 '이번 주 할 일'에 넣지 않는다 — 언제 무엇을 비교할지는 결과 카드의 '측정' 줄(_measure_for)이
+# 이미 알려 준다 (11/21 QA: 이번 주 할 일 목록에 12/5 재측정이 할 일로 들어가 있었다).
+
+
+def _topic_measure(topic: str | None) -> dict | None:
+    """그 불만 주제에 맞는 첫째 조치 (c6.measures.TOPIC_MEASURES — 안내문에 넣는 조치와 같다, complaints.notice_measures)."""
+    ids = TOPIC_MEASURES.get(topic or "", [])
+    return next((m for m in MEASURES if ids and m["id"] == ids[0]), None)
+
+
+def _repeat_measure_step(today: date, topic: str | None) -> PlaybookStep | None:
+    """안내문 '오늘부터' 줄에 넣은 조치를 실제로 하는 할 일. 포장 누락은 예전 그대로 포장대 메모, 맞는 조치가 있는 주제(음식 온도 등)는
+    그 조치, 맞는 조치가 없는 주제(식감·맛·대기 등)는 없음 — 안내문에도 조치를 지어 넣지 않으므로 (11/21 QA)."""
+    if topic in (None, "", MISSING_TOPIC):
+        return PlaybookStep(
+            "pack_memo", _date_label(today, 0), '포장대에 "주문서 대조" 메모 붙이기',
+            "가게 포장대(아래 문구를 출력해서 붙여요)", 2,
+            tip='"포장 전, 주문서와 음식을 한 번 더 맞춰보세요" 한 줄이면 충분해요',
+        )
+    measure = _topic_measure(topic)
+    if measure is None:
+        return None
+    return PlaybookStep(
+        "measure_do", _date_label(today, 0), f"{measure['text']}하기", "가게 안 (안내문에 쓴 조치)", 5,
+        tip="안내문 '오늘부터' 줄에 쓴 조치예요. 안내문만 올리고 조치를 안 하면 신뢰가 더 떨어져요",
+    )
+
+
+def _repeat_notice_tip(topic: str | None) -> str:
+    """안내문 할 일의 체크 문구 — 고른 불만 주제에 맞게 (11/21 QA: 식감 안내문에도 '포장·주문 확인'을 보라고 했다)."""
+    if topic in (None, "", MISSING_TOPIC):
+        return "앞으로 바꾸는 점(포장·주문 확인)이 들어갔는지 확인해요"
+    label = TOPIC_LABELS.get(topic, "고른 불만")
+    measure = _topic_measure(topic)
+    if measure is not None:
+        return f"{label} 이야기와 앞으로 바꾸는 점({measure['text']})이 들어갔는지 확인해요"
+    return f"{label} 이야기로 쓰였는지, 가게가 정하지 않은 약속이 없는지 확인해요"
+
+
 def _fix_first_steps(today: date, strategy) -> list[PlaybookStep]:
     hyp = strategy.source_hypothesis
     if hyp == "H_REPEAT":
-        return [
+        topic = getattr(strategy, "topic", "") or None
+        steps = [
             PlaybookStep(
                 "notice", _date_label(today, 0), "가게 공지 올리기", _channel_where("naver_place"), 5,
-                generator="prevention_notice", tip="앞으로 바꾸는 점(포장·주문 확인)이 들어갔는지 확인해요", channel="naver_place",
+                generator="prevention_notice", tip=_repeat_notice_tip(topic), channel="naver_place",
             ),
             PlaybookStep(
                 "reply", _date_label(today, 0), "불만 리뷰 답글 달기",
                 "리뷰가 들어온 채널(배민·쿠팡이츠·요기요 등) > 리뷰 답글" + _SCREEN_NOTE, 10,
-                generator="reply_draft", tip="사과와 다음 조치가 들어갔는지 확인해요",
-            ),
-            PlaybookStep(
-                "pack_memo", _date_label(today, 0), '포장대에 "주문서 대조" 메모 붙이기',
-                "가게 포장대(아래 문구를 출력해서 붙여요)", 2,
-                tip='"포장 전, 주문서와 음식을 한 번 더 맞춰보세요" 한 줄이면 충분해요',
-            ),
-            PlaybookStep(
-                "recheck", _date_label(today, 14), "같은 불만 리뷰 수 다시 세기",
-                "리뷰가 들어온 채널 전체", 5,
-                tip="오늘 이전 14일과 비교해 줄었는지 확인해요",
+                generator="reply_draft",
+                # 맞는 조치가 없는 주제의 답글엔 조치 대신 '매장에서 확인할게요'만 들어간다 (c6.reply.reply_measure_plan, 11/21 QA)
+                tip=("사과와 다음 조치가 들어갔는지 확인해요" if topic in (None, MISSING_TOPIC) or _topic_measure(topic)
+                     else "사과가 들어갔는지, 가게가 정하지 않은 약속이 없는지 확인해요"),
             ),
         ]
+        extra = _repeat_measure_step(today, topic)
+        return steps + ([extra] if extra else [])
     if hyp == "H_LATE":
         return [
             PlaybookStep(
@@ -142,11 +179,6 @@ def _fix_first_steps(today: date, strategy) -> list[PlaybookStep]:
                 "peak_time", _date_label(today, 0), "피크 시간 조리 예상 시간 늘리기",
                 "쓰는 배달앱의 조리 예상 시간 설정" + _SCREEN_NOTE, 3,
                 tip="실제 조리에 걸리는 시간보다 여유 있게 잡아요",
-            ),
-            PlaybookStep(
-                "recheck", _date_label(today, 14), "지연 관련 리뷰 수 다시 세기",
-                "리뷰가 들어온 채널 전체", 5,
-                tip="오늘 이전 14일과 비교해 줄었는지 확인해요",
             ),
         ]
     # H_STORE_ONLY
@@ -193,13 +225,8 @@ def _coupon_steps(today: date, answers, strategy) -> list[PlaybookStep]:
         PlaybookStep(
             "coupon_create", _date_label(today, 0), "쿠폰 만들기",
             f"{apps_label} 사장님 사이트 > 쿠폰" + _SCREEN_NOTE, 10,
-            tip="쿠폰 카드의 메뉴·할인액·기간과 똑같이 입력해요",
+            tip="쿠폰 카드의 메뉴·할인액·기간과 똑같이 입력해요. 14일 뒤 같은 곳의 쿠폰 사용 내역에서 사용 수를 세요",
             cost_krw=strategy.budget_won,  # 추정 — 쿠폰 전체 예상 비용(장수 x 할인액)
-        ),
-        PlaybookStep(
-            "measure", _date_label(today, 14), "쿠폰 사용 수 확인하기",
-            f"{apps_label} 사장님 사이트 > 쿠폰 사용 내역", 5,
-            tip="오늘부터 14일 동안 사용된 쿠폰 수를 세어요",
         ),
     ]
 

@@ -10,10 +10,11 @@ option 1개 = {label, set(라Raw 설문 답 dict 에 합칠 값), confirm(가설
 
 전체 흐름
   repeat_complaint(반복 불만?)
-    예 -> complaint_type(불만 종류)
-      포장 누락 -> H_REPEAT 확정 -> DECISION (예산 등은 안 물음 — decide() 가 쿠폰보다 공지 먼저)
-      배달 지연 -> H_LATE 확정 -> DECISION
+    예 -> complaint_type(불만 종류 — 보기는 그 가게 리뷰의 반복 불만 주제, marketing_survey.complaints, 11/21 QA)
+      주제(예: 식감·포장 누락) -> raw.complaint_topic + H_REPEAT 확정 -> DECISION (안내문 주제·조치가 이 주제)
+      배달 지연(delivery_time) -> H_LATE 확정 -> DECISION
       그 외     -> H_STORE_ONLY 후보 확정 -> goal (상권 질문에서 취소될 수 있음)
+      (반복 불만이 없는 가게는 예전 보기 '포장 누락 / 배달 지연 / 그 외'와 그 이유 한 줄)
     아니요/모름 -> goal
   goal(목표) -> area_question(상권 질문: snapshot 값·basis_label 을 문장에 넣음)
     예   -> H_AREA_DROP 확정, H_STORE_ONLY 취소 -> budget
@@ -26,19 +27,22 @@ option 1개 = {label, set(라Raw 설문 답 dict 에 합칠 값), confirm(가설
   capacity(주문 감당) -> channels
   channels(쓰는 채널, 여러 개 + [다음]) -> DECISION
 
-follow_up(재주문 쿠폰 질문)은 FOLLOW_UP_START("budget")에서 같은 체인을 재사용한다 — goal 질문은
+follow_up(재주문 쿠폰 질문)은 FOLLOW_UP_START("follow_up_budget")에서 시작해 budget 뒤 체인을 재사용한다 — goal 질문은
 다시 묻지 않는다(build_follow_up_strategy 가 goal 과 상관없이 reorder_coupon 으로 만들기 때문).
+follow_up_budget 은 budget 과 보기가 같고 '여기까지 할게요'만 더 있다 — 승인 뒤 쿠폰은 선택이라 언제든 끝낼 수 있게 (11/21 QA).
 """
 
 import re
 
 from marketing_survey import adspend as _adspend
+from marketing_survey import complaints as _complaints
 from marketing_survey.hypotheses import _area_drop_snapshot, window_label
 from marketing_survey.playbooks import default_menu as _default_menu
 from marketing_survey.playbooks import match_menu as _match_menu
 
 DECISION = "DECISION"
-FOLLOW_UP_START = "budget"
+FOLLOW_UP_START = "follow_up_budget"
+FOLLOW_UP_STOP = "여기까지 할게요"
 START = "start"
 
 # "start" 보기의 mode 값 -> server.py 가 FlowState.mode 로 그대로 쓴다(흐름 데이터와 분리해 둠).
@@ -61,6 +65,18 @@ CHANNEL_LABELS = {
 
 def _round_to_step(amount: float, step: int = _MENU_AMOUNT_STEP) -> int:
     return int(round(amount / step)) * step
+
+
+def _budget_options() -> list[dict]:
+    """월 예산 보기 (0/5만/10만/30만). 0원이면 끝, 아니면 할인 가능 질문. budget·follow_up_budget 이 같이 쓴다."""
+    return [
+        {
+            "label": f"{won:,}원" if won else "0원(지금은 안 씀)",
+            "set": {"budget_won": won},
+            "next": DECISION if won == 0 else "discount_allowed",
+        }
+        for won in (0, 50_000, 100_000, 300_000)
+    ]
 
 
 NODES = {
@@ -202,12 +218,9 @@ NODES = {
         ],
     },
     "complaint_type": {
-        "text": "어떤 불만인가요?",
-        "options": [
-            {"label": "포장 누락", "confirm": {"H_REPEAT": "예"}, "next": DECISION},
-            {"label": "배달 지연", "confirm": {"H_LATE": "예"}, "next": DECISION},
-            {"label": "그 외", "confirm": {"H_STORE_ONLY": "예"}, "next": "goal"},
-        ],
+        # 보기는 가게마다 다르다 (_complaint_options): 리뷰의 반복 불만 주제 + '그 외' (11/21 QA)
+        "dynamic_text": True,
+        "dynamic_options": True,
     },
     "goal": {
         "text": "지금 가장 원하시는 건 뭔가요?",
@@ -226,14 +239,12 @@ NODES = {
     },
     "budget": {
         "text": "월 마케팅 예산은 얼마로 생각하시나요?",
-        "options": [
-            {
-                "label": f"{won:,}원" if won else "0원(지금은 안 씀)",
-                "set": {"budget_won": won},
-                "next": DECISION if won == 0 else "discount_allowed",
-            }
-            for won in (0, 50_000, 100_000, 300_000)
-        ],
+        "options": _budget_options(),
+    },
+    # 안내문 승인 뒤의 재주문 쿠폰 (선택). budget 과 같은 보기 + '여기까지 할게요' (11/21 QA: 끝낼 보기가 없었다)
+    "follow_up_budget": {
+        "text": "재주문 쿠폰도 만들어 볼까요? 쿠폰에 쓸 월 예산을 골라 주세요. 지금은 안 하려면 ‘여기까지 할게요’를 눌러 주세요.",
+        "options": _budget_options() + [{"label": FOLLOW_UP_STOP, "set": {"follow_up_stop": True}, "next": DECISION}],
     },
     "discount_allowed": {
         "text": "지금 할인(쿠폰)을 해도 괜찮으신가요?",
@@ -295,6 +306,31 @@ def _area_question_text(ctx) -> str:
         f"이 상권 {window} 시간대 매출이 {snap.value:g}% 줄었어요(추정, {snap.basis_label}). "
         f"가게 {window} 주문도 줄었나요?"
     )
+
+
+_COMPLAINT_OTHER = {"label": "그 외", "confirm": {"H_STORE_ONLY": "예"}, "next": "goal"}
+
+
+def _complaint_option(label: str, topic: str) -> dict:
+    """불만 주제 보기 하나. 배달 시간은 H_LATE(배달 지연 안내 공지), 그 밖은 H_REPEAT(그 주제 안내문)."""
+    confirm = {"H_LATE": "예"} if topic == _complaints.LATE_TOPIC else {"H_REPEAT": "예"}
+    return {"label": label, "set": {"complaint_topic": topic}, "confirm": confirm, "next": DECISION}
+
+
+def _complaint_options(ctx) -> list[dict]:
+    """'어떤 불만인가요?' 보기 — 그 가게 리뷰의 반복 불만 주제(많은 순) + '그 외'. 반복 불만이 없으면 예전 보기 (11/21 QA)."""
+    topics = _complaints.repeated_topics(ctx)
+    pairs = [(t.label, t.topic) for t in topics] if topics else list(_complaints.LEGACY_TOPICS)
+    return [_complaint_option(label, topic) for label, topic in pairs] + [dict(_COMPLAINT_OTHER)]
+
+
+def _complaint_text(ctx) -> str:
+    """보기가 어디서 왔는지 같이 말한다 — 리뷰 건수, 또는 반복 불만 자료가 없어 기본 보기인 이유."""
+    topics = _complaints.repeated_topics(ctx)
+    if not topics:
+        return "어떤 불만인가요?\n아직 맞춤 마케팅에 반복 불만 자료가 없어 기본 보기로 여쭤봐요."
+    counts = " · ".join(f"{t.label} {len(t.review_ids)}건" for t in topics)
+    return f"어떤 불만인가요? 리뷰에서 반복된 불만이에요 ({counts})."
 
 
 def _menu_options(ctx) -> list[dict]:
@@ -414,6 +450,8 @@ def node_text(node_id: str, ctx, state: dict) -> str:
             return _adspend_entry_text(state, "이번 달 광고비는 얼마였나요? (원)")
         if node_id == "adspend_orders_entry":
             return _adspend_entry_text(state, "그 광고로 온 주문 수는 몇 건인가요?")
+        if node_id == "complaint_type":
+            return _complaint_text(ctx)
         return _area_question_text(ctx)
     return node["text"]
 
@@ -434,6 +472,8 @@ def node_options(node_id: str, ctx, state: dict) -> list[dict]:
         return []
     if not node.get("dynamic_options"):
         return node["options"]
+    if node_id == "complaint_type":
+        return _complaint_options(ctx)
     if node_id == "menu":
         return _menu_options(ctx)
     if node_id == "max_discount":
@@ -573,6 +613,10 @@ def advance(node_id: str, ctx, state: dict, label: str) -> str:
         option = resolve_option(node_id, ctx, state, label)
         apply_option(state, option)
         next_id = option["next"]
+    if next_id == "menu" and not _menu_options(ctx):
+        # 메뉴 가격이 없는 가게: 고를 메뉴가 없어 질문이 보기 없이 멈췄다 → 끝으로 보내고, 쿠폰을 못 만드는 이유는
+        # 결정 쪽(decide.build_coupon_strategy 의 '할인 메뉴 가격 정보가 없어…')이 말한다 (11/21 QA)
+        next_id = DECISION
     if next_id != DECISION and next_id not in NODES:
         raise FlowError(f"'{node_id}' 의 다음 노드 '{next_id}' 가 그래프에 없어요.")
     return next_id
