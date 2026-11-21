@@ -9,7 +9,7 @@
 import { useSyncExternalStore } from "react";
 import { getState } from "../../state/store.js";
 import { careApi } from "./careApi.js";
-import { clocksOf } from "./format.js";
+import { clocksOf, remadeDiff } from "./format.js";
 
 const LOADING = "불러오는 중…";
 export const KINDS = ["weekly", "monthly"];
@@ -89,11 +89,13 @@ export async function openReport(kind, key, remake = false) {
   if (!KINDS.includes(kind)) return;
   const seq = r[kind].seq + 1, ep = r.epoch;
   const live = () => seq === r[kind].seq && ep === r.epoch;
+  const before = r[kind].data;   // 다시 만들기 전 보고서 (무엇이 바뀌었는지 견줌)
   set((s) => ({ busy: remake ? "remake" : "open", [kind]: { ...s[kind], seq, msg: remake ? "다시 만드는 중…" : LOADING, bad: false } }));
   try {
     const data = await careApi(reportPath(kind, key, remake), remake ? { method: "POST" } : {});
     if (!live()) return;
-    set((s) => ({ busy: null, [kind]: { ...s[kind], data, msg: "", bad: false } }));
+    // remade: 다시 만든 뒤 안내 띠에 '새 리뷰 n건 · 승인 n건 반영'을 붙이려고 (다른 기간을 열면 지움, 11/21 QA)
+    set((s) => ({ busy: null, [kind]: { ...s[kind], data, remade: remake ? remadeDiff(before, data) : null, msg: "", bad: false } }));
     if (data.made_now && data.saved) loadSaved();      // 새로 저장했으면 목록도 새로
   } catch (e) {
     if (!live()) return;

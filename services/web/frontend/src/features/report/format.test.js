@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  approvalLine, clockView, clocksOf, dateKo, fixItems, fixTitle, marketingNumbers, peakText, periodText, printMeta, rpClock, savedNote, signed, stamp, tilesOf, topicRows,
+  approvalLine, clockView, clocksOf, dateKo, fixItems, fixTitle, marketingNumbers, peakText, periodText, printMeta, remadeDiff, remadeText, rpClock, savedNote, signed, stamp, tilesOf, topicRows,
   trendGeometry,
 } from "./format.js";
 
@@ -133,5 +133,36 @@ describe("고칠 것: 보는 기간에 맞는 말 (11/21 실시간 확인 13·14
     expect(fixItems(view({ kind: "monthly", period: past, report: { review_count: 4, suggestions: [{ text: "이번 달은 크게 고칠 응대가 보이지 않아요. 지금 방식을 이어 가세요" }] } }))[0].text)
       .toBe("이 달은 크게 고칠 응대가 보이지 않아요. 지금 방식을 이어 가세요");
     expect(fixItems(view({ report: { review_count: 3 } }))).toEqual([]);
+  });
+});
+
+describe("11/21 QA B-10: 다시 만든 뒤 무엇이 반영됐는지", () => {
+  const live = { key: "2026-11-16", label: "11월 3주", range: "11/16 ~ 11/22", in_progress: true };
+  it("전후 보고서를 견준다 (같은 기간일 때만)", () => {
+    const before = view({ period: live });
+    const after = view({ period: live, made_now: true, report: { review_count: 17 }, approvals: { total: 9 } });
+    expect(remadeDiff(before, after)).toEqual({ reviews: 3, approvals: 2 });
+    expect(remadeDiff(null, after)).toEqual({ reviews: null, approvals: null });
+    expect(remadeDiff(view(), after)).toEqual({ reviews: null, approvals: null });   // 다른 기간
+    expect(remadeDiff(before, view({ period: live, approvals: null }))).toEqual({ reviews: 0, approvals: null });
+  });
+  it("괄호 안 글: 바뀐 것만, 같으면 그대로라고, 견줄 수 없으면 빈 글", () => {
+    expect(remadeText({ reviews: 3, approvals: 2 })).toBe("새 리뷰 3건 · 승인 2건 반영");
+    expect(remadeText({ reviews: 0, approvals: 1 })).toBe("승인 1건 반영");
+    expect(remadeText({ reviews: -1, approvals: 0 })).toBe("리뷰 1건 빠짐");
+    expect(remadeText({ reviews: -1, approvals: 2 })).toBe("승인 2건 반영 · 리뷰 1건 빠짐");
+    expect(remadeText({ reviews: 0, approvals: 0 })).toBe("리뷰·승인 수는 그대로");
+    expect(remadeText({ reviews: null, approvals: null })).toBe("");
+    expect(remadeText(null)).toBe("");
+  });
+  it("안내 띠: 다시 만들었으면 '다시 만들어 저장했어요 (…)', 견줄 수 없으면 기준 시각만, 게스트도 알림", () => {
+    const made = view({ period: live, made_now: true, created_at: "2026-11-21T15:30:00+09:00" });
+    expect(savedNote(made, { reviews: 3, approvals: 0 }).text)
+      .toBe("11-21 15:30에 다시 만들어 저장했어요 (새 리뷰 3건 반영). 이번 주는 아직 진행 중이라, 새 리뷰가 들어오면 다시 만들어 주세요.");
+    expect(savedNote(made, { reviews: null, approvals: null }).text)
+      .toBe("11-21 15:30에 다시 만들어 저장했어요. 이번 주는 아직 진행 중이라, 새 리뷰가 들어오면 다시 만들어 주세요.");
+    expect(savedNote(made).text).toBe("11-21 15:30에 만들어 저장했어요. 이번 주는 아직 진행 중이라, 새 리뷰가 들어오면 다시 만들어 주세요.");
+    expect(savedNote({ ...made, storage: "guest" }, { reviews: 0, approvals: 0 }).text).toBe("다시 계산했어요 (리뷰·승인 수는 그대로). 로그인하면 만든 보고서가 이 계정에 저장돼요.");
+    expect(savedNote({ ...made, storage: "guest" }).text).toBe("로그인하면 만든 보고서가 이 계정에 저장돼요.");
   });
 });

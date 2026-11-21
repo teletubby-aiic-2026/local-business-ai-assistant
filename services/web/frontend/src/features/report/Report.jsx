@@ -16,8 +16,8 @@ import {
   KINDS, getReport, loadApprovals, loadReport, loadScore, openReport, openSaved, remakeReport, reportReady, resetIfStoreChanged, setTab, useReport,
 } from "./state.js";
 import {
-  KIND_KO, NONE, PERIOD_WORDS, RP_ISSUE_STATE, RP_NOTE, SOURCE_KO, clip, clockView, dateKo, deltaTone, fixItems, fixTitle, isPast, marketingNumbers,
-  peakText, periodText, printMeta, savedNote, signed, sourceLine, stamp, tilesOf, topicRows, trendGeometry,
+  KIND_KO, NONE, PERIOD_WORDS, PRAISE_TOPIC_NOTE, RP_ISSUE_STATE, RP_NOTE, SOURCE_KO, TOPIC_BASIS, clip, clockView, dateKo, deltaTone, fixItems, fixTitle, isPast,
+  marketingNumbers, peakText, periodText, printMeta, savedNote, signed, sourceLine, stamp, tilesOf, topicRows, trendGeometry,
 } from "./format.js";
 import "./report.css";
 
@@ -143,13 +143,14 @@ function FixPanel({ view }) {
 }
 
 // ── 주제별 흐름: 불만(빨강)·칭찬(초록) 주제별 리뷰 수와 지난 기간 ──
+// 주제는 리뷰 속 문장 기준이라 불만 리뷰 안의 칭찬도 칭찬 주제로 센다. '손님 칭찬 요약'(리뷰 단위)과 어긋나 보이지 않게 기준을 밝힌다 (11/21 QA)
 function TopicPanel({ view }) {
   const w = PERIOD_WORDS[view.kind];
   const { complaints, praises, most } = topicRows(view.report?.topics, 3);
   const none = !Number(view.report?.review_count);
-  const group = (title, list, kind) => list.length > 0 && (
+  const group = (title, list, kind, note) => list.length > 0 && (
     <div className="stack-8">
-      <h3 className="rp-h3">{title}</h3>
+      <h3 className="rp-h3">{title}{note && <span className="small muted"> · {note}</span>}</h3>
       <ul className="plain stack-16">
         {list.map((t) => (
           <li key={t.topic}><TopicBar kind={kind} name={t.topic_name} value={`${t.count}건 · ${w.prev} ${t.previous ?? 0}건`} ratio={(Number(t.count) || 0) / most} /></li>
@@ -158,9 +159,9 @@ function TopicPanel({ view }) {
     </div>
   );
   return (
-    <Panel title="주제별 흐름" titleId="rp-topics-title" id="rp-topics-sec" className="rp-sec rp-topics">
+    <Panel title="주제별 흐름" titleId="rp-topics-title" sub={complaints.length || praises.length ? TOPIC_BASIS : undefined} id="rp-topics-sec" className="rp-sec rp-topics">
       <div className="stack-16" id="rp-topics">
-        {complaints.length || praises.length ? <>{group("불만", complaints, "complaint")}{group("칭찬", praises, "praise")}</>
+        {complaints.length || praises.length ? <>{group("불만", complaints, "complaint")}{group("칭찬", praises, "praise", PRAISE_TOPIC_NOTE)}</>
           : <p className="small muted">{none ? (isPast(view) ? "이 기간에는 리뷰가 없었어요." : "아직 리뷰가 없어요.") : "이 기간 리뷰에서 나눈 주제가 아직 없어요."}</p>}
       </div>
     </Panel>
@@ -306,7 +307,7 @@ function RecordPanel({ view, printing }) {
 // ── 탭 하나의 보고서 (저장 안내 띠부터 응대 기록까지) ──
 function ReportBody({ sheet, busy, printing }) {
   const view = sheet.data;
-  const note = savedNote(view);
+  const note = savedNote(view, sheet.remade);   // 다시 만든 뒤면 무엇이 반영됐는지 한 마디 (11/21 QA)
   // 보던 보고서가 있으면 다른 기간을 여는 동안 그대로 두고(흐리게) 안내 띠에 진행 글을 보인다 (칸이 위아래로 튀지 않게)
   const loading = !!view && !!busy && !sheet.bad;
   return (

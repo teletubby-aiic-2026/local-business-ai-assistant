@@ -182,7 +182,8 @@ describe("종합 리포트", () => {
     const { container } = render(<Report />);
     await waitFor(() => expect(container.querySelector("#rp-saved-list")).toBeTruthy());
     fireEvent.click(container.querySelector("#rp-remake"));
-    await waitFor(() => expect(container.querySelector("#rp-saved").textContent).toBe("11-20 15:30에 만들어 저장했어요. 이번 주는 아직 진행 중이라, 새 리뷰가 들어오면 다시 만들어 주세요."));
+    // 11/21 QA B-10: 다시 만든 뒤 무엇이 반영됐는지 (리뷰 14 → 17건, 승인 7 → 7개)
+    await waitFor(() => expect(container.querySelector("#rp-saved").textContent).toBe("11-20 15:30에 다시 만들어 저장했어요 (새 리뷰 3건 반영). 이번 주는 아직 진행 중이라, 새 리뷰가 들어오면 다시 만들어 주세요."));
     expect(calls.some((c) => c.path === "/api/reports/weekly/regenerate?period=2026-11-16" && c.method === "POST")).toBe(true);
     expect(tiles(container)[0]).toBe("리뷰17건지난주보다 +6");
 
@@ -293,5 +294,22 @@ describe("종합 리포트 (11/21 실시간 확인에서 고친 것)", () => {
     expect(container.querySelector("#rp-topics").textContent).toBe("이 기간에는 리뷰가 없었어요.");
     expect(tiles(container)[0]).toBe("리뷰0건들어온 리뷰가 없었어요");
     expect(getState().booted).toBe(true);
+  });
+});
+
+describe("종합 리포트 (11/21 실사용 QA)", () => {
+  it("B-4 주제별 흐름은 리뷰 속 문장 기준이라고 밝힌다 (불만 리뷰 속 칭찬도 셈), 손님 칭찬 요약 숫자는 그대로", async () => {
+    // 리뷰 4건 모두 불만인데 '맛은 괜찮았다' 문장이 있어 칭찬 주제 맛 1건 (QA 재현 모양)
+    routes.unshift([(p) => p.startsWith("/api/reports/weekly"), weekView("2026-11-16", {
+      report: report({ review_count: 4, complaint_count: 4,
+        topics: [{ topic: "texture", topic_name: "식감", polarity: "negative", count: 3, previous: 0 }, { topic: "taste", topic_name: "맛", polarity: "positive", count: 1, previous: 0 }],
+        praise: { high_rating_count: 0, positive_count: 0, top_topics: [], top_menus: [], quote: null, review_count: 4, praise_count: 0 } }),
+    })]);
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-topics")).toBeTruthy());
+    expect(container.querySelector("#rp-topics-sec .panel-head .sub").textContent).toBe("리뷰 속 문장 기준");
+    const heads = [...container.querySelectorAll("#rp-topics h3")].map((h) => h.textContent);
+    expect(heads).toEqual(["불만", "칭찬 · 불만 리뷰 속 칭찬 문장도 셈"]);
+    expect(container.querySelector("#rp-praise").textContent).toContain("아직 칭찬 리뷰가 없어요.");   // 리뷰 단위 숫자는 그대로
   });
 });

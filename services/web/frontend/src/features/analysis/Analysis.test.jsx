@@ -131,6 +131,44 @@ describe("리뷰 분석 화면", () => {
     expect(screen.getByRole("region", { name: "칭찬·불만 주제" })).toBeTruthy();
   });
 
+  // 11/21 실사용 QA
+  it("B-4·B-5 요약: 주제 칸은 리뷰 속 문장 기준이라고 밝히고(불만 리뷰 속 칭찬도 셈), 8개 뒤 주제는 '그 밖' 한 줄", () => {
+    // 리뷰 4건 모두 부정인데 '맛은 괜찮았다' 문장이 있어 칭찬 주제 맛 1건 (QA 재현 모양) + 불만 주제 10개
+    const neg = Object.fromEntries(["texture", "taste", "portion", "price", "delivery_time", "temperature", "packaging", "missing_item", "service", "hygiene"]
+      .map((t, i) => [t, { negative: 10 - i, positive: t === "taste" ? 1 : 0 }]));
+    setState({ insight: { ...insight, review_count: 4, complaint_count: 4, sentiment_counts: { negative: 4, positive: 0, neutral: 0 }, topic_counts: neg, groups: [] } });
+    const { container } = render(<Analysis />);
+    const panel = screen.getByRole("region", { name: "칭찬·불만 주제" });
+    expect(panel.querySelector(".panel-head .sub").textContent).toBe("리뷰 속 문장 기준");
+    const [negCol, posCol] = container.querySelectorAll(".an-topics");
+    expect(posCol.querySelector(".an-topic-note").textContent).toBe("불만 리뷰 속 칭찬 문장도 셈");
+    expect(posCol.textContent).toContain("맛");
+    expect(negCol.querySelectorAll(".an-topic-list li")).toHaveLength(8);
+    expect(negCol.querySelector(".an-topic-rest").textContent).toBe("그 밖 2개 주제: 응대 2 · 위생 1");
+    expect(posCol.querySelector(".an-topic-rest")).toBeNull();
+    // 타일 숫자는 그대로 (리뷰 단위 긍정 0), 반복 0건은 기준을 부제로
+    expect(container.querySelector(".an-tiles").textContent).toContain("긍정 0");
+    expect(container.querySelector(".an-tiles").textContent).toContain("같은 불만 3건부터");
+  });
+
+  it("B-3 붙여넣기 결과·불만 묶음 탭의 기준 문장이 같다", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((path) => {
+      if (path === "/api/reviews") return json({ review: { review_id: "rv_p1", text: "식었어요" }, classification: { sentiment: "negative", topics: [{ topic: "temperature", polarity: "negative" }] }, joined_issues: [] }, 201);
+      if (path === "/api/cards") return json({ cards: [] });
+      if (path === "/api/approvals") return json({ items: [] });
+      return json(path === "/api/insight" ? insight : {});
+    });
+    render(<Analysis />);
+    fireEvent.click(screen.getByRole("tab", { name: "리뷰 넣기" }));
+    fireEvent.change(screen.getByLabelText(/리뷰 글/), { target: { value: "식었어요" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "분류하기" })); });
+    await waitFor(() => expect(screen.getByText(/아직 어느 묶음에도 들지 않았어요/)).toBeTruthy());
+    const rule = "같은 불만이 2건 이상이면 묶음, 3건 이상이면 반복으로 봐요";
+    expect(screen.getByText(/아직 어느 묶음에도 들지 않았어요/).textContent).toBe(`→ 아직 어느 묶음에도 들지 않았어요 (${rule}).`);
+    fireEvent.click(screen.getByRole("tab", { name: "불만 묶음" }));
+    expect(screen.getByText(`${rule}.`)).toBeTruthy();
+  });
+
   it("리뷰 0건인 새 가게: 기간 대신 짧은 안내, 타일·주제·묶음이 깨지지 않는다", () => {
     setState({ me: null, insight: { period_start: null, period_end: null, review_count: 0, complaint_count: 0, sentiment_counts: {},
       topic_counts: {}, group_count: 0, single_complaint_count: 0, top_issue_id: null, groups: [], single_complaints: [], data_origin: null } });

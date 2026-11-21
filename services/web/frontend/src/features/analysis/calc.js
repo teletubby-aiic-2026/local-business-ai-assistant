@@ -34,17 +34,26 @@ export function summaryTiles(d) {
     complaints: d.complaint_count ?? "–",
     complaintsSub: d.review_count ? `리뷰의 ${Math.round((d.complaint_count / d.review_count) * 100)}%` : "",
     repeated: rep.reduce((n, g) => n + g.review_count, 0),
-    repeatedSub: rep.length ? `묶음 ${rep.length}개 · ${rep.map((g) => g.topic_name).join(", ")}` : "없음",
+    // 0건이면 '없음' 대신 기준 (2건 묶음이 있어도 반복은 3건부터라 0건이 틀린 숫자처럼 보이지 않게, 11/21 QA)
+    repeatedSub: rep.length ? `묶음 ${rep.length}개 · ${rep.map((g) => g.topic_name).join(", ")}` : REPEAT_RULE,
   };
 }
+// 불만 묶음 탭(Issues.jsx)·붙여넣기 결과(PasteTab.jsx)와 같은 정의: 같은 불만 2건부터 묶음, 3건부터 반복.
+// 세 곳이 같은 문장을 쓰게 한 곳에 둔다 (11/21 QA: 타일에는 기준이 없어 '반복 0건'이 틀린 숫자처럼 보였음)
+export const REPEAT_RULE = "같은 불만 3건부터";
+export const REPEAT_NOTE = "같은 불만이 2건 이상이면 묶음, 3건 이상이면 반복으로 봐요";
 
-// 칭찬·불만 키워드: 주제별 긍정(positive)·부정(negative) 수가 많은 8개. ratio 는 같은 칸 안 최댓값 대비
+// 칭찬·불만 키워드: 주제별 긍정(positive)·부정(negative) 수가 많은 순. ratio 는 같은 칸 안 최댓값 대비
+export const TOPIC_MAX = 8;
+const topicList = (d, pol) => Object.entries(d?.topic_counts || {}).map(([t, v]) => [topicName(t), (v || {})[pol] || 0])
+  .filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
 export function topTopics(d, pol) {
-  const list = Object.entries(d?.topic_counts || {}).map(([t, v]) => [topicName(t), (v || {})[pol] || 0])
-    .filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const list = topicList(d, pol).slice(0, TOPIC_MAX);
   const max = Math.max(1, ...list.map(([, n]) => n));
   return list.map(([name, n]) => ({ name, n, ratio: n / max }));
 }
+// 막대에서 빠진 주제 (홈 '주제별 불만'의 '그 밖 n개 주제'와 같은 방식, 11/21 QA: 8개 뒤가 말없이 빠졌음)
+export const restTopics = (d, pol) => topicList(d, pol).slice(TOPIC_MAX).map(([name, n]) => ({ name, n }));
 
 // 묶음 카드의 한 줄과 시간대 막대 (예전 renderAnIssues)
 export function groupNote(g) {

@@ -8,6 +8,8 @@
 .an-kw { gap: var(--s-32); }
 .an-topics { display: grid; gap: var(--s-12); align-content: start; }
 .an-topic-list { display: grid; gap: var(--s-12); }
+/* 주제 칸 제목 바로 아래 기준 한 줄 (제목에 붙여 보이게 칸 사이 간격을 줄임, 11/21 QA) */
+.an-topic-note { margin-top: -8px; }
 
 /* 불만 묶음 */
 .an-funnel { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-8) 22px; }
@@ -104,4 +106,9 @@
 @container content (max-width: 419px) {
   .grid-2.an-paste-opts { grid-template-columns: minmax(0, 1fr); }
   .an-cap-pick .btn { flex: 1 1 auto; }
+}
+
+/* 휴대폰(760px 이하) 누름 대상은 최소 40px (공용 .btn.small·.btn.text 와 같은 기준, 11/21 QA). 캡처 후보의 별점 고르기 */
+@media (max-width: 760px) {
+  .an-select { min-height: 40px; }
 }

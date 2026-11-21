@@ -1,5 +1,11 @@
 // 종합 리포트의 글자·숫자 다듬기 (시계·점수 추이 계산, 근거 한 줄, 11/20 주간·월간 저장 보고서의 타일·안내 띠)
-import { praiseOf, shortBasis } from "../../lib/domain.js";
+
+// 카드의 근거 한 줄은 추천 카드 화면과 같은 함수를 쓴다 (예전에는 여기에 같은 함수를 따로 두어 한쪽만 고치면 어긋났다, 11/21 QA)
+export { sourceLine } from "../flow/calc.js";
+
+// 주제별 흐름의 기준: 주제는 리뷰 속 문장 단위라 불만 리뷰 안의 칭찬도 칭찬 주제로 센다 ('손님 칭찬 요약'은 리뷰 단위, 11/21 QA)
+export const TOPIC_BASIS = "리뷰 속 문장 기준";
+export const PRAISE_TOPIC_NOTE = "불만 리뷰 속 칭찬 문장도 셈";
 
 // 리뷰가 들어온 곳
 export const SOURCE_KO = { sample: "합성 리뷰", paste: "붙여넣기", capture: "캡처", app: "가상 배달앱", memo: "매장 메모" };
@@ -63,19 +69,6 @@ export function trendGeometry(trend, width, height) {
   const y = (s) => T + ((H - T - B) * (100 - s)) / Math.max(1, 100 - lo);
   const label = `날마다 응대 점수: ${dateKo(pts[0].date)} ${v[0]}점에서 ${dateKo(pts[last].date)} ${v[last]}점, 가장 낮은 날 ${Math.min(...v)}점`;
   return { pts, v, W, H, L, R, lo, last, x, y, label };
-}
-
-// 카드의 근거 한 줄
-export function sourceLine(p) {
-  const ev = p.evidence || [];
-  const reviews = ev.filter((e) => e.type === "review");
-  const snaps = ev.filter((e) => e.type === "snapshot");
-  const parts = [];
-  if (reviews.length) parts.push(`리뷰 ${reviews.length}건 · 합성 데이터`);
-  snaps.forEach((e) => parts.push(shortBasis(e.basis)));
-  const praise = praiseOf({ ...p, evidence: ev });
-  if (praise.shown.length) parts.push(`손님 칭찬 리뷰 ${praise.total}건 · 합성 데이터`);
-  return parts.join(" · ");
 }
 
 // ── 주간·월간 저장 보고서 (11/20) ──
@@ -152,15 +145,40 @@ export function topicRows(topics, limit = 4) {
   return { complaints, praises, most };
 }
 
-// 저장 안내 띠: {tone, text}. tone: ok(저장함) · warn(낡음·저장 못 함) · ""(게스트·안내)
-export function savedNote(view) {
+// '다시 만들기' 전후 보고서를 견준 값 {reviews, approvals} (같은 기간일 때만, 모르는 칸은 null). 서버 응답에 바뀐 내용이 없어 화면이 견준다 (11/21 QA)
+export function remadeDiff(before, after) {
+  if (!before || !after || before.kind !== after.kind || before.period?.key !== after.period?.key) return { reviews: null, approvals: null };
+  const diff = (a, b) => (Number.isFinite(Number(a)) && Number.isFinite(Number(b)) && a != null && b != null ? Number(a) - Number(b) : null);
+  return { reviews: diff(after.report?.review_count, before.report?.review_count), approvals: diff(after.approvals?.total, before.approvals?.total) };
+}
+
+// 다시 만든 뒤 덧붙이는 괄호 안 글: '새 리뷰 3건 · 승인 2건 반영' · '리뷰·승인 수는 그대로' · (견줄 수 없으면) ""
+export function remadeText(d) {
+  if (!d || (d.reviews == null && d.approvals == null)) return "";
+  // 늘어난 것은 '… 반영', 줄어든 것(붙여넣은 리뷰 지우기·처음부터 다시)은 '… 빠짐'
+  const added = [], removed = [];
+  if (d.reviews > 0) added.push(`새 리뷰 ${d.reviews}건`);
+  else if (d.reviews < 0) removed.push(`리뷰 ${-d.reviews}건 빠짐`);
+  if (d.approvals > 0) added.push(`승인 ${d.approvals}건`);
+  else if (d.approvals < 0) removed.push(`승인 ${-d.approvals}건 빠짐`);
+  const parts = [added.length ? `${added.join(" · ")} 반영` : "", ...removed].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "리뷰·승인 수는 그대로";
+}
+
+// 저장 안내 띠: {tone, text}. tone: ok(저장함) · warn(낡음·저장 못 함) · ""(게스트·안내).
+// remade: 방금 '다시 만들기'로 받은 보고서면 전후를 견준 값 (remadeDiff). 무엇이 바뀌었는지 한 마디 붙인다 (11/21 QA)
+export function savedNote(view, remade = null) {
   if (!view) return { tone: "", text: "" };
   const w = PERIOD_WORDS[view.kind] || PERIOD_WORDS.weekly;
   const t = stamp(view.created_at);
-  if (view.storage === "guest") return { tone: "", text: "로그인하면 만든 보고서가 이 계정에 저장돼요." };
+  const changed = remade ? remadeText(remade) : "";
+  if (view.storage === "guest") {
+    return { tone: "", text: `${remade ? `다시 계산했어요${changed ? ` (${changed})` : ""}. ` : ""}로그인하면 만든 보고서가 이 계정에 저장돼요.` };
+  }
   if (view.storage === "unavailable") return { tone: "warn", text: "지금은 보고서를 저장하지 못했어요. 보이는 숫자는 방금 계산한 값이에요." };
   if (view.made_now) {
-    return { tone: "ok", text: `${t}에 만들어 저장했어요.${view.period?.in_progress ? ` ${w.nowIs} 아직 진행 중이라, 새 리뷰가 들어오면 다시 만들어 주세요.` : ""}` };
+    const head = remade ? `${t}에 다시 만들어 저장했어요${changed ? ` (${changed})` : ""}.` : `${t}에 만들어 저장했어요.`;
+    return { tone: "ok", text: `${head}${view.period?.in_progress ? ` ${w.nowIs} 아직 진행 중이라, 새 리뷰가 들어오면 다시 만들어 주세요.` : ""}` };
   }
   const head = `${t}에 만들어 저장한 보고서예요.`;
   const s = view.stale;

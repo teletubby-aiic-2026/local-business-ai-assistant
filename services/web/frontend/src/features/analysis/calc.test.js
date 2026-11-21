@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandRows, capCheck, capItems, capStatusLine, groupNote, pasteJoin, periodLine, summaryTiles, topTopics } from "./calc.js";
+import { bandRows, capCheck, capItems, capStatusLine, groupNote, pasteJoin, periodLine, restTopics, summaryTiles, topTopics } from "./calc.js";
 
 const d = {
   period_start: "2026-10-12", period_end: "2026-11-08", review_count: 40, complaint_count: 12,
@@ -15,12 +15,21 @@ describe("요약", () => {
     expect(summaryTiles(d)).toEqual({ reviews: 40, reviewsSub: "28일 · 긍정 26 · 중립 2", complaints: 12, complaintsSub: "리뷰의 30%",
       repeated: 3, repeatedSub: "묶음 1개 · 포장 누락" });
     expect(summaryTiles(null).reviews).toBe("–");
-    expect(summaryTiles({ ...d, groups: [] }).repeatedSub).toBe("없음");
+    // 11/21 QA B-3: 반복 0건이면 '없음' 대신 기준 (2건 묶음이 있어도 반복은 3건부터)
+    expect(summaryTiles({ ...d, groups: [] }).repeatedSub).toBe("같은 불만 3건부터");
+    expect(summaryTiles({ ...d, groups: [d.groups[1]] })).toMatchObject({ repeated: 0, repeatedSub: "같은 불만 3건부터" });
   });
   it("리뷰 0건인 새 가게: 기간이 비어도 '1일'이 나오지 않는다", () => {
     const empty = { period_start: null, period_end: null, review_count: 0, complaint_count: 0, sentiment_counts: {}, topic_counts: {}, groups: [] };
-    expect(summaryTiles(empty)).toEqual({ reviews: 0, reviewsSub: "긍정 0 · 중립 0", complaints: 0, complaintsSub: "", repeated: 0, repeatedSub: "없음" });
+    expect(summaryTiles(empty)).toEqual({ reviews: 0, reviewsSub: "긍정 0 · 중립 0", complaints: 0, complaintsSub: "", repeated: 0, repeatedSub: "같은 불만 3건부터" });
     expect(topTopics(empty, "negative")).toEqual([]);
+    expect(restTopics(empty, "negative")).toEqual([]);
+  });
+  it("11/21 QA B-5: 8개를 넘는 주제는 '그 밖'으로 (말없이 빠지지 않게)", () => {
+    const many = { topic_counts: Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`t${i}`, { negative: 10 - i }])) };
+    expect(topTopics(many, "negative")).toHaveLength(8);
+    expect(restTopics(many, "negative")).toEqual([{ name: "t8", n: 2 }, { name: "t9", n: 1 }]);
+    expect(restTopics(d, "negative")).toEqual([]);
   });
   it("주제는 많은 순, 모르는 id 는 그대로, 0건은 뺌, 막대는 칸 안 최댓값 대비", () => {
     expect(topTopics(d, "negative").map((t) => [t.name, t.n, t.ratio])).toEqual([["포장 누락", 3, 1], ["배달 시간", 2, 2 / 3], ["맛", 2, 2 / 3], ["odd", 1, 1 / 3]]);

@@ -12,7 +12,7 @@ import { go, navTo } from "../../lib/router.js";
 import { PageHead, Panel, StatTile, TopicBar, Button } from "../../components/ui.jsx";
 import { useFlow } from "./state.js";
 import { runTodo, staffGo } from "./actions.js";
-import { homeStats, keywordRows, hourChart, scopeChips } from "./calc.js";
+import { homeStats, keywordRows, hourChart, hourNotes, scopeChips } from "./calc.js";
 import "./flow.css";
 
 const Unit = ({ n }) => (n === undefined || n === null ? "–" : <>{n}<span className="flow-unit">건</span></>);
@@ -28,7 +28,8 @@ export default function Home() {
   const title = !s.cards.length ? "사장님, 오늘 가게 현황이에요" : left ? `사장님, 오늘 처리할 일 ${left}가지` : "사장님, 오늘 할 일을 모두 끝냈어요";
   const failed = s.booted && !!s.bootError && !s.cards.length;
   const noBriefing = s.booted && !!s.bootError && !b;   // 브리핑을 못 받음: '정리하고 있어요'·'불러오는 중'으로 남기지 않음
-  const startLabel = !s.booted ? "불러오는 중…" : s.bootError ? "불러오지 못했어요" : "무엇을 할까요?";
+  // 어디로 가는지 버튼 글자에 드러낸다 (Figma 06 B1, 11/21 QA)
+  const startLabel = !s.booted ? "불러오는 중…" : s.bootError ? "불러오지 못했어요" : "무엇을 할까요? (추천 카드 보기)";
   const staff = staffOf(s);
   const noReviews = b?.counts?.review_count === 0;   // 새 가게: 리뷰 0건
   const period = b?.period?.start && b?.period?.end ? `${b.period.start} ~ ${b.period.end} · 리뷰는 합성 데이터` : "";
@@ -135,23 +136,27 @@ function ScopeMeta({ chips }) {
   );
 }
 
-// 불만 리뷰가 몰린 시간: 핵심 문제 묶음의 몰린 시간대는 빨간 막대, 같은 뜻을 글자로도 쓴다
+// 불만 리뷰가 몰린 시간: 핵심 문제 묶음의 몰린 시간대는 빨간 막대, 같은 뜻을 글자로도 쓴다.
+// 막대가 비면 빈 막대 대신 한 줄: 불만이 정말 0건일 때만 '불만 리뷰가 없어요', 붙여넣은 불만만 있으면 시각이 없어 못 그린다고 (11/21 QA)
 function HourPanel({ b }) {
   const hc = b ? hourChart(b) : null;
-  const empty = !!hc && hc.cols.every((c) => !c.n);   // 불만 리뷰가 없으면 빈 막대 대신 한 줄
+  const { empty, extra } = hourNotes(hc);
   return (
     <Panel title="불만 리뷰가 몰린 시간" titleId="flow-hour-title" sub={empty ? undefined : hc?.note}>
-      {empty ? <p className="small muted">불만 리뷰가 없어요.</p>
+      {empty ? <p className="small muted">{empty}</p>
         : hc
-        ? <div className="flow-hours" role="img" aria-label={hc.label}>
-            {hc.cols.map((c) => (
-              <div key={c.h} className={c.hot ? "flow-hc hot" : "flow-hc"}>
-                <span className="flow-hc-n">{c.n || ""}</span>
-                <span className="flow-hc-bar"><i style={{ height: `${c.height}%` }} /></span>
-                <span className="flow-hc-h">{c.h}</span>
-              </div>
-            ))}
-          </div>
+        ? <>
+            <div className="flow-hours" role="img" aria-label={hc.label}>
+              {hc.cols.map((c) => (
+                <div key={c.h} className={c.hot ? "flow-hc hot" : "flow-hc"}>
+                  <span className="flow-hc-n">{c.n || ""}</span>
+                  <span className="flow-hc-bar"><i style={{ height: `${c.height}%` }} /></span>
+                  <span className="flow-hc-h">{c.h}</span>
+                </div>
+              ))}
+            </div>
+            {extra && <p className="small muted flow-hours-note">{extra}</p>}
+          </>
         : <p className="small muted">불러오는 중…</p>}
     </Panel>
   );

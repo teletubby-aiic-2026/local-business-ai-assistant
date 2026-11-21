@@ -7,6 +7,9 @@ export const RERUN_ARM_MS = 5000;
 // 다시 만들 때 보내는 옛 글 id 는 서버(demo.REPLACES_MAX)와 같은 20개까지
 export const REPLACES_MAX = 20;
 
+// 반복 불만의 기준 (불만 묶음 탭과 같은 정의: 같은 불만 2건부터 묶음, 3건부터 반복). 0건 타일 부제로 기준을 보인다 (11/21 QA)
+export const REPEAT_RULE = "같은 불만 3건부터";
+
 // ── 홈 숫자 타일 (R1 통계 요약 카드): 리뷰 · 불만 · 반복 불만 ──
 export function homeStats(b) {
   if (!b) return null;
@@ -20,7 +23,8 @@ export function homeStats(b) {
     complaints: c.complaint_count,
     complaintsSub: c.review_count ? `리뷰의 ${Math.round((c.complaint_count / c.review_count) * 100)}%` : "",
     repeated: repeated.reduce((n, g) => n + g.review_count, 0),
-    repeatedSub: repeated.map((g) => g.topic_name).join(", ") || "없음",
+    // 0건일 때 '없음'만 두면 2건 묶음이 있는데도 틀린 숫자처럼 보여 기준을 적는다 (11/21 QA)
+    repeatedSub: repeated.map((g) => g.topic_name).join(", ") || REPEAT_RULE,
   };
 }
 
@@ -59,8 +63,9 @@ export function keywordRows(b) {
 // 불만 리뷰가 몰린 시간: 11~23시 막대. 핵심 문제 묶음의 몰린 시간대(예: 17~21시)는 hot, 같은 뜻을 글자(aria-label·note)로도 쓴다
 export function hourChart(b) {
   const by = new Map();
+  const all = complaintsOf(b);
   // 붙여넣기·캡처로 넣은 리뷰의 시각은 넣은 시각이지 손님이 주문한 시각이 아니라서 시간대 막대에 세지 않는다 (11/21 M6)
-  complaintsOf(b).forEach((r) => { if (r.paste) return; const h = Number(String(r.at || "").slice(11, 13)); if (Number.isFinite(h) && String(r.at || "").length >= 13) by.set(h, (by.get(h) || 0) + 1); });
+  all.forEach((r) => { if (r.paste) return; const h = Number(String(r.at || "").slice(11, 13)); if (Number.isFinite(h) && String(r.at || "").length >= 13) by.set(h, (by.get(h) || 0) + 1); });
   const hours = [...by.keys()];
   const from = Math.min(11, ...hours), to = Math.max(23, ...hours);
   const top = (b?.groups || []).find((g) => g.issue_id === b.top_issue_id);
@@ -72,11 +77,25 @@ export function hourChart(b) {
     const n = by.get(h) || 0;
     cols.push({ h, n, hot: hot(h), height: n ? Math.max(6, Math.round((n / max) * 100)) : 2 });
   }
+  const timed = [...by.values()].reduce((n, x) => n + x, 0);
+  // total·pasted: 막대가 비었을 때 '불만 없음'과 '시각을 모름'을 나눠 말하려고 (붙여넣은 불만만 있는 가게, 11/21 QA)
+  const total = Math.max(all.length, Number(b?.counts?.complaint_count) || 0);
+  const pasted = all.filter((r) => r.paste).length;
   return {
-    cols,
+    cols, total, pasted, timed,
     label: "시간대별 불만 리뷰: " + ([...by].sort((x, y) => x[0] - y[0]).map(([h, n]) => `${h}시 ${n}건`).join(", ") || "없음"),
     note: band ? `빨간 막대 = ${top.topic_name}이 몰린 ${top.main_time_band}` : "시 단위",
   };
+}
+
+// 시간 차트 칸의 빈 안내 · 덧붙이는 한 줄: {empty, extra}. 불만이 정말 0건일 때만 '불만 리뷰가 없어요' (11/21 QA)
+export function hourNotes(hc) {
+  if (!hc) return { empty: "", extra: "" };
+  if (!hc.total) return { empty: "불만 리뷰가 없어요.", extra: "" };
+  if (!hc.timed) {
+    return { empty: hc.pasted ? "붙여넣은 리뷰에는 주문 시각이 없어 시간대를 그리지 않아요." : "주문 시각을 아는 불만 리뷰가 없어 시간대를 그리지 않아요.", extra: "" };
+  }
+  return { empty: "", extra: hc.pasted ? `붙여넣은 불만 ${hc.pasted}건은 주문 시각이 없어 시간대에서 뺐어요.` : "" };
 }
 
 // ── 2 추천 카드 ──
@@ -90,6 +109,13 @@ export function sourceLine(p) {
   const praise = praiseOf(p);
   if (praise.shown.length) parts.push(`손님 칭찬 리뷰 ${praise.total}건 · 합성 데이터`);
   return parts.join(" · ");
+}
+
+// 추천 카드 머리 설명 (Figma 06 B2). 상권 지표를 쓴 카드가 있을 때만 '상권 자료'를 말하고, 시험용 실행은 AI 가 쓰지 않으므로 그렇게 (11/21 QA)
+export function cardsIntro(cards, mock) {
+  if (!cards?.length) return "";
+  const market = cards.some((p) => (p.evidence || []).some((e) => e.type === "snapshot"));
+  return `오늘 리뷰${market ? "와 상권 자료" : ""}로 고른 추천 ${cards.length}가지예요. ${mock ? "고르면 예시 글을 보여 드려요." : "고르면 AI가 글을 써요."}`;
 }
 
 // 카드 이유 문장을 AI 가 썼는지 (reason_source: "고정 문장" | "HCX-005 (검사기 통과)" | "HCX-005 실패 → 고정 문장").
@@ -127,14 +153,50 @@ export const draftStateText = (d, approved) => {
 };
 export const FALLBACK_CHIP = "기본 문장으로 바꿈";
 
-// 초안 목록의 배지: 승인 상태(승인 완료 · 승인 대기)를 먼저, 승인 전이면 점검 결과(점검 실패 · 확인 필요 · 기본 문장)를 덧붙인다.
-// 진행 숫자는 위 진행줄 하나에만 두고, 목록은 글마다 상태만 보인다
+// 초안 목록의 배지: 승인 상태(승인 완료 · 승인 대기)를 먼저, 승인 전이면 점검 결과(점검 통과 · 점검 실패 · 확인 필요 · 기본 문장)를 덧붙인다.
+// 진행 숫자는 위 진행줄 하나에만 두고, 목록은 글마다 상태만 보인다. 점검 통과도 칩으로 (Figma 06 B3, 11/21 QA). 기본 문장으로 바꾼 글은 '점검 통과'를 붙이지 않음
 export function listBadges(d, approved) {
   if (approved.has(d.draft_id)) return [["ok", "승인 완료"]];
   const [tone, text] = statusOf(d, approved);
-  const out = tone === "ok" ? [["", "승인 대기"]] : [["", "승인 대기"], [tone, text]];
+  const out = tone === "ok" ? (isFallback(d) ? [["", "승인 대기"]] : [["", "승인 대기"], ["ok", "점검 통과"]]) : [["", "승인 대기"], [tone, text]];
   if (isFallback(d)) out.push(["warn", "기본 문장"]);
   return out;
+}
+
+// 초안 목록에서 답글이 어느 리뷰의 답글인지: 원 리뷰 첫 줄 앞부분 (리뷰를 모르면 "")
+export function targetLine(d, reviews, max = 24) {
+  const r = d?.target_review_id ? reviews?.[d.target_review_id] : null;
+  const first = String(r?.text || "").split("\n")[0].trim();
+  return first.length > max ? `${first.slice(0, max - 1)}…` : first;
+}
+
+// ── 4 처리 완료 ──
+// 서버 승인 기록(GET /api/approvals)의 글 이름. 서버는 글 종류를 주지 않아(draft_id 는 'd_' + 16진수) 맞춤 마케팅 글만 알아본다
+export const serverName = (id) => (String(id || "").startsWith("mkt-") ? "맞춤 마케팅 글" : "글");
+
+// 처리 완료의 '승인한 글' = 이 브라우저의 승인 목록 ∪ 서버 승인 기록. 새로 고침하면 브라우저 목록이 비므로 서버 기록으로 채운다 (11/21 QA B-1).
+// 같은 글은 한 번만 (브라우저 쪽이 글 이름을 알아 그쪽을 쓴다), 차례는 서버가 저장한 차례, 서버에 없는 브라우저 글은 뒤에
+export function mergeApprovals(log, items) {
+  const local = new Map((log || []).map((a) => [a.id, a]));
+  const seen = new Set();
+  const out = [];
+  (items || []).filter((x) => x && x.draft_id && (!x.status || x.status === "approved")).forEach((x) => {
+    if (seen.has(x.draft_id)) return;
+    seen.add(x.draft_id);
+    out.push(local.get(x.draft_id) || { id: x.draft_id, at: x.approved_at || "", edited: !!x.edited, text: x.text || "",
+      name: serverName(x.draft_id), mkt: String(x.draft_id).startsWith("mkt-"), server: true });
+  });
+  (log || []).forEach((a) => { if (!seen.has(a.id)) { seen.add(a.id); out.push(a); } });
+  return out;
+}
+
+// 승인 시각: 오늘이면 '21:00', 다른 날이면 '11-19 21:00' (서버 기록에는 지난날 승인도 있어서)
+export function whenText(at, today = new Date()) {
+  const s = String(at || "");
+  if (s.length < 16) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  const ymd = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  return s.slice(0, 10) === ymd ? s.slice(11, 16) : `${s.slice(5, 10)} ${s.slice(11, 16)}`;
 }
 
 // 글 한 건 '다시 만들기' 뒤 안내 한 줄: 새 글이 예전 글과 같거나 또 기본 문장이면 사실대로 알린다
