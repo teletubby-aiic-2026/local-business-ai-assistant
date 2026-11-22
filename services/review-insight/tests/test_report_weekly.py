@@ -4,7 +4,7 @@
 확인하는 것
 - 주 경계: 월요일 0시 ~ 일요일 23:59:59 (한국 시간). 아무 날짜를 줘도 그 주로, 오지 않은 주는 거절
 - 지난주 비교(리뷰 수·불만 수·불만 비율)와 주제별 건수(이번 주·지난주)가 직접 센 값과 같다
-- 리뷰 0건인 주도 오류 없이 같은 모양 (비율 null, 고칠 것 한 줄)
+- 리뷰 0건인 주도 오류 없이 같은 모양 (비율 null, 고칠 것은 빈 목록 — 11/22 QA R5, 예전에는 한 줄)
 - '이번 주에 고칠 것'의 숫자는 옆 칸 값과 같고, 원인을 단정하지 않는다
 - 월간: compare 없이 부르면 예전 응답 그대로 (칸 순서까지), compare=true 는 뒤에 비교 칸만 더함
 - 주간과 월간은 같은 계산이다 (같은 날의 점수가 같음)
@@ -62,6 +62,9 @@ def check_fix_numbers(w: dict) -> None:
     """고칠 것 문장 속 숫자 = 옆 칸 값. 원인 단정 없음."""
     issues = {i["issue_id"]: i for i in w["repeated_issues"]}
     topics = {(t["topic"], t["polarity"]): t for t in w["topics"]}
+    if not w["review_count"]:                    # 리뷰 0건인 주는 고칠 것을 고르지 않는다 (11/22 QA R5)
+        assert w["suggestions"] == []
+        return
     assert 1 <= len(w["suggestions"]) <= 3
     for s in w["suggestions"]:
         assert set(s) >= {"kind", "title", "evidence", "text"}
@@ -81,10 +84,9 @@ def check_fix_numbers(w: dict) -> None:
         elif s["kind"] == "praise_menu":
             m = w["praise"]["top_menus"][0]
             assert m["menu"] in s["title"] and s["evidence"] == f"칭찬 리뷰 {w['praise']['praise_count']}건 중 {m['count']}건"
-        elif s["kind"] == "none":
-            assert s["evidence"] == f"리뷰 {w['review_count']}건 · 불만 {w['complaint_count']}건 · 기한 넘김 0건"
         else:
-            assert s["kind"] == "empty" and w["review_count"] == 0
+            assert s["kind"] == "none", s
+            assert s["evidence"] == f"리뷰 {w['review_count']}건 · 불만 {w['complaint_count']}건 · 기한 넘김 0건"
 
 
 # ── 주 경계 ──
@@ -151,6 +153,38 @@ def test_a_week_without_reviews_is_an_empty_report_not_an_error(client):
     assert w["topics"] == [] and w["previous"]["review_count"] == 0 and len(w["score_trend"]) == 2
     assert w["praise"] is None or (w["praise"]["review_count"] == 0 and w["praise"]["quote"] is None)
     check_fix_numbers(w)
+
+
+def test_no_fixes_when_the_period_has_no_reviews_but_kept_when_it_has_some():
+    """11/22 QA R5: 리뷰 0건인 주·달에 기간 밖 반복 불만('포장 누락' 3건, 10~11월 합성 리뷰)이 '고칠 것'으로 나와
+    '주제별 흐름: 아직 리뷰가 없어요'와 어긋났다. 0건이면 빈 목록, 리뷰가 있으면 기간 밖 반복 불만도 예전처럼 알린다."""
+    t = tl()
+    w = report.weekly(t, MON.date(), at(15, day=6))                   # 11/16~11/22, 합성 리뷰는 11/8 까지
+    assert w["review_count"] == 0 and w["suggestions"] == []
+    assert any(i["is_repeated"] and i["count_this_week"] == 0 for i in w["repeated_issues"])   # 표에는 그대로 남는다
+    sept = report.monthly(t, 2026, 9, at(15, day=6))                   # 합성 리뷰보다 앞선 달
+    assert sept["review_count"] == 0 and sept["suggestions"] == []
+    page = report.render_monthly(sept, "온기한식", at(15, day=6))
+    assert "이 달에는 리뷰가 없어 고칠 것을 고르지 않았어요." in page and '<ol class="todo">' not in page
+    nov = report.monthly(t, 2026, 11, at(15, day=6))
+    assert nov["review_count"] > 0 and nov["suggestions"]             # 리뷰가 있는 달은 그대로
+    assert '<ol class="todo"><li>' in report.render_monthly(nov, "온기한식", at(15, day=6))
+
+    add("맛있게 잘 먹었어요", when=at(12, day=1), rating=5)            # 이번 주에 리뷰 한 건 (불만 아님)
+    w = report.weekly(tl(), MON.date(), at(15, day=6))
+    assert w["review_count"] == 1
+    assert [s["kind"] for s in w["suggestions"]][:1] == ["no_reply"]   # 기간 밖 반복 불만은 리뷰가 있는 주에 계속 알린다
+    check_fix_numbers(w)
+
+
+def test_print_page_says_no_change_instead_of_a_bare_zero():
+    """11/22 QA R3: 점수 변화가 0이면 '(0)' 대신 '변화 없음'. 0이 아니면 '+3'·'-2' 그대로."""
+    sept = report.monthly(tl(), 2026, 9, at(15))
+    assert sept["score_change"] == 0
+    page = report.render_monthly(sept, "온기한식", at(15))
+    assert f"{sept['score_start']} → {sept['score_end']} (변화 없음)" in page and "(0)" not in page
+    page = report.render_monthly({**sept, "score_end": sept["score_start"] - 2, "score_change": -2}, "온기한식", at(15))
+    assert "(-2)" in page
 
 
 def test_fixes_follow_the_records_rising_late_and_recurred():

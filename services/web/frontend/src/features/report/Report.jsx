@@ -10,14 +10,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Badge, Button, PageHead, Panel, StatTile, Tabs, TopicBar } from "../../components/ui.jsx";
 import { getState, openDrawer, useStore } from "../../state/store.js";
-import { currentRoute, go } from "../../lib/router.js";
+import { currentRoute, go, navTo } from "../../lib/router.js";
 import { draftsOf, isOwnStore, marketScope, shortBasis, snapValue, sourceUrl } from "../../lib/domain.js";
 import {
   KINDS, getReport, loadApprovals, loadReport, loadScore, openReport, openSaved, remakeReport, reportReady, resetIfStoreChanged, setTab, useReport,
 } from "./state.js";
 import {
-  KIND_KO, NONE, PERIOD_WORDS, PRAISE_TOPIC_NOTE, RP_ISSUE_STATE, RP_NOTE, SOURCE_KO, TOPIC_BASIS, clip, clockView, dateKo, deltaTone, fixItems, fixTitle, isPast,
-  marketingNumbers, peakText, periodText, printMeta, savedNote, signed, sourceLine, stamp, tilesOf, topicRows, trendGeometry,
+  KIND_KO, NONE, NO_CHANGE, PERIOD_WORDS, PRAISE_TOPIC_NOTE, RP_ISSUE_STATE, RP_NOTE, SOURCE_KO, TOPIC_BASIS, changeText, clip, clockView, dateKo, deltaTone, fixEmpty, fixItems,
+  fixTitle, isPast, marketingNumbers, menuTitle, peakText, periodText, printMeta, savedNote, scoreReasons, sourceLine, stamp, tilesOf, topicRows, trendGeometry,
 } from "./format.js";
 import "./report.css";
 
@@ -33,7 +33,9 @@ function StateLine({ id, st, live = true }) {
   return <p id={id} className={["rp-state", st.bad && "bad"].filter(Boolean).join(" ")} role={live ? "status" : undefined}>{st.msg || ""}</p>;
 }
 
-const Delta = ({ n }) => <span className={["rp-delta", deltaTone(n)].filter(Boolean).join(" ")}>{signed(n)}</span>;
+const Delta = ({ n }) => <span className={["rp-delta", deltaTone(n)].filter(Boolean).join(" ")}>{changeText(n)}</span>;
+// 점수 시작 → 끝과 변화. 변화가 0이면 '98 → 98 · 변화 없음' (11/22 QA R3: '98 → 98 0'을 읽지 못함)
+const ScoreMove = ({ start, end, n }) => <>{start} → {end} {changeText(n) === NO_CHANGE && "· "}<Delta n={n} /></>;
 
 function Reasons({ list, empty }) {
   const items = Array.isArray(list) ? list : [];
@@ -43,6 +45,24 @@ function Reasons({ list, empty }) {
         ? items.map((x, i) => <li key={i}><Delta n={x.delta} /><span>{x.message}</span></li>)
         : <li className="small muted">{empty}</li>}
     </ul>
+  );
+}
+
+// 28일 응대 점수 바로 아래 '왜 이 점수인지': 크게 깎인 것부터 3줄, 나머지는 접어 둔다 (11/22 QA R2: 이유가 아래 칸에만 있어 98점의 까닭을 못 찾음).
+// 전체 목록은 아래 '응대 점수' 칸에도 있어 인쇄에서는 접은 칸을 뺀다 (rp-screen)
+function ScoreWhy({ reasons }) {
+  const { shown, rest } = scoreReasons(reasons);
+  if (!shown.length) return null;
+  return (
+    <div id="rp-score-why" role="group" aria-label="점수가 바뀐 이유">
+      <Reasons list={shown} />
+      {rest.length > 0 && (
+        <details className="rp-more rp-screen">
+          <summary className="small">나머지 이유 {rest.length}개</summary>
+          <Reasons list={rest} />
+        </details>
+      )}
+    </div>
   );
 }
 
@@ -63,7 +83,7 @@ function TodayStrip({ daily, score }) {
             </p>
             <p className="rp-todo"><span className="rp-todo-label">내일 먼저 할 일</span><strong>{d.todo?.text || "밀린 응대가 없어요"}</strong></p>
             <details className="rp-more">
-              <summary className="small">오늘 점수 {d.score_start} → {d.score_end} <Delta n={d.score_change ?? (d.score_end - d.score_start)} /></summary>
+              <summary className="small">오늘 점수 <ScoreMove start={d.score_start} end={d.score_end} n={d.score_change ?? (d.score_end - d.score_start)} /></summary>
               <Reasons list={d.changes} empty="오늘은 점수가 바뀐 일이 없어요." />
               <p className="small muted">{src ? `들어온 곳: ${src} · ` : ""}답글 기다림 {d.pending_count ?? 0}건{d.overdue_count ? ` (기한 넘김 ${d.overdue_count}건)` : ""}</p>
               <p className="small muted">합성 리뷰는 지난 날짜라서 오늘 숫자에는 오늘 붙여넣기·캡처로 넣은 리뷰만 들어가요.</p>
@@ -78,6 +98,7 @@ function TodayStrip({ daily, score }) {
           <>
             <p className="rp-big"><span className="rp-big-n">{r.score}</span><span className="rp-big-unit">/ 100점</span></p>
             <p className="small muted">답글 기다림 {score.pending.length}건{r.overdue_count ? ` · 기한 넘김 ${r.overdue_count}건` : ""}</p>
+            <ScoreWhy reasons={r.reasons} />
           </>
         )}
       </div>
@@ -135,7 +156,7 @@ function FixPanel({ view }) {
               {s.title && s.text && <p className="small">{s.text}</p>}
             </div>
           </li>
-        )) : <li className="muted">제안이 없어요.</li>}
+        )) : <li className="small muted">{fixEmpty(view)}</li>}
       </ol>
       {sugg.length > 0 && <p className="small muted rp-sugg-note">원인을 단정하지 않은 제안이에요. 매장에서 확인해 주세요.</p>}
     </Panel>
@@ -168,16 +189,20 @@ function TopicPanel({ view }) {
   );
 }
 
-// ── 마케팅 숫자: 승인한 홍보 글은 승인 기록으로, 자료가 없는 칸은 '–' ──
+// ── 마케팅 숫자: 승인한 홍보 글은 승인 기록으로. 쿠폰 사용률·광고비·불만 재발은 값이 올 때만 칸을 그리고, 없으면 맞춤 마케팅 보고서로 안내 ──
+// 맞춤 마케팅 화면은 navTo 의 sub 로 보고서 탭을 아직 열지 않는다 (지금은 #/marketing 의 첫 탭으로 감, marketing/state.js handleNav)
 function MarketingNumbers({ view }) {
-  const nums = marketingNumbers(view);
+  const { cells, elsewhere } = marketingNumbers(view);
   return (
-    <Panel title="마케팅 숫자" titleId="rp-mn-title" sub="맞춤 마케팅 기록 · 승인 기록" id="rp-mn-sec" className="rp-sec rp-mn">
+    <Panel title="마케팅 숫자" titleId="rp-mn-title" sub={elsewhere ? "승인 기록" : "맞춤 마케팅 기록 · 승인 기록"} id="rp-mn-sec" className="rp-sec rp-mn">
       <dl className="rp-nums" id="rp-mn">
-        {nums.map((x) => <div key={x.label}><dt>{x.label}</dt><dd>{x.value}</dd></div>)}
+        {cells.map((x) => <div key={x.label}><dt>{x.label}</dt><dd>{x.value}</dd></div>)}
       </dl>
-      {nums.some((x) => x.value === NONE) && (
-        <p className="small muted">‘{NONE}’ 칸은 이 보고서에 넣을 기록이 아직 없어요.<span className="rp-screen"> 쿠폰 결과·광고비는 <a href="#/marketing">맞춤 마케팅</a>에서 볼 수 있어요.</span></p>
+      {elsewhere && (
+        <div className="stack-8" id="rp-mn-more">
+          <p className="small muted">쿠폰 사용률·광고비 판정은 맞춤 마케팅 보고서에서 볼 수 있어요.</p>
+          <div className="btn-row"><Button size="small" onClick={() => navTo("marketing", "report")}>맞춤 마케팅 보고서 보기</Button></div>
+        </div>
       )}
     </Panel>
   );
@@ -197,7 +222,7 @@ function PraisePanel({ view }) {
           </dl>
           <div className="rp-praise-body">
             <div>
-              <h3 className="rp-h3">인기 메뉴 TOP 3 <span className="small muted">· 칭찬 리뷰에 이름이 나온 수</span></h3>
+              <h3 className="rp-h3">{menuTitle(menus)} <span className="small muted">· 칭찬 리뷰에 이름이 나온 수</span></h3>
               <ol className="plain rp-menus">
                 {menus.length
                   ? menus.map((x, i) => <li key={x.menu}><span className="rp-rank">{i + 1}</span><b>{x.menu}</b><span className="rp-menu-n">{x.count}건</span></li>)
@@ -266,7 +291,7 @@ function RecordPanel({ view, printing }) {
         <dl className="rp-nums">
           <div><dt>리뷰</dt><dd>{m.review_count ?? 0}건</dd></div>
           <div><dt>불만</dt><dd>{m.complaint_count ?? 0}건</dd></div>
-          <div><dt>응대 점수</dt><dd>{m.score_start} → {m.score_end} <Delta n={m.score_change} /></dd></div>
+          <div><dt>응대 점수</dt><dd><ScoreMove start={m.score_start} end={m.score_end} n={m.score_change} /></dd></div>
           <div><dt>기한 넘긴 답글</dt><dd>{m.late_count ?? 0}건</dd></div>
         </dl>
         <figure className="rp-chart">

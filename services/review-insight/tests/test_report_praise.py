@@ -266,6 +266,16 @@ def test_print_page_shows_praise_and_escapes_review_text(client):
     assert "&lt;b&gt;최고&lt;/b&gt;" in page and "<b>최고</b>" not in page and "<script" not in page
 
 
+def test_print_page_menu_heading_says_top3_only_when_three_menus():
+    """11/22 QA R4: 메뉴가 1~2개인데 'TOP 3'이면 빠진 것처럼 보였다. 셋이면 'TOP 3', 1~2개(또는 없음)는 '인기 메뉴'."""
+    tl = timeline()
+    nov, oct_ = report.monthly(tl, 2026, 11, at(15)), report.monthly(tl, 2026, 10, at(15))
+    assert len(nov["praise"]["top_menus"]) == 2 and len(oct_["praise"]["top_menus"]) == 3
+    assert "<th>인기 메뉴</th>" in report.render_monthly(nov, "온기한식", at(15))
+    assert "<th>인기 메뉴 TOP 3</th>" in report.render_monthly(oct_, "온기한식", at(15))
+    assert [report.menu_heading(x) for x in ([], [{}], [{}, {}, {}], None)] == ["인기 메뉴", "인기 메뉴", "인기 메뉴 TOP 3", "인기 메뉴"]
+
+
 def test_without_the_shared_module_praise_is_null_and_the_report_still_works(monkeypatch):
     monkeypatch.setattr(report, "_praise_mod", None)                 # 이 서비스 폴더만 있는 환경 (Dockerfile 이미지)
     tl = timeline()

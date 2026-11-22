@@ -175,7 +175,8 @@ def monthly(tl: Timeline, year: int, month: int, now: datetime) -> dict:
         raise ValueError("아직 오지 않은 달입니다")
     p = _span(tl, first, last, now, "count_this_month")
     rows, before, after, issues, late = p["rows"], p["before"], p["after"], p["issues"], p["late"]
-    suggestions = _suggestions(issues, late)
+    # 리뷰 0건인 달은 고칠 것을 고르지 않는다: 기간 밖 반복 불만이 '고칠 것'으로 나와 '아직 리뷰가 없어요'와 어긋났다 (11/22 QA R5)
+    suggestions = _suggestions(issues, late) if rows else []
     return {
         "store_id": tl.store_id, "month": f"{year:04d}-{month:02d}", "until": p["end"].isoformat(timespec="seconds"),
         "review_count": len(rows), "complaint_count": sum(1 for r in rows if tl.negative.get(r["review_id"])),
@@ -267,7 +268,7 @@ def _batchim(word: str) -> bool:
 
 def weekly(tl: Timeline, monday: date, now: datetime) -> dict:
     """주간 보고서. 월간과 같은 기준·같은 칸(반복 불만의 이 기간 건수만 count_this_week)에 비교 칸과 '이번 주에 고칠 것'.
-    지난 기간 = 바로 앞 주 전체. 아직 시작하지 않은 주는 ValueError. 리뷰가 0건이어도 같은 모양 (비율은 None)."""
+    지난 기간 = 바로 앞 주 전체. 아직 시작하지 않은 주는 ValueError. 리뷰가 0건이어도 같은 모양 (비율은 None, 고칠 것은 빈 목록)."""
     monday = week_monday(monday)
     sunday = monday + timedelta(days=6)
     if datetime(monday.year, monday.month, monday.day, tzinfo=KST) > now:
@@ -297,7 +298,10 @@ def _week_fixes(issues: list[dict], issue_topics: dict, topics: list[dict], late
     월간 제안(_suggestions)과 같은 일에 '지난주보다 는 불만'과 '칭찬이 가장 많은 메뉴'를 더했다. 원인은 단정하지 않는다.
     차례: 답글 뒤 재발 → 이번 주에도 들어온 답글 없는 반복 불만(이번 주 건수 많은 순) → 지난주보다 는 불만(2건 이상)
     → 기한 넘긴 답글 → 이번 주에는 없던 답글 없는 반복 불만 → 칭찬이 가장 많은 메뉴(2건 이상, 자리가 남을 때).
+    리뷰가 0건인 주는 빈 목록 (기간 밖 반복 불만은 리뷰가 있는 주에만 알린다, 11/22 QA R5).
     문장 속 숫자는 모두 옆 칸(repeated_issues·topics·late_count·praise)의 값이다 (시험으로 확인)."""
+    if not review_count:
+        return []
     out, covered = [], set()
     for i in issues:
         if i["state"] == "recurred_after_reply":
@@ -335,13 +339,9 @@ def _week_fixes(issues: list[dict], issue_topics: dict, topics: list[dict], late
                     "evidence": f"칭찬 리뷰 {pr['praise_count']}건 중 {m['count']}건",
                     "text": "홍보 글에 이 메뉴를 앞세워 보세요"})
     if not out:
-        if review_count:
-            out.append({"kind": "none", "title": "이번 주는 크게 고칠 응대가 보이지 않아요",
-                        "evidence": f"리뷰 {review_count}건 · 불만 {complaint_count}건 · 기한 넘김 0건",
-                        "text": "지금 방식을 이어 가세요"})
-        else:
-            out.append({"kind": "empty", "title": "이번 주에 들어온 리뷰가 아직 없어요", "evidence": "리뷰 0건",
-                        "text": "리뷰가 들어오면 보고서를 다시 만들어 보세요"})
+        out.append({"kind": "none", "title": "이번 주는 크게 고칠 응대가 보이지 않아요",
+                    "evidence": f"리뷰 {review_count}건 · 불만 {complaint_count}건 · 기한 넘김 0건",
+                    "text": "지금 방식을 이어 가세요"})
     return out[:WEEK_FIXES]
 
 
@@ -382,6 +382,12 @@ MASK = "[가림]"        # topics.mask_pii 가 개인정보 자리에 넣는 글
 _SENTENCE = re.compile(r"(?<=[.!?…])\s+|\n+")
 _UNSET = object()
 _praise_mod = _UNSET
+
+
+def menu_heading(top_menus: list) -> str:
+    """인기 메뉴 칸 제목. 메뉴가 셋 다 찼을 때만 'TOP 3' (1~2개인데 'TOP 3'이면 빠진 것처럼 보였다, 11/22 QA R4).
+    화면(features/report/format.js menuTitle)과 같은 규칙."""
+    return "인기 메뉴 TOP 3" if len(top_menus or []) >= PRAISE_MENUS else "인기 메뉴"
 
 
 def _shared_praise():
@@ -505,7 +511,8 @@ def render_monthly(m: dict, store_name: str, printed_at: datetime) -> str:
                f'<text x="{x(len(trend) - 1) - 6:.1f}" y="{yv(last["score"]) - 8:.1f}" font-size="12" font-weight="700" text-anchor="end">{last["score"]}점</text>'
                f'<text x="{P}" y="{H - 6}" font-size="11" fill="#777">{e(trend[0]["date"][5:])}</text>'
                f'<text x="{W - P}" y="{H - 6}" font-size="11" fill="#777" text-anchor="end">{e(last["date"][5:])}</text></svg>')
-    sign = f"+{m['score_change']}" if m["score_change"] > 0 else str(m["score_change"])
+    # 변화가 0이면 맨숫자 '(0)' 대신 '변화 없음' (화면과 같은 말, 11/22 QA R3)
+    sign = f"+{m['score_change']}" if m["score_change"] > 0 else str(m["score_change"]) if m["score_change"] else "변화 없음"
     src = " · ".join(f"{_SOURCE.get(k, k)} {v}" for k, v in m["by_source"].items()) or "없음"
     changes = "".join(f'<tr><td class="num {"neg" if c["delta"] < 0 else "pos"}">{"+" if c["delta"] > 0 else ""}{c["delta"]}</td><td>{e(c["message"])}</td></tr>'
                       for c in m["changes"]) or '<tr><td colspan="2" class="muted">이번 달 점수가 바뀐 일이 없어요</td></tr>'
@@ -518,15 +525,18 @@ def render_monthly(m: dict, store_name: str, printed_at: datetime) -> str:
     issues = "".join(rows_html) or '<tr><td colspan="6" class="muted">묶음이 없어요</td></tr>'
     todos = "".join(f'<li><span class="box"></span><div>{e(t["text"])}<div class="memo">메모 / 한 날짜: ______________________</div></div></li>'
                     for t in m["suggestions"])
+    # 리뷰 0건인 달은 고칠 것이 빈 목록이라 빈 체크 칸 대신 까닭 한 줄 (화면 '고칠 것' 칸과 같은 말, 11/22 QA R5)
+    todos = f'<ol class="todo">{todos}</ol>' if todos else '<p class="muted">이 달에는 리뷰가 없어 고칠 것을 고르지 않았어요.</p>'
     praise_html = ""
     pr = m.get("praise")
     if pr:          # 손님 칭찬 요약 (코드 집계). 메뉴 이름·리뷰 글은 밖에서 온 글이라 모두 html.escape
         topics = " · ".join(f'{e(t["topic_name"])} {t["count"]}건' for t in pr["top_topics"]) or "아직 없어요"
         menus = " · ".join(f'{n}위 {e(x["menu"])} {x["count"]}건' for n, x in enumerate(pr["top_menus"], 1)) or "칭찬 리뷰에 나온 메뉴가 아직 없어요"
         quote = f'“{e(pr["quote"]["text"])}”' if pr["quote"] else "아직 칭찬 리뷰가 없어요"
+        menu_title = menu_heading(pr["top_menus"])
         praise_html = ('<section><h2>손님 칭찬 요약 <span class="muted" style="font-weight:400">— 코드 집계 (모델 호출 없음)</span></h2><table><tbody>'
                        f'<tr><th>별점 4~5점 / 긍정 리뷰</th><td>{pr["high_rating_count"]}건 / {pr["positive_count"]}건 (리뷰 {pr["review_count"]}건 중)</td></tr>'
-                       f'<tr><th>칭찬 주제 상위</th><td>{topics}</td></tr><tr><th>인기 메뉴 TOP 3</th><td>{menus}</td></tr>'
+                       f'<tr><th>칭찬 주제 상위</th><td>{topics}</td></tr><tr><th>{menu_title}</th><td>{menus}</td></tr>'
                        f'<tr><th>대표 칭찬 한 줄</th><td>{quote}</td></tr></tbody></table></section>')
     return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{e(store_name)} {int(mo)}월 응대 보고서</title>
@@ -558,6 +568,6 @@ def render_monthly(m: dict, store_name: str, printed_at: datetime) -> str:
 <section><h2>점수가 바뀐 이유</h2><table><tbody>{changes}</tbody></table></section>
 <section><h2>반복 불만과 재발 여부</h2><table><thead><tr><th>불만</th><th class="num">전체</th><th class="num">이번 달</th><th class="num">답글</th><th>상태</th><th>많은 시간대</th></tr></thead><tbody>{issues}</tbody></table></section>
 {praise_html}
-<section><h2>다음 달 개선 할 일 <span class="muted" style="font-weight:400">— 한 것은 체크해 주세요</span></h2><ol class="todo">{todos}</ol></section>
+<section><h2>다음 달 개선 할 일 <span class="muted" style="font-weight:400">— 한 것은 체크해 주세요</span></h2>{todos}</section>
 <footer>숫자는 리뷰 기록으로 코드가 계산했고, 문장은 정해 둔 틀에 숫자만 넣었어요 (AI 문장 아님). 원인을 단정하지 않으니 매장에서 확인해 주세요. 시연용 합성 데이터(가상 가게)입니다.</footer>
 </div></body></html>"""

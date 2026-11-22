@@ -40,6 +40,38 @@ class MenuMentionsTest(unittest.TestCase):
         # 두 메뉴가 같이 쓰는 낱말은 어느 메뉴인지 알 수 없어 뺀다
         self.assertEqual(menu_variants(["한우 불고기", "돼지 불고기"]), {"한우 불고기": ("한우불고기",), "돼지 불고기": ("돼지불고기",)})
 
+    def test_variants_drop_a_leading_modifier_only_when_unambiguous(self):
+        """11/22 QA R4: '손칼국수'·'왕만두'를 리뷰의 '칼국수'·'만두'와 맞춘다. 다른 메뉴에도 든 이름·한 글자·낱말 첫 글자는 떼지 않는다."""
+        menu = ["손칼국수", "열무김치국수", "왕만두", "김치찌개", "얼큰손칼제비", "통닭", "참치김밥", "생맥주"]
+        v = menu_variants(menu)
+        self.assertEqual(v["손칼국수"], ("손칼국수", "칼국수"))        # '열무김치국수'에 '칼국수'는 없다
+        self.assertEqual(v["왕만두"], ("왕만두", "만두"))
+        self.assertEqual(v["김치찌개"], ("김치찌개",))                # 꾸밈말이 없으면 그대로 ('찌개'를 만들지 않음)
+        self.assertEqual(v["열무김치국수"], ("열무김치국수",))
+        self.assertEqual(v["얼큰손칼제비"], ("얼큰손칼제비", "손칼제비", "칼제비"))   # 꾸밈말이 둘이면 차례로
+        self.assertEqual(v["통닭"], ("통닭",))                        # 떼면 한 글자
+        self.assertEqual(v["참치김밥"], ("참치김밥",))                # '참치'는 꾸밈말이 아님 ('치김밥'은 '김치김밥'에도 걸림)
+        self.assertEqual(v["생맥주"], ("생맥주", "맥주"))
+        # 뗀 이름이 다른 메뉴에 들어 있으면 만들지 않는다
+        self.assertEqual(menu_variants(["손칼국수", "칼국수 곱빼기"])["손칼국수"], ("손칼국수",))
+        self.assertEqual(menu_variants(["왕만두", "김치만두"])["왕만두"], ("왕만두",))
+        self.assertEqual(menu_variants(["손칼국수", "바지락 칼국수"])["손칼국수"], ("손칼국수",))
+
+    def test_unprefixed_names_count_without_spilling_into_other_menus(self):
+        menu = ["손칼국수", "열무김치국수", "왕만두", "김치찌개", "참치김밥", "김치김밥"]
+        reviews = [rv(1, "칼국수 국물이 진하고 맛있어요"), rv(2, "만두가 꽉 차 있어요"), rv(3, "열무김치국수 시원해요"),
+                   rv(4, "김치찌개 칼칼해요"), rv(5, "김치김밥 맛있어요"), rv(6, "손칼국수랑 왕만두 둘 다 최고")]
+        rows = {r["menu"]: r["review_ids"] for r in menu_mentions(menu, reviews)}
+        self.assertEqual(rows["손칼국수"], ["rv_001", "rv_006"])
+        self.assertEqual(rows["왕만두"], ["rv_002", "rv_006"])
+        self.assertEqual(rows["열무김치국수"], ["rv_003"])               # '국수'만으로는 손칼국수로 세지 않음
+        self.assertEqual(rows["김치찌개"], ["rv_004"])
+        self.assertEqual(rows["참치김밥"], [])                           # '김치김밥'을 참치김밥으로 세지 않음
+        self.assertEqual(rows["김치김밥"], ["rv_005"])
+        top = top_praised_menus(menu, [rv(1, "칼국수 최고", 5, "positive"), rv(2, "칼국수 또 먹으러 올게요", 5, "positive"),
+                                       rv(3, "만두 맛있어요", 5, "positive")])
+        self.assertEqual([(r["menu"], r["count"]) for r in top], [("손칼국수", 2), ("왕만두", 1)])
+
     def test_counts_each_review_once_per_menu(self):
         reviews = [rv(1, "제육볶음 정식 맛있고 제육볶음 양도 많아요"), rv(2, "제육 볶음 정식 좋아요"), rv(3, "정식 맛있어요")]
         rows = {r["menu"]: r for r in menu_mentions(MENU, reviews)}

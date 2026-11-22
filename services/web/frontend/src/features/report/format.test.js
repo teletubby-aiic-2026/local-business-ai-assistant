@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  approvalLine, clockView, clocksOf, dateKo, fixItems, fixTitle, marketingNumbers, peakText, periodText, printMeta, remadeDiff, remadeText, rpClock, savedNote, signed, stamp, tilesOf, topicRows,
-  trendGeometry,
+  approvalLine, changeText, clockView, clocksOf, dateKo, fixEmpty, fixItems, fixTitle, marketingNumbers, menuTitle, peakText, periodText, printMeta, remadeDiff, remadeText, rpClock,
+  savedNote, scoreReasons, signed, stamp, tilesOf, topicRows, trendGeometry,
 } from "./format.js";
 
 const view = (over = {}) => ({
@@ -19,6 +19,10 @@ describe("종합 리포트 글자", () => {
     expect(signed(3)).toBe("+3");
     expect(signed(-2)).toBe("-2");
     expect(signed(undefined)).toBe("0");
+    // 11/22 QA R3: 점수 변화 0은 맨숫자 대신 '변화 없음'
+    expect(changeText(0)).toBe("변화 없음");
+    expect(changeText(3)).toBe("+3");
+    expect(changeText(-2)).toBe("-2");
     expect(peakText({ peak_hours: ["11-14", "17-21"] })).toBe("11~14시, 17~21시");
     expect(stamp("2026-11-17T09:00:00+09:00")).toBe("11-17 09:00");
     expect(stamp(null)).toBe("");
@@ -65,17 +69,44 @@ describe("주간·월간 저장 보고서", () => {
     expect(tilesOf(view({ report: { review_count: 0, previous: { review_count: 0 } } }))[0].sub).toBe("들어온 리뷰가 없었어요");
     expect(tilesOf(view({ period: { in_progress: true }, report: { review_count: 0, previous: { review_count: 0 } } }))[0].sub).toBe("아직 리뷰가 없어요");
     expect(tilesOf(view({ report: { review_count: 0, previous: { review_count: 4 } } }))[0].sub).toBe("지난주보다 -4");
+    // 11/22 QA R3: 점수가 그대로면 '시작 98점 · 0' 대신 '변화 없음'
+    expect(tilesOf(view({ report: { review_count: 3, score_start: 98, score_end: 98, score_change: 0 } }))[2].sub).toBe("시작 98점 · 변화 없음");
   });
   it("승인한 글 나눔: 안내문·그 밖은 있을 때만", () => {
     expect(approvalLine({ reply: 5, promo: 2, notice: 0, other: 0 })).toBe("답글 5 · 홍보 2");
     expect(approvalLine({ reply: 1, promo: 0, notice: 2, other: 1 })).toBe("답글 1 · 홍보 0 · 안내문 2 · 그 밖 1");
     expect(approvalLine(null)).toBe("");
   });
-  it("마케팅 숫자: 없는 숫자를 지어내지 않음", () => {
-    expect(marketingNumbers(view()).map((x) => x.value)).toEqual(["2개", "–", "–", "–"]);
-    expect(marketingNumbers(view({ marketing: { promo_approved: 1, coupon_usage_rate: 0.18, ad_cost_per_order: 1200, notice_recurrence: { before: 3, after: 1 } } }))
-      .map((x) => x.value)).toEqual(["1개", "18%", "1,200원", "3 → 1건"]);
-    expect(marketingNumbers({}).map((x) => x.value)).toEqual(["–", "–", "–", "–"]);
+  it("마케팅 숫자: 없는 숫자를 지어내지 않고, 값이 없는 칸은 그리지 않고 맞춤 마케팅으로 안내 (11/22 QA R1)", () => {
+    const now = marketingNumbers(view());
+    expect(now.cells).toEqual([{ label: "승인한 홍보 글", value: "2개" }]);
+    expect(now.elsewhere).toBe(true);
+    const full = marketingNumbers(view({ marketing: { promo_approved: 1, coupon_usage_rate: 0.18, ad_cost_per_order: 1200, notice_recurrence: { before: 3, after: 1 } } }));
+    expect(full.cells.map((x) => x.value)).toEqual(["1개", "18%", "1,200원", "3 → 1건"]);   // 값이 오면 그대로 보인다
+    expect(full.elsewhere).toBe(false);
+    expect(marketingNumbers(view({ marketing: { promo_approved: 0, coupon_usage_rate: 0, ad_cost_per_order: null } })).cells.map((x) => x.label))
+      .toEqual(["승인한 홍보 글", "쿠폰 사용률"]);   // 0%도 값이다
+    expect(marketingNumbers({})).toEqual({ cells: [{ label: "승인한 홍보 글", value: "–" }], elsewhere: true });
+  });
+  it("인기 메뉴 제목: 셋이면 'TOP 3', 1~2개·없음은 '인기 메뉴' (11/22 QA R4)", () => {
+    expect(menuTitle([{}, {}, {}])).toBe("인기 메뉴 TOP 3");
+    expect(menuTitle([{}, {}])).toBe("인기 메뉴");
+    expect(menuTitle([])).toBe("인기 메뉴");
+    expect(menuTitle(undefined)).toBe("인기 메뉴");
+  });
+  it("응대 점수 이유: 크게 깎인 것부터 3줄, 나머지는 rest, 0점 줄은 뺌 (11/22 QA R2)", () => {
+    const reasons = [
+      { key: "fixed:taste", delta: 3, message: "'맛' 답글 뒤 7일 동안 같은 불만 없음" },
+      { key: "repeat:a", delta: -2, message: "'포장 누락' 불만이 3건 반복 중" },
+      { key: "late:1", delta: -6, message: "'배달 시간' 불만 답글 기한을 40분 넘김" },
+      { key: "repeat:b", delta: -2, message: "'배달 시간' 불만이 4건 반복 중" },
+      { key: "zero", delta: 0, message: "x" },
+    ];
+    const { shown, rest } = scoreReasons(reasons);
+    expect(shown.map((x) => x.key)).toEqual(["late:1", "repeat:a", "repeat:b"]);   // 같은 감점은 받은 차례 그대로
+    expect(rest.map((x) => x.key)).toEqual(["fixed:taste"]);
+    expect(scoreReasons(undefined)).toEqual({ shown: [], rest: [] });
+    expect(scoreReasons(reasons, 2).rest).toHaveLength(2);
   });
   it("주제별 흐름: 불만·칭찬 각각 많은 순, 0건은 뺌", () => {
     const rows = topicRows([
@@ -116,15 +147,20 @@ describe("고칠 것: 보는 기간에 맞는 말 (11/21 실시간 확인 13·14
     expect(fixTitle(view({ kind: "monthly", period: past }))).toBe("이 달 기록에서 고칠 것");
     expect(fixTitle(view({ period: {} }))).toBe("이번 주에 고칠 것");   // 모르면 진행 중으로
   });
-  it("리뷰 0건: 끝난 주는 '없었어요'(다시 만들라는 말 없이), 진행 중인 주는 서버 문장 그대로의 뜻", () => {
-    const empty = [{ kind: "empty", title: "이번 주에 들어온 리뷰가 아직 없어요", evidence: "리뷰 0건", text: "리뷰가 들어오면 보고서를 다시 만들어 보세요" }];
-    expect(fixItems(view({ period: past, report: { review_count: 0, suggestions: empty } })))
-      .toEqual([{ title: "이 주에는 들어온 리뷰가 없었어요", evidence: "리뷰 0건", text: "" }]);
-    expect(fixItems(view({ period: live, report: { review_count: 0, suggestions: empty } })))
-      .toEqual([{ title: "이번 주에 들어온 리뷰가 아직 없어요", evidence: "리뷰 0건", text: "리뷰가 들어오면 보고서를 다시 만들어 보세요" }]);
-    // 월간은 리뷰가 0건이어도 서버가 '크게 고칠 응대가 보이지 않아요'를 준다 → 리뷰가 없었다고
-    const none = [{ text: "이번 달은 크게 고칠 응대가 보이지 않아요. 지금 방식을 이어 가세요" }];
-    expect(fixItems(view({ kind: "monthly", period: past, report: { review_count: 0, suggestions: none } }))[0].title).toBe("이 달에는 들어온 리뷰가 없었어요");
+  it("리뷰 0건: 고칠 것은 빈 목록, 빈 칸 한 줄은 끝난 기간이면 '아직' 없이 (11/22 QA R5)", () => {
+    const zero = (over, suggestions = []) => view({ ...over, report: { review_count: 0, suggestions } });
+    expect(fixItems(zero({ period: live }))).toEqual([]);
+    expect(fixEmpty(zero({ period: live }))).toBe("이번 주에는 아직 리뷰가 없어 고칠 것을 고르지 않았어요.");
+    expect(fixEmpty(zero({ period: past }))).toBe("이 주에는 리뷰가 없어 고칠 것을 고르지 않았어요.");
+    expect(fixEmpty(zero({ kind: "monthly", period: live }))).toBe("이번 달에는 아직 리뷰가 없어 고칠 것을 고르지 않았어요.");
+    expect(fixEmpty(zero({ kind: "monthly", period: past }))).toBe("이 달에는 리뷰가 없어 고칠 것을 고르지 않았어요.");
+    // 서버를 고치기 전에 저장된 보고서: 리뷰 0건인데 기간 밖 반복 불만·'empty'·'크게 고칠 응대가 없어요'가 들어 있어도 보이지 않는다
+    const old = [{ kind: "no_reply", title: "'포장 누락' 불만 3건에 아직 답글이 없어요", evidence: "이번 주 0건 · 전체 3건", text: "답글로 조치를 알리고, 매장에서 확인해 보세요" },
+      { kind: "empty", title: "이번 주에 들어온 리뷰가 아직 없어요", evidence: "리뷰 0건", text: "" }];
+    expect(fixItems(zero({ period: live }, old))).toEqual([]);
+    expect(fixItems(zero({ kind: "monthly", period: past }, [{ text: "'포장 누락' 불만 3건에 아직 답글이 없어요." }]))).toEqual([]);
+    // 리뷰가 있는데 빈 목록이면 예전 한 줄
+    expect(fixEmpty(view({ report: { review_count: 3, suggestions: [] } }))).toBe("제안이 없어요.");
   });
   it("끝난 기간의 문장은 '이번 주·이번 달'을 '이 주·이 달'로 (숫자·근거는 그대로)", () => {
     const sugg = [{ kind: "no_reply", title: "'포장 상태' 불만 3건에 아직 답글이 없어요", evidence: "이번 주 3건 · 전체 3건", text: "답글로 조치를 알리고, 매장에서 확인해 보세요" }];
