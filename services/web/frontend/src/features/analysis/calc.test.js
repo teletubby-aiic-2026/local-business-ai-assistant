@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandRows, capCheck, capItems, capStatusLine, groupNote, pasteJoin, periodLine, restTopics, summaryTiles, topTopics } from "./calc.js";
+import { bandRows, capCheck, capItems, capStatusLine, groupNote, pasteJoin, periodLine, quoteMeta, repeatedTile, restTopics, summaryTiles, topTopics } from "./calc.js";
 
 const d = {
   period_start: "2026-10-12", period_end: "2026-11-08", review_count: 40, complaint_count: 12,
@@ -37,6 +37,23 @@ describe("요약", () => {
     expect(topTopics(null, "positive")).toEqual([]);
   });
   it("기간 줄", () => expect(periodLine(d)).toBe("2026-10-12 ~ 2026-11-08 · 리뷰는 합성 데이터"));
+
+  // 11/22 QA: 불만 리뷰 5건인데 '반복 불만 7건'이 리뷰 수로 읽힘 → 숫자는 그대로, 부제에 묶음 수와 합계 기준
+  it("반복 불만 타일: 묶음 2개부터 '합계', 같은 리뷰가 두 묶음에 들면 겹친 리뷰를 뺀 수", () => {
+    const g1 = { topic_name: "배달 시간", review_count: 4, is_repeated: true, review_ids: ["a", "b", "c", "d"] };
+    const g2 = { topic_name: "음식 온도", review_count: 3, is_repeated: true, review_ids: ["a", "b", "e"] };
+    const small = { topic_name: "맛", review_count: 2, is_repeated: false, review_ids: ["a", "f"] };
+    expect(repeatedTile([g1, g2, small])).toEqual({ value: 7, sub: "묶음 2개 합계 · 겹친 리뷰 빼면 5건 · 배달 시간, 음식 온도" });
+    expect(repeatedTile([g1, { ...g2, review_ids: ["e", "f", "g"] }])).toEqual({ value: 7, sub: "묶음 2개 합계 · 배달 시간, 음식 온도" });
+    expect(repeatedTile([g1])).toEqual({ value: 4, sub: "묶음 1개 · 배달 시간" });
+    expect(repeatedTile([small])).toEqual({ value: 0, sub: "같은 불만 3건부터" });
+    expect(repeatedTile(undefined)).toEqual({ value: 0, sub: "같은 불만 3건부터" });
+    // 홈 브리핑은 reviews[].review_id, id 를 다 모르면(근거만 일부) 겹침을 말하지 않는다
+    const h1 = { topic_name: "배달 시간", review_count: 3, is_repeated: true, reviews: [{ review_id: "a" }, { review_id: "b" }, { review_id: "c" }] };
+    const h2 = { topic_name: "음식 온도", review_count: 3, is_repeated: true, reviews: [{ review_id: "a" }, { review_id: "d" }, { review_id: "e" }] };
+    expect(repeatedTile([h1, h2]).sub).toBe("묶음 2개 합계 · 겹친 리뷰 빼면 5건 · 배달 시간, 음식 온도");
+    expect(repeatedTile([h1, { ...h2, reviews: undefined, evidence: [{ review_id: "a" }] }]).sub).toBe("묶음 2개 합계 · 배달 시간, 음식 온도");
+  });
 });
 
 describe("불만 묶음", () => {
@@ -45,6 +62,21 @@ describe("불만 묶음", () => {
     expect(groupNote(g)).toBe("주로 17~21시 · 앞 2주 0건 → 최근 2주 4건");
     expect(groupNote({})).toBe("여러 시간대");
     expect(bandRows(g)).toEqual([{ band: "11~14시", n: 1, pct: 25, hot: false }, { band: "17~21시", n: 4, pct: 100, hot: true }]);
+  });
+  // 11/22 QA: 인용 옆 내부 id(rv_…_paste_002) 대신 채널 · 날짜. 붙여넣은 리뷰는 넣은 날이라 '붙여넣음'
+  it("인용 옆 한 조각: 채널 · 날짜", () => {
+    const reviews = { r1: { channel: "배민", created_at: "2026-11-03T18:10:00+09:00" }, p1: { channel: null, created_at: "2026-11-22T00:05:00+09:00", input_method: "paste" },
+      p2: { channel: "쿠팡이츠", created_at: "2026-11-22T00:06:00+09:00", input_method: "paste" }, x: { text: "글만" } };
+    expect(quoteMeta("r1", reviews)).toBe("배민 · 11-03");
+    expect(quoteMeta("p1", reviews)).toBe("붙여넣음");
+    expect(quoteMeta("p2", reviews)).toBe("쿠팡이츠 · 붙여넣음");
+    expect(quoteMeta("x", reviews)).toBe("");
+    expect(quoteMeta("none", reviews)).toBe("");
+    expect(quoteMeta("none", null)).toBe("");
+    // 스토어에 없으면 그 칸의 값 (묶이지 않은 불만: 채널 코드 → 짧은 이름)
+    expect(quoteMeta("s1", reviews, { channel: "baemin", created_at: "2026-10-30T12:00:00+09:00" })).toBe("배민 · 10-30");
+    expect(quoteMeta("s2", reviews, { channel: "unknown", created_at: "엉뚱한 값" })).toBe("");
+    expect(quoteMeta("r1", reviews, { channel: "yogiyo" })).toBe("배민 · 11-03");   // 스토어가 먼저
   });
   it("붙여넣기 결과의 들어간 묶음", () => {
     const r = { classification: { topics: [{ topic: "packaging", polarity: "negative" }] }, joined_issues: ["iss_missing_item", "iss_?"] };

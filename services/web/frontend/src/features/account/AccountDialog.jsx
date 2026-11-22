@@ -138,11 +138,26 @@ export default function AccountDialog({ act, onClose, returnFocus }) {
   );
 }
 
-// 결과 띠: 화면 오른쪽 아래 (모든 단계에서. 탈퇴 뒤 로그인 화면에도 남음)
+// 결과 띠: 화면 오른쪽 아래 (모든 단계에서. 탈퇴 뒤 로그인 화면에도 남음).
+// 뜬 뒤 TOAST_MS 가 지나면 스스로 닫힌다 (문구가 바뀌면 다시 셈). 마우스를 올렸거나 포커스가 띠 안에 있으면 닫지 않고,
+// 벗어나면 처음부터 다시 센다. [닫기]는 그대로. 로그인에 성공하면 앞 계정의 띠를 비운다 (state/account.js authDo, 11/22 QA:
+// 저장 알림이 다른 화면에서도, 탈퇴 알림이 다른 계정으로 로그인한 뒤에도 남았음)
+export const TOAST_MS = 6000;
 export function AcctToast() {
   const notice = useStore((s) => s.acctNotice);
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const hold = hover || focus;
+  useEffect(() => {
+    if (!notice) { setHover(false); setFocus(false); return undefined; }   // 숨으면 붙잡던 표시도 푼다 (숨은 칸에서는 blur 가 안 올 수 있음)
+    if (hold) return undefined;
+    const t = setTimeout(() => { if (getState().acctNotice === notice) setState({ acctNotice: "" }); }, TOAST_MS);
+    return () => clearTimeout(t);
+  }, [notice, hold]);
   return (
-    <div className="acct-toast" role="status" hidden={!notice}>
+    <div className="acct-toast" role="status" hidden={!notice}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      onFocus={() => setFocus(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocus(false); }}>
       <span>{notice}</span>
       <Button variant="text" size="small" onClick={() => setState({ acctNotice: "" })}>닫기</Button>
     </div>

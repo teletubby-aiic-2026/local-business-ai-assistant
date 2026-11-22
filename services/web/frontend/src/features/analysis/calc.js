@@ -27,21 +27,52 @@ export function summaryTiles(d) {
   // 리뷰가 0건인 새 가게는 기간이 비어 있다 (new Date(null) 끼리 빼면 0 → '1일'로 보이지 않게)
   const days = d.period_start && d.period_end ? Math.round((new Date(d.period_end) - new Date(d.period_start)) / 86400000) + 1 : NaN;
   const s = d.sentiment_counts || {};
-  const rep = (d.groups || []).filter((g) => g.is_repeated);
+  const rep = repeatedTile(d.groups);
   return {
     reviews: d.review_count ?? "–",
     reviewsSub: `${Number.isFinite(days) ? days + "일 · " : ""}긍정 ${s.positive ?? 0} · 중립 ${s.neutral ?? 0}`,
     complaints: d.complaint_count ?? "–",
     complaintsSub: d.review_count ? `리뷰의 ${Math.round((d.complaint_count / d.review_count) * 100)}%` : "",
-    repeated: rep.reduce((n, g) => n + g.review_count, 0),
-    // 0건이면 '없음' 대신 기준 (2건 묶음이 있어도 반복은 3건부터라 0건이 틀린 숫자처럼 보이지 않게, 11/21 QA)
-    repeatedSub: rep.length ? `묶음 ${rep.length}개 · ${rep.map((g) => g.topic_name).join(", ")}` : REPEAT_RULE,
+    repeated: rep.value,
+    repeatedSub: rep.sub,
   };
 }
 // 불만 묶음 탭(Issues.jsx)·붙여넣기 결과(PasteTab.jsx)와 같은 정의: 같은 불만 2건부터 묶음, 3건부터 반복.
 // 세 곳이 같은 문장을 쓰게 한 곳에 둔다 (11/21 QA: 타일에는 기준이 없어 '반복 0건'이 틀린 숫자처럼 보였음)
 export const REPEAT_RULE = "같은 불만 3건부터";
 export const REPEAT_NOTE = "같은 불만이 2건 이상이면 묶음, 3건 이상이면 반복으로 봐요";
+// 불만 묶음 탭 흐름 아래 둘째 줄: 묶음 건수의 합이 불만 리뷰 수와 다른 까닭 (11/22 QA: 리뷰 하나가 두 묶음에 들어 합계가 안 맞아 보였음)
+export const OVERLAP_NOTE = "리뷰 하나에 불만 주제가 둘 이상이면 묶음마다 들어가요. 그래서 묶음의 건수를 더하면 불만 리뷰 수보다 많을 수 있어요.";
+
+// 묶음의 리뷰 id: 리뷰 분석(review_ids) · 홈 브리핑(reviews[].review_id) · 둘 다 없으면 근거(evidence[].review_id)
+const groupIds = (g) => (Array.isArray(g.review_ids) ? g.review_ids
+  : Array.isArray(g.reviews) ? g.reviews.map((r) => r && r.review_id) : (g.evidence || []).map((e) => e && e.review_id)).filter(Boolean);
+
+// '반복 불만' 타일 (요약 탭 · 홈 R1 이 같이 씀): {value, sub}. 숫자는 반복 묶음들의 건수 합(주제별 합계) 그대로 두고,
+// 부제에 세는 기준을 밝힌다 (11/22 QA: 불만 리뷰는 5건인데 반복 불만 7건이라 리뷰 수로 읽혔음).
+// 0개 → 기준 · 1개 → '묶음 1개 · 주제' · 2개부터 → '묶음 n개 합계 · 주제들'. 같은 리뷰가 두 묶음에 들어 합계가 리뷰 수보다 크면
+// '겹친 리뷰 빼면 m건'을 덧붙인다 (묶음마다 리뷰 id 를 다 알 때만. 모르면 붙이지 않음)
+export function repeatedTile(groups) {
+  const rep = (groups || []).filter((g) => g && g.is_repeated);
+  const value = rep.reduce((n, g) => n + g.review_count, 0);
+  if (!rep.length) return { value, sub: REPEAT_RULE };
+  const topics = rep.map((g) => g.topic_name).join(", ");
+  if (rep.length === 1) return { value, sub: `묶음 1개 · ${topics}` };
+  const ids = rep.map(groupIds);
+  const unique = ids.every((x, i) => x.length === rep[i].review_count) ? new Set(ids.flat()).size : value;
+  return { value, sub: `묶음 ${rep.length}개 합계${unique < value ? ` · 겹친 리뷰 빼면 ${unique}건` : ""} · ${topics}` };
+}
+
+// 인용 옆 한 조각: '배민 · 11-03' (채널 · 날짜). 붙여넣은 리뷰는 날짜가 넣은 날이라 날짜 대신 '붙여넣음'. 모르면 "".
+// 리뷰 원문은 스토어 reviewsById(브리핑의 묶음 리뷰·붙여넣은 리뷰, 채널은 서버가 한국어 이름으로 바꿔 줌)에서 먼저 찾고,
+// 없으면 그 칸이 가진 값(묶이지 않은 불만의 created_at·channel 코드)으로. 내부 id 는 화면 글자로 보이지 않는다 (11/22 QA)
+export const CHANNEL_SHORT = { baemin: "배민", coupangeats: "쿠팡이츠", yogiyo: "요기요", naver_place: "네이버 플레이스" };   // shared/contracts.py LABELS_KO 와 같은 이름
+export function quoteMeta(id, reviews, own) {
+  const r = (id && reviews && reviews[id]) || own || {};
+  const channel = r.channel && r.channel !== "unknown" ? CHANNEL_SHORT[r.channel] || r.channel : "";
+  const day = r.input_method === "paste" ? "붙여넣음" : /^\d{4}-\d{2}-\d{2}/.test(String(r.created_at || "")) ? String(r.created_at).slice(5, 10) : "";
+  return [channel, day].filter(Boolean).join(" · ");
+}
 
 // 칭찬·불만 키워드: 주제별 긍정(positive)·부정(negative) 수가 많은 순. ratio 는 같은 칸 안 최댓값 대비
 export const TOPIC_MAX = 8;

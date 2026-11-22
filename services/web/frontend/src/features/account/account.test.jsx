@@ -12,6 +12,7 @@ import Topbar from "../../components/Topbar.jsx";
 import Sidebar from "../../components/Sidebar.jsx";
 import { ownerTitle } from "../../state/account.js";
 import { summary } from "./acctApi.js";
+import { AcctToast, TOAST_MS } from "./AccountDialog.jsx";
 
 // 시험용 값 (실제 계정 아님)
 const TEST_ID = "owner_test";
@@ -419,5 +420,75 @@ describe("A5 사장님 프로필", () => {
     expect(getState().me.authenticated).toBe(false);
     expect(getState().acctNotice).toBe("회원 탈퇴를 마쳤어요. 계정과 기록을 모두 지웠어요.");
     expect(keptFlows()).toEqual(["ic26.flow.v1:u2:store_basak"]);    // 보관한 오늘 할 일 진행도 이 사장님 것 전부
+  });
+});
+
+// 11/22 실사용 QA D4: 저장 알림이 다른 화면에서도, 탈퇴 알림이 다른 계정으로 로그인한 뒤에도 남았음
+describe("결과 띠 (AcctToast)", () => {
+  const toast = () => document.querySelector(".acct-toast");
+  const tick = (ms) => act(() => { vi.advanceTimersByTime(ms); });
+  afterEach(() => vi.useRealTimers());
+
+  it("6초쯤 지나면 스스로 닫히고, 문구가 바뀌면 다시 셈. 마우스를 올렸거나 포커스가 안에 있으면 닫지 않고, [닫기]는 그대로", () => {
+    vi.useFakeTimers();
+    render(<AcctToast />);
+    expect(TOAST_MS).toBe(6000);
+    expect(toast().hidden).toBe(true);
+    act(() => setState({ acctNotice: "우리분식 본점 정보를 저장했어요." }));
+    expect(toast().hidden).toBe(false);
+    expect(toast().getAttribute("role")).toBe("status");
+    tick(5000);
+    act(() => setState({ acctNotice: "바뀐 내용이 없어 그대로 두었어요." }));   // 문구가 바뀌면 처음부터
+    tick(5000);
+    expect(getState().acctNotice).toBe("바뀐 내용이 없어 그대로 두었어요.");
+    tick(1000);
+    expect(getState().acctNotice).toBe("");
+    expect(toast().hidden).toBe(true);
+
+    // 마우스를 올려 두면 닫지 않고, 벗어나면 다시 6초
+    act(() => setState({ acctNotice: "기록을 지웠어요." }));
+    fireEvent.mouseEnter(toast());
+    tick(20000);
+    expect(getState().acctNotice).toBe("기록을 지웠어요.");
+    fireEvent.mouseLeave(toast());
+    tick(TOAST_MS - 1);
+    expect(getState().acctNotice).toBe("기록을 지웠어요.");
+    tick(1);
+    expect(getState().acctNotice).toBe("");
+
+    // 포커스가 띠 안([닫기])에 있으면 닫지 않음
+    act(() => setState({ acctNotice: "기록을 지웠어요." }));
+    const close = within(toast()).getByRole("button", { name: "닫기" });
+    act(() => close.focus());
+    tick(20000);
+    expect(getState().acctNotice).toBe("기록을 지웠어요.");
+    act(() => close.blur());
+    tick(TOAST_MS);
+    expect(getState().acctNotice).toBe("");
+
+    // [닫기]는 바로
+    act(() => setState({ acctNotice: "기록을 지웠어요." }));
+    fireEvent.click(within(toast()).getByRole("button", { name: "닫기" }));
+    expect(getState().acctNotice).toBe("");
+    expect(toast().hidden).toBe(true);
+  });
+
+  it("로그인에 성공하면 앞 계정의 띠를 비운다 (실패하면 그대로)", async () => {
+    const BYE = "회원 탈퇴를 마쳤어요. 계정과 기록을 모두 지웠어요.";
+    let ok = false;
+    server({ "POST /api/auth/login": () => (ok ? ME : [401, { error: { message: "아이디 또는 비밀번호가 맞지 않아요.", state: "bad_login" } }]) });
+    setState({ stage: "login", me: GUEST, acctNotice: BYE });
+    render(<><Login /><AcctToast /></>);
+    expect(toast().textContent).toContain(BYE);
+    fireEvent.change(document.querySelector('#auth-login input[name="login_id"]'), { target: { value: TEST_ID } });
+    fireEvent.change(document.querySelector('#auth-login input[name="password"]'), { target: { value: TEST_PW } });
+    fireEvent.submit(document.getElementById("auth-login"));
+    expect(await screen.findByText("아이디 또는 비밀번호가 맞지 않아요.")).toBeTruthy();
+    expect(getState().acctNotice).toBe(BYE);
+    ok = true;
+    fireEvent.submit(document.getElementById("auth-login"));
+    await waitFor(() => expect(getState().stage).toBe("pick"));
+    expect(getState().acctNotice).toBe("");
+    expect(toast().hidden).toBe(true);
   });
 });

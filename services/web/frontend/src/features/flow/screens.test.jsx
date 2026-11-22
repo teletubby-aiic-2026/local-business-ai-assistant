@@ -508,3 +508,44 @@ describe("11/21 실사용 QA", () => {
     expect(list.querySelector(".panel-head .sub").textContent).toBe("만든 글 2개 중 1개 승인");
   });
 });
+
+describe("11/22 실사용 QA", () => {
+  const NOTE = "점검 결과는 고치기 전 글 기준이에요.";
+  const order = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it("D3 승인할 글: 고치면 칩 바로 아래 '고치기 전 글 기준' 한 줄, 칩과 확인 필요 설명은 그대로, 원문으로 되돌리면 사라짐", () => {
+    setState({ results: { card_a: runA }, current: "card_a", draftId: "d2" });
+    const { container } = render(<Draft />);
+    const box = screen.getByLabelText(/AI 포장·주문 안내문 초안/);
+    expect(screen.queryByText(NOTE)).toBeNull();                       // 고치기 전에는 없음
+    fireEvent.change(box, { target: { value: "제가 통째로 다시 쓴 안내문" } });
+    const note = screen.getByText(NOTE);
+    expect(note.className).toContain("small muted");
+    const chips = container.querySelector(".flow-checks");
+    expect(order(chips, note) && order(note, container.querySelector(".flow-issues"))).toBe(true);
+    expect([...chips.querySelectorAll(".badge")].map((b) => b.textContent)).toEqual(["확인 필요 1"]);
+    expect(container.querySelector(".flow-issues").textContent).toBe("확인 필요 · 확인할 것");
+    fireEvent.change(box, { target: { value: "안내문" } });           // 원문으로 되돌림
+    expect(screen.queryByText(NOTE)).toBeNull();
+  });
+
+  it("D3 승인할 글: 고쳐서 승인한 글은 승인 완료 칩 옆에도 한 줄, 고치지 않고 승인한 글은 없음", () => {
+    const run = { ...runA, drafts: [{ ...runA.drafts[0], edited_text: "고쳐서 승인한 답글" }, runA.drafts[1]] };
+    setState({ results: { card_a: run }, current: "card_a", draftId: "d1", approved: new Set(["d1", "d2"]) });
+    const view = render(<Draft />);
+    expect(screen.getByLabelText(/AI 답글 초안/).value).toBe("고쳐서 승인한 답글");
+    expect(screen.getByText(NOTE)).toBeTruthy();
+    view.unmount();
+    setState({ draftId: "d2" });
+    render(<Draft />);
+    expect(screen.queryByText(NOTE)).toBeNull();
+  });
+
+  it("D1 홈 '반복 불만' 타일: 숫자는 그대로, 부제는 리뷰 분석 요약 탭과 같은 '묶음 n개 · 주제'", () => {
+    setState({ cards: [] });
+    const { container } = render(<Home />);
+    const rep = container.querySelector(".tile.tint-lime");
+    expect(rep.querySelector(".num").textContent).toBe("2건");
+    expect(rep.querySelector(".tile-sub").textContent).toBe("묶음 1개 · 포장 누락");
+  });
+});
