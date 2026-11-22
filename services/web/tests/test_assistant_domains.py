@@ -209,6 +209,15 @@ class NewRouting(unittest.TestCase):
         for q in ("메뉴 추천해줘", "카드 결제 많아?", "주변 가게 오늘 할 일", "근처 상권 추천 카드 있어?", "우리 가게 이름 뭐야?"):
             self.assertNotIn(domain_question(q), ("cards", "help"), q)
 
+    def test_what_first_questions_go_to_cards(self):
+        """11/22 QA: '오늘 뭐부터 할까요?'가 상권 서비스로 가서 매출 순위로 답했다. 무엇부터 할지 묻는 말은 오늘 할 일(cards)."""
+        for q in ("오늘 뭐부터 할까요?", "뭘 먼저 해야 돼?", "먼저 뭐 하면 돼?", "지금 뭐 해야 해?", "오늘 할 거 있어?",
+                  "무엇부터 처리할까요"):
+            self.assertEqual((ap.store_question(q), domain_question(q)), (None, "cards"), q)
+        # 상권 자료를 묻는 말은 그대로 상권 서비스
+        for q in ("점심이랑 저녁 중 뭐부터 공략해야 해?", "주변 상권에서 뭐부터 봐야 해?", "매출 높은 시간대부터 뭐 해야 돼?"):
+            self.assertIsNone(domain_question(q), q)
+
     def test_new_marketing_words(self):
         for q in ("인스타 올리고 싶어", "SNS 글 써줘", "블로그에 올릴 글", "네이버 플레이스 소개", "배민 공지 바꾸고 싶어",
                   "신메뉴 홍보하고 싶어", "손님 늘리고 싶어", "단골 늘리는 법"):

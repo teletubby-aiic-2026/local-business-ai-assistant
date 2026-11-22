@@ -1484,6 +1484,50 @@ class TestCouponResultFeature(unittest.TestCase):
         })
         self.assertEqual(out["next_condition"]["discount_won"], 0)
 
+    def test_used_more_than_issued_is_not_calculated(self):
+        """11/22 QA: 발급 100장에 사용 300장이 통과해 '사용률 300%'가 나왔다."""
+        out = coupon_result.build_coupon_result_plan({
+            "coupon_issued": 100, "coupon_used": 300, "coupon_discount_won": 2_000,
+            "coupon_avg_order_won": 15_000, "coupon_margin_pct": 30,
+        })
+        self.assertIsNone(out["usage_rate"])
+        self.assertIsNone(out["breakeven_orders"])
+        self.assertIsNone(out["next_condition"])
+        self.assertEqual(out["steps"][0]["what"], coupon_result.TODO_CHECK_INPUT)
+        self.assertIn("발급 장수(100장)보다 많아요", out["warning"])
+
+    def test_discount_over_profit_warns_instead_of_breakeven(self):
+        """11/22 QA: 할인액이 건당 이익보다 커도 경고가 없었고, 본전 주문 수(150건)가 발급 수를 넘었다."""
+        out = coupon_result.build_coupon_result_plan({
+            "coupon_issued": 100, "coupon_used": 50, "coupon_discount_won": 3_000,
+            "coupon_avg_order_won": 10_000, "coupon_margin_pct": 20,      # 건당 이익 2,000원
+        })
+        self.assertEqual(out["profit_per_order_won"], 2_000)
+        self.assertIsNone(out["breakeven_orders"])
+        self.assertIsNone(out["next_condition"])
+        self.assertEqual(out["steps"][0]["what"], coupon_result.TODO_DISCOUNT_OVER_PROFIT)
+        self.assertIn("본전을 찾을 수 없어요", out["warning"])
+        self.assertEqual(out["steps"][0]["tip"], out["warning"])
+
+    def test_zero_discount_asks_for_discount(self):
+        """11/22 QA: 할인 0원이면 '본전 0건'과 할 일 1개가 같이 나왔다."""
+        out = coupon_result.build_coupon_result_plan({
+            "coupon_issued": 100, "coupon_used": 30, "coupon_discount_won": 0,
+            "coupon_avg_order_won": 15_000, "coupon_margin_pct": 30,
+        })
+        self.assertIsNone(out["breakeven_orders"])
+        self.assertEqual(out["steps"][0]["what"], "할인액을 입력해 주세요")
+        self.assertAlmostEqual(out["usage_rate"], 0.3)
+
+    def test_normal_input_has_no_warning(self):
+        out = coupon_result.build_coupon_result_plan({
+            "coupon_issued": 100, "coupon_used": 30, "coupon_discount_won": 2_000,
+            "coupon_avg_order_won": 15_000, "coupon_margin_pct": 30,      # 건당 이익 4,500원 > 할인 2,000원
+        })
+        self.assertIsNone(out["warning"])
+        self.assertEqual(out["breakeven_orders"], 14)                   # 사용 30장 × 2,000원 ÷ 4,500원 → 14건
+        self.assertEqual(out["steps"][0]["what"], coupon_result.TODO_MID_USAGE)
+
     def test_coupon_result_chat_path_through_server_reaches_decision(self):
         from fastapi.testclient import TestClient
         from marketing_survey.server import app
