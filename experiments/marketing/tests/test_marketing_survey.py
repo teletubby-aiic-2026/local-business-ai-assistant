@@ -2364,6 +2364,16 @@ class TestMarketingReportServer(unittest.TestCase):
         self.assertEqual(rows[0]["table"], records.COUPON_RUNS)
         self.assertEqual((rows[0]["issued"], rows[0]["used"], rows[0]["discount_krw"]), (50, 23, 1900))
 
+    def test_coupon_result_with_used_over_issued_is_not_saved(self):
+        """사용 장수 > 발급 장수는 경고만 돌려주고 기록하지 않는다 (보고서에 사용률 300%로 남지 않게)."""
+        raw = {"coupon_issued": 100, "coupon_used": 300, "coupon_discount_won": 2000,
+               "coupon_avg_order_won": 15000, "coupon_margin_pct": 30}
+        state = {"node": "DECISION", "raw": raw, "confirms": {}, "mode": "coupon_result"}
+        res = self.client.post("/api/marketing-survey/plan", json={"state": state})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertIn("발급 장수(100장)보다 많아요", res.text)
+        self.assertEqual([r for r in records.load("store_ongi") if r.get("table") == records.COUPON_RUNS], [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
