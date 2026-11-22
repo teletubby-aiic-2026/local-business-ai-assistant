@@ -1,5 +1,5 @@
 // 오늘 할 일 흐름(홈·추천 카드·승인할 글·처리 완료)의 순수 계산 (예전 app.js 1 오늘 ~ 4 완료). 화면을 만지지 않는다.
-import { draftsOf, praiseOf, shortBasis } from "../../lib/domain.js";
+import { draftsOf, genName, praiseOf, shortBasis } from "../../lib/domain.js";
 
 export const RULES_TITLE = "오늘부터 실천할 주방 점검 수칙";
 export const RERUN_LABEL = "카드 전체 다시 만들기";
@@ -135,6 +135,28 @@ export function measureIds(p, results, picks = {}) {
 // 승인한 글부터 20개 (승인하지 않은 글은 서버에 지울 기록이 없다)
 export const replacesOf = (ids, approved) => [...ids.filter((id) => approved.has(id)), ...ids.filter((id) => !approved.has(id))].slice(0, REPLACES_MAX);
 
+// 오늘 날짜 'YYYY-MM-DD' (이 브라우저의 시각. 서버 승인 시각의 앞 10글자와 견준다)
+const ymdOf = (d) => { const pad = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+
+// 서버 승인 목록(GET /api/approvals 의 items, card_id 포함)에서 이 카드의 **오늘** 승인한 글 id (같은 글은 한 번).
+// 지난날의 승인은 이력이라 세지 않는다: 새로 만들 때 replaces 로 지우면 주간·월간 보고서의 승인 수가 줄어든다
+export const priorApprovals = (items, cardId, today = new Date()) => [...new Set((Array.isArray(items) ? items : [])
+  .filter((x) => x && x.draft_id && x.card_id === cardId && (!x.status || x.status === "approved")
+    && String(x.approved_at || "").slice(0, 10) === ymdOf(today)).map((x) => x.draft_id))];
+
+// 이 브라우저에 진행이 없는 카드마다 서버에 남은 오늘 승인 글 수 (다른 기기에서 했거나 보관한 진행을 되살리지 못함). card_id → 수 (0 은 뺌)
+export function priorByCard(cards, results, items, today = new Date()) {
+  const out = {};
+  (cards || []).forEach((p) => {
+    const id = p.card.card_id;
+    const n = results?.[id] ? 0 : priorApprovals(items, id, today).length;
+    if (n) out[id] = n;
+  });
+  return out;
+}
+// 그 카드에 붙이는 한 줄 (뒤에 '처리 완료에서 보기' 링크)
+export const priorNote = (n) => `오늘 승인한 글 ${n}개가 있어요. 새로 만들면 그 승인 기록은 새 글로 바뀌어요.`;
+
 // ── 3 승인할 글 ──
 // 점검 실패 = 자동 점검에 걸림(failed_reasons) → 글을 고쳐야 함
 // 확인 필요 = 빠진 정보(needs_input)·하지 않은 조치/정하지 않은 보상(c7_flags) → 사장님이 사실을 확인
@@ -171,20 +193,32 @@ export function targetLine(d, reviews, max = 24) {
 }
 
 // ── 4 처리 완료 ──
-// 서버 승인 기록(GET /api/approvals)의 글 이름. 서버는 글 종류를 주지 않아(draft_id 는 'd_' + 16진수) 맞춤 마케팅 글만 알아본다
-export const serverName = (id) => (String(id || "").startsWith("mkt-") ? "맞춤 마케팅 글" : "글");
+// 서버 승인 기록(GET /api/approvals 항목 또는 글 id)의 글 이름. 서버가 준 글 종류(kind)와 카드(card_id → 카드 제목)로 genName.
+// 종류를 모르면(옛 기록) 맞춤 마케팅 글(mkt-)만 알아보고 나머지는 '글'. 맞춤 마케팅의 kind 는 '쿠폰 글' 같은 이름 그대로다
+export const MARKETING_CARD = "marketing";   // 맞춤 마케팅에서 승인한 글의 card_id (서버 marketing_proxy.MARKETING_CARD_ID)
+export function serverName(item, cards = []) {
+  const x = typeof item === "string" ? { draft_id: item } : item || {};
+  const kind = typeof x.kind === "string" ? x.kind.trim() : "";
+  if (!kind) return String(x.draft_id || "").startsWith("mkt-") ? "맞춤 마케팅 글" : "글";
+  const card = (cards || []).find((p) => p.card.card_id === x.card_id);
+  return genName(kind, card ? card.title : "");
+}
+const isMktItem = (x) => String(x.draft_id).startsWith("mkt-") || x.card_id === MARKETING_CARD;
 
 // 처리 완료의 '승인한 글' = 이 브라우저의 승인 목록 ∪ 서버 승인 기록. 새로 고침하면 브라우저 목록이 비므로 서버 기록으로 채운다 (11/21 QA B-1).
-// 같은 글은 한 번만 (브라우저 쪽이 글 이름을 알아 그쪽을 쓴다), 차례는 서버가 저장한 차례, 서버에 없는 브라우저 글은 뒤에
-export function mergeApprovals(log, items) {
+// 같은 글은 한 번만 (브라우저 쪽이 글 이름을 알아 그쪽을 쓴다), 차례는 서버가 저장한 차례, 서버에 없는 브라우저 글은 뒤에.
+// cards: 서버에만 있는 글의 카드 제목을 찾을 곳 (안내문 이름·마우스를 올리면 보이는 카드 제목)
+export function mergeApprovals(log, items, cards = []) {
   const local = new Map((log || []).map((a) => [a.id, a]));
   const seen = new Set();
   const out = [];
   (items || []).filter((x) => x && x.draft_id && (!x.status || x.status === "approved")).forEach((x) => {
     if (seen.has(x.draft_id)) return;
     seen.add(x.draft_id);
+    const mkt = isMktItem(x);
+    const card = (cards || []).find((p) => p.card.card_id === x.card_id);
     out.push(local.get(x.draft_id) || { id: x.draft_id, at: x.approved_at || "", edited: !!x.edited, text: x.text || "",
-      name: serverName(x.draft_id), mkt: String(x.draft_id).startsWith("mkt-"), server: true });
+      name: serverName(x, cards), kind: x.kind || undefined, card: mkt ? "맞춤 마케팅" : card ? card.title : "", mkt, server: true });
   });
   (log || []).forEach((a) => { if (!seen.has(a.id)) { seen.add(a.id); out.push(a); } });
   return out;
@@ -194,9 +228,7 @@ export function mergeApprovals(log, items) {
 export function whenText(at, today = new Date()) {
   const s = String(at || "");
   if (s.length < 16) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  const ymd = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-  return s.slice(0, 10) === ymd ? s.slice(11, 16) : `${s.slice(5, 10)} ${s.slice(11, 16)}`;
+  return s.slice(0, 10) === ymdOf(today) ? s.slice(11, 16) : `${s.slice(5, 10)} ${s.slice(11, 16)}`;
 }
 
 // 글 한 건 '다시 만들기' 뒤 안내 한 줄: 새 글이 예전 글과 같거나 또 기본 문장이면 사실대로 알린다
@@ -225,6 +257,8 @@ export function findDraft(results, id) {
   return null;
 }
 export const cardOfDraft = (cards, results, id) => cards.find((p) => (results[p.card.card_id]?.drafts || []).some((d) => d.draft_id === id)) || null;
+// 그 글을 만든 카드 id (results 의 열쇠). 모르면 null
+export const cardIdOfDraft = (results, id) => Object.keys(results).find((k) => (results[k]?.drafts || []).some((d) => d.draft_id === id)) || null;
 
 // 글 하나를 바꾼 results (새 객체)
 export function mapDraft(results, id, fn) {

@@ -639,6 +639,9 @@ class Demo:
         return refused
 
     def list_approvals(self, visitor: str | None = None) -> list[dict]:
+        """이 방문자의 승인 기록 (GET /api/approvals). 항목마다 저장한 칸(draft_id, status, edited, text, approved_at, mode) 뒤에
+        글 종류(kind)와 카드(card_id)를 붙인다 (11/22: 화면이 새로고침·다른 기기에서도 글 이름을 알고, 진행이 없는 카드의 승인 기록을 찾게).
+        초안 원문·점검 결과(draft_text, checks …)는 싣지 않는다. 저장소에서 종류를 못 읽으면 이 서버가 ③ 에서 기억한 값, 그것도 없으면 None."""
         visitor_id = clean_visitor_id(visitor)
         if self._pending:
             self._flush_pending()   # DB 가 돌아왔으면 멈춘 동안의 승인을 이제 쓴다
@@ -647,10 +650,27 @@ class Demo:
         except Exception as exc:   # DB 에 닿지 못하면 이 서버가 들고 있는 것만 보여 준다
             log.warning("승인 기록을 DB 에서 읽지 못했어요 (%s)", exc.__class__.__name__)
             rows = []
+        saved = self._approval_kinds(visitor_id) if rows else {}
         with self._lock:
-            waiting = [p[1] for p in self._pending if p[0] == visitor_id]
-        held = {e["draft_id"] for e in waiting}
-        return [r for r in rows if r["draft_id"] not in held] + waiting
+            waiting = [(p[1], p[2], p[3]) for p in self._pending if p[0] == visitor_id]
+        held = {e["draft_id"] for e, _, _ in waiting}
+
+        def tagged(entry: dict, card_id: str | None, kind: str | None) -> dict:
+            mine = self._drafts.get(entry["draft_id"], (None, None, None))   # approve 와 같은 방식으로 읽는다
+            # 저장한 기록은 바꾸지 않고 새 dict 로 (메모리 저장소는 승인 응답과 같은 dict 를 쥐고 있다)
+            return {**entry, "kind": kind or mine[1], "card_id": card_id or mine[0]}
+
+        return ([tagged(r, *saved.get(r["draft_id"], (None, None))) for r in rows if r["draft_id"] not in held]
+                + [tagged(e, card_id, kind) for e, card_id, kind in waiting])
+
+    def _approval_kinds(self, visitor_id: str) -> dict[str, tuple[str | None, str | None]]:
+        """저장소의 승인 상세(details)에서 글 id → (카드 id, 글 종류). 못 읽으면 빈 dict (목록은 그대로 보여 준다)."""
+        try:
+            return {d.get("draft_id"): (d.get("card_id"), d.get("kind"))
+                    for d in self.storage.approvals.details(self.s.store_id, visitor_id)}
+        except Exception as exc:   # DB 장애·칸이 없는 옛 표·details 가 없는 저장소
+            log.warning("승인 기록의 글 종류를 읽지 못했어요 (%s)", exc.__class__.__name__)
+            return {}
 
     def clear_approvals(self, visitor: str | None = None) -> int:
         """이 방문자의 승인 기록을 모두 지운다 (완료 화면의 '처음부터 다시'). 지운 건수를 돌려준다.

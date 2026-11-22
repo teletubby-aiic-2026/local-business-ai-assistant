@@ -2,7 +2,8 @@
 // 카드마다 출처·시점 한 줄은 늘 보이고, 근거 리뷰·상권 지표(기준·원본 링크)는 만들기 버튼 옆 '근거 보기'로 펼친다.
 // 이유 문장을 AI 가 썼으면 그 안에 한 줄로 밝힌다 (검사기 이야기는 보이지 않음).
 // 쿠폰 홍보 카드(ⓑ)가 없는 날은 불만 카드 아래에 그 까닭(서버 no_card_b)과 맞춤 마케팅으로 가는 버튼을 둔다
-// (서랍의 '추천 카드 ⓑ 쿠폰 홍보글 보기'로 와도 빈 화면이 아니게, 11/21 실시간 확인 12)
+// (서랍의 '추천 카드 ⓑ 쿠폰 홍보글 보기'로 와도 빈 화면이 아니게, 11/21 실시간 확인 12).
+// 이 브라우저에 진행이 없는 카드에 서버 승인 기록이 남아 있으면(다른 기기·24시간 뒤) 만들면 그 기록이 바뀐다고 한 줄 알린다 (11/22)
 import { useState } from "react";
 import { useStore } from "../../state/store.js";
 import { navTo } from "../../lib/router.js";
@@ -11,7 +12,7 @@ import { PageHead, Panel, Badge, Button } from "../../components/ui.jsx";
 import Steps from "./Steps.jsx";
 import { useFlow, setFlow } from "./state.js";
 import { choose } from "./actions.js";
-import { RULES_TITLE, sourceLine, measureIds, reasonByAI, cardsIntro } from "./calc.js";
+import { RULES_TITLE, sourceLine, measureIds, reasonByAI, cardsIntro, priorByCard, priorNote } from "./calc.js";
 import "./flow.css";
 
 export default function Cards() {
@@ -20,6 +21,8 @@ export default function Cards() {
   const booted = useStore((s) => s.booted);
   const bootError = useStore((s) => s.bootError);
   const results = useStore((s) => s.results);
+  const serverApprovals = useStore((s) => s.serverApprovals);
+  const prior = priorByCard(cards, results, serverApprovals);
   const mock = useStore((s) => s.health?.mode === "mock");
   const noReviews = useStore((s) => s.briefing?.counts?.review_count === 0);   // 새 가게: 리뷰 0건
   const busy = useFlow((f) => f.busy);
@@ -37,7 +40,7 @@ export default function Cards() {
             : noReviews ? "리뷰가 들어오면 추천 카드를 골라 드려요." : "오늘은 추천할 카드가 없어요."}</p></Panel>
         : <div className="stack flow-card-grid">
             {cards.map((p, i) => <CardPanel key={p.card.card_id} p={p} index={i} made={!!results[p.card.card_id]} busy={busy[p.card.card_id]}
-              picked={measureIds(p, results, picks)} mock={mock} />)}
+              picked={measureIds(p, results, picks)} mock={mock} prior={prior[p.card.card_id] || 0} />)}
             {noPromo && <NoPromo why={noCardB} />}
           </div>}
       {!noPromo && noCardB && <p className="small muted">{noCardB}</p>}
@@ -45,7 +48,8 @@ export default function Cards() {
   );
 }
 
-function CardPanel({ p, index, made, busy, picked, mock }) {
+// prior: 이 브라우저에 진행이 없는데 서버에 남은 이 카드의 승인 글 수. 만들면 그 기록이 새 글로 바뀐다고 만들기 버튼 위에 알린다
+function CardPanel({ p, index, made, busy, picked, mock, prior }) {
   const c = p.card;
   const [more, setMore] = useState(false);
   const label = busy === "card" ? "만드는 중…" : made ? "만든 글 보기" : c.kind === "complaint" ? `${noticeName(p.title)}·답글 만들기` : "홍보글 만들기";
@@ -60,6 +64,8 @@ function CardPanel({ p, index, made, busy, picked, mock }) {
       <p className="card-reason">{c.reason_text}</p>
       <p className="small muted">근거: {sourceLine(p)}</p>
       <Measures p={p} picked={picked} mock={mock} />
+      {/* 서버 목록이 늦게 와서 나타나므로 읽기 프로그램이 읽게 status */}
+      {prior > 0 && <p className="small muted flow-prior" role="status">{priorNote(prior)} <a href="#/done">처리 완료에서 보기</a></p>}
       {/* 만들기 버튼과 '근거 보기'는 한 줄, 펼친 근거는 그 아래 */}
       <div className="flow-card-foot">
         <Button variant="primary" className="flow-card-go" disabled={!!busy} onClick={() => choose(c.card_id)}>{label}</Button>

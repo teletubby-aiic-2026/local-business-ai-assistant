@@ -4,15 +4,17 @@ import { api } from "../../lib/api.js";
 import { go, navTo, currentRoute } from "../../lib/router.js";
 import { draftsOf, genName } from "../../lib/domain.js";
 import { getState, setState, setAlert } from "../../state/store.js";
-import { emptyFlow } from "../../state/boot.js";
+import { emptyFlow, staffApprovals } from "../../state/boot.js";
+import { forgetFlow } from "../../state/flowKeep.js";
 import { waitingCount } from "../../state/staff.js";
 import { getFlow, setFlow, resetFlow } from "./state.js";
 import {
-  RERUN_ARM_MS, measureIds, replacesOf, regenKey, sameSlot, failedOf, checksOf,
-  textOf, touchedOf, findDraft, cardOfDraft, mapDraft, regenNote,
+  RERUN_ARM_MS, REPLACES_MAX, measureIds, replacesOf, priorApprovals, regenKey, sameSlot, failedOf, checksOf,
+  textOf, touchedOf, findDraft, cardIdOfDraft, cardOfDraft, mapDraft, regenNote,
 } from "./calc.js";
 
-// 카드 전체 실행마다 붙이는 번호. 늦게 온 '다시 만들기' 응답이 그사이 다시 만든 카드에 끼어들지 않게 견준다
+// 카드 전체 실행마다 붙이는 번호. 늦게 온 '다시 만들기' 응답이 그사이 다시 만든 카드에 끼어들지 않게 견준다.
+// 새로고침하면 0부터 다시 세므로, 되살린 진행(state/flowKeep.js)의 _run 보다 늘 크게 매긴다 (runCard)
 let runSeq = 0;
 
 // 글 id 들의 승인·고친 내용·처리 완료 기록을 뺀 상태 조각
@@ -38,13 +40,18 @@ export async function runCard(cardId, source = "card") {
   try {
     // 점검 수칙 상자가 있는 카드만 measures 를 보낸다
     const picked = (p?.measures?.options || []).length ? { measures: measureIds(p, s.results, getFlow().picks) } : null;
-    // 카드 전체 다시 만들기면 지금 글 id 를 replaces 로 더한다. 처음 만들 때는 예전과 같은 본문
+    // 카드 전체 다시 만들기면 지금 글 id 를 replaces 로 더한다. 처음 만들 때는 예전과 같은 본문.
+    // 이 브라우저에 진행이 없는데 서버에 이 카드의 승인 기록이 있으면(다른 기기·24시간 뒤) 그 글들을 바꾼다: 처리 완료에 같은 글이 두 번 쌓이지 않게
     const before = (s.results[cardId]?.drafts || []).map((d) => d.draft_id);
-    const body = before.length ? JSON.stringify({ ...(picked || {}), replaces: replacesOf(before, s.approved) }) : picked ? JSON.stringify(picked) : undefined;
+    const prior = before.length ? [] : priorApprovals(s.serverApprovals, cardId).slice(0, REPLACES_MAX);
+    const replaces = before.length ? replacesOf(before, s.approved) : prior;
+    const body = replaces.length ? JSON.stringify({ ...(picked || {}), replaces }) : picked ? JSON.stringify(picked) : undefined;
     const result = await api(`/api/cards/${encodeURIComponent(cardId)}/run`, { method: "POST", body });
     if (getState().epoch !== epoch) return false;   // 기다리는 동안 가게가 바뀜: 다른 가게의 글이므로 버린다
     if (result.replace_warning) setAlert(result.replace_warning);   // 새 글은 받았지만 서버의 옛 승인 기록은 못 지움
-    const run = ++runSeq;
+    // 바꾼 서버 기록은 안내 목록에서도 뺀다 (진행을 다시 비워도 지운 글을 '오늘 승인한 글'로 세지 않게)
+    if (prior.length && !result.replace_warning) setState((now) => ({ serverApprovals: now.serverApprovals.filter((x) => !prior.includes(x.draft_id)) }));
+    const run = (runSeq = Math.max(runSeq, ...Object.values(getState().results).map((r) => Number(r?._run) || 0)) + 1);
     // 다시 만들면 그 카드의 예전 글 승인·고친 내용은 버린다 (처리 완료의 승인 목록에서도 뺀다)
     setState((now) => ({
       ...dropDrafts(now, new Set((now.results[cardId]?.drafts || []).map((d) => d.draft_id))),
@@ -144,8 +151,10 @@ export async function approve(id) {
   const text = textOf(s, d);
   const epoch = s.epoch;
   try {
-    // 리뷰 답글이면 어느 리뷰의 답글인지도 보낸다: 서버가 리뷰 분석 서비스에 '답글 달았음'을 기록 (응대 점수·기한). 서버가 아는 초안이면 서버 값이 먼저
-    const hint = d.target_review_id ? { kind: d.generator, review_id: d.target_review_id } : {};
+    // 글 종류·카드는 늘 보낸다: 초안을 만든 WAS 와 승인을 받은 WAS 가 달라도 서버 기록에 종류가 남게 (처리 완료의 글 이름, 11/22).
+    // 리뷰 답글이면 어느 리뷰의 답글인지도: 서버가 리뷰 분석 서비스에 '답글 달았음'을 기록 (응대 점수·기한). 서버가 아는 초안이면 서버 값이 먼저
+    const cardId = cardIdOfDraft(s.results, id);
+    const hint = { kind: d.generator, ...(cardId ? { card_id: cardId } : {}), ...(d.target_review_id ? { review_id: d.target_review_id } : {}) };
     const entry = await api(`/api/drafts/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ text, original: d.text, ...hint }) });
     if (getState().epoch !== epoch) return;
     setState((now) => {
@@ -179,16 +188,18 @@ export async function copyText(text, box) {
 
 // 처음부터 다시: 이 브라우저의 진행(만든 글·승인 표시·고친 내용)을 비우고, 서버에 남은 이 방문자의 승인 기록도 지운다 (DELETE /api/approvals).
 // 서버는 이 방문자의 맞춤 마케팅 기록도 같이 지우고(marketing_cleared), 맞춤 마케팅의 대화·결과 카드·보고서도 처음으로 (mktResetSeq).
-// 서버가 못 지워도 화면은 비우고 알림 띠로 알린다. (진행을 그대로 두고 홈으로 가는 것은 주 버튼 '홈으로')
+// 이 브라우저에 보관한 진행(localStorage)도 지운다. 서버가 못 지워도 화면은 비우고 알림 띠로 알린다
+// (그때는 서버 목록을 다시 읽어 남은 승인 기록을 '오늘 승인한 글'로 안내). 진행을 그대로 두고 홈으로 가는 것은 주 버튼 '홈으로'
 export async function restart() {
   let failed = "", cleared = null;
   try { const r = await api("/api/approvals", { method: "DELETE" }); cleared = r.marketing_cleared ?? null; }
   catch (e) { failed = e.message; }
   resetFlow();
+  forgetFlow(getState().flowKey);
   // mktCleared: false 면 맞춤 마케팅 화면 위에만 "기록은 지우지 못했어요" 안내 (예전 mktReset(cleared))
-  setState((s) => ({ ...emptyFlow(), mktResetSeq: s.mktResetSeq + 1, mktCleared: failed ? null : cleared }));
+  setState((s) => ({ ...emptyFlow(), ...(failed ? {} : { serverApprovals: [] }), mktResetSeq: s.mktResetSeq + 1, mktCleared: failed ? null : cleared }));
   go("today");
-  if (failed) setAlert(`화면은 처음으로 돌렸지만 서버의 승인 기록은 지우지 못했어요. ${failed}`);
+  if (failed) { setAlert(`화면은 처음으로 돌렸지만 서버의 승인 기록은 지우지 못했어요. ${failed}`); staffApprovals(); }
 }
 
 // 홈 '담당 비서 현황' 칸: 누르면 맡은 화면으로

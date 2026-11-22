@@ -199,11 +199,12 @@ describe("카드 → 초안 → 승인 → 완료 → 처음부터 다시", () =
     expect(screen.getByText("한 번 더 누르면 승인했거나 고친 글 1개까지 모두 새 글로 바뀌어요.")).toBeTruthy();
     expect(calls).toHaveLength(1);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "승인" })); });
-    expect(JSON.parse(calls[1].body)).toEqual({ text: "안내문 고침", original: "안내문" });
+    // 11/22: 글 종류·카드는 늘 보낸다 (초안을 만든 WAS 와 승인을 받은 WAS 가 달라도 서버 기록에 종류가 남게). 리뷰 id 는 답글만
+    expect(JSON.parse(calls[1].body)).toEqual({ text: "안내문 고침", original: "안내문", kind: "prevention_notice", card_id: "card_a" });
     // 다음 미승인 글(답글)로
     expect(screen.getByLabelText(/AI 답글 초안/).value).toBe("답글 하나");
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "승인" })); });
-    expect(JSON.parse(calls[2].body)).toEqual({ text: "답글 하나", original: "답글 하나", kind: "reply_draft", review_id: "r1" });
+    expect(JSON.parse(calls[2].body)).toEqual({ text: "답글 하나", original: "답글 하나", kind: "reply_draft", card_id: "card_a", review_id: "r1" });
     expect(window.location.hash).toBe("#/done");
     expect(getState().approvedLog.map((x) => [x.id, x.edited])).toEqual([["d2", true], ["d1", false]]);
     cleanup();

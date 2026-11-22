@@ -5,8 +5,7 @@ import { api, serviceApi } from "../lib/api.js";
 import { healthProblems } from "../lib/domain.js";
 import { getState, setState, setAlert } from "./store.js";
 import { canResumeEntered, setStage, writeEntered } from "./stage.js";
-
-const cardKey = (cards) => cards.map((p) => p.card.card_id + p.card.review_ids + p.card.snapshot_ids).join();
+import { cardKey, flowKeyOf, forgetFlow, loadFlow, restoredFlow } from "./flowKeep.js";
 
 // 오늘 할 일 진행을 비운다 (카드가 바뀌었거나 가게가 바뀜)
 export const emptyFlow = () => ({ results: {}, approved: new Set(), approvedLog: [], pending: {}, current: null, draftId: null });
@@ -37,23 +36,47 @@ function reviewsOf(b) {
   return map;
 }
 
-// 브리핑 → 카드 → 리뷰 분석. 카드의 id·근거가 바뀌면 만든 글·승인 표시·고친 내용을 버린다
+// 브리핑 → 카드 → 리뷰 분석. 카드의 id·근거가 바뀌면 만든 글·승인 표시·고친 내용을 버린다.
+// 이 가게의 첫 불러오기(flowKey 가 null)면 이 브라우저에 보관한 진행을 되살린다 (flowKeep.js): 되살릴 것이 있으면
+// 서버 승인 목록을 기다려 받아 거기 없는 승인 표시를 푼 뒤 카드와 한 번에 넣는다. 서버와 맞추기는 이때 한 번만
+// (평소에 하면 방금 누른 승인이 늦게 온 옛 목록 때문에 풀린다)
 export async function refresh() {
+  const epoch = getState().epoch;
   const briefing = await api("/api/briefing");
   setState({ briefing, reviewsById: reviewsOf(briefing) });
   const data = await api("/api/cards");
-  const before = cardKey(getState().cards), after = cardKey(data.cards || []);
-  setState({ cards: data.cards || [], noCardB: data.no_card_b || "", ...(before && before !== after ? emptyFlow() : {}) });
+  const cards = data.cards || [];
+  const base = { cards, noCardB: data.no_card_b || "" };
+  if (getState().epoch !== epoch) return;   // 기다리는 동안 가게가 바뀜: 새 가게의 불러오기가 따로 돈다
+  let items = null;
+  if (getState().flowKey === null) {
+    const key = flowKeyOf(getState().me);
+    const saved = loadFlow(key, cards);
+    if (saved) items = await approvalItems();
+    if (getState().epoch !== epoch) return;
+    setState({ ...base, ...(saved ? restoredFlow(saved, items) : {}), ...(items ? approvalsPatch(items) : {}), flowKey: key });
+  } else {
+    const before = cardKey(getState().cards), changed = !!before && before !== cardKey(cards);
+    if (changed) forgetFlow(getState().flowKey);
+    setState({ ...base, ...(changed ? emptyFlow() : {}) });
+  }
   await loadInsight();
-  staffApprovals();
+  if (!items) staffApprovals();
 }
 
-// 서버에 남은 이 사장님의 맞춤 마케팅 승인 수 (글 id 가 mkt- 로 시작)
+// GET /api/approvals 의 items. 못 읽으면 null
+async function approvalItems() {
+  try { const a = await api("/api/approvals"); return Array.isArray(a?.items) ? a.items : []; }
+  catch { return null; }
+}
+
+// 서버 승인 목록 → 서버에 남은 이 사장님의 맞춤 마케팅 승인 수(글 id 가 mkt- 로 시작)와 목록 그대로 (진행이 없는 카드의 안내)
+const approvalsPatch = (items) => ({ serverApprovals: items, mktServer: items.filter((x) => String(x.draft_id).startsWith("mkt-")).length });
+
 export async function staffApprovals() {
-  try {
-    const a = await api("/api/approvals");
-    setState({ mktServer: (a.items || []).filter((x) => String(x.draft_id).startsWith("mkt-")).length });
-  } catch { /* 못 읽어도 AI 비서 상태는 화면 기록으로 */ }
+  const epoch = getState().epoch;
+  const items = await approvalItems();   // 못 읽어도 AI 비서 상태는 화면 기록으로
+  if (items && getState().epoch === epoch) setState(approvalsPatch(items));
 }
 
 export async function staffMarket() {
@@ -93,18 +116,20 @@ export async function enterApp() {
   await storeChanged();
 }
 
-// 가게 자료를 화면에서 비운다 (로그아웃·탈퇴: 다시 불러오지 않음). 각 화면은 epoch 가 바뀌면 자기 상태를 처음으로
+// 가게 자료를 화면에서 비운다 (로그아웃·탈퇴: 다시 불러오지 않음). 각 화면은 epoch 가 바뀌면 자기 상태를 처음으로.
+// flowKey 를 비워 보관도 멈춘다: localStorage 의 진행은 지우지 않아 다시 로그인하면 이어서 한다 (탈퇴는 AccountDialog 가 지움)
 export function clearStoreData() {
   setState((s) => ({ ...emptyFlow(), briefing: null, cards: [], noCardB: "", insight: null, insightError: "", joined: [], reviewsById: {},
-    mktServer: 0, staffMarket: null, alert: "", booted: false, bootError: "", epoch: s.epoch + 1 }));
+    mktServer: 0, serverApprovals: [], flowKey: null, staffMarket: null, alert: "", booted: false, bootError: "", epoch: s.epoch + 1 }));
 }
 
 // 가게가 바뀌었다 (가게 열기·기록 지우기): 그 가게의 진행을 비우고 모든 화면을 새 가게로.
 // 각 화면(맞춤 마케팅·상권 분석·서랍·종합 리포트)은 epoch 가 바뀌면 자기 상태를 처음으로 되돌린다.
+// flowKey 를 비워 두면 refresh 가 새 가게의 보관한 진행을 되살린다 (비운 진행으로 새 가게의 키를 지우지 않음).
 // 401·409·403 으로 단계가 바뀌었으면(lib/api.js) 알림 띠를 띄우지 않는다
 export async function storeChanged() {
-  setState((s) => ({ ...emptyFlow(), briefing: null, cards: [], insight: null, joined: [], reviewsById: {}, mktServer: 0, alert: "", acctNotice: "",
-    acctBusy: true, booted: false, bootError: "", epoch: s.epoch + 1 }));
+  setState((s) => ({ ...emptyFlow(), briefing: null, cards: [], insight: null, joined: [], reviewsById: {}, mktServer: 0, serverApprovals: [], flowKey: null,
+    alert: "", acctNotice: "", acctBusy: true, booted: false, bootError: "", epoch: s.epoch + 1 }));
   try { await loadAll(); setState({ bootError: "" }); }
   catch (e) {
     if (!e.authHandled) setAlert(e.message);

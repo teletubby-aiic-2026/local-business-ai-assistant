@@ -241,7 +241,8 @@ def _record_plan(store: str, state: FlowState, result: dict, answers_goal: str |
     """/plan 결과 기록. 쿠폰 결과는 coupon_runs, 나머지는 marketing_sessions. 기록 id(없으면 None).
     visitor_id 가 있으면 그 방문자 파일에 쓴다."""
     if state.mode == "coupon_result":
-        if result.get("issued"):
+        # 사용 장수가 발급 장수보다 많은 입력은 기록하지 않는다 (11/22: 화면은 경고로 막지만, 기록에 남으면 마케팅 보고서가 사용률 300%로 다시 계산함)
+        if result.get("issued") and result.get("used", 0) <= result["issued"]:
             row = _record(
                 records.append_coupon_run, store, menu_name=None, discount_krw=result["discount_won"],
                 issued=result["issued"], used=result["used"], avg_order_krw=result["avg_order_won"],

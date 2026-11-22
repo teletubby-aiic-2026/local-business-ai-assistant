@@ -3,11 +3,13 @@
 // 순서: 상권 대화 지우기(DELETE /api/assistant/conversation, 실패·꺼짐은 무시) → POST /api/auth/reset 또는 /api/auth/withdraw.
 // 탈퇴는 일반 계정이면 비밀번호를 한 번 더 받고(보낸 뒤 칸을 비움), 시연 계정(user.demo)은 칸 없이 본문 {}.
 // 지우기가 끝나면 들어가 있던 가게의 자료를 다시 읽고(storeChanged), 탈퇴가 끝나면 로그인 화면으로 (state/account.js signedOut).
+// 서버가 답하면 이 브라우저에 보관한 오늘 할 일 진행(state/flowKeep.js)도 지운다: 그 가게 것 · 모든 가게면 이 사장님의 것 전부 · 탈퇴도 전부.
 // 결과 한 줄(acctNotice)은 창 밖 오른쪽 아래 띠(AcctToast)에 남긴다. 401 login_needed 는 '다시 로그인' 화면으로 (acctApi.js)
 import { useEffect, useRef, useState } from "react";
 import { useStore, getState, setState } from "../../state/store.js";
 import { storeChanged } from "../../state/boot.js";
 import { signedOut } from "../../state/account.js";
+import { flowKeyOf, forgetFlow, forgetUserFlows } from "../../state/flowKeep.js";
 import { later } from "../../lib/focus.js";
 import { Button, Dialog } from "../../components/ui.jsx";
 import { ACCT_ACTS, acctPost, clearChat, isDemo, storeName, summary } from "./acctApi.js";
@@ -43,6 +45,7 @@ export default function AccountDialog({ act, onClose, returnFocus }) {
     e.preventDefault();
     if (busyRef.current || !act) return;
     const isDemoNow = isDemo(getState().me), pwv = pw;
+    const meNow = getState().me, userId = meNow?.user?.user_id;
     setErr("");
     if (act === "withdraw" && !isDemoNow && !pwv) { setErr("비밀번호를 적어 주세요."); pwRef.current?.focus(); return; }
     lock(true);
@@ -51,6 +54,7 @@ export default function AccountDialog({ act, onClose, returnFocus }) {
       await clearChat();                                                            // ① 상권 대화
       if (act === "withdraw") {
         const r = await acctPost("/api/auth/withdraw", isDemoNow ? {} : { password: pwv });   // ② 계정과 기록
+        forgetUserFlows(userId);                                                    // 이 브라우저에 보관한 오늘 할 일 진행도 (모든 가게)
         setPw("");
         lock(false);
         signedOut(r);                                                               // ③ 로그인 화면 (이 창도 함께 사라짐)
@@ -58,6 +62,8 @@ export default function AccountDialog({ act, onClose, returnFocus }) {
         return;
       }
       const r = await acctPost("/api/auth/reset", { scope: act });                 // ② 기록
+      // 이 브라우저에 보관한 오늘 할 일 진행도 (그 가게 · 모든 가게). 아래 storeChanged 가 되살리지 않게 그 전에
+      if (act === "account") forgetUserFlows(userId); else forgetFlow(flowKeyOf(meNow));
       setState((s) => ({ reportsSeq: s.reportsSeq + 1 }));                         // 프로필의 '보관한 보고서' 수를 다시 부름 (일부만 지워졌어도)
       const sum = summary(r);
       if (r.complete === false) {

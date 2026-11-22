@@ -107,6 +107,30 @@ class TestJudgeStance(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(judge_stance(text).stance, APOLOGY, judge_stance(text).reasons)
 
+    def test_freebie_request_without_ro_and_while_ordering(self):
+        """11/22 실시간 확인: '~면서'를 이유로 읽거나 '서비스 … 달라'(로 없음)를 요청으로 못 읽어 사과 답글이 나갔다."""
+        cases = {
+            "시키면서": "제육볶음 시키면서 서비스로 콜라 1.5L 달라고 했는데 주지도 않아요. 별로네요.",
+            "서비스 품목 수량 달라": "제육볶음 시키면서 서비스 콜라 1.5l 달라고 했는데 주지도 않아요",
+            "서비스 달라": "만두 10개 서비스 달라니까 안 줌",
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                d = judge_stance(text)
+                self.assertEqual(d.stance, EXPLAIN, d.reasons)
+                self.assertEqual(d.request, "free_extra")
+
+    def test_service_quality_request_stays_apology(self):
+        """'서비스'가 덤이 아니라 응대를 뜻하는 말은 요청으로 세지 않는다 (가게 잘못일 수 있어 사과 답글)."""
+        cases = {
+            "잘해 달라": "서비스 좀 잘해 달라고 했는데 안 해 줘서 기분이 상했어요",
+            "개선해 달라": "서비스 개선해 달라고 여러 번 말했는데 안 해 주네요",
+            "서비스 품평": "서비스가 별로라 2번 달라고 해야 반찬을 주네요",
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                self.assertEqual(judge_stance(text).stance, APOLOGY, judge_stance(text).reasons)
+
     def test_fee_refusal_uses_fee_principle(self):
         self.assertEqual(judge_stance(UNFAIR["fee"]).principle, FEE_PRINCIPLE)
         self.assertEqual(judge_stance(UNFAIR["menu_change"]).principle, REQUESTS["menu_change"]["principle"])

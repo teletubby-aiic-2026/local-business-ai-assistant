@@ -47,9 +47,15 @@ const sent = (method, path) => calls.filter((c) => c.method === method && c.path
 beforeEach(() => {
   resetStore();
   sessionStorage.clear();
+  localStorage.clear();
   window.scrollTo = () => {};
   server();
 });
+
+// 이 브라우저에 보관한 오늘 할 일 진행 (state/flowKeep.js, 11/22): u1 의 두 가게 + 다른 사장님 u2
+const FLOW_KEYS = ["ic26.flow.v1:u1:store_basak", "ic26.flow.v1:u1:store_ongi", "ic26.flow.v1:u2:store_basak"];
+const keepFlows = () => FLOW_KEYS.forEach((k) => localStorage.setItem(k, "{}"));
+const keptFlows = () => FLOW_KEYS.filter((k) => localStorage.getItem(k) !== null);
 afterEach(() => cleanup());
 
 describe("A1 로그인", () => {
@@ -359,6 +365,7 @@ describe("A5 사장님 프로필", () => {
       },
     });
     act(() => setState({ entered: null }));          // 들어간 가게가 없으면 storeChanged 없이 이 칸만 다시
+    keepFlows();
     expect((await screen.findByText("4개")).closest("#saved-report-counts")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "바삭치킨 기록 지우기" }));
     fireEvent.click(within(document.getElementById("acct-dialog")).getByRole("button", { name: "지우기" }));
@@ -366,6 +373,8 @@ describe("A5 사장님 프로필", () => {
     await waitFor(() => expect(sent("GET", "/api/reports/counts")).toHaveLength(2));
     await waitFor(() => expect(screen.queryByText("4개")).toBeNull());
     expect(within(document.getElementById("saved-report-counts")).getAllByText("0개")).toHaveLength(2);
+    // 보관한 오늘 할 일 진행도 그 가게 것만 지운다 (11/22)
+    expect(keptFlows()).toEqual(["ic26.flow.v1:u1:store_ongi", "ic26.flow.v1:u2:store_basak"]);
   });
 
   it("모든 가게 기록을 지우면 결과 띠에 보관한 보고서 수도 (11/21 QA: 서버는 지우는데 띠에 빠져 있었음)", async () => {
@@ -375,6 +384,7 @@ describe("A5 사장님 프로필", () => {
         { store_id: "st_mine", name: "새벽분식", approvals: 1, reviews: 4, marketing: "cleared" }] },
     });
     act(() => setState({ entered: null }));
+    keepFlows();
     const dlg = document.getElementById("acct-dialog");
     fireEvent.click(screen.getByRole("button", { name: "모든 가게 기록 지우기" }));
     // 확인 창의 '지워지는 것'에 보고서가 이미 있다
@@ -383,6 +393,7 @@ describe("A5 사장님 프로필", () => {
     await waitFor(() => expect(getState().acctNotice).toBe(
       "기록을 지웠어요. 온기한식: 승인 기록 0건 · 붙여넣은 리뷰 0건 · 맞춤 마케팅 지움 / 새벽분식: 승인 기록 1건 · 붙여넣은 리뷰 4건 · 맞춤 마케팅 지움 / 보관한 보고서 3개"));
     expect(sent("POST", "/api/auth/reset")[0].body).toEqual({ scope: "account" });
+    expect(keptFlows()).toEqual(["ic26.flow.v1:u2:store_basak"]);    // 이 사장님의 모든 가게 진행 (다른 사장님 것은 그대로)
   });
 
   it("결과 줄의 보고서: 숫자면 'n개', null 이면 '못 지움', 옛 서버(키 없음)면 뺀다", () => {
@@ -395,6 +406,7 @@ describe("A5 사장님 프로필", () => {
 
   it("탈퇴하면 로그인 화면으로, 들어간 가게를 지우고 결과 띠", async () => {
     sessionStorage.setItem("ic26.entered", "store_basak");
+    keepFlows();
     profileServer({ "POST /api/auth/withdraw": { ...GUEST, withdrawn: true } });
     fireEvent.click(screen.getByRole("button", { name: "회원 탈퇴" }));
     const dlg = document.getElementById("acct-dialog");
@@ -406,5 +418,6 @@ describe("A5 사장님 프로필", () => {
     expect(sessionStorage.getItem("ic26.entered")).toBeNull();
     expect(getState().me.authenticated).toBe(false);
     expect(getState().acctNotice).toBe("회원 탈퇴를 마쳤어요. 계정과 기록을 모두 지웠어요.");
+    expect(keptFlows()).toEqual(["ic26.flow.v1:u2:store_basak"]);    // 보관한 오늘 할 일 진행도 이 사장님 것 전부
   });
 });

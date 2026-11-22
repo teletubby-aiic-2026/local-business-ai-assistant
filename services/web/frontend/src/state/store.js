@@ -14,13 +14,16 @@ export function initialState() {
     insight: null,       // GET /api/insight
     insightError: "",
     me: null,            // GET /api/auth/me (null 이면 아직 모름. 로그인 전이면 authenticated: false)
-    // 오늘 할 일 진행 (브라우저 메모리에만. 새로고침하면 사라짐, docs/api/contract.md 2.6)
+    // 오늘 할 일 진행. 이 브라우저의 localStorage 에도 사장님·가게별로 보관해 새로고침·다시 로그인 뒤 되살린다
+    // (state/flowKeep.js, docs/api/contract.md 2.2·3.1). 24시간이 지났거나 카드가 바뀌면 되살리지 않는다
     results: {},         // card_id → POST /api/cards/{id}/run 응답
     approved: new Set(), // 승인한 draft_id
     approvedLog: [],     // 처리 완료 화면의 승인 목록 [{id, kind, title, text, edited, at, mkt?}]
     pending: {},         // draft_id → 고치는 중인 글
     current: null,       // 초안 화면에 보이는 카드 id
     draftId: null,       // 초안 화면에 크게 보이는 글 id
+    flowKey: null,       // 진행을 보관하는 localStorage 키. null = 이 가게에서 아직 되살리기 전(쓰지 않음), "" = 보관하지 않음(사장님 id 모름)
+    serverApprovals: [], // GET /api/approvals 의 items (글 종류 kind·카드 card_id 포함). 진행이 없는 카드의 '오늘 승인한 글' 안내에 씀
     joined: [],          // 방금 붙여넣은 리뷰가 들어간 묶음 id
     // 단계 (state/stage.js, docs/api/contract.md 2.2). 해시 주소(#/today …)는 app 단계 안에서만 쓴다
     // boot · login · signup · pick(가게 선택) · store-new(새 가게 등록) · profile(사장님 프로필) · app(메인 화면) · error · expired · forbidden
@@ -58,7 +61,8 @@ export function setState(patch) {
   listeners.forEach((l) => l());
 }
 
-function subscribe(l) { listeners.add(l); return () => listeners.delete(l); }
+// 화면 밖에서 상태 바뀜을 듣는 곳도 쓴다 (state/flowKeep.js 가 진행을 보관)
+export function subscribe(l) { listeners.add(l); return () => listeners.delete(l); }
 
 export function useStore(selector = (s) => s) {
   return useSyncExternalStore(subscribe, () => selector(state));
