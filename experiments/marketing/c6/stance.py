@@ -103,6 +103,22 @@ _REFUSAL = re.compile(
     r"안\s*되(?:는|나|더)|안\s*된|안\s*돼|안된|안돼|거절|못\s*해\s*(?:준|주|드)|안\s*해\s*(?:준|주)|안\s*받아\s*주"
     r"|할\s*수\s*없|줄\s*수\s*없|어렵다|불가|(?:요금|비용|금액|돈|차액)\S{0,2}\s*(?:더\s*)?(?:내라|내야|받는|받더|받겠|달라)"
 )
+# 달라고 한 것을 '안 줘서·안 줌·안 주네요·주지도 않아요·안 바꿔 줘서'처럼 주지 않았다는 말 (11/22 QA: 이 표현을 못 읽어 사과 답글이 나감).
+# 이 말은 누락 불만("젓가락 안 줘서")이나 가게가 먼저 약속한 일("서비스 준다더니 안 줘서")에도 쓰이므로,
+# 그 앞쪽 글에 손님이 달라고·요청·부탁한 말이 있을 때만 거절로 본다. 요청사항란('요청 사항')은 요청으로 세지 않는다.
+_GIVE_REFUSAL = re.compile(r"안\s*(?:바꿔|해|넣어)?\s*(?:줘|줌|주(?:네|더|고|었|셨|시|던|길래|는))|주지\s*(?:도|를|는)?\s*않")
+_ASKED = re.compile(r"달라|달래|해\s*달|요청(?!\s*사항)|부탁")
+
+
+def _find_refusal(text: str) -> re.Match | None:
+    """가게가 거절했다는 표현. 없으면, 손님이 달라고 한 뒤에 나온 '안 줘서'류를 거절로 본다."""
+    refused = _REFUSAL.search(text)
+    if refused is not None:
+        return refused
+    for m in _GIVE_REFUSAL.finditer(text):
+        if _ASKED.search(text, 0, m.start()):
+            return m
+    return None
 
 # ── 3. 가게 과실일 수 있는 표현 (하나라도 있으면 apology) ───────────────
 FAULT_PATTERNS: dict[str, re.Pattern] = {
@@ -203,7 +219,7 @@ def judge_stance(text: str, *, negative_topics: list[str] | tuple[str, ...] | No
     kind, req_word, req_at = _request_kind(text)
     if kind is None:
         return StanceDecision(APOLOGY, reasons=("메뉴·원칙 밖 요청 표현 없음",))
-    refused = _REFUSAL.search(text)
+    refused = _find_refusal(text)
     if refused is None:
         return StanceDecision(APOLOGY, reasons=(f"요청 표현('{req_word}')은 있으나 가게가 거절했다는 표현 없음",))
     refusal = refused.group(0)

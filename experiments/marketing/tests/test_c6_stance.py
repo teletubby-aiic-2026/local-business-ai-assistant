@@ -80,6 +80,33 @@ class TestJudgeStance(unittest.TestCase):
                 self.assertTrue(d.principle)
                 self.assertTrue(any(r.startswith("거절") for r in d.reasons))
 
+    def test_give_refusal_after_request_is_explain(self):
+        """11/22 QA: '안 줘서·안 주네요·주지도 않아요·안 바꿔 줘서'를 거절로 읽지 못해 부당 리뷰에 사과 답글이 나갔다."""
+        cases = {
+            "주지도 않아요": ("공짜로 서비스 콜라 1.5l 달라고 했는데 주지도 않아요", "free_extra"),
+            "안 바꿔줘서": ("뼈 치킨 시키고 아이 먹을 거라 순살로 공짜 변경 요청했는데 안 바꿔줘서 별점 1점", "free_extra"),
+            "안 주네요": ("계란말이 서비스로 하나 달라고 했는데 안 주네요", "free_extra"),
+            "안 줘서": ("단골인데 공짜로 콜라 하나 달라니까 안 줘서 별 하나", "free_extra"),
+            "안 줌": ("제육볶음을 불고기로 바꿔 달라고 부탁했는데 안 줌", "menu_change"),
+        }
+        for name, (text, kind) in cases.items():
+            with self.subTest(name):
+                d = judge_stance(text)
+                self.assertEqual(d.stance, EXPLAIN, d.reasons)
+                self.assertEqual(d.request, kind)
+
+    def test_give_refusal_without_request_stays_apology(self):
+        """'안 줘서'는 누락 불만·가게가 약속한 일에도 쓰인다 — 손님이 달라고 한 말이 앞에 없으면 사과 답글."""
+        cases = {
+            "누락(요청 없음)": "젓가락을 안 줘서 손으로 먹었어요. 별 하나",
+            "가게 약속": "서비스로 콜라 준다더니 안 줘서 실망이에요",
+            "요청사항란": "요청사항에 공짜로 소스 넣어 주세요라고 썼는데 안 넣어 줘서 별로",
+            "거절 뒤 과실": "무료로 하나 더 달라고 했는데 안 줘서요. 근데 음식도 다 식어서 왔어요",
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                self.assertEqual(judge_stance(text).stance, APOLOGY, judge_stance(text).reasons)
+
     def test_fee_refusal_uses_fee_principle(self):
         self.assertEqual(judge_stance(UNFAIR["fee"]).principle, FEE_PRINCIPLE)
         self.assertEqual(judge_stance(UNFAIR["menu_change"]).principle, REQUESTS["menu_change"]["principle"])
