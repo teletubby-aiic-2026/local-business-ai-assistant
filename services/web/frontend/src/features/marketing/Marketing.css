@@ -13,6 +13,11 @@
 @container content (max-width: 860px) { .mkt-split { grid-template-columns: minmax(0, 1fr); } }
 .mkt-ask, .mkt-results { min-width: 0; }
 .mkt-ask h2 { overflow-wrap: anywhere; }
+/* 질문 칸 머리: 제목(고른 모드 · 질문 n)이 줄어들고 '다른 기능 고르기'는 한 줄 그대로 오른쪽에 (휴대폰 폭에서도 같은 줄, 11/22 QA) */
+.mkt-ask > .panel-head { flex-wrap: nowrap; }
+.mkt-ask > .panel-head h2 { flex: 1 1 auto; min-width: 0; }
+.mkt-ask > .panel-head .btn-row { flex: 0 0 auto; }
+.mkt-pick { white-space: nowrap; }
 .mkt-progress { color: var(--muted); font-weight: 500; }   /* 제목 안의 ' · 질문 n' */
 .mkt-cards { display: grid; gap: var(--s-16); }
 .mkt-results .mkt-cards:empty { margin-top: 0; }   /* 결과가 오기 전에도 라이브 영역은 그려 둔다 (높이 0) */

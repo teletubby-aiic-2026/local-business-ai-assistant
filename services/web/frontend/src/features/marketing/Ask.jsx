@@ -1,7 +1,7 @@
 // 맞춤 제안의 질문 쪽: 진행 안내·오류·시작 모드 카드·대화 기록·답 고르기 칸 (예전 #mkt-status·#mkt-error·#mkt-log·#mkt-options)
 import { useEffect, useRef, useState } from "react";
-import { Button, FeatureCard, Panel } from "../../components/ui.jsx";
-import { MKT_MODES, MKT_REPORT_DESC, MKT_UNIT, progressLabel } from "./logic.js";
+import { Button, FeatureCard, Icon, Panel } from "../../components/ui.jsx";
+import { MKT_MODES, MKT_PICK, MKT_REPORT_DESC, MKT_UNIT, progressLabel } from "./logic.js";
 import { pickOption, restartChat, retry, sendNumber, sendPicked, sendText, setTab, skip, togglePick, useMkt } from "./state.js";
 
 // Enter = 보내기. 한글 입력 중의 Enter 는 글자만 확정 (보내지 않음)
@@ -146,14 +146,21 @@ function LogEntry({ e }) {
   return <div className="mkt-msg bot"><span className="mkt-who">마케팅 비서</span><p>{e.text}</p></div>;
 }
 
+// 기능 카드(6개)로 돌아가기: 질문 칸 머리(제목 줄 오른쪽)와 맨 아래에 같은 이름·같은 동작(restartChat). 대화만 처음으로 (11/22 QA:
+// 맨 아래 작은 '처음부터'만 있어 "새로고침 말고는 못 나간다"고 보였다). 둘 다 '승인한 기록은 그대로 남아요'를 설명으로 읽는다
 function Foot() {
   return (
     <div className="mkt-foot">
-      <Button size="small" id="mkt-restart" aria-describedby="mkt-restart-hint" onClick={restartChat}>처음부터</Button>
+      <Button size="small" id="mkt-restart" aria-describedby="mkt-restart-hint" onClick={restartChat}>{MKT_PICK}</Button>
       <span id="mkt-restart-hint" className="small muted">승인한 기록은 그대로 남아요</span>
     </div>
   );
 }
+const PickButton = () => (
+  <Button size="small" id="mkt-pick" className="mkt-pick" aria-describedby="mkt-restart-hint" onClick={restartChat}>
+    <Icon name="뒤로" size={16} />{MKT_PICK}
+  </Button>
+);
 
 // 첫 질문 화면: "무엇을 도와드릴까요?" 한 줄 아래 기능 카드 격자. 카드가 회색 바탕 위에 바로 놓인다 (흰 패널로 감싸지 않음, Figma 06 M1)
 export function StartView() {
@@ -173,7 +180,7 @@ export function StartView() {
   );
 }
 
-// 질문이 진행되는 동안 왼쪽 칸: 제목(고른 모드 · 질문 n) · 대화 기록 · 답 고르기 · 처음부터
+// 질문이 진행되는 동안 왼쪽 칸: 제목(고른 모드 · 질문 n) + '다른 기능 고르기' · 대화 기록 · 답 고르기 · 맨 아래 '다른 기능 고르기'
 export function AskPanel() {
   const log = useMkt((s) => s.log);
   const questions = useMkt((s) => s.questions);
@@ -181,7 +188,7 @@ export function AskPanel() {
   const progress = progressLabel(questions);
   const title = <>{mode || "맞춤 제안"}{progress && <span className="mkt-progress"> · {progress}</span>}</>;
   return (
-    <Panel className="mkt-ask" title={title} titleId="mkt-ask-title">
+    <Panel className="mkt-ask" title={title} titleId="mkt-ask-title" actions={<PickButton />}>
       <div id="mkt-log" className="mkt-log" role="log" aria-live="polite" aria-label="맞춤 마케팅 대화">
         {log.map((e) => <LogEntry key={e.id} e={e} />)}
       </div>

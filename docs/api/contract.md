@@ -2487,7 +2487,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 계정 화면 | `features/account/account.test.jsx` | A1: 로그인 실패 때 비밀번호 유지(401 `bad_login`은 단계 유지)·`keep`·'비밀번호를 잊었어요' 한 줄·시연 버튼은 시험용 실행 + `demo_login`일 때만. A2: 입력 규칙·`stores: []`. A3: 마지막 본 가게 맨 앞·주 버튼·칩, '(가상)', 요약 `tone` 색, `unavailable`이면 숫자 줄 없음, 불러오는 동안 자리, 0곳. A5: 이름 저장(PATCH), 비밀번호 틀림은 그 자리에, 예시 가게·[정보 고치기], 빼기 확인 뒤 DELETE, 순서 PUT, 확인 창의 '되돌릴 수 없어요'·비밀번호 칸·Esc, 탈퇴 뒤 A1. 11/22: 기록 지우기(그 가게 · 모든 가게)·탈퇴가 보관한 오늘 할 일 진행을 지움(다른 사장님 것은 그대로) |
 | 상권 | `features/market/format.test.js` · `Market.test.jsx` | 처음 불러오기 순서, 머리 고지 한 줄, 비교 탭, `epoch`, `navTo` 탭, 지도 구역(출처·범례·고른/주변 상권·마커), 주변 상권을 누르면 비교 탭에서 그 상권을 고름(지도·목록 둘 다), 고를 수 없는 이유 한 줄, 주소로 등록한 가게의 업종 바꾸기 안내. 11/21: 머리줄 가게 한 줄(`storeLineOf`, 역이 없으면 등록한 위치를 짧게, 'null' 없음), 주소로 등록한 가게는 업종 칸이 처음부터 잠기고 까닭 한 줄, 조건을 바꾸는 동안 숫자 흐리게·라벨은 숫자와 함께, 자료 상태 한 줄('2024년 3분기~2026년 2분기 자료를 볼 수 있어요.', `dataStatusText`) |
 | 지도 부품 | `src/components/NaverMap.test.jsx` | 가짜 `window.naver.maps`로: SDK·map-config 한 번만, 다각형 수와 좌표 순서(위도·경도), 누르기·올리기, 키 없음·인증 실패(그린 뒤 포함)·시간 초과·연결 실패 안내와 다시 시도, props 변경·언마운트 정리, `fit`, 좌표 도우미 |
-| 맞춤 마케팅 | `features/marketing/logic.test.js` · `Marketing.test.jsx` | health → meta → step → 시작 모드 → plan → 승인, 결과 칸 라이브 영역, 안내 띠가 겹치지 않음 |
+| 맞춤 마케팅 | `features/marketing/logic.test.js` · `Marketing.test.jsx` | health → meta → step → 시작 모드 → plan → 승인, 결과 칸 라이브 영역, 안내 띠가 겹치지 않음. 11/22: 질문 칸 머리의 '다른 기능 고르기'로 기능 카드 목록(대화만 처음으로), 광고비 타일 '손해 n개 · 주의 n개'·'건당 남는 돈 (광고비 빼기 전)'·표 아래 기준 한 줄, 남는 비율 '직접 입력'의 % 숫자 칸과 다시 묻기 |
 | 종합 리포트 | `features/report/format.test.js` · `Report.test.jsx` | 'AI 문장 아님' 고지는 머리 한 곳, 출처·우리 가게 매출 아님·점수 변동 근거는 남음. 11/20: Figma D1 차례(머리 → 오늘·점수 줄 → 탭·기간 → 저장 띠 → 타일 4 → 고칠 것·주제별 흐름 → 마케팅 숫자 → … → 저장된 보고서), 탭은 해시를 바꾸지 않음, 기간 이동·다음 잠금, 저장 안내 띠 문장(저장·저장본·낡음·게스트), [다시 만들기] = POST regenerate, 목록 [열기], 리뷰 0건·'–', `SavedReportCounts`. 11/21: 끝난 기간의 '고칠 것' 제목·문장(`fixTitle`·`fixItems`), 직접 등록한 가게의 상권 요약 [상권 분석 보기], 지난 불만 한 줄(0건이면 없음)·승인 기록 한 줄('이 계정에서 지금까지 승인한 글 n건') |
 
 - 문구를 바꾸면 그 문구를 찾는 vitest가 깨질 수 있습니다. 문구가 맞으면 시험을 같이 고칩니다.
@@ -2573,10 +2573,12 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | 결과 카드 '승인' | `POST approve` `{state, draft_id: null, session_id, edited_texts, approval}` | `edit_failed`면 그 글 아래 점검 실패 안내. 성공이면 `recorded`를 처리 완료 목록(`approvedLog`, `mkt: true`)에, `follow_up`이면 재주문 쿠폰 질문, 공지 카드면 '2주 뒤 확인해 보기' |
 | '2주 뒤 확인해 보기' | `POST notice-followup` `{state}` | 공지 전후 불만 수, 줄었으면 개선 소식 글 |
 | '마케팅 보고서' 탭·기간 | `GET report?period=weekly\|monthly` (열 때마다 새로) | 보고서 카드 (`demo: true`면 데모 기록 표시) |
-| '처음부터' (이 화면) | `POST step` `{state: null, answer: null}` | 대화만 처음으로 (승인·보고서 기록은 그대로) |
+| '다른 기능 고르기' (질문 칸 머리 `#mkt-pick` · 맨 아래 `#mkt-restart`, 예전 '처음부터', 11/22) | `POST step` `{state: null, answer: null}` | 대화만 처음으로 → 기능 카드 목록 (승인·보고서 기록은 그대로). 둘 다 같은 이름·같은 동작(`restartChat`)이고 설명 '승인한 기록은 그대로 남아요'를 읽음. 머리 버튼은 제목(고른 모드 · 질문 n) 오른쪽 같은 줄: 휴대폰 폭에서는 제목이 줄바꿈되고 버튼은 한 줄 그대로 |
 | 서랍·AI 비서에서 `navTo("marketing", sub)` | 위와 같음 | 그 시작 모드를 바로 고름 (`MKT_SUB`) |
 | 결과 카드 'AI에게 이어서 묻기' (11/20) | 없음 | 카드 종류에 맞는 질문(광고비 표 → "주변에 같은 업종 점포는 몇 개야?", 쿠폰·할인 → "점심과 저녁 중 매출은 어디가 커?", 불만·공지 → "불만 리뷰 제일 많은 게 뭐야?", 그 밖 → "우리 가게 상권 매출은 어때?")을 서랍 입력칸에 채우고 서랍을 열어 입력칸에 포커스. **자동으로 보내지 않음** (사장님이 고치거나 Enter) |
 
+- 광고비 점검 카드 (11/22): 타일은 '점검한 채널' · '채널 판정'(`손해 n개 · 주의 n개`, 둘 다 0이면 '모두 괜찮음', `logic.js`의 `verdictCountText`) · '건당 남는 돈 (광고비 빼기 전)'(`MKT_PROFIT_TILE`, = 평균 주문 금액 × 남는 비율). 표·막대의 열 이름도 '건당 남는 돈'(예전 '건당 이익'), 표 바로 아래 기준 한 줄 `MKT_ADSPEND_RULE` "주문 1건에 든 광고비가 남는 돈 이상이면 '손해 광고', 절반 이상이면 '주의'예요." 판정은 서버(`adspend.judge`)가 그대로 하고 화면은 세기만 합니다. 마케팅 보고서의 광고 앱 막대도 '건당 남는 돈'.
+- 남는 비율 질문 (11/22): 광고비 점검·쿠폰 결과 확인·맞춤 홍보 제안(쿠폰 손익) 세 곳 모두 보기가 `20%`·`30%`·`40%`·`직접 입력`. '직접 입력'이면 다음 질문이 숫자 칸(`input.key`가 보기와 같은 키 `adspend_margin_pct`·`coupon_margin_pct`·`survey_margin_pct`, 단위 `%`는 `MKT_UNIT`)이고, 1~90이 아니면 서버가 같은 질문을 "남는 비율은 1~90 사이 숫자로 다시 알려 주세요."를 앞에 붙여 다시 냅니다 (4.2).
 - 화면 위 안내 띠(`Notice.mkt-notice`)는 마케팅 서비스가 HCX를 부르지 않는 상태(`health`의 `demo`·`mode: "mock"`·`key_present: false`, 또는 `demo: true` 결과를 받음)면 예시 고지 한 줄(`MKT_DEMO_NOTICE`)을 띄웁니다. **화면 맨 위 공통 시험용 띠(`health.mode_notice`)가 이미 있으면 이 고지는 띄우지 않습니다** (`noticeLines(s, appBand)`). '처음부터 다시' 때 마케팅 기록을 못 지웠다는 안내는 그와 상관없이 띄웁니다. 결과 카드 배지 `MKT_DEMO`('시험용 저장 예시 (실제 AI 결과 아님)')는 그대로 붙습니다.
 
 **상권 분석** (`features/market/state.js`. 모두 `/api/market/` 뒤 경로, 1.14)
@@ -2897,6 +2899,7 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
 | `GET /` · `/web/…` | 이 서버의 단독 화면 (통합 화면에서는 쓰지 않음) | | |
 
 - `demo`(`/generate`·`/plan`): `true`면 HCX를 부르지 않고 저장된 예시(`c6/replay`)나 코드 템플릿으로 만든 글입니다. mock이거나 live인데 키가 없을 때입니다.
+- 남는 비율 '직접 입력' (`/step`, 11/22): `adspend_margin`·`coupon_result_margin`·`coupon_margin`의 보기 끝 `직접 입력` → `adspend_margin_custom`·`coupon_result_margin_custom`·`coupon_margin_custom` (`input: {key, type: "number"}`, `key`는 보기와 같은 `adspend_margin_pct`·`coupon_margin_pct`·`survey_margin_pct`). 답은 정수(끝의 `%`는 받음) 1~90만 받아 그 키에 넣고 보기와 같은 다음 노드로 갑니다. 글자·소수·범위 밖이면 값을 넣지 않고 같은 노드를 돌려주며 `bot_messages[0]` 앞에 "남는 비율은 1~90 사이 숫자로 다시 알려 주세요." (다시 묻는 동안 `raw._margin_retry_msg`, 통과하면 지움). `flow.py`의 `_margin_options`·`_advance_margin_entry`.
 - 글 생성기(c6)의 점검·다시 쓰기·템플릿은 서버 응답에 나오지 않고 글(`text`·`drafts`)만 나옵니다.
 
 ### 4.3 `visitor_id` (11/16)

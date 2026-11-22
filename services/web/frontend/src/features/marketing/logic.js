@@ -14,10 +14,18 @@ export const MKT_MODES = {
 export const MKT_REPORT_DESC = "이번 주·이번 달 마케팅 기록";
 // 다른 화면의 navTo("marketing", sub) → 시작 모드 보기 글자 (assistant_proxy.MKT_SUBS 와 같아야 함)
 export const MKT_SUB = { promo: "맞춤 홍보 제안", leftover: "남은 재료 팔기", ad: "광고비 점검", story: "가게 이야기 글", repeat: "쿠폰 결과 확인" };
-// 숫자 입력칸의 단위 (서버 free_input.key → 화면 표시만)
+// 숫자 입력칸의 단위 (서버 free_input.key → 화면 표시만). 남는 비율 '직접 입력'(11/22)은 보기와 같은 키라 %
 export const MKT_UNIT = { leftover_portions: "인분", _adspend_spend_entry: "원", _adspend_orders_entry: "건", adspend_avg_amount_won: "원",
-  coupon_issued: "장", coupon_used: "장", coupon_discount_won: "원", coupon_avg_order_won: "원", survey_avg_order_won: "원" };
+  coupon_issued: "장", coupon_used: "장", coupon_discount_won: "원", coupon_avg_order_won: "원", survey_avg_order_won: "원",
+  adspend_margin_pct: "%", coupon_margin_pct: "%", survey_margin_pct: "%" };
 export const MKT_VERDICT = { "손해 광고": ["bad", "손해 광고"], "주의": ["warn", "주의"], "괜찮음": ["ok", "괜찮음"] };
+// 광고비 판정 기준 (서버 adspend.judge 와 같은 기준을 말로만: 건당 광고비 ≥ 건당 남는 돈 → 손해 광고, ≥ 절반 → 주의. 화면은 판정하지 않음)
+export const MKT_ADSPEND_RULE = "주문 1건에 든 광고비가 남는 돈 이상이면 '손해 광고', 절반 이상이면 '주의'예요.";
+// 건당 남는 돈 = 평균 주문 금액 × 남는 비율. 광고비를 빼기 전 값이라 타일 이름에 밝힌다 (11/22 QA: '건당 이익(추정)'이 광고비 뺀 값처럼 읽혔다)
+export const MKT_PROFIT = "건당 남는 돈";
+export const MKT_PROFIT_TILE = `${MKT_PROFIT} (광고비 빼기 전)`;
+// 질문 칸에서 기능 카드(6개)로 돌아가는 버튼 (머리·맨 아래 같은 이름, 11/22 QA: 맨 아래 작은 '처음부터'만 있어 못 찾았다)
+export const MKT_PICK = "다른 기능 고르기";
 // 글 만드는 생성기 → 승인 기록에 남기는 글 종류 (서버 server.py 의 _GENERATOR_KINDS 와 같은 이름, marketing_proxy.KINDS 안에서만)
 export const MKT_KIND = { prevention_notice: "공지", late_notice_template: "공지", reply_draft: "답글", review_promo: "홍보 글", coupon_promo: "쿠폰 글" };
 export const MKT_MODE_KIND = { leftover: "남은 재료 글", story: "가게 이야기 글" };
@@ -61,12 +69,19 @@ export function badgeOf(d) {
   return ["", "정보"];
 }
 
+// 광고비 표의 판정 타일 값: 손해·주의를 나눠 센다 (11/22 QA: 흑자인 '주의'가 '손해'와 한 숫자로 묶였다). 둘 다 없으면 '모두 괜찮음'
+export function verdictCountText(table) {
+  const judged = table.filter((r) => r.verdict);
+  if (!judged.length) return "–";
+  const loss = judged.filter((r) => r.verdict === "손해 광고").length, caution = judged.filter((r) => r.verdict === "주의").length;
+  return loss || caution ? `손해 ${loss}개 · 주의 ${caution}개` : "모두 괜찮음";
+}
+
 // 숫자 타일 [값, 이름] (원본 buildTiles)
 export function tilesOf(d) {
   if (Array.isArray(d.table)) {
-    const flagged = d.table.filter((r) => r.verdict && r.verdict !== "괜찮음");
-    return [[`${d.table.length}개`, "점검한 채널"], [`${flagged.length}개`, "주의·손해 채널"],
-      ...(d.profit_per_order_won != null ? [[wonKo(d.profit_per_order_won), "건당 이익(추정)"]] : [])];
+    return [[`${d.table.length}개`, "점검한 채널"], [verdictCountText(d.table), "채널 판정"],
+      ...(d.profit_per_order_won != null ? [[wonKo(d.profit_per_order_won), MKT_PROFIT_TILE]] : [])];
   }
   if (d.usage_rate !== undefined) {
     const t = [];

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MKT_MODES, MKT_REPORT_DESC, askQuestionOf, badgeOf, calcRange, downKey, draftLabel, initialDrafts, progressLabel, reportView, tilesOf, whyLinesOf, wonKo } from "./logic.js";
+import { MKT_ADSPEND_RULE, MKT_MODES, MKT_PROFIT_TILE, MKT_REPORT_DESC, MKT_UNIT, askQuestionOf, badgeOf, calcRange, downKey, draftLabel, initialDrafts,
+  progressLabel, reportView, tilesOf, verdictCountText, whyLinesOf, wonKo } from "./logic.js";
 
 describe("맞춤 마케팅 계산", () => {
   it("광고비 표는 가장 나쁜 판정을 배지로", () => {
@@ -16,9 +17,22 @@ describe("맞춤 마케팅 계산", () => {
   });
   it("숫자 타일", () => {
     expect(tilesOf({ table: [{ verdict: "주의" }, { verdict: "괜찮음" }], profit_per_order_won: 3000 }))
-      .toEqual([["2개", "점검한 채널"], ["1개", "주의·손해 채널"], [wonKo(3000), "건당 이익(추정)"]]);
+      .toEqual([["2개", "점검한 채널"], ["손해 0개 · 주의 1개", "채널 판정"], [wonKo(3000), "건당 남는 돈 (광고비 빼기 전)"]]);
     expect(tilesOf({ coupon_card: { discount_won: 2000, count: 30, breakeven_orders: 5 } }))
       .toEqual([[wonKo(2000), "할인액"], ["30장", "발급 수량"], ["5건", "본전 주문 수"]]);
+  });
+  it("광고비 판정 타일은 손해·주의를 나눠 세고, 둘 다 없으면 '모두 괜찮음' (11/22 QA: 흑자인 주의가 손해와 묶였다)", () => {
+    expect(verdictCountText([{ verdict: "손해 광고" }, { verdict: "주의" }, { verdict: "주의" }, { verdict: "괜찮음" }])).toBe("손해 1개 · 주의 2개");
+    expect(verdictCountText([{ verdict: "손해 광고" }])).toBe("손해 1개 · 주의 0개");
+    expect(verdictCountText([{ verdict: "괜찮음" }, { verdict: "괜찮음" }])).toBe("모두 괜찮음");
+    expect(verdictCountText([{ verdict: null }])).toBe("–");
+    expect(verdictCountText([])).toBe("–");
+    // 기준 문장은 서버 adspend.judge 와 같은 기준(이상 → 손해, 절반 이상 → 주의), '건당 남는 돈'은 광고비 빼기 전 값임을 밝힘
+    expect(MKT_ADSPEND_RULE).toBe("주문 1건에 든 광고비가 남는 돈 이상이면 '손해 광고', 절반 이상이면 '주의'예요.");
+    expect(MKT_PROFIT_TILE).toBe("건당 남는 돈 (광고비 빼기 전)");
+  });
+  it("남는 비율 '직접 입력' 칸(보기와 같은 키)은 단위가 %", () => {
+    expect([MKT_UNIT.adspend_margin_pct, MKT_UNIT.coupon_margin_pct, MKT_UNIT.survey_margin_pct]).toEqual(["%", "%", "%"]);
   });
   it("판단 근거는 result 설명 → summary → 할 일 하나의 tip", () => {
     expect(whyLinesOf({ summary: "s" }, { explain: ["a", "b"] })).toEqual(["a", "b"]);

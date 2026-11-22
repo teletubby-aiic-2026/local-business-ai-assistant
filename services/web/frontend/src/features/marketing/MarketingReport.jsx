@@ -1,7 +1,7 @@
 // 마케팅 보고서 탭 (주간·월간, 예전 mktReport·mktReportDraw). 기록을 코드로 센 것이다 (AI 호출 없음).
 // 기록이 없으면 서버가 데모 기록을 주고(demo: true), 그 사실을 보고서 위 안내 한 곳에서 꼭 밝힌다.
 import { Button, Notice, Panel, StatTile } from "../../components/ui.jsx";
-import { MKT_PERIOD, MKT_VERDICT, reportView, wonKo } from "./logic.js";
+import { MKT_PERIOD, MKT_PROFIT, MKT_VERDICT, reportView, wonKo } from "./logic.js";
 import { loadReport, useMkt } from "./state.js";
 import { Bar } from "./ResultCard.jsx";
 
@@ -27,7 +27,7 @@ function ReportCard({ d, period }) {
               <div key={i} className="mkt-bar-row">
                 <p className="mkt-bar-name">{a.label} <span className="small muted">{L.prev} {a.prev_verdict || "기록 없음"} → {L.now} {a.verdict || "–"}</span></p>
                 <Bar tone={(MKT_VERDICT[a.verdict] || ["ok"])[0]} width={v.pct(a.cost_per_order)} text={`건당 광고비 ${wonKo(a.cost_per_order)}`} />
-                {a.profit_per_order != null && <Bar tone="profit" width={v.pct(a.profit_per_order)} text={`건당 이익 ${wonKo(a.profit_per_order)}`} />}
+                {a.profit_per_order != null && <Bar tone="profit" width={v.pct(a.profit_per_order)} text={`${MKT_PROFIT} ${wonKo(a.profit_per_order)}`} />}
               </div>
             ))}
           </div>

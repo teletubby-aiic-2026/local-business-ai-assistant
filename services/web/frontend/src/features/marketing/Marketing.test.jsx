@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { getState, setState } from "../../state/store.js";
 import Marketing from "./Marketing.jsx";
 import { MKT_DEMO_NOTICE, MKT_END_HINT, MKT_FOLLOW_MODE, noticeLines } from "./state.js";
+import { MKT_ADSPEND_RULE, MKT_PICK } from "./logic.js";
 import { getChat } from "../assistant/state.js";
 // CSS 는 vitest 가 빈 글로 바꾸므로(?raw 도) 파일을 직접 읽는다
 import { readFileSync } from "node:fs";
@@ -121,7 +122,7 @@ describe("맞춤 마케팅 화면", () => {
     expect(calls.some((c) => c.path.includes("/api/assistant/messages"))).toBe(false);
   });
 
-  it("시작 모드를 고르면 첫 응답 전에도 고른 모드와 '처음부터'가 바로 보인다", async () => {
+  it("시작 모드를 고르면 첫 응답 전에도 고른 모드와 '다른 기능 고르기'가 바로 보인다", async () => {
     let release;
     const hold = new Promise((r) => { release = r; });
     globalThis.fetch = fakeFetch([], hold);
@@ -129,17 +130,18 @@ describe("맞춤 마케팅 화면", () => {
     act(() => setState({ epoch: getState().epoch + 1 }));
     render(<Marketing />);
     expect(await screen.findByText("무엇을 도와드릴까요?")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "처음부터" })).toBeNull();   // 첫 화면(기능 카드)에는 없음
+    expect(screen.queryByRole("button", { name: MKT_PICK })).toBeNull();   // 첫 화면(기능 카드)에는 없음
     // 첫 화면의 기능 카드는 흰 패널로 감싸지 않고 바탕 위에 바로 (Figma 06 M1)
     const start = document.querySelector(".mkt-start");
     expect(start.classList.contains("panel")).toBe(false);
     expect(start.querySelector(".feature-grid")).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByText("광고비 점검")); });
-    // 아직 step 응답 전: 질문 칸 제목이 고른 모드, 내 답 말풍선, '처음부터' 버튼
+    // 아직 step 응답 전: 질문 칸 제목이 고른 모드, 내 답 말풍선, '다른 기능 고르기' 버튼 (머리·맨 아래 같은 이름)
     const title = document.getElementById("mkt-ask-title");
     expect(title.textContent).toBe("광고비 점검");
     expect(document.querySelector("#mkt-log .mkt-bubble").textContent).toBe("광고비 점검");
-    expect(screen.getByRole("button", { name: "처음부터" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: MKT_PICK }).map((b) => b.id)).toEqual(["mkt-pick", "mkt-restart"]);
+    expect(screen.queryByRole("button", { name: "처음부터" })).toBeNull();   // 같은 일을 하는 다른 이름이 없음
     expect(screen.getByText("승인한 기록은 그대로 남아요")).toBeTruthy();
     expect(screen.queryByText("질문")).toBeNull();   // '질문' 제목 + '질문 n' 배지가 따로 있지 않음
     // 비서 질문은 '마케팅 비서' 이름표가 붙은 상자, 사장님 답은 말풍선 (Figma 06 M1)
@@ -198,7 +200,7 @@ describe("맞춤 마케팅 11/21 실사용 QA 고침", () => {
     expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
     expect(document.querySelectorAll("#mkt-options button").length).toBe(0);           // 더 고를 보기 없음
     expect(calls.filter((c) => c.path === "plan").length).toBe(1);                     // end 면 plan 을 다시 부르지 않는다
-    expect(screen.getByRole("button", { name: "처음부터" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: MKT_PICK }).length).toBe(2);
     expect(MKT_FOLLOW_MODE).toBe("재주문 쿠폰 (선택)");
   });
 
@@ -210,7 +212,7 @@ describe("맞춤 마케팅 11/21 실사용 QA 고침", () => {
     const mode = await screen.findByText("광고비 점검");
     await act(async () => { fireEvent.click(mode); });
     await screen.findByText("광고비 점검 결과");
-    expect([...document.querySelectorAll(".mkt-table thead th")].map((t) => t.textContent)).toEqual(["앱", "판정", "광고비", "주문", "건당 광고비", "건당 이익"]);
+    expect([...document.querySelectorAll(".mkt-table thead th")].map((t) => t.textContent)).toEqual(["앱", "판정", "광고비", "주문", "건당 광고비", "건당 남는 돈"]);
     const row = document.querySelector(".mkt-table tbody tr");
     expect(row.children[1].textContent).toBe("손해 광고");
     const wrap = document.querySelector(".mkt-table-wrap");
@@ -238,6 +240,108 @@ describe("맞춤 마케팅 11/21 실사용 QA 고침", () => {
     await act(async () => { fireEvent.click(mode); });
     const note = await screen.findByText(message);
     expect(note.closest(".mkt-step")).toBeTruthy();
+  });
+});
+
+// 11/22 실사용 QA: 남는 비율 '직접 입력'까지 도는 가짜 서비스 (서버 flow.py 의 노드·문장과 같은 모양)
+const MARGIN_Q = "재료비·포장비·수수료 빼고 남는 비율은 어느 정도인가요?";
+const MARGIN_CUSTOM_Q = "남는 비율을 1~90 사이 숫자로 입력해 주세요. (%)";
+const MARGIN_RETRY = "남는 비율은 1~90 사이 숫자로 다시 알려 주세요.";
+function marginFetch(calls) {
+  const st = (node) => ({ node, raw: {}, confirms: {}, mode: "adspend" });
+  return vi.fn(async (url, opts = {}) => {
+    const path = String(url).replace("/api/marketing-survey/", "");
+    const body = opts.body ? JSON.parse(opts.body) : null;
+    calls.push({ path, body });
+    let out;
+    if (path === "health") out = { state: "ready", mode: "mock", demo: true };
+    else if (path === "meta") out = { store_name: "온기한식" };
+    else if (path === "step" && body.answer == null) out = START;
+    else if (path === "step" && body.answer === "광고비 점검") out = { state: st("adspend_margin"), bot_messages: [MARGIN_Q], done: false, multi: false, input: null,
+      options: [{ label: "20%" }, { label: "30%" }, { label: "40%" }, { label: "직접 입력" }] };
+    else if (path === "step" && body.answer === "직접 입력") out = { state: st("adspend_margin_custom"), bot_messages: [MARGIN_CUSTOM_Q], done: false, multi: false,
+      options: [], input: { key: "adspend_margin_pct", type: "number" } };
+    else if (path === "step" && body.answer === "95") out = { state: st("adspend_margin_custom"), bot_messages: [`${MARGIN_RETRY}\n${MARGIN_CUSTOM_Q}`], done: false, multi: false,
+      options: [], input: { key: "adspend_margin_pct", type: "number" } };
+    else if (path === "step") out = { state: st("DECISION"), done: true };
+    else if (path === "plan") out = PLAN;
+    else out = {};
+    return { ok: true, status: 200, json: async () => out, headers: { get: () => "application/json" } };
+  });
+}
+
+describe("맞춤 마케팅 11/22 실사용 QA 고침", () => {
+  it("질문 칸 머리(제목 줄)의 '다른 기능 고르기'를 누르면 기능 카드 목록으로 돌아간다 (대화만 처음으로)", async () => {
+    const calls = [];
+    globalThis.fetch = fakeFetch(calls);
+    prep();
+    act(() => setState({ epoch: getState().epoch + 1 }));
+    render(<Marketing />);
+    const mode = await screen.findByText("광고비 점검");
+    await act(async () => { fireEvent.click(mode); });
+    await screen.findByText("광고비 점검 결과");
+    const pick = document.getElementById("mkt-pick");
+    expect(pick.textContent).toBe(MKT_PICK);
+    // 제목과 같은 머리 줄에 있다 (맨 아래가 아니라 위에서 바로 보임)
+    expect(pick.closest(".panel-head").contains(document.getElementById("mkt-ask-title"))).toBe(true);
+    expect(pick.getAttribute("aria-describedby")).toBe("mkt-restart-hint");
+    const before = calls.length;
+    await act(async () => { fireEvent.click(pick); });
+    expect(await screen.findByText("무엇을 도와드릴까요?")).toBeTruthy();
+    expect(document.querySelector(".mkt-start .feature-grid")).toBeTruthy();     // 기능 카드 격자
+    expect(document.getElementById("mkt-ask-title")).toBeNull();
+    expect(screen.queryByText("광고비 점검 결과")).toBeNull();
+    expect(calls.slice(before).filter((c) => c.path === "step").map((c) => c.body)).toEqual([{ state: null, answer: null }]);
+    expect(calls.slice(before).some((c) => c.path.includes("records") || c.path.includes("approvals"))).toBe(false);   // 승인 기록은 그대로
+  });
+
+  it("CSS: 질문 칸 머리는 줄바꿈 없이 제목이 줄어들고, '다른 기능 고르기'는 한 줄 그대로", () => {
+    const rule = (sel) => (css.match(new RegExp(`(^|\\n)${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\{([^}]*)\\}`)) || [])[2] || "";
+    expect(rule(".mkt-ask > .panel-head")).toMatch(/flex-wrap: nowrap/);
+    expect(rule(".mkt-ask > .panel-head h2")).toMatch(/min-width: 0/);
+    expect(rule(".mkt-ask > .panel-head .btn-row")).toMatch(/flex: 0 0 auto/);
+    expect(rule(".mkt-pick")).toMatch(/white-space: nowrap/);
+  });
+
+  it("광고비 카드: 타일은 손해·주의를 나눠 세고, '건당 남는 돈 (광고비 빼기 전)', 표 바로 아래 판정 기준 한 줄", async () => {
+    const plan = { ...PLAN, profit_per_order_won: 3000, table: [PLAN.table[0],
+      { label: "쿠팡이츠", spend_won: 40000, orders: 20, cost_per_order_won: 2000, profit_per_order_won: 3000, verdict: "주의" }] };
+    globalThis.fetch = fakeFetch([], null, plan);
+    prep();
+    act(() => setState({ epoch: getState().epoch + 1 }));
+    render(<Marketing />);
+    const mode = await screen.findByText("광고비 점검");
+    await act(async () => { fireEvent.click(mode); });
+    await screen.findByText("광고비 점검 결과");
+    const tiles = [...document.querySelectorAll(".mkt-tiles > div")].map((t) => [t.querySelector("dd").textContent, t.querySelector("dt").textContent]);
+    expect(tiles).toEqual([["2개", "점검한 채널"], ["손해 1개 · 주의 1개", "채널 판정"], ["3,000원", "건당 남는 돈 (광고비 빼기 전)"]]);
+    const rule = screen.getByText(MKT_ADSPEND_RULE);
+    expect(rule.previousElementSibling.classList.contains("mkt-table-wrap")).toBe(true);
+    expect(screen.queryByText(/건당 이익/)).toBeNull();
+  });
+
+  it("남는 비율 '직접 입력': % 숫자 칸이 나오고, 범위 밖이면 서버가 다시 묻고, 60 을 보내면 숫자만 보낸다", async () => {
+    const calls = [];
+    globalThis.fetch = marginFetch(calls);
+    prep();
+    act(() => setState({ epoch: getState().epoch + 1 }));
+    render(<Marketing />);
+    const mode = await screen.findByText("광고비 점검");
+    await act(async () => { fireEvent.click(mode); });
+    const custom = await screen.findByRole("button", { name: "직접 입력" });
+    await act(async () => { fireEvent.click(custom); });
+    expect(await screen.findByText(MARGIN_CUSTOM_Q)).toBeTruthy();
+    expect(document.querySelector("#mkt-options .mkt-unit").textContent).toBe("%");
+    fireEvent.change(document.getElementById("mkt-num"), { target: { value: "95" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "보내기" })); });
+    expect(await screen.findByText((t) => t.startsWith(MARGIN_RETRY))).toBeTruthy();   // 다시 묻는 까닭 + 같은 질문
+    expect(document.getElementById("mkt-num").value).toBe("");                        // 새 칸
+    fireEvent.change(document.getElementById("mkt-num"), { target: { value: "60" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "보내기" })); });
+    await screen.findByText("광고비 점검 결과");
+    const answers = calls.filter((c) => c.path === "step" && c.body.answer != null).map((c) => c.body.answer);
+    expect(answers).toEqual(["광고비 점검", "직접 입력", "95", "60"]);
+    expect([...document.querySelectorAll("#mkt-log .mkt-bubble")].map((b) => b.textContent)).toEqual(["광고비 점검", "직접 입력", "95%", "60%"]);
   });
 });
 
