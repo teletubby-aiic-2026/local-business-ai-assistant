@@ -190,7 +190,7 @@ function TopicPanel({ view }) {
 }
 
 // ── 마케팅 숫자: 승인한 홍보 글은 승인 기록으로. 쿠폰 사용률·광고비·불만 재발은 값이 올 때만 칸을 그리고, 없으면 맞춤 마케팅 보고서로 안내 ──
-// 맞춤 마케팅 화면은 navTo 의 sub 로 보고서 탭을 아직 열지 않는다 (지금은 #/marketing 의 첫 탭으로 감, marketing/state.js handleNav)
+// [맞춤 마케팅 보고서 보기]는 navTo("marketing", "report") 로 마케팅 보고서 탭을 연다 (marketing/state.js handleNav)
 function MarketingNumbers({ view }) {
   const { cells, elsewhere } = marketingNumbers(view);
   return (

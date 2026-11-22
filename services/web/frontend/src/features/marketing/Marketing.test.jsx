@@ -271,6 +271,18 @@ function marginFetch(calls) {
 }
 
 describe("맞춤 마케팅 11/22 실사용 QA 고침", () => {
+  it("다른 화면이 navTo('marketing', 'report')로 보내면 마케팅 보고서 탭이 열린다 (종합 리포트의 [맞춤 마케팅 보고서 보기])", async () => {
+    const calls = [];
+    globalThis.fetch = fakeFetch(calls);
+    prep();
+    act(() => setState({ epoch: getState().epoch + 1 }));
+    render(<Marketing />);
+    await screen.findByText("광고비 점검");
+    await act(async () => { setState((st) => ({ nav: { name: "marketing", sub: "report", seq: st.nav.seq + 1 } })); });
+    expect(calls.some((c) => c.path.startsWith("report"))).toBe(true);            // 보고서를 불러옴
+    expect(screen.getByRole("tab", { name: "마케팅 보고서" }).getAttribute("aria-selected")).toBe("true");
+  });
+
   it("질문 칸 머리(제목 줄)의 '다른 기능 고르기'를 누르면 기능 카드 목록으로 돌아간다 (대화만 처음으로)", async () => {
     const calls = [];
     globalThis.fetch = fakeFetch(calls);
