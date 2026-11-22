@@ -22,9 +22,13 @@ const RESP = {
   "cultural-events": { district: "동작구", events: [{ title: "음악회", link: "javascript:x", category: "공연" }] },
 };
 
-let calls;
+let calls, scrolled;
 beforeEach(() => {
   resetStore(); resetMarketForTest(); calls = [];
+  // jsdom 에는 scrollIntoView 가 없다 (주변 상권을 누르면 비교 칸으로 내림, 11/22). 부른 요소와 인자를 남긴다
+  Element.prototype.scrollIntoView = vi.fn(function scrollIntoView(opts) { scrolled.push({ id: this.id, opts }); });
+  scrolled = [];
+  delete window.matchMedia;
   global.fetch = vi.fn(async (url) => {
     const path = String(url).replace("/api/market/", "").split("?")[0];
     calls.push(String(url));
@@ -343,5 +347,145 @@ describe("상권 분석 화면의 지도", () => {
   it("출처 한 줄은 scope 의 공개일 연도로", () => {
     expect(mapSource({ boundary_publication_date: "2023-10-23" })).toBe("네이버 지도 · 2023년 공개 상권 경계");
     expect(mapSource(null)).toBe("네이버 지도 · 공개 상권 경계");
+  });
+});
+
+// ── 11/22 실사용 QA: 상권 화면 작게 고칠 것 (B1~B5) ────────────────────────
+// 서버 문장은 상권 서비스(onboarding_sales.py · onboarding_population.py)가 주는 그대로
+const W_SALES_TIME = "시간대 구간의 길이가 서로 다릅니다. 구간별 분기 누적 금액이며 시간당 매출 순위가 아닙니다.";
+const W_POP_TIME = "시간대 구간 길이가 다릅니다. 시간당 유동인구나 일평균으로 환산한 값이 아닙니다.";
+const W_POP_AGE = "연령대 숫자는 원천 분류입니다. 연령대 10을 10대 이하 등 확인되지 않은 범위로 바꾸지 않았습니다.";
+const W_POP_TOP = "상권 전체의 원천 지표이며 선택 업종의 고객 수나 개별 가게의 방문자 수가 아닙니다.";
+const SCOPE_NOTE = "홈·종합 리포트의 상권 저녁 매출은 공통 업종·17~24시 기준이라 이 숫자와 다를 수 있어요.";
+const FACILITY_NOTE = "상권 이름에 든 역·학교가 상권 경계 안에 있다는 뜻은 아니에요. 시설 수는 서울시 집객시설 자료 그대로예요.";
+const RAW_AGE_NOTE = "'원천 분류'는 서울시 자료의 연령 구분 이름 그대로라는 뜻이에요. 매출 탭의 '10대'와 범위가 같은지는 확인되지 않았어요.";
+const QA_RESP = {
+  ...MAP_RESP,
+  sales: { total: { value: 1200000000 }, warnings: ["상권·업종의 분기 추정매출이며 개별 가게의 실제 매출이나 특정 월 매출이 아닙니다."],
+    distributions: {
+      time: { label: "시간대별 매출", items: [{ label: "00~06시", share_percent: 25 }, { label: "06~11시", share_percent: 75 }], warnings: [W_SALES_TIME] },
+      age: { label: "연령별 매출", items: [{ label: "10대", share_percent: 10 }, { label: "20대", share_percent: 90 }], warnings: [] },
+    } },
+  population: { total: { value: 5000 }, warnings: [W_POP_TOP, W_POP_TIME],   // 위 문장 하나가 분포 경고와 같아도 두 번 나오지 않아야 함
+    distributions: {
+      time: { label: "시간대별 유동인구 원천 지표", items: [{ label: "00~06시", value: 2500 }, { label: "06~11시", value: 2500 }], warnings: [W_POP_TIME] },
+      age: { label: "연령별 유동인구 원천 지표", items: [{ label: "연령대 10 (원천 분류)", value: 1000 }, { label: "연령대 20", value: 4000 }], warnings: [W_POP_AGE] },
+    } },
+  "area-context": { status: "available", warnings: [], values: [
+    { label: "직장인구", value: 1200, unit: "명" }, { label: "지하철역 수", value: 0, unit: "개" }, { label: "초중고 수", value: 0, unit: "개" },
+  ] },
+};
+
+describe("11/22 QA: 상권 화면 작게 고칠 것", () => {
+  let resp;
+  beforeEach(() => {
+    resetNaverMapsForTest();
+    delete window.naver;
+    resp = JSON.parse(JSON.stringify(QA_RESP));
+    global.fetch = vi.fn(async (url, opts = {}) => {
+      const path = String(url).replace("/api/market/", "").split("?")[0];
+      calls.push(`${opts.method || "GET"} ${String(url)}`);
+      return { ok: true, status: 200, json: async () => resp[path] || {} };
+    });
+  });
+  const tab = (name) => fireEvent.click(screen.getByRole("tab", { name }));
+  const count = (text) => screen.queryAllByText(text).length;
+
+  it("B1: 분포의 경고(시간대 구간 길이가 다름)는 그 막대 바로 아래에, 탭 아래 경고와 겹치면 한 번만", async () => {
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    // 매출 탭: 시간대 막대 바로 다음에 그 분포의 경고, 연령 막대 아래에는 없음
+    const salesTime = screen.getByRole("list", { name: "시간대별 매출" });
+    expect(salesTime.nextElementSibling.textContent).toBe(W_SALES_TIME);
+    expect(salesTime.nextElementSibling.className).toBe("small muted");
+    expect(screen.getByRole("list", { name: "연령별 매출" }).nextElementSibling).toBeNull();
+    expect(count(W_SALES_TIME)).toBe(1);
+    // 유동 탭: 시간대·연령 막대 아래 각각의 경고, 위 문장과 같은 경고는 막대 아래 한 번만, 다른 위 문장은 탭 아래 그대로
+    tab("유동·배후인구·집객시설");
+    const popTime = screen.getByRole("list", { name: "시간대별 유동인구 원천 지표" });
+    expect(popTime.nextElementSibling.textContent).toBe(W_POP_TIME);
+    expect(count(W_POP_TIME)).toBe(1);
+    expect(screen.getByRole("list", { name: "연령별 유동인구 원천 지표" }).nextElementSibling.textContent).toBe(W_POP_AGE);
+    expect(count(W_POP_TOP)).toBe(1);
+    expect(screen.getByText(W_POP_TOP).closest(".mk-grid")).toBeNull();   // 위 문장은 막대 칸 밖(탭 아래)
+  });
+
+  it("B2: 유동 탭의 '연령대 10'은 서버 표기 그대로 두고 '원천 분류' 뜻을 한 줄로, 매출 탭은 '10대' 그대로", async () => {
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    expect(screen.getByText("10대").closest("[role=tabpanel]").id).toBe("mk-panel-sales");
+    expect(screen.getByText(RAW_AGE_NOTE).closest("[role=tabpanel]").id).toBe("mk-panel-pop");   // 덧말은 유동 탭에만 (매출 탭에는 없음)
+    tab("유동·배후인구·집객시설");
+    const age = screen.getByRole("list", { name: "연령별 유동인구 원천 지표" });
+    expect(age.querySelector(".mk-bar-l").textContent).toBe("연령대 10");
+    expect(age.textContent).not.toMatch(/10대/);   // 범위를 확인하지 못한 표기를 '10대'로 바꾸지 않음
+    const note = screen.getByText(RAW_AGE_NOTE);
+    expect(note.className).toBe("small muted");
+    expect(note.closest("section")).toBe(age.closest("section"));
+    // 원천 분류 표기가 아니면(서버가 이름을 바꾸면) 덧말도 없음
+    cleanup(); resetMarketForTest();
+    resp.population.distributions.age.items[0].label = "연령대 10";
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    tab("유동·배후인구·집객시설");
+    expect(count(RAW_AGE_NOTE)).toBe(0);
+  });
+
+  it("B3: 변화율 타일 sub 에 '선택 업종 · 분기 전체', 지표 바로 아래 홈 지표와 범위가 다르다는 한 줄", async () => {
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    expect(screen.getByText("2025년 2분기 대비 · 선택 업종 · 분기 전체 추정매출").className).toBe("tile-sub");
+    const note = screen.getByText(SCOPE_NOTE);
+    expect(note.className).toBe("small muted mk-tiles-note");
+    expect(document.querySelector(".mk-tiles").nextElementSibling).toBe(note);
+    expect(count(SCOPE_NOTE)).toBe(1);
+  });
+
+  it("B3: 자료를 받기 전에는 범위 한 줄도 없다", async () => {
+    resp.status = { state: "off", message: "상권 서비스가 꺼져 있어요." };
+    render(<Market />);
+    await screen.findByText("상권 서비스가 꺼져 있어요.");
+    expect(count(SCOPE_NOTE)).toBe(0);
+  });
+
+  it("B4: 집객시설 목록 바로 아래 '이름에 든 역·학교 ≠ 경계 안' 한 줄, 자료가 없으면 없음", async () => {
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    tab("유동·배후인구·집객시설");
+    const facts = screen.getByText("지하철역 수").closest("ul");
+    expect(facts.nextElementSibling.textContent).toBe(FACILITY_NOTE);
+    expect(facts.nextElementSibling.className).toBe("small muted");
+    cleanup(); resetMarketForTest();
+    resp["area-context"] = { status: "not_collected", values: [], warnings: [] };
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    tab("유동·배후인구·집객시설");
+    expect(screen.getByText("이 상권의 직장인구·상주인구·집객시설 자료가 아직 없어요.")).toBeTruthy();
+    expect(count(FACILITY_NOTE)).toBe(0);
+  });
+
+  it("B5: 주변 상권을 누르면 비교 탭이 열리고 비교 칸(#mk-cmp-form)까지 부드럽게 내린다, 포커스는 탭", async () => {
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    fireEvent.click(await screen.findByRole("button", { name: "노량진 · 420m" }));
+    expect(screen.getByRole("tab", { name: "타 상권 1:1 비교" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement.id).toBe("mk-tab-compare");
+    await waitFor(() => expect(scrolled).toEqual([{ id: "mk-cmp-form", opts: { behavior: "smooth", block: "center" } }]));
+    const form = document.getElementById("mk-cmp-form");
+    expect(form.contains(document.getElementById("mk-cmp-district"))).toBe(true);
+    expect(form.contains(screen.getByRole("button", { name: "비교하기" }))).toBe(true);
+    await screen.findByText(/노량진 상권을 비교 대상으로 골랐어요/);
+    // 비교 탭이 이미 열려 있어도 다시 누르면 또 내린다 (탭이 보이는 상태에서 '그대로'로 보였던 경우)
+    fireEvent.click(screen.getByRole("button", { name: "장승배기 · 비교할 수 없음" }));
+    await waitFor(() => expect(scrolled.length).toBe(2));
+    expect(scrolled[1].id).toBe("mk-cmp-form");
+  });
+
+  it("B5: 움직임 줄이기를 켰으면 부드러운 스크롤 없이 바로", async () => {
+    window.matchMedia = (q) => ({ matches: q === "(prefers-reduced-motion: reduce)", media: q, addEventListener() {}, removeEventListener() {} });
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    fireEvent.click(await screen.findByRole("button", { name: "노량진 · 420m" }));
+    await waitFor(() => expect(scrolled).toEqual([{ id: "mk-cmp-form", opts: { behavior: "auto", block: "center" } }]));
   });
 });

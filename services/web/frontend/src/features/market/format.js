@@ -36,8 +36,18 @@ export function barRows(dist) {
   });
 }
 
-// 경고 글: 문자열만
-export const warningsOf = (x) => ((x && x.warnings) || []).filter((w) => typeof w === "string");
+// 경고 글: 문자열만. skip 에 든 문장은 뺀다 (이미 다른 곳에 보인 문장)
+export const warningsOf = (x, skip = []) => ((x && x.warnings) || []).filter((w) => typeof w === "string" && !skip.includes(w));
+
+// 분포들(distributions)의 경고 전부: 막대 아래에 보이므로 탭 아래 경고에서 같은 문장을 또 쓰지 않게 (11/22 QA)
+export const distWarningsOf = (dists) => Object.values(dists || {}).flatMap((d) => warningsOf(d));
+
+// 연령 분포가 서울시 원천 분류 이름('연령대 10 (원천 분류)')을 쓰는가. 서버가 범위를 확인하지 못해 '10대'로 바꾸지 않은 표기라 뜻을 한 줄 덧붙인다
+export const isRawAge = (dist) => ((dist && dist.items) || []).some((i) => i && /원천 분류/.test(String(i.label)));
+
+// 배후인구·집객시설 목록에 시설 수(역·학교 등)가 있는가: 상권 이름의 역·학교와 시설 수가 어긋나 보일 때 덧붙이는 한 줄의 조건
+const FACILITY = /집객시설|지하철역|버스정류장|대학교|초중고|병원/;
+export const hasFacility = (vals) => (vals || []).some((v) => v && FACILITY.test(String(v.label)));
 
 // 행사 링크는 http(s) 만 연다
 export const safeUrl = (v) => { try { const u = new URL(String(v)); return u.protocol === "https:" || u.protocol === "http:" ? u.href : null; } catch { return null; } };
