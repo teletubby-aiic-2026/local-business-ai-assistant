@@ -8,7 +8,7 @@ coupon_order_revenue = 사용 장수 x 쿠폰 주문 평균 금액. revenue_per_
   사용률 < 20% -> 할인액 +500원(또는 시간대 변경), 20~50% -> 같은 조건 유지, > 50% -> 할인액 -500원.
 
 build_coupon_result_plan(raw, today=None) -> marketing_survey.execute.build_plan() 과 같은 모양
-+ usage_rate, issued, used, next_condition({discount_won, delta_won, note}).
++ usage_rate, issued, used, next_condition({discount_won, delta_won, note}), warning(입력이 말이 안 될 때 한 줄, 아니면 None).
 """
 from __future__ import annotations
 
@@ -24,6 +24,8 @@ DISCOUNT_STEP_WON = 500
 TODO_LOW_USAGE = "할인액 500원 올리기 또는 시간대 바꾸기"
 TODO_MID_USAGE = "같은 조건으로 한 번 더"
 TODO_HIGH_USAGE = "할인액 500원 내려 비용 줄이기"
+TODO_CHECK_INPUT = "발급·사용 장수 다시 확인하기"
+TODO_DISCOUNT_OVER_PROFIT = "할인액을 주문 한 건에서 남는 돈보다 낮게 다시 정하기"
 
 NOTE_LOW_USAGE = "사용률이 낮아요 — 할인액을 올리거나 쿠폰을 쓸 수 있는 시간대를 바꿔 봐요"
 NOTE_MID_USAGE = "사용률이 적당해요 — 지금 조건을 그대로 유지해요"
@@ -82,7 +84,23 @@ def build_coupon_result_plan(raw: dict, today: date | None = None) -> dict:
     profit_per_order_won = adspend.profit_per_order(avg_order_won, margin_pct)
     breakeven = adspend.breakeven_orders(cost_won, profit_per_order_won)
 
-    if rate is None:
+    # 말이 안 되는 입력은 계산 결과를 내지 않고 고칠 점을 알린다 (11/22 QA). 화면은 steps[0].tip 을 첫 줄로 보여 준다.
+    # 건당 이익은 남는 비율을 넣었을 때만(0보다 클 때만) 견준다. 비율을 넣지 않은 예전 입력은 지금처럼 사용률로만 판정한다.
+    warning = None
+    if issued > 0 and used > issued:
+        rate, condition, breakeven = None, None, None
+        todo = TODO_CHECK_INPUT
+        tip = warning = f"사용 장수({used:,}장)가 발급 장수({issued:,}장)보다 많아요. 숫자를 확인해 주세요"
+    elif discount_won <= 0:
+        condition, breakeven = None, None
+        todo = "할인액을 입력해 주세요"
+        tip = warning = "할인액이 0원이라 쿠폰 비용과 본전 주문 수를 계산하지 않았어요"
+    elif profit_per_order_won > 0 and discount_won >= profit_per_order_won:
+        condition, breakeven = None, None
+        todo = TODO_DISCOUNT_OVER_PROFIT
+        tip = warning = (f"할인액 {discount_won:,}원이 주문 한 건에서 남는 돈 {profit_per_order_won:,}원보다 커요. "
+                         "쿠폰 주문만으로는 본전을 찾을 수 없어요")
+    elif rate is None:
         todo = "발급 장수를 입력해 주세요"
         tip = "발급 장수가 0이라 사용률을 계산할 수 없어요"
     elif rate < LOW_USAGE_THRESHOLD:
@@ -112,4 +130,5 @@ def build_coupon_result_plan(raw: dict, today: date | None = None) -> dict:
         "profit_per_order_won": profit_per_order_won,
         "breakeven_orders": breakeven,
         "next_condition": condition,
+        "warning": warning,
     }
