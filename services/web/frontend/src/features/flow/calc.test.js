@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { homeStats, keywordRows, hourChart, scopeChips, sourceLine, reasonByAI, measureIds, replacesOf, statusOf, listBadges, touchedOf, mapDraft, pickCurrent, starText,
-  draftStateText, isFallback, regenNote, hourNotes, cardsIntro, targetLine, mergeApprovals, serverName, whenText } from "./calc.js";
+  draftStateText, isFallback, regenNote, hourNotes, cardsIntro, targetLine, mergeApprovals, serverName, whenText, priorApprovals, priorByCard, priorNote } from "./calc.js";
 
 const briefing = {
   period: { start: "2026-11-12", end: "2026-11-18" },
@@ -215,6 +215,34 @@ describe("11/21 QA: 처리 완료의 승인한 글 = 브라우저 목록 ∪ 서
     expect(mergeApprovals(local, null)).toEqual(local);
     expect(mergeApprovals(local, false)).toEqual(local);
     expect(mergeApprovals([], [])).toEqual([]);
+  });
+  it("11/22: 서버가 준 글 종류(kind)·카드(card_id)로 이름을 낸다 (안내문은 카드 제목을 보고, 맞춤 마케팅은 종류 이름 그대로)", () => {
+    const cards = [{ title: "식감 불만 → 안내문 + 답글", card: { card_id: "card_a" } }];
+    expect(serverName({ draft_id: "d_1", kind: "reply_draft", card_id: "card_a" }, cards)).toBe("답글");
+    expect(serverName({ draft_id: "d_2", kind: "prevention_notice", card_id: "card_a" }, cards)).toBe("안내문");
+    expect(serverName({ draft_id: "d_2", kind: "prevention_notice", card_id: "card_gone" }, cards)).toBe("포장·주문 안내문");
+    expect(serverName({ draft_id: "d_3", kind: "coupon_promo", card_id: "card_b" })).toBe("쿠폰 홍보글");
+    expect(serverName({ draft_id: "mkt-1", kind: "쿠폰 글", card_id: "marketing" })).toBe("쿠폰 글");
+    expect(serverName({ draft_id: "mkt-2", kind: null, card_id: "marketing" })).toBe("맞춤 마케팅 글");
+    expect(serverName({ draft_id: "d_4", kind: null, card_id: null })).toBe("글");
+    const out = mergeApprovals([], [{ draft_id: "d_2", kind: "prevention_notice", card_id: "card_a", text: "안내문" },
+      { draft_id: "x-9", kind: "공지", card_id: "marketing", text: "공지" }], cards);
+    expect(out.map((a) => [a.name, a.card, a.mkt])).toEqual([["안내문", "식감 불만 → 안내문 + 답글", false], ["공지", "맞춤 마케팅", true]]);
+  });
+  it("11/22: 진행이 없는 카드의 서버 승인 글 (안내·replaces)", () => {
+    const today = new Date(2026, 10, 22, 15, 0), at = "2026-11-22T09:00:00+09:00";
+    const items = [{ draft_id: "dx1", card_id: "card_a", status: "approved", approved_at: at }, { draft_id: "dx2", card_id: "card_a", approved_at: at },
+      { draft_id: "dx1", card_id: "card_a", approved_at: at }, { draft_id: "dx3", card_id: "card_b", status: "rejected", approved_at: at },
+      { draft_id: "mkt-1", card_id: "marketing", approved_at: at },
+      { draft_id: "d_yesterday", card_id: "card_a", status: "approved", approved_at: "2026-11-21T21:00:00+09:00" }, { draft_id: "d_no_time", card_id: "card_a" }];
+    expect(priorApprovals(items, "card_a", today)).toEqual(["dx1", "dx2"]);   // 지난날 승인·시각 없는 기록은 이력이라 세지 않는다 (replaces 로 지우지 않음)
+    expect(priorApprovals(items, "card_b", today)).toEqual([]);
+    expect(priorApprovals(null, "card_a", today)).toEqual([]);
+    const cards = [{ card: { card_id: "card_a" } }, { card: { card_id: "card_b" } }];
+    expect(priorByCard(cards, {}, items, today)).toEqual({ card_a: 2 });
+    expect(priorByCard(cards, { card_a: { drafts: [] } }, items, today)).toEqual({});   // 이 브라우저에 진행이 있으면 세지 않음
+    expect(priorByCard(cards, {}, items, new Date(2026, 10, 23, 9, 0))).toEqual({});     // 다음 날이면 안내도 replaces 도 없다
+    expect(priorNote(2)).toBe("오늘 승인한 글 2개가 있어요. 새로 만들면 그 승인 기록은 새 글로 바뀌어요.");
   });
   it("승인 시각: 오늘이면 시:분, 다른 날이면 월-일 시:분", () => {
     const today = new Date(2026, 10, 21, 22, 0);

@@ -12,7 +12,7 @@ import { go, navTo } from "../../lib/router.js";
 import { PageHead, Panel, StatTile, TopicBar, Button } from "../../components/ui.jsx";
 import { useFlow } from "./state.js";
 import { runTodo, staffGo } from "./actions.js";
-import { homeStats, keywordRows, hourChart, hourNotes, scopeChips } from "./calc.js";
+import { homeStats, keywordRows, hourChart, hourNotes, scopeChips, priorByCard, priorNote } from "./calc.js";
 import "./flow.css";
 
 const Unit = ({ n }) => (n === undefined || n === null ? "–" : <>{n}<span className="flow-unit">건</span></>);
@@ -35,6 +35,8 @@ export default function Home() {
   const period = b?.period?.start && b?.period?.end ? `${b.period.start} ~ ${b.period.end} · 리뷰는 합성 데이터` : "";
   const toMarket = !snap && !!b && isOwnStore(s.me);   // 직접 등록한 가게: 상권 숫자는 상권 분석 화면에
   const myArea = toMarket ? (currentStore(s.me) || {}).area_name : "";
+  // 이 브라우저에 진행이 없는 카드의 서버 승인 기록 (다른 기기·24시간 뒤). 할 일 아래 한 줄로 (추천 카드 화면과 같은 문장)
+  const prior = Object.values(priorByCard(s.cards, s.results, s.serverApprovals)).reduce((n, x) => n + x, 0);
 
   return (
     <div className="col wide flow-home">
@@ -84,6 +86,8 @@ export default function Home() {
                 );
               })}
           </ol>
+          {/* 서버 목록이 늦게 와서 나타나므로 읽기 프로그램이 읽게 status */}
+          {s.booted && prior > 0 && <p className="small muted flow-prior" role="status">{priorNote(prior)} <a href="#/done">처리 완료에서 보기</a></p>}
           <div className="btn-row flow-todo-foot">
             {noReviews && !items.length ? (
               <>

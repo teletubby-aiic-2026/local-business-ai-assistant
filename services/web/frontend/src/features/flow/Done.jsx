@@ -1,7 +1,8 @@
 // 4 처리 완료 (예전 renderDone·loadApprovals·restart. 배치는 Figma 06 B4).
 // 승인 타일 → 승인한 글(이름 · 글 앞부분 · 복사) → 점검 수칙 → 서버 처리 기록(접힘) → '홈으로'(진행 그대로) · '처음부터 다시'.
-// 승인한 글 = 이 브라우저의 승인 목록 ∪ 서버 승인 기록(GET /api/approvals, 화면을 열 때). 새로 고침하면 브라우저 목록이 비어도
-// 서버 기록으로 채운다 (11/21 QA). 둘 다 비었을 때만 빈 화면
+// 승인한 글 = 이 브라우저의 승인 목록 ∪ 서버 승인 기록(GET /api/approvals, 화면을 열 때). 브라우저 목록이 비어도(다른 기기·
+// 보관한 진행이 24시간 지남) 서버 기록으로 채운다 (11/21 QA). 서버에만 있는 글의 이름은 서버가 준 글 종류(kind)·카드(card_id)로 (11/22).
+// 둘 다 비었을 때만 빈 화면
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../../state/store.js";
 import { api } from "../../lib/api.js";
@@ -34,7 +35,7 @@ export default function Done() {
   const cards = useStore((s) => s.cards);
   const approved = useStore((s) => s.approved);
   const items = useServerApprovals();
-  const log = mergeApprovals(local, items);
+  const log = mergeApprovals(local, items, cards);
 
   if (!log.length) {
     return (
@@ -88,7 +89,7 @@ export default function Done() {
         </Panel>
       )}
 
-      <ServerLog log={log} items={items} />
+      <ServerLog log={log} items={items} cards={cards} />
 
       <div className="stack-8">
         <div className="btn-row">
@@ -131,17 +132,17 @@ function RestartButton() {
   return <Button disabled={busy} aria-describedby="flow-restart-note" onClick={async () => { setBusy(true); await restart(); }}>{busy ? "지우는 중…" : "처음부터 다시"}</Button>;
 }
 
-// 서버 처리 기록 (Done 이 화면을 열 때 읽은 GET /api/approvals). 접힌 칸 하나. 글 이름은 이 화면의 승인 목록에서 찾는다 (못 찾으면 '글').
-// 읽는 중이거나 못 읽으면 비워 둔다
-function ServerLog({ log, items }) {
+// 서버 처리 기록 (Done 이 화면을 열 때 읽은 GET /api/approvals). 접힌 칸 하나. 글 이름은 이 화면의 승인 목록에서 찾고,
+// 못 찾으면 서버가 준 글 종류로 (종류도 모르면 '글'). 읽는 중이거나 못 읽으면 비워 둔다
+function ServerLog({ log, items, cards }) {
   const names = new Map(log.map((a) => [a.id, nameOf(a)]));
-  const nameFor = (id) => names.get(id) || serverName(id);
+  const nameFor = (a) => names.get(a.draft_id) || serverName(a, cards);
   return (
     <details className="panel flow-server">
       <summary><h2 className="flow-server-title">서버 처리 기록</h2></summary>
       <ul className="plain small flow-server-log">
         {items && (items.length
-          ? items.map((a, i) => <li key={`${a.draft_id}-${i}`}>{String(a.approved_at || "").slice(5, 16).replace("T", " ")} 승인 · {nameFor(a.draft_id)}{a.edited ? " (고침)" : ""}</li>)
+          ? items.map((a, i) => <li key={`${a.draft_id}-${i}`}>{String(a.approved_at || "").slice(5, 16).replace("T", " ")} 승인 · {nameFor(a)}{a.edited ? " (고침)" : ""}</li>)
           : <li>기록 없음</li>)}
       </ul>
     </details>

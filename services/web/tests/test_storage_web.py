@@ -179,14 +179,17 @@ def test_approvals_are_per_visitor(tmp_path):
 @pytest.mark.skipif(not HAS_C6, reason="C6 저장본 없음")
 def test_approval_keeps_the_draft_detail_this_server_made(tmp_path):
     """이슈 #51 ERD (11/18): 이 서버가 만든 초안을 승인하면 원문·점검 결과·템플릿 여부·말투가 승인 기록에 남는다.
-    응답과 /api/approvals 의 모양은 그대로다. 이 서버가 모르는 초안은 화면이 보낸 원문만 남는다."""
+    승인 응답 모양은 그대로이고, /api/approvals 에는 글 종류·카드만 더해진다 (11/22, 초안 정보는 싣지 않음).
+    이 서버가 모르는 초안은 화면이 보낸 원문만 남는다."""
     client, demo, _ = make_app(tmp_path)
     card = client.get("/api/cards").json()["cards"][0]["card"]
     drafts = client.post(f"/api/cards/{card['card_id']}/run", json={}).json()["drafts"]
     d = next(x for x in drafts if x["generator"] == "reply_draft")
     ok = client.post(f"/api/drafts/{d['draft_id']}/approve", json={"text": d["text"] + " 고침", "original": d["text"]}).json()
     assert set(ok) == {"draft_id", "status", "edited", "text", "approved_at", "mode"}                  # 응답 모양은 그대로
-    assert set(client.get("/api/approvals").json()["items"][0]) == {"draft_id", "status", "edited", "text", "approved_at", "mode"}
+    item = client.get("/api/approvals").json()["items"][0]
+    assert set(item) == {"draft_id", "status", "edited", "text", "approved_at", "mode", "kind", "card_id"}
+    assert (item["kind"], item["card_id"]) == ("reply_draft", card["card_id"])
     visitor = client.cookies[VISITOR_COOKIE]
     row = demo.storage.approvals.details(demo.s.store_id, visitor)[0]
     assert row["draft_text"] == d["text"] and row["text"] == d["text"] + " 고침"
@@ -358,6 +361,50 @@ def approve(client, draft_id, text="글", **more):
 
 def shown(client):
     return [i["draft_id"] for i in client.get("/api/approvals").json()["items"]]
+
+
+def kinds(client):
+    return [(i["draft_id"], i["kind"], i["card_id"]) for i in client.get("/api/approvals").json()["items"]]
+
+
+def test_approval_list_carries_kind_and_card_but_not_the_draft_detail(tmp_path):
+    """11/22: GET /api/approvals 항목에 글 종류(kind)·카드(card_id)를 싣는다. 화면이 새로고침·다른 기기에서도 글 이름을 알고
+    진행이 없는 카드의 승인 기록을 찾는다. 값은 화면이 보낸 것 → 이 서버가 ③ 에서 기억한 것 → 모름(None).
+    예전 칸 6개는 그대로 그 차례이고 새 칸은 뒤에 붙는다. 초안 원문·점검 결과는 싣지 않는다."""
+    client, demo, _ = make_app(tmp_path)
+    demo._remember_drafts("card_ongi_a", {"drafts": [{"draft_id": "d_known", "generator": "prevention_notice", "text": "원문",
+                                                      "checks": {"length": True}}]})
+    approve(client, "d_known")
+    approve(client, "d_sent", card_id="card_ongi_b", kind="coupon_promo")
+    approve(client, "d_unknown")
+    items = client.get("/api/approvals").json()["items"]
+    assert [list(i) for i in items] == [["draft_id", "status", "edited", "text", "approved_at", "mode", "kind", "card_id"]] * 3
+    assert kinds(client) == [("d_known", "prevention_notice", "card_ongi_a"), ("d_sent", "coupon_promo", "card_ongi_b"),
+                             ("d_unknown", None, None)]
+    assert approve(client, "d_x").json().keys() == {"draft_id", "status", "edited", "text", "approved_at", "mode"}   # 승인 응답은 그대로
+    assert "kind" not in demo.storage.approvals.list(demo.s.store_id, client.cookies[VISITOR_COOKIE])[0]          # 저장한 기록은 건드리지 않음
+
+
+def test_approval_list_still_shows_when_the_kinds_cannot_be_read(tmp_path):
+    client, demo, _ = make_app(tmp_path)
+    demo._remember_drafts("card_ongi_a", {"drafts": [{"draft_id": "d_known", "generator": "reply_draft"}]})
+    approve(client, "d_known")
+    approve(client, "d_sent", card_id="card_ongi_b", kind="coupon_promo")
+
+    def broken(*_a, **_k):
+        raise StorageError("DB 에 닿지 못했습니다 (PoolTimeout)")
+    demo.storage.approvals.details = broken
+    # 목록은 그대로, 종류는 이 서버가 ③ 에서 기억한 것만
+    assert kinds(client) == [("d_known", "reply_draft", "card_ongi_a"), ("d_sent", None, None)]
+
+
+def test_held_approvals_also_carry_kind_and_card(tmp_path):
+    client, demo, db = flaky_app(tmp_path)
+    db.up = False
+    approve(client, "d_held", card_id="card_ongi_a", kind="reply_draft")
+    assert kinds(client) == [("d_held", "reply_draft", "card_ongi_a")]          # DB 를 못 읽는 동안 이 서버가 든 것도 같은 모양
+    db.up = True
+    assert kinds(client) == [("d_held", "reply_draft", "card_ongi_a")]          # DB 에 쓴 뒤에는 저장소에서 읽은 값
 
 
 def test_approvals_made_during_an_outage_are_saved_when_the_database_returns(tmp_path):
@@ -614,7 +661,7 @@ def test_pg_approval_on_one_server_shows_on_the_other(two_servers):
     one.post("/api/drafts/d_b/approve", json={"text": "글", "original": "글"})
     on_two = same_visitor(two, me).get("/api/approvals").json()["items"]                       # 새로 고침이 다른 서버로 감
     assert [i["draft_id"] for i in on_two] == ["d_a", "d_b"] and on_two[0]["edited"] is True and on_two[0]["text"] == "고친 글"
-    assert set(on_two[0]) == {"draft_id", "status", "edited", "text", "approved_at", "mode"}
+    assert set(on_two[0]) == {"draft_id", "status", "edited", "text", "approved_at", "mode", "kind", "card_id"}   # 초안 정보는 싣지 않음
     assert TestClient(two.app).get("/api/approvals").json() == {"items": []}                   # 다른 방문자는 못 봄
     two.post("/api/drafts/d_a/approve", json={"text": "두 번째 서버에서 다시", "original": "원문"})
     assert one.get("/api/approvals").json()["items"][-1]["text"] == "두 번째 서버에서 다시"
@@ -661,6 +708,20 @@ def test_pg_approval_rows_keep_card_and_kind(two_servers):
     rows = db.run(lambda c: c.execute("SELECT draft_id, card_id, kind, mode, status FROM approvals WHERE store_id=%s ORDER BY id", (store_id,)).fetchall())
     assert rows == [{"draft_id": "d_k", "card_id": "card_x_a", "kind": "reply_draft", "mode": "live", "status": "approved"},
                     {"draft_id": "d_s", "card_id": "card_x_b", "kind": "coupon_promo", "mode": "live", "status": "approved"}]
+
+
+def test_pg_approval_list_on_the_other_server_carries_kind_and_card(two_servers):
+    """11/22: 초안을 만든 서버(one)가 아닌 서버(two)가 목록을 줘도 글 종류·카드가 실린다 (DB 의 card_id·kind 칸에서 읽음)."""
+    (one, two), _, _, _, _ = two_servers
+    me = one.get("/api/health").cookies[VISITOR_COOKIE]
+    one.app.state.demo._remember_drafts("card_x_a", {"drafts": [{"draft_id": "d_k", "generator": "prevention_notice"}]})
+    one.post("/api/drafts/d_k/approve", json={"text": "글", "original": "글"})
+    two_client = same_visitor(two, me)
+    two_client.post("/api/drafts/d_s/approve", json={"text": "글", "original": "글", "card_id": "card_x_b", "kind": "coupon_promo"})
+    items = two_client.get("/api/approvals").json()["items"]
+    assert [(i["draft_id"], i["kind"], i["card_id"]) for i in items] == [("d_k", "prevention_notice", "card_x_a"),
+                                                                         ("d_s", "coupon_promo", "card_x_b")]
+    assert all("draft_text" not in i and "checks" not in i for i in items)
 
 
 @pytest.mark.skipif(not (db_env() and CONTAINER), reason="TEST_DB_CONTAINER 없음 (연결이 끊겼다 돌아오는 시험은 건너뜀)")

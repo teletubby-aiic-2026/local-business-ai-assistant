@@ -1107,7 +1107,8 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 **참고**
 - 화면은 서버가 준 글 순서(답글들, 공지)와 상관없이 **공지 → 홍보글 → 답글** 순서로 보여 줍니다 (`src/lib/domain.js`의 `GEN_ORDER`·`byGen`, `draftsOf`).
 - '카드 전체 다시 만들기'를 하면 그 카드의 예전 글과 승인 표시는 화면에서 버려집니다. 초안 상자의 '다시 만들기'는 그 글 한 건의 것만 버립니다. **11/16부터** 서버의 승인 기록에서도 같이 지웁니다 (아래).
-- 이 API는 글을 서버에 저장하지 않습니다. 화면(브라우저 메모리)에만 있습니다.
+- 이 API는 글을 서버에 저장하지 않습니다. 화면이 브라우저 메모리와 이 브라우저의 `localStorage`(사장님·가게별, 24시간)에 둡니다 (11/22, 2.2 (7)).
+- (11/22) 이 브라우저에 그 카드의 진행이 없는데 서버에 그 카드(`card_id`)의 승인 기록이 있으면(다른 기기·24시간 뒤), 처음 만들 때도 그 글 id 를 `replaces`로 보냅니다 (2.2 (7)).
 
 ---
 
@@ -1134,8 +1135,8 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 |---|---|---|
 | `text` | 문자열 또는 `null` | 사장님이 고친 글. 안 고쳤으면 원문과 같은 글 |
 | `original` | 문자열 또는 `null` | 생성된 원문 (`drafts[].text`) |
-| `card_id` · `kind` | 문자열, 선택 | 어느 카드의 어떤 글인지. 안 보내면 서버가 ③ 에서 기억한 값 |
-| `review_id` | 문자열, 선택 (11/15) | 리뷰 답글(`kind: "reply_draft"`)이 가리키는 리뷰(`drafts[].target_review_id`). 화면은 답글일 때만 `kind`와 함께 보냄 |
+| `card_id` · `kind` | 문자열, 선택 (`card_id` 100자·`kind` 40자까지) | 어느 카드의 어떤 글인지. 보내면 그 값, 안 보내면 서버가 ③ 에서 기억한 값. 화면은 11/22부터 늘 보냅니다 (`kind` = `drafts[].generator`, `card_id` = 그 글을 만든 카드): 초안을 만든 서버와 승인을 받은 서버가 달라도 기록에 글 종류가 남게 |
+| `review_id` | 문자열, 선택 (11/15) | 리뷰 답글(`kind: "reply_draft"`)이 가리키는 리뷰(`drafts[].target_review_id`). 화면은 답글일 때만 보냄 |
 
 **답글 승인 기록 (11/15)**: 승인한 글이 리뷰 답글이면(서버가 ③ 에서 기억한 `generator`가 `reply_draft`, 서버가 모르는 초안이면 본문의 `kind`·`review_id`) 서버가 리뷰 분석 서비스의 `POST /reviews/{review_id}/status`에 `{"status": "replied", "reply_text": 승인한 글, "at": approved_at, "visitor_id": 방문자}`를 **따로** 보냅니다. 응대 점수·기한(1.11)이 이 기록으로 계산됩니다. 승인 응답은 이것을 기다리지 않고(스레드 2개, 2초 제한), 실패해도 승인은 그대로 성공하며 응답 모양도 같습니다(서버 로그에만 남음). 형식이 틀린 `review_id`는 무시합니다.
 
@@ -1205,11 +1206,12 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 ### 1.7 `GET /api/approvals`
 
 **하는 일**: 서버 메모리에 있는 승인 기록을 줍니다.
-**쓰는 화면**: 처리 완료 `#/done`의 '서버 처리 기록'(접어 둔 목록)과 '승인한 글'. 완료 화면을 열 때 한 번 부릅니다. 11/21부터 '승인한 글'은 이 브라우저의 승인 목록과 이 응답을 합쳐 그립니다(같은 `draft_id`는 한 번, 차례는 서버 차례). 그래서 새로고침해도 승인한 글이 남습니다. 응답에 글 종류(`kind`)가 없어 서버에만 있는 글의 이름은 `mkt-`면 '맞춤 마케팅 글', 아니면 '글'입니다.
+**쓰는 화면**: 처리 완료 `#/done`의 '서버 처리 기록'(접어 둔 목록)과 '승인한 글'. 완료 화면을 열 때 한 번 부릅니다. 11/21부터 '승인한 글'은 이 브라우저의 승인 목록과 이 응답을 합쳐 그립니다(같은 `draft_id`는 한 번, 차례는 서버 차례). 그래서 브라우저 목록이 비어도(다른 기기 등) 승인한 글이 남습니다. 11/22부터 항목마다 글 종류(`kind`)와 카드(`card_id`)가 있어, 서버에만 있는 글도 '답글'·'포장·주문 안내문'처럼 이름을 붙입니다 (`flow/calc.js`의 `serverName`: `kind`와 `card_id`로 찾은 카드 제목으로 `lib/domain.js`의 `genName`). 종류를 모르는 옛 기록만 `mkt-`면 '맞춤 마케팅 글', 아니면 '글'입니다.
+메인 화면에 들어갈 때도 부릅니다 (2.6): AI 비서의 맞춤 마케팅 승인 수, 진행이 없는 카드의 '오늘 승인한 글' 안내, 보관한 진행을 되살릴 때 서버에 없는 승인 표시 풀기 (2.2 (7)).
 
 **요청**: `GET /api/approvals`. 본문 없음.
 
-**응답 `200`** (줄이지 않음. 글 두 건을 승인한 뒤의 목록. 답글 하나는 그대로, 재발 방지 공지 하나는 고쳐서 승인한 경우):
+**응답 `200`** (글 두 건을 승인한 뒤의 목록. 답글 하나는 그대로, 재발 방지 공지 하나는 고쳐서 승인한 경우. 11/22 에 `kind`·`card_id`를 더함):
 
 ```json
 {
@@ -1220,7 +1222,9 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
       "edited": false,
       "text": "안녕하세요 고객님 :) 공깃밥 추가로 보내드렸어요. 포장 마감 전 주문서를 다시 한번 확인하는 절차를 도입해서 이런 일이 다시 없도록 주의하겠습니다. 소중한 의견 감사합니다. 온기한식 드림",
       "approved_at": "2026-11-14T19:37:15+09:00",
-      "mode": "mock"
+      "mode": "mock",
+      "kind": "reply_draft",
+      "card_id": "card_ongi_a"
     },
     {
       "draft_id": "d_af7e466a",
@@ -1228,7 +1232,9 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
       "edited": true,
       "text": "안녕하세요 고객님 :) 주문이 잘못돼서 속상하셨죠? 진짜 죄송해요. 밥이랑 수저, 계란말이가 빠진 적이 몇 번 있었네요. 앞으론 주문서랑 꼼꼼히 비교해서 이런 실수 없게 할게요. 앞으로 포장 마감 전에 주문서와 한 번 더 대조할게요. 다음엔 요청 사항에 꼭 필요한 거 적어주시면 제가 특별히 더 잘 챙길게요! 온기한식 드림 (고침)",
       "approved_at": "2026-11-14T19:37:15+09:00",
-      "mode": "mock"
+      "mode": "mock",
+      "kind": "prevention_notice",
+      "card_id": "card_ongi_a"
     }
   ]
 }
@@ -1237,7 +1243,8 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 칸 | 뜻 | 화면 |
 |---|---|---|
 | `items[]` | 승인 기록 목록 (승인한 순서. 같은 글을 다시 승인하면 그 글이 맨 뒤로) | '승인한 글'·'서버 처리 기록' |
-| `items[].draft_id` · `edited` · `approved_at` | 글 id, 고쳤는지, 승인 시각 | "MM-DD HH:MM 승인 · 글 이름 (고침)" (11/20. 글 이름은 화면의 승인 목록에서 찾고, 못 찾으면 '글'·'맞춤 마케팅 글'. 글 id 는 보이지 않음) |
+| `items[].draft_id` · `edited` · `approved_at` | 글 id, 고쳤는지, 승인 시각 | "MM-DD HH:MM 승인 · 글 이름 (고침)" (11/20. 글 이름은 화면의 승인 목록에서 찾고, 못 찾으면 아래 `kind`로. 글 id 는 보이지 않음) |
+| `items[].kind` · `card_id` | (11/22) 글 종류(`reply_draft`·`prevention_notice`·`coupon_promo`, 맞춤 마케팅이면 '쿠폰 글' 같은 이름)와 카드 id (맞춤 마케팅이면 `"marketing"`). 승인 요청이 보낸 값 → 그 서버가 ③ 에서 기억한 값. 저장소에서 못 읽고 이 서버도 모르면 `null`. 예전 칸 6개 뒤에 붙고, 초안 원문·점검 결과(`draft_text`·`checks` 등)는 싣지 않음 | 서버에만 있는 글의 이름, 진행이 없는 카드의 '오늘 승인한 글' 수 |
 | `items[].status` · `text` · `mode` · `warning` | `1.6` 응답과 같음 | 안 씀 |
 
 **오류**: 없음 (기록이 없으면 `{"items": []}`).
@@ -2196,19 +2203,19 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 |---|---|
 | 서버에서 받은 것 | `health`, `briefing`, `reviewsById`(브리핑의 리뷰 원문), `cards`, `noCardB`, `insight`, `insightError`, `me`(`GET /api/auth/me`, `null`이면 아직 모름) |
 | 단계 (11/20, 아래 (5)) | `stage`, `stageError`(X1 에 보일 한 줄), `storeNew`(새 가게 등록의 `{mode, storeId?}`), `storeNewFrom`(새 가게 등록의 [취소]가 돌아갈 단계 `pick`·`profile`), `entered`(자료를 불러온 가게 id), `resume`(로그인이 끝났을 때 `{userId, storeId, loginId}`) |
-| 오늘 할 일 진행 (브라우저 메모리에만) | `results`(카드 id → `POST …/run` 응답), `approved`(승인한 글 id `Set`), `approvedLog`(처리 완료 목록, 맞춤 마케팅 것은 `mkt: true`), `pending`(고치는 중인 글), `current`·`draftId`(초안 화면에 보이는 카드·글), `joined`(방금 붙여넣은 리뷰가 들어간 묶음) |
+| 오늘 할 일 진행 (브라우저 메모리 + `localStorage`, 아래 (7)) | `results`(카드 id → `POST …/run` 응답), `approved`(승인한 글 id `Set`), `approvedLog`(처리 완료 목록, 맞춤 마케팅 것은 `mkt: true`), `pending`(고치는 중인 글), `current`·`draftId`(초안 화면에 보이는 카드·글), `flowKey`(진행을 보관하는 `localStorage` 키. `null` = 이 가게에서 아직 되살리기 전, `""` = 보관하지 않음), `serverApprovals`(`GET /api/approvals`의 `items`), `joined`(방금 붙여넣은 리뷰가 들어간 묶음) |
 | 화면 공통 | `booted`(들어간 가게의 자료를 한 번 다 불러옴)·`bootError`, `alert`(맨 위 알림 띠), `acctBusy`·`acctNotice`(결과 띠), `drawerOpen`(서랍), `staffMarket`(`/api/market/status`), `mktServer`(서버에 남은 맞춤 마케팅 승인 수), `nav`(`navTo` 요청), `mktResetSeq`·`mktCleared`('처음부터 다시'), `epoch` |
 
-- 진행 상태는 새로고침하면 사라집니다 (`localStorage`·쿠키에 두지 않음, 3.1). 들어간 가게 id 만 `sessionStorage`의 `ic26.entered`에 둡니다 (아래 (5)).
+- 오늘 할 일 진행(`results`·`approved`·`approvedLog`·`pending`·`current`·`draftId`)은 이 브라우저의 `localStorage`에 사장님·가게별로 보관하고, 새로고침·다시 로그인 뒤 되살립니다 (11/22, 아래 (7), 3.1). `joined`는 보관하지 않습니다. 들어간 가게 id 는 `sessionStorage`의 `ic26.entered`에 둡니다 (아래 (5)).
 - 예전 `authOpen`·`acctOpen`(로그인 창·내 계정 창)은 11/20에 없앴습니다. 켜도 아무 일도 없습니다.
 
 **(2) 불러오기: `src/state/boot.js`**
 
 - `boot()`: `GET /api/health`(기다리지 않음, 모든 단계의 시험용 안내 띠) + `GET /api/auth/me` → 단계를 정합니다 (아래 (5)). 가게 자료는 부르지 않습니다.
 - `enterApp()`: 지금 가게(`me.store_id`)를 `entered`·`ic26.entered`에 적고 `app` 단계로 가서 `storeChanged()`.
-- `storeChanged()`: 가게 자료를 비우고(`briefing`·`cards`·진행, `booted: false`) `epoch`를 1 올린 뒤 `GET /api/health` → `refresh()` → (기다리지 않고) `GET /api/market/status`. 끝나면 `booted: true`. 실패하면 알림 띠에 문장을 띄우고 `bootError`를 채웁니다 (401·409·403 으로 단계가 바뀐 것이면 알림 띠는 띄우지 않음). 가게 열기와 기록 지우기 뒤에 부릅니다.
-- `refresh()`: `GET /api/briefing` → `GET /api/cards` → `GET /api/insight` → (기다리지 않고) `GET /api/approvals`. 카드의 id·근거(`card_id`·`review_ids`·`snapshot_ids`)가 이전과 다르면 만든 글·승인 표시·고친 내용을 버립니다 (`emptyFlow`).
-- `clearStoreData()`: 다시 읽지 않고 가게 자료·진행만 비우고 `epoch`를 1 올립니다 (로그아웃·탈퇴·새 로그인).
+- `storeChanged()`: 가게 자료를 비우고(`briefing`·`cards`·진행, `serverApprovals`, `flowKey: null`, `booted: false`) `epoch`를 1 올린 뒤 `GET /api/health` → `refresh()` → (기다리지 않고) `GET /api/market/status`. 끝나면 `booted: true`. 실패하면 알림 띠에 문장을 띄우고 `bootError`를 채웁니다 (401·409·403 으로 단계가 바뀐 것이면 알림 띠는 띄우지 않음). 가게 열기와 기록 지우기 뒤에 부릅니다.
+- `refresh()`: `GET /api/briefing` → `GET /api/cards` → `GET /api/insight` → (기다리지 않고) `GET /api/approvals`. 카드의 id·근거(`card_id`·`review_ids`·`snapshot_ids`)가 이전과 다르면 만든 글·승인 표시·고친 내용을 버리고 보관한 진행도 지웁니다 (`emptyFlow`). 이 가게의 첫 불러오기(`flowKey`가 `null`)면 보관한 진행을 되살립니다: 되살릴 것이 있으면 카드 다음에 `GET /api/approvals`를 **기다려** 받아 서버에 없는 승인 표시를 푼 뒤 카드와 한 번에 넣고, 그다음 `GET /api/insight`를 부릅니다 (승인 목록은 다시 부르지 않음. 아래 (7)). 기다리는 사이 `epoch`가 바뀌었으면 받은 카드를 버립니다.
+- `clearStoreData()`: 다시 읽지 않고 가게 자료·진행만 비우고(`flowKey: null`) `epoch`를 1 올립니다 (로그아웃·탈퇴·새 로그인). 보관한 진행(`localStorage`)은 지우지 않습니다.
 
 **(3) 화면마다의 모듈 상태와 `epoch`**
 
@@ -2281,6 +2288,19 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
   `features/market/state.js`(`marketApi`), `features/marketing/api.js`(`mktApi`), `features/analysis/careApi.js`(`careApi`), `features/assistant/state.js`의 `call`(= `chat.js`의 `drawerApi` + 헤더·단계 전환. `chat.js`는 서버 시험이 node 로 그대로 불러 보므로 React 를 부르는 `lib/api.js`를 import 하지 않고, `drawerApi`는 `options.headers`를 기본 헤더 위에 더하고 오류에 `status`를 답니다),
   `components/NaverMap.jsx`(`/api/market/map-config`), `features/account/acctApi.js`(`acctPost`·`clearChat`). 새 가게 등록(`features/stores/storeApi.js`)은 `api()`·`serviceApi()`를 써서 따로 할 일이 없습니다.
   `features/report/careApi.js`는 종합 리포트 작업(다른 브랜치)에서 고칩니다. 시험은 `src/lib/authFetch.test.js`.
+
+**(7) 오늘 할 일 진행 보관: `src/state/flowKeep.js` (11/22 실사용 QA)**
+
+서버는 승인한 글만 저장하고 초안 본문은 두지 않습니다(WAS 2대). 그래서 예전에는 새로고침·다시 로그인하면 만든 글·승인 표시·고치던 글이 사라지고, 카드를 다시 열면 안내 없이 글을 새로 만들었습니다. 이제 화면이 진행을 이 브라우저에 보관합니다.
+
+- 키는 `ic26.flow.v1:<me.user.user_id>:<me.store_id>`입니다 (시연 계정은 `user_id`가 `demo-`로 시작하는 브라우저별 값). 둘 중 하나라도 모르면 보관하지 않습니다 (`flowKey: ""`).
+- 담는 것: `{v: 1, at: 저장 시각 ISO, cardKey, results, approved(배열), approvedLog, pending, current, draftId}`. `cardKey`는 카드 id·근거를 이은 글자입니다 (`boot.js`가 카드가 바뀌었는지 볼 때와 같은 값).
+- 쓰기: store 를 듣다가 위 조각이 바뀌면 200ms 모아서 쓰고, `pagehide`·화면이 숨겨질 때(`visibilitychange`)는 바로 씁니다. 조각이 모두 비면 키를 지웁니다. 1,500,000자가 넘으면 쓰지 않고 앞서 쓴 옛 진행도 지웁니다. `localStorage`는 늘 `try { … } catch` 안에서 부르고, 못 쓰면 메모리에만 둡니다.
+- **되살리기 전에는 쓰지 않습니다.** `storeChanged()`·`clearStoreData()`가 진행을 비울 때 `flowKey`도 `null`로 비워, 비운 진행으로 키를 지우지 않게 합니다. 그때 아직 쓰지 않은 앞 가게의 진행은 앞 가게 키에 마저 씁니다. 되살린 직후의 상태는 다시 쓰지 않습니다 (새로고침만으로 저장 시각이 늘지 않게).
+- 되살리기 (`refresh()`, 위 (2)): `v`가 같고, 저장한 `cardKey`가 방금 받은 카드와 같고, 저장한 지 24시간 안일 때만 되살립니다. 하나라도 어긋나거나 모양이 틀리면 키를 지우고 빈 진행으로 시작합니다. `results`에 없는 글의 `approved`·`pending`은 버립니다. 서버 승인 목록을 읽었으면 거기 없는 글의 승인 표시(`approved`·`approvedLog`)를 풉니다 (다른 곳에서 기록을 지웠을 수 있음). 목록을 못 읽으면 보관한 그대로 되살립니다. 이 맞추기는 되살릴 때 한 번만 합니다 (평소에 하면 방금 누른 승인이 늦게 온 옛 목록 때문에 풀림).
+- 되살린 `results[카드]._run`과 겹치지 않게, `runCard`는 새 번호를 지금 결과의 가장 큰 `_run`보다 크게 매깁니다 (새로고침하면 번호를 0부터 다시 세므로).
+- 지우는 때: 처리 완료의 '처음부터 다시'(`restart`), 프로필의 기록 지우기(그 가게 · 모든 가게면 이 사장님의 키 전부), 회원 탈퇴(이 사장님의 키 전부), 카드가 바뀜. **로그아웃은 지우지 않습니다** (키가 사장님별이라 다른 계정에는 보이지 않고, 다시 로그인하면 이어서 함. 24시간 뒤에는 되살리지 않음).
+- 진행이 없는 카드 (다른 기기·24시간 뒤): `serverApprovals`에 그 카드(`card_id`)의 **오늘**(이 브라우저의 날짜, `approved_at` 앞 10글자) 승인 기록이 있으면 추천 카드의 그 카드와 홈 '오늘 할 일' 아래에 "오늘 승인한 글 n개가 있어요. 새로 만들면 그 승인 기록은 새 글로 바뀌어요." + '처리 완료에서 보기'(`#/done`)를 한 줄로 둡니다 (`role="status"`). 그 상태에서 만들면 `runCard`가 그 글 id 를 `replaces`(최대 20개)로 보내 처리 완료에 같은 글이 두 번 쌓이지 않게 합니다 (1.5). 지난날의 승인 기록은 이력이라 안내에도 `replaces`에도 넣지 않습니다 (지우면 주간·월간 보고서의 승인 수가 줄어듭니다). 보관한 진행을 되살렸으면 이 안내는 뜨지 않습니다.
 
 ### 2.3 공통 부품과 디자인 토큰
 
@@ -2456,14 +2476,15 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 |---|---|---|
 | 화면 틀 | `src/App.test.jsx` | (app 단계 전제) 덮는 메뉴의 첫 포커스·Tab 가두기·Esc·바깥·[메뉴 닫기] 뒤 토글 버튼 포커스, 메뉴 항목으로 이동하면 그 화면 제목 포커스, 메뉴의 '프로필'로 프로필 단계, 승인 대기 칩(`#top-waiting`), 시험용 안내 띠 한 곳·바닥 줄, 사장님 칸('{이름} 사장님' · '프로필 · 로그아웃')·가게 칩('(가상)'·[바꾸기], 아래 줄은 `me.stores` 값: 여는 중·브리핑이 없어도 '불러오는 중'으로 남지 않음), 휴대폰 계정 그림 단추(`#acct-user`) |
 | 단계 전환 | `src/features/account/stages.test.jsx` | 부팅 분기(게스트 → A1 · 로그인 + 들어간 가게 → app · 로그인만 → A3 · 신원 실패·`notice` → X1과 [다시 시도]), 로그인 → A3 → 가게 열기 → app 홈과 새로고침 유지, [바꾸기]로 같은 가게를 다시 열면 서버를 안 부름, 로그아웃 → A1, 회원가입 → 새 가게 등록, 401 `login_needed` → X2 → 같은 사장님·가게면 하던 화면, 다른 사장님이면 A3, 409 → A3, 403 → 권한 없음, 로그인 전 단계의 늦은 401 무시, `X-IC26-Signed-In` 헤더, 가게 자료는 app 단계에서만 부름 |
+| 진행 보관 | `src/state/flowKeep.test.js` | (11/22) 키 모양(사장님·가게, 모르면 보관 안 함), 200ms 모아 쓰기·되살린 직후는 안 씀, 되살리기 전(`flowKey: null`)에는 쓰지도 지우지도 않음, 진행이 비면 지움, 로그아웃·가게 바꾸기는 지우지 않고 앞 가게 몫을 마저 씀, 너무 크면 옛 것도 지움, `localStorage` 오류, 되살리면 `approved`가 `Set`, 24시간·카드 바뀜·판·모양이 틀리면 지움, 서버 목록에 없는 승인 풀기, `results`에 없는 글 버리기, `forgetFlow`·`forgetUserFlows`(다른 사장님 것은 그대로) |
 | 틀 도우미 | `src/lib/shell.test.js` · `src/lib/theme.test.js` · `src/state/staff.test.js` | 안내 띠·바닥 줄 문구와 폭 구간(760·761~1024·그 위, 소수 폭), 화면 모양 순서·저장, 오늘 할 일·AI 비서 상태, 리뷰 0건의 핵심 문제('아직 들어온 리뷰가 없어요')·데이터 분석 비서('아직 리뷰 없음'·모두 붙여 넣은 리뷰면 한 번만). `src/lib/domain.test.js`: `textOr`·`shortPlace`(주소 원문 → '마포구 와우산로 94')·`cleanLabel`·`isOwnStore` (11/21) |
 | 공통 부품 | `src/components/ui.test.jsx` | 아이콘(자리 글자 없음, 그림이 서로 다름, 로고), 빈 안내, `Dialog` |
-| 흐름 | `features/flow/calc.test.js` · `screens.test.jsx` | 순수 계산, 네 화면 그리기와 카드 → 초안 → 승인 → 완료 → 처음부터 다시의 API 순서, 리뷰 0건 홈의 [리뷰 넣기]·[상권 분석 보기](예시 가게 홈은 그대로), 브리핑을 못 받은 홈. 11/21: 직접 등록한 가게의 상권 칸 [상권 분석에서 보기], ⓑ 카드가 없을 때의 칸, 기본 문장 글의 칩·목록 배지·다시 만들기 안내(`isFallback`·`draftStateText`·`regenNote`) |
+| 흐름 | `features/flow/calc.test.js` · `screens.test.jsx` · `keep.test.jsx` | 순수 계산, 네 화면 그리기와 카드 → 초안 → 승인 → 완료 → 처음부터 다시의 API 순서(승인 본문에 `kind`·`card_id`, 답글이면 `review_id`), 리뷰 0건 홈의 [리뷰 넣기]·[상권 분석 보기](예시 가게 홈은 그대로), 브리핑을 못 받은 홈. 11/21: 직접 등록한 가게의 상권 칸 [상권 분석에서 보기], ⓑ 카드가 없을 때의 칸, 기본 문장 글의 칩·목록 배지·다시 만들기 안내(`isFallback`·`draftStateText`·`regenNote`). 11/22 `keep.test.jsx`: 새로고침(떠날 때 쓰기 → store 처음으로 → 다시 들어감) 뒤 만든 글·승인 표시·고치던 글이 그대로이고 다시 만들지 않음, 승인 목록을 기다린 뒤 리뷰 분석을 부름, 로그아웃 뒤 같은 사장님은 이어서·다른 사장님에게는 안 보임, 같은 가게를 다시 불러와도 이어짐, 서버에 없는 승인은 풀림·목록을 못 읽으면 그대로, `_run`이 겹치지 않음, 카드가 바뀌면·'처음부터 다시'면 지움, 처리 완료의 서버 글 이름(`kind`·`card_id`), 진행이 없는 카드의 '오늘 승인한 글' 안내와 `replaces` |
 | 새 가게 등록 | `features/stores/StoreNew.test.jsx` · `StoreNew.map.test.jsx` | 업종 → 역 → 상권 후보(기본 inside) → 고르기 → 메뉴 → 저장 본문 → 가게 열기 → app 홈, 업종 먼저 안내, 업종·위치를 바꾸면 후보 다시(예전 선택 유지·비움), 상권 서비스 409 면 revision 다시 읽기, 후보 실패 [다시 시도], 주소 찾기(후보 고르기 · 하나면 바로 · 후보 없음·서울 밖·조회 불가 → 역으로 · 2자 미만 · 검사 오류 문장), 빈 폼·메뉴 줄 오류와 `aria-describedby`·포커스, `store_limit`·칸 이름이 든 서버 오류, 중복 누름·등록 뒤 열기 실패, [취소], 고치기(채우기 · 바뀐 칸만 PATCH · 위치를 안 바꾸면 상권 서비스 안 부름 · [위치 바꾸기]/[위치 바꾸지 않기] · 업종만 바꾸면 역은 다시 묻고 주소는 다시 찾게 · 예시 가게 · 저장 뒤 결과 띠), 업종 칸은 음식 업종만(`foodIndustries`), '가게 등록 2 / 3', 순수 계산. 지도 시험(가짜 지도): `list={false}`, 마커, 상권 `selected`·`nearby`·`disabled`, 다각형으로 고르기·고를 수 없는 이유 |
 | 로그인 헤더 | `src/lib/authFetch.test.js` | 따로 fetch 하는 곳(맞춤 마케팅·캡처·상권 분석·서랍·지도 설정)의 `X-IC26-Signed-In`과 401·409·403 단계 전환, 게스트는 헤더 없음 |
 | 리뷰 분석 | `features/analysis/calc.test.js` · `Analysis.test.jsx` | 탭·`navTo`, 붙여넣기 뒤 다시 읽기, 캡처 후보를 `source: "capture"`로 저장 |
 | 서랍 | `features/assistant/chat.test.js` · `Drawer.test.jsx` | 분기 표기 등 순수 계산, 선택지 위치, 기준 범위 칩과 안내 한 줄, 화면 이동 뒤 포커스, `drawerCovers`, 조건을 맞추는 동안의 안내에 주소 원문 대신 짧은 위치(11/21) |
-| 계정 화면 | `features/account/account.test.jsx` | A1: 로그인 실패 때 비밀번호 유지(401 `bad_login`은 단계 유지)·`keep`·'비밀번호를 잊었어요' 한 줄·시연 버튼은 시험용 실행 + `demo_login`일 때만. A2: 입력 규칙·`stores: []`. A3: 마지막 본 가게 맨 앞·주 버튼·칩, '(가상)', 요약 `tone` 색, `unavailable`이면 숫자 줄 없음, 불러오는 동안 자리, 0곳. A5: 이름 저장(PATCH), 비밀번호 틀림은 그 자리에, 예시 가게·[정보 고치기], 빼기 확인 뒤 DELETE, 순서 PUT, 확인 창의 '되돌릴 수 없어요'·비밀번호 칸·Esc, 탈퇴 뒤 A1 |
+| 계정 화면 | `features/account/account.test.jsx` | A1: 로그인 실패 때 비밀번호 유지(401 `bad_login`은 단계 유지)·`keep`·'비밀번호를 잊었어요' 한 줄·시연 버튼은 시험용 실행 + `demo_login`일 때만. A2: 입력 규칙·`stores: []`. A3: 마지막 본 가게 맨 앞·주 버튼·칩, '(가상)', 요약 `tone` 색, `unavailable`이면 숫자 줄 없음, 불러오는 동안 자리, 0곳. A5: 이름 저장(PATCH), 비밀번호 틀림은 그 자리에, 예시 가게·[정보 고치기], 빼기 확인 뒤 DELETE, 순서 PUT, 확인 창의 '되돌릴 수 없어요'·비밀번호 칸·Esc, 탈퇴 뒤 A1. 11/22: 기록 지우기(그 가게 · 모든 가게)·탈퇴가 보관한 오늘 할 일 진행을 지움(다른 사장님 것은 그대로) |
 | 상권 | `features/market/format.test.js` · `Market.test.jsx` | 처음 불러오기 순서, 머리 고지 한 줄, 비교 탭, `epoch`, `navTo` 탭, 지도 구역(출처·범례·고른/주변 상권·마커), 주변 상권을 누르면 비교 탭에서 그 상권을 고름(지도·목록 둘 다), 고를 수 없는 이유 한 줄, 주소로 등록한 가게의 업종 바꾸기 안내. 11/21: 머리줄 가게 한 줄(`storeLineOf`, 역이 없으면 등록한 위치를 짧게, 'null' 없음), 주소로 등록한 가게는 업종 칸이 처음부터 잠기고 까닭 한 줄, 조건을 바꾸는 동안 숫자 흐리게·라벨은 숫자와 함께, 자료 상태 한 줄('2024년 3분기~2026년 2분기 자료를 볼 수 있어요.', `dataStatusText`) |
 | 지도 부품 | `src/components/NaverMap.test.jsx` | 가짜 `window.naver.maps`로: SDK·map-config 한 번만, 다각형 수와 좌표 순서(위도·경도), 누르기·올리기, 키 없음·인증 실패(그린 뒤 포함)·시간 초과·연결 실패 안내와 다시 시도, props 변경·언마운트 정리, `fit`, 좌표 도우미 |
 | 맞춤 마케팅 | `features/marketing/logic.test.js` · `Marketing.test.jsx` | health → meta → step → 시작 모드 → plan → 승인, 결과 칸 라이브 영역, 안내 띠가 겹치지 않음 |
@@ -2500,7 +2521,7 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | 언제 | 함수 | 부르는 API | 결과가 가는 곳 |
 |---|---|---|---|
 | 페이지를 열 때 | `state/boot.js` `boot` | `GET /api/health`(기다리지 않음) + `GET /api/auth/me` → 단계 (2.2 (5)) | 로그인 전이면 A1, 들어간 가게가 그대로면 아래 줄, 아니면 A3 |
-| 메인 화면에 들어갈 때 (가게 열기·새로고침) | `enterApp` → `storeChanged` | `GET /api/health` → `GET /api/briefing` → `GET /api/cards` → `GET /api/insight` → `GET /api/approvals`(기다리지 않음) → `GET /api/market/status`(기다리지 않음) | `health`: 시험용 안내 띠·알림 띠·바닥 줄. `briefing`: 홈·초안의 리뷰 원문 (상단 바 가게 칩은 `me.stores`의 지금 가게). `cards`: 추천 카드·홈 할 일. `insight`: 리뷰 분석. `approvals`: AI 비서의 맞춤 마케팅 승인 수 |
+| 메인 화면에 들어갈 때 (가게 열기·새로고침) | `enterApp` → `storeChanged` | `GET /api/health` → `GET /api/briefing` → `GET /api/cards` → `GET /api/insight` → `GET /api/approvals`(기다리지 않음) → `GET /api/market/status`(기다리지 않음). 이 브라우저에 보관한 진행을 되살릴 때는 `GET /api/cards` → `GET /api/approvals`(기다림) → `GET /api/insight` (2.2 (7)) | `health`: 시험용 안내 띠·알림 띠·바닥 줄. `briefing`: 홈·초안의 리뷰 원문 (상단 바 가게 칩은 `me.stores`의 지금 가게). `cards`: 추천 카드·홈 할 일. `insight`: 리뷰 분석. `approvals`: AI 비서의 맞춤 마케팅 승인 수, 진행이 없는 카드의 '오늘 승인한 글' 안내(`serverApprovals`), 되살릴 때 서버에 없는 승인 표시 풀기 |
 | 위 호출이 실패하면 | | | 알림 띠에 문장, 홈의 주 버튼이 "불러오지 못했어요". `insight`만 실패하면 리뷰 분석 화면에만 안내 |
 | 홈 '무엇을 할까요?' | `go("cards")` | 없음 | `#/cards` |
 | 리뷰 0건 홈의 [리뷰 넣기] · [상권 분석 보기] (11/20, '무엇을 할까요?' 대신) | `navTo("analysis", "paste")` · `go("market")` | 없음 | 리뷰 분석의 리뷰 넣기 탭 · `#/market` |
@@ -2511,7 +2532,7 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | 초안 상자 '다시 만들기' | `regenDraft` | `POST /api/cards/{id}/run` `{generator, review_id?, replaces: [그 글 id], measures?(불만 카드), reply_texts?(안내문)}` | 그 글 한 건만 새 글로. 그 글의 승인·고친 내용만 버림. 안내 한 줄(`calc.js` `regenNote`): 새 글이 예전 글과 같거나 또 기본 문장이면 '다시 만들었지만 같은 기본 문장이 나왔어요. 리뷰와 맞게 직접 고쳐서 승인해 주세요.' 같이 사실대로 (11/21) |
 | 진행줄 옆 '카드 전체 다시 만들기' | `rerunCard` → `runCard` | `POST /api/cards/{id}/run` `{measures?, replaces: [그 카드의 글 id, 승인한 것부터 20개까지]}` | 그 카드의 글·승인·고친 내용을 모두 버림. 승인했거나 고친 글이 있으면 첫 누름은 안내만 하고 5초(`RERUN_ARM_MS`) 안에 한 번 더 눌러야 실행 |
 | 응답에 `replace_warning` | | | 새 글은 쓰고 알림 띠에 그 문장 |
-| `#/done` 열기 | `Done.jsx` `useServerApprovals` | `GET /api/approvals` | '승인한 글'(브라우저 목록과 합침, 11/21)과 접힌 '서버 처리 기록' (버튼 줄 위. 한 줄 = "MM-DD HH:MM 승인 · 글 이름 (고침)") |
+| `#/done` 열기 | `Done.jsx` `useServerApprovals` | `GET /api/approvals` | '승인한 글'(브라우저 목록과 합침, 11/21)과 접힌 '서버 처리 기록' (버튼 줄 위. 한 줄 = "MM-DD HH:MM 승인 · 글 이름 (고침)". 서버에만 있는 글의 이름은 `kind`·`card_id`로, 11/22) |
 | 완료 '홈으로' | `go("today")` | 없음 | 진행은 그대로 |
 | 완료 '처음부터 다시' | `restart` | `DELETE /api/approvals` | 브라우저 진행을 비우고(`resetFlow`·`emptyFlow`), `mktResetSeq`를 올려 맞춤 마케팅도 처음으로, `#/today`. 서버가 실패해도 화면은 비우고 알림 띠로 알림. `marketing_cleared: false`면 맞춤 마케팅 화면 위에 "기록은 지우지 못했어요" 안내 |
 | 홈 'AI 비서' 항목 | `staffGo` | 없음 | 데이터 분석 → 리뷰 분석 요약, 고객 응대 → 승인 대기가 있으면 `#/draft` 없으면 `#/cards`, 마케팅 → `#/marketing`, 상권 분석 → `#/market` |
@@ -2771,10 +2792,10 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
 | **합성 리뷰·가게 정보** | **git 파일** `services/review-insight/data/synthetic/store_ongi/{store.json, reviews.json, labels.json}`. 가게 3곳(`store_ongi`, `store_basak`, `store_mongle`)이 있고 화면은 `DEMO_STORE_ID`의 한 곳(기본 `store_ongi`)만 씀 | 저장소에 있음 | 리뷰 분석 서버가 읽음. `labels.json`은 분류가 맞는지 확인하는 정답표 |
 | **상권 지표** | **git 파일** `data/scenario/snapshot_2026Q2.json` (환경변수 `SNAPSHOT_PATH`로 변경) | 저장소에 있음 | 비서 화면 서버가 **요청마다** 읽음 |
 | **시험용 글(mock)** | **git 파일** `experiments/marketing/c6/replay/c6_cache_best.json` | 저장소에 있음 | 비서 화면 서버가 시작할 때 한 번 읽음 |
-| **만든 글(live)** | 저장하지 않음. 브라우저 화면에만 있음 | 새로고침하면 사라짐 | — |
+| **만든 글(live)** | 서버에는 저장하지 않음. 브라우저 메모리와 이 브라우저의 `localStorage`(아래 '화면 진행 상태')에 있음 | 같은 브라우저에서 24시간 안이면 새로고침·다시 로그인 뒤에도 남음. 다른 기기·다른 브라우저에서는 보이지 않음 (승인한 글만 서버 '승인 기록'으로 보임) | 화면(`frontend/src`) |
 | **카드 이유 문장** | 비서 화면 서버의 메모리(`_reason_memo`). 같은 입력이면 live에서 HCX를 다시 부르지 않으려는 것 | 서버를 끄면 사라짐 | `GET /api/cards`가 씀 |
 | **리뷰 분류 결과** | mock(규칙 분류)은 **요청마다 새로 계산**하고 저장하지 않음. 리뷰 분석 서버가 live일 때만 결과를 파일(`services/review-insight/data/replay/classify.json`, `services/review-insight/data/runtime/classify_paste.json`)에 남김 | — | 리뷰 분석 서버 |
-| **화면 진행 상태** (만든 글, 승인 표시, 고친 글) | **브라우저 메모리**(`src/state/store.js`의 상태와 화면마다의 모듈 상태 `features/*/state.js`, 2.2) | 새로고침하면 사라짐. 진행 상태는 `localStorage`·쿠키에 두지 않음 (11/20 React 코드로 다시 확인함) | 화면(`frontend/src`) |
+| **화면 진행 상태** (만든 글, 승인 표시, 고친 글) | **브라우저 메모리**(`src/state/store.js`의 상태와 화면마다의 모듈 상태 `features/*/state.js`, 2.2) + 오늘 할 일 진행은 **브라우저 `localStorage`**의 `ic26.flow.v1:<user_id>:<store_id>` (11/22, `src/state/flowKeep.js`, 2.2 (7)). 서버로 보내지 않음 | 오늘 할 일 진행은 저장한 지 24시간 안이고 카드(id·근거)가 그대로면 새로고침·다시 로그인 뒤 되살림. 로그아웃해도 남고, '처음부터 다시'·기록 지우기·탈퇴·카드가 바뀌면 지움. 버튼 잠금·고른 수칙(`features/flow/state.js`)과 다른 화면의 모듈 상태는 새로고침하면 사라짐. 쿠키에는 두지 않음 | 화면(`frontend/src`) |
 | **왼쪽 메뉴를 접었는지** (11/16) | **브라우저 `localStorage`**의 `ic26.menu` (`"open"`·`"closed"`). 서버로 보내지 않음 | 브라우저에 남음 (1025px 이상에서만 씀. 2.9) | `src/App.jsx` |
 | **화면 모양** (11/19) | **브라우저 `localStorage`**의 `ic26.theme` (`"light"`·`"dark"`, 시스템이면 지움). 서버로 보내지 않음 | 브라우저에 남음. 주소의 `?theme=`는 저장하지 않음 (2.3 (4)) | `src/lib/theme.js`, `frontend/index.html` |
 | **방문자 구분** | **없음** | — | 로그인·쿠키·사용자 id가 코드에 없음. 모든 방문자가 같은 가게·같은 승인 목록·같은 붙여넣은 리뷰를 봄 |
