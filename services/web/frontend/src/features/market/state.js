@@ -253,6 +253,17 @@ export function compareWith(code) {
   pickWanted();
 }
 
+// 비교 칸(구·상권 고르기와 [비교하기], #mk-cmp-form)이 보이게 화면 가운데로 내린다 (11/22 QA, 지도 아래 주변 상권을 누름).
+// 비교 탭 내용은 다시 그린 뒤에야 hidden 이 풀려 한 박자 늦게 움직이고, 움직임 줄이기를 켠 사람에게는 부드러운 스크롤을 쓰지 않는다
+// (가운데: 휴대폰의 위 막대·아래 탭에 가리지 않고 위의 탭 줄과 아래 안내 한 줄도 같이 보이게)
+const reduced = () => !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+export function revealCompare() {
+  setTimeout(() => {
+    const el = document.getElementById("mk-cmp-form");
+    if (el && el.isConnected && !el.closest("[hidden]")) el.scrollIntoView({ behavior: reduced() ? "auto" : "smooth", block: "center" });
+  }, 0);
+}
+
 function pickWanted() {
   const code = m.cmpWant;
   if (!code || !m.cmp) return;

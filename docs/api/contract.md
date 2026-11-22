@@ -405,13 +405,13 @@ curl -s http://localhost:8000/api/health
 | `groups[]` | 불만 묶음 목록 | 홈 숫자·차트·핵심 문제 |
 | `groups[].issue_id` | 묶음 id (예: `iss_missing_item`) | 핵심 문제 찾기 |
 | `groups[].topic_name` | 묶음 이름 (한국어) | 주제별 불만 막대, 핵심 문제 문장 |
-| `groups[].review_count` · `is_repeated` | 묶음의 리뷰 수, 반복 여부 | '반복 불만' 타일 |
+| `groups[].review_count` · `is_repeated` | 묶음의 리뷰 수, 반복 여부 | '반복 불만' 타일 (숫자 = 반복 묶음 건수의 합. 부제는 리뷰 분석 요약 탭과 같은 `repeatedTile`: '묶음 1개 · 주제', 2개부터 '묶음 n개 합계 · 주제들', 같은 리뷰가 두 묶음에 들면 '겹친 리뷰 빼면 m건'(`reviews[].review_id`로 셈), 없으면 '같은 불만 3건부터', 11/22) |
 | `groups[].main_time_band` | 불만이 몰린 시간대 (예: `"17~21시"`). 없으면 `null` | 핵심 문제 문장, 차트의 빨간 막대 범위 |
 | `groups[].time_bands` | 시간대별 건수 `{구간: 건수}` (이 예시는 6구간) | 안 씀 (분석 화면은 `/api/insight`의 것을 씀) |
 | `groups[].evidence[]` | 근거 인용 `{review_id, quote}` | 안 씀 |
 | `groups[].reviews[]` | 묶음에 든 리뷰 원문 | 홈 차트(작성 시각), 초안 화면 '손님 리뷰' |
 | `…reviews[].review_id` · `text` · `rating` · `created_at` · `input_method` | 리뷰 id, 글, 별점(없으면 `null`), 작성 시각, 입력 방법 (`"sample"` 합성 / `"paste"` 붙여넣음) | 위와 같음 |
-| `…reviews[].channel` | 배달앱 이름. **한국어로 바꿔서** 줌 (`"배민"`, `"쿠팡이츠"`, `"요기요"`, `"네이버 플레이스"`) | 초안 화면 '손님 리뷰' |
+| `…reviews[].channel` | 배달앱 이름. **한국어로 바꿔서** 줌 (`"배민"`, `"쿠팡이츠"`, `"요기요"`, `"네이버 플레이스"`) | 초안 화면 '손님 리뷰', 리뷰 분석 불만 묶음 탭의 인용 옆 '배민 · 11-03' (스토어 `reviewsById`, 11/22) |
 | `single_complaints[]` | 어느 묶음에도 안 든 불만 | 홈 차트·주제 막대 (`topic_names[0]`, `created_at`만 씀) |
 | `…[].review_id` · `topics` · `topic_names` · `quote` · `created_at` · `channel` | 리뷰 id, 주제 id 목록, 주제 이름 목록, 불만 인용, 작성 시각, 배달앱. **여기 `channel`은 코드**(`"baemin"`)로 줌 | 위에 적은 것만 씀 |
 | `pasted[]` | 붙여넣은 리뷰 (최근 것이 위). 모양은 `groups[].reviews[]`와 같음 | 초안 화면 '손님 리뷰' |
@@ -534,13 +534,13 @@ curl -s http://localhost:8000/api/health
 | `groups[]` | 불만 묶음 | 불만 묶음 탭의 묶음 카드 |
 | `groups[].issue_id` · `topic_name` · `review_count` · `is_repeated` | 묶음 id, 이름, 리뷰 수, 반복 여부 | 카드 제목·'반복' 배지 |
 | `groups[].topics` · `topic` | 묶음에 든 주제 id 목록, 대표 주제 id | 안 씀 |
-| `groups[].review_ids` | 묶음에 든 리뷰 id | 안 씀 |
-| `groups[].evidence[]` | 근거 인용 `{review_id, quote}` | 카드의 인용 (앞 3개) |
+| `groups[].review_ids` | 묶음에 든 리뷰 id | 요약 탭 '반복 불만' 타일 부제의 '겹친 리뷰 빼면 m건' (같은 리뷰가 두 반복 묶음에 들 때, 11/22) |
+| `groups[].evidence[]` | 근거 인용 `{review_id, quote}` | 카드의 인용 (앞 3개). `review_id`는 화면 글자로 보이지 않고 `data-review-id`에만, 인용 옆에는 스토어 `reviewsById`의 채널 · 날짜 한 조각 ('배민 · 11-03', 붙여넣은 리뷰는 '붙여넣음', 모르면 없음, `quoteMeta`, 11/22) |
 | `groups[].time_bands` · `main_time_band` | 시간대별 건수, 가장 많은 시간대 | 시간대 막대, "주로 17~21시" |
 | `groups[].channels` | 배달앱별 건수 (**코드** 키: `baemin`, `coupangeats`, `yogiyo`, `naver_place`. 배달앱을 모르는 리뷰는 `unknown`) | 안 씀 |
 | `groups[].recent_count` · `previous_count` | 최근 2주·그 앞 2주 건수 | "앞 2주 n건 → 최근 2주 n건" |
 | `groups[].first_at` · `last_at` | 묶음 안 첫·마지막 리뷰 시각 | 안 씀 |
-| `single_complaints[]` | 묶이지 않은 불만 `{review_id, topics, topic_names, quote, created_at, channel}` | '묶이지 않은 불만' 목록 (`topic_names`, `quote`, `review_id`) |
+| `single_complaints[]` | 묶이지 않은 불만 `{review_id, topics, topic_names, quote, created_at, channel}` | '묶이지 않은 불만' 목록 (`topic_names`, `quote`. 인용 옆 채널 · 날짜는 `reviewsById` 먼저, 없으면 이 칸의 `created_at`·`channel` 코드. `review_id`는 `data-review-id`에만, 11/22) |
 | `data_origin` | `"synthetic"` = 합성 데이터 | 눈썹 줄에 "리뷰는 합성 데이터" |
 
 주제 id와 화면에 보이는 이름 (`src/features/analysis/calc.js`의 `TOPIC_NAMES`. 모르는 id는 id가 그대로 보임):
@@ -1694,14 +1694,14 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 
 **`response` 응답 `200`** (줄임): `{"score": 91, "reasons": [{"delta": -2, "message": "'포장 누락' 불만이 3건 반복 중", …}], "pending": [{"review_id", "text", "topic_names", "source", "due_at", "remaining_seconds", "overdue", "paused", "penalty"}], "pending_count", "overdue_count", "untimed_unanswered": 12, "peak_now": false, "policy": {"sla_minutes": 30, "peak_hours": ["11-14", "17-21"]}}`. 화면은 `reasons[].message`를 그대로 보이고, 남은 시간은 `due_at`으로 1초마다 셉니다(브라우저 시계 차이는 `remaining_seconds`로 맞춤). `paused`이거나 `peak_now`면 "멈춤", `untimed_unanswered`는 "지난 불만 n건".
 
-**`report/daily`** 화면이 쓰는 칸: `summary`, `review_count`, `complaint_count`, `replied_on_time`, `replied_late`, `score_start`→`score_end`, `score_change`, `changes[]`(`delta`, `message`), `todo.text`, `by_source`, `pending_count`, `overdue_count`. **`report/monthly`**: `month`, `review_count`, `complaint_count`, `score_start`→`score_end`, `late_count`, `score_trend[]`(`date`, `score`, 화면이 SVG 선 그래프로), `repeated_issues[]`(`topic_name`, `review_count`, `count_this_month`, `replied_count`, `recurred_after_reply`, `state`, `main_time_band`, `is_repeated`), `suggestions[].text`, `changes[]`. 숫자는 리뷰 분석 서비스가 규칙으로 계산하고 문장은 틀 문장입니다 (`summary_method: "template"`, AI 문장 아님).
+**`report/daily`** 화면이 쓰는 칸: `summary`, `review_count`, `complaint_count`, `replied_on_time`, `replied_late`, `score_start`→`score_end`, `score_change`, `changes[]`(`delta`, `message`), `todo.text`, `by_source`, `pending_count`, `overdue_count`. **`report/monthly`**: `month`, `review_count`, `complaint_count`, `score_start`→`score_end`, `late_count`, `score_trend[]`(`date`, `score`, 화면이 SVG 선 그래프로), `repeated_issues[]`(`topic_name`, `review_count`, `count_this_month`, `replied_count`, `recurred_after_reply`, `state`, `main_time_band`, `is_repeated`), `suggestions[].text`, `changes[]`. 숫자는 리뷰 분석 서비스가 규칙으로 계산하고 문장은 틀 문장입니다 (`summary_method: "template"`, AI 문장 아님). **11/22: 그 달에 리뷰가 0건이면 `suggestions`는 빈 목록 `[]`** 입니다 (예전에는 기간 밖 반복 불만이 '고칠 것'으로 나와 '아직 리뷰가 없어요'와 어긋났음. 주간도 같음). 인쇄용 A4는 그때 빈 체크 칸 대신 "이 달에는 리뷰가 없어 고칠 것을 고르지 않았어요."를, 점수 변화가 0이면 `(0)` 대신 `(변화 없음)`을 씁니다.
 
 **`report/weekly` (11/20, 주간)**: 월요일 0시 ~ 일요일 23:59:59(한국 시간). 아무 날짜(`week=YYYY-MM-DD`)를 주면 그 날이 든 주로 보고, 아직 시작하지 않은 주는 `400`(`"아직 오지 않은 주입니다"`). 계산은 월간과 같은 함수(`report._span`)라 **칸도 월간과 같고**, 다른 점은 이것뿐입니다.
 - 머리 칸: `week`(그 주 월요일) · `week_start` · `week_end` · `until`(진행 중이면 지금, 끝났으면 일요일 23:59:59).
 - `repeated_issues[]`의 '이 기간 건수'는 `count_this_week` (월간은 `count_this_month`).
 - 비교 칸(늘 들어 있음): `complaint_rate`(불만 리뷰 비율 %, 정수·0.5 올림, 리뷰 0건이면 `null`) · `previous`(`{week, review_count, complaint_count, complaint_rate}`, 바로 앞 주 전체) · `topics[]`(`{topic, topic_name, polarity: "negative"|"positive", count, previous}`, 이번 주나 지난주에 한 번이라도 나온 주제, 불만 먼저·많은 순. 한 리뷰는 주제·극성마다 한 번 = 리뷰 분석 화면의 `topic_counts` 셈법).
-- `suggestions[]`는 '이번 주에 고칠 것' 최대 3개, 칸마다 `kind`·`title`(한 줄)·`evidence`(근거 숫자)·`text`(확인할 일) (+`issue_id`·`topic`). 차례: 답글 뒤 재발(`recurred`) → 이번 주에도 들어온 답글 없는 반복 불만(`no_reply`, 이번 주 건수 많은 순) → 지난주보다 는 불만(`rising`, 2건 이상) → 기한 넘긴 답글(`late`) → 이번 주엔 없던 답글 없는 반복 불만 → 칭찬이 가장 많은 메뉴(`praise_menu`, 2건 이상, 자리가 남을 때). 하나도 없으면 `none`(리뷰가 있을 때) 또는 `empty`(리뷰 0건). 문장 속 숫자는 모두 옆 칸 값과 같고(시험), 원인을 단정하지 않습니다.
-- 리뷰가 0건인 주도 같은 모양입니다 (`review_count: 0`, `complaint_rate: null`, `topics: []`, 고칠 것 한 줄).
+- `suggestions[]`는 '이번 주에 고칠 것' 최대 3개, 칸마다 `kind`·`title`(한 줄)·`evidence`(근거 숫자)·`text`(확인할 일) (+`issue_id`·`topic`). 차례: 답글 뒤 재발(`recurred`) → 이번 주에도 들어온 답글 없는 반복 불만(`no_reply`, 이번 주 건수 많은 순) → 지난주보다 는 불만(`rising`, 2건 이상) → 기한 넘긴 답글(`late`) → 이번 주엔 없던 답글 없는 반복 불만 → 칭찬이 가장 많은 메뉴(`praise_menu`, 2건 이상, 자리가 남을 때). 리뷰가 있는데 하나도 없으면 `none` 한 줄. 문장 속 숫자는 모두 옆 칸 값과 같고(시험), 원인을 단정하지 않습니다.
+- 리뷰가 0건인 주도 같은 모양입니다 (`review_count: 0`, `complaint_rate: null`, `topics: []`). **고칠 것은 빈 목록 `[]`** 입니다 (11/22 QA R5. 그 전에는 `empty` 한 줄, 기간 밖 반복 불만이 있으면 `no_reply`가 나왔음). 기간 밖 반복 불만은 리뷰가 있는 주에만 알립니다. 반복 불만 표(`repeated_issues`)에는 그대로 남습니다.
 - 합성 리뷰는 받은 시각이 없어 묶음(`insight_at`) 계산에 늘 들어갑니다 (월간과 같은 기준). 그래서 지난 주에도 '전체 n건'은 지금까지의 묶음 크기입니다.
 
 **`report/monthly?compare=true` (11/20)**: 월간 응답 **뒤에** 비교 칸 `complaint_rate` · `previous`(`{month, review_count, complaint_count, complaint_rate}`, 바로 앞 달 전체) · `topics[]`만 더합니다. `compare`를 안 주면(기본 `false`) 응답은 예전과 글자 하나 다르지 않습니다 (시험: 칸 순서까지, 그리고 바꾸기 전·후 20가지 경우의 JSON 을 견줘 같음을 확인). 이 프록시는 `compare`를 넘기지 않으므로 화면이 `/api/care/report/monthly`로 부르면 예전 모양 그대로입니다.
@@ -1729,10 +1729,11 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | `high_rating_count` · `positive_count` | 별점 4~5점 리뷰 수 · 감정 분류가 긍정인 리뷰 수 | 숫자 두 칸 |
 | `praise_count` · `praise_basis` | 칭찬 리뷰 수와 기준. `"sentiment"` = 긍정으로 분류된 리뷰, `"rating"` = 긍정 분류가 하나도 없어 별점 4점 이상이면서 불만이 없는 리뷰, 칭찬 리뷰가 없으면 `null` | "칭찬 리뷰 n건에서 골랐어요" (`rating`이면 기준 안내) |
 | `top_topics[]` | 칭찬으로 걸린 주제별 리뷰 수 상위 5개 (`topic`, `topic_name`, `count`). 많은 순, 같으면 주제 사전 순서. 리뷰 분석 '칭찬 키워드'와 같은 셈법 | 칩 |
-| `top_menus[]` | 인기 메뉴 TOP 3 (`menu`, `count`): 가게 메뉴 이름이 **칭찬 리뷰**에 나온 수. 언급이 없는 메뉴는 빠지고, 같은 수면 메뉴판 순서 | 순위 목록 |
+| `top_menus[]` | 인기 메뉴 최대 3개 (`menu`, `count`): 가게 메뉴 이름이 **칭찬 리뷰**에 나온 수. 언급이 없는 메뉴는 빠지고, 같은 수면 메뉴판 순서 | 순위 목록. 제목은 셋이면 '인기 메뉴 TOP 3', 1~2개·없음은 '인기 메뉴' (11/22, 화면 `format.js` `menuTitle` = A4 `report.menu_heading`) |
 | `quote` | 대표 칭찬 한 줄 (`text`, `review_id`, `rating`). 칭찬 리뷰가 없으면 `null` | 인용. 없으면 "아직 칭찬 리뷰가 없어요" |
 
 - 칭찬 리뷰와 메뉴 언급 수의 기준은 저장소 루트의 `shared/praise.py`입니다 (`praise_reviews`, `top_praised_menus`). 추천 카드 ⓑ·쿠폰 메뉴 고르기와 같은 코드라 기준이 같습니다. 다만 **기간은 다릅니다**: 여기는 그 보고서의 날·달입니다.
+- 메뉴 표기(`menu_variants`, 띄어쓰기 무시): 전체 이름 + 띄어 쓴 낱말(3자 이상, 흔한 말·다른 메뉴에 든 낱말 제외) + **11/22: 앞의 꾸밈말(`MENU_PREFIXES`: 옛날·수제·원조·매운·얼큰·손·왕·생·통·참·특)을 뗀 이름**. 뗀 뒤 2자 이상이고, 흔한 말이 아니고, 그 가게의 다른 메뉴 이름에 들어 있지 않을 때만 받습니다 ('손칼국수' → '칼국수', '왕만두' → '만두'. '칼국수 곱빼기'가 같이 있으면 떼지 않음). '참치'·'생선'·'생강'·'통영'·'특선'·'수제비'로 시작하면 떼지 않습니다(`NOT_PREFIXED`, '참치김밥'을 '치김밥'으로 떼면 '김치김밥'까지 셈).
 - **대표 칭찬 한 줄 고르는 규칙** (코드, `services/review-insight/app/report.py`의 `_quote`): ① 가장 많이 언급된 메뉴(`top_menus[0]`)를 말한 칭찬 리뷰가 있으면 그 안에서, 없으면 칭찬 리뷰 전체에서 ② 개인정보를 가린 자리(`[가림]`)가 없는 글 → 별점 높은 것 → 최근에 받은 것 ③ 80자를 넘으면 그 메뉴를 말한 문장 하나만(그래도 넘으면 잘라서 `…`).
 - **개인정보**: `quote.text`는 보고서를 만들 때 가림(`mask_pii`: 전화번호·이메일·링크·긴 숫자)을 **한 번 더** 거친 글입니다. 붙여넣기·캡처 리뷰는 저장할 때 이미 가리지만, 합성 샘플과 예전 저장본은 가림을 거치지 않았을 수 있어서입니다. 이름 같은 것은 이 가림이 찾지 못합니다.
 - 숫자가 0이어도 칸은 같습니다 (빈 목록, `quote: null`). 리뷰 분석 서비스를 그 폴더만 떼어 띄운 환경(Dockerfile 이미지처럼 `shared/`가 없는 곳)에서는 `praise` 자체가 `null`이고, 화면은 그 칸에 안내만 보입니다.
@@ -2090,7 +2091,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 - 게스트(로그인 안 함)는 계산만 하고 저장하지 않습니다 (`storage: "guest"`, 목록은 빈 것, 수는 0). 저장소(DB)에 닿지 못하면 계산한 보고서를 그대로 주고 `storage: "unavailable"`.
 - 표는 `reports`(3.4, `db/schema.sql`). `numbers` 칸에 아래 응답의 `report`·`approvals`·`marketing`을 묶어(`version: 1`) 넣고, `body_text`에 고칠 것 문장, `evidence_ids`에 반복 불만 묶음 id, `prompt_version`은 `rules-1`(문장 틀 판, 모델 호출 없음).
 
-**계산** (모두 규칙, AI 를 부르지 않음): 본문(`report`)은 리뷰 분석 서비스의 `report/weekly` · `report/monthly?compare=true`(1.11) 그대로입니다. 이 서버가 가게·방문자·`now`(이 서버 시각)를 붙여 부릅니다. `approvals`는 이 서버의 승인 기록(1.7과 같은 목록) 가운데 **승인 시각이 그 기간 안**인 것을 저장소의 글 종류로 나눈 수: `reply`(답글 `reply_draft`) · `notice`(안내문 `prevention_notice`·공지) · `promo`(맞춤 마케팅 글·`mkt-`·쿠폰 홍보 `coupon_promo`) · `other`. `marketing`은 `promo_approved`(= `approvals.promo`)만 채우고, **`coupon_usage_rate`·`ad_cost_per_order`·`notice_recurrence`는 `null`** 입니다 (이 보고서가 읽는 자료에 없음. 화면은 '–'). 마케팅 서비스의 보고서(1.12 `report`)는 지금 기간만 세고 기록이 없으면 데모 기록을 주어서 쓰지 않았습니다.
+**계산** (모두 규칙, AI 를 부르지 않음): 본문(`report`)은 리뷰 분석 서비스의 `report/weekly` · `report/monthly?compare=true`(1.11) 그대로입니다. 이 서버가 가게·방문자·`now`(이 서버 시각)를 붙여 부릅니다. `approvals`는 이 서버의 승인 기록(1.7과 같은 목록) 가운데 **승인 시각이 그 기간 안**인 것을 저장소의 글 종류로 나눈 수: `reply`(답글 `reply_draft`) · `notice`(안내문 `prevention_notice`·공지) · `promo`(맞춤 마케팅 글·`mkt-`·쿠폰 홍보 `coupon_promo`) · `other`. `marketing`은 `promo_approved`(= `approvals.promo`)만 채우고, **`coupon_usage_rate`·`ad_cost_per_order`·`notice_recurrence`는 `null`** 입니다 (이 보고서가 읽는 자료에 없음. 화면은 11/22부터 `null`인 칸을 그리지 않고 "쿠폰 사용률·광고비 판정은 맞춤 마케팅 보고서에서 볼 수 있어요." + [맞춤 마케팅 보고서 보기](`navTo("marketing", "report")`). 값이 오면 칸이 그대로 보임. 예전에는 '–' 세 칸이라 '입력이 사라졌다'로 읽혔음). 마케팅 서비스의 보고서(1.12 `report`)는 지금 기간만 세고 기록이 없으면 데모 기록을 주어서 쓰지 않았습니다.
 
 **낡음 판정 (`stale`)**: 저장본을 **기간이 끝나기 전에** 만들었으면(`report.until` < 기간 끝날 23:59:59) 열 때 지금 값을 한 번 더 계산해 견줍니다 (규칙 계산이라 0.1초 안팎). 기간이 끝난 뒤에 만든 저장본은 다시 계산하지 않고 `stale: null`.
 
@@ -2142,7 +2143,7 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 |---|---|
 | `index.html` | 빌드의 뼈대. `<div id="root">`와 `/src/main.jsx`만 부릅니다. 첫 그리기 전에 화면 모양(`data-theme`)을 정하는 작은 스크립트(`src/lib/theme.js`와 같은 규칙)와 탭 아이콘(글자로 넣은 SVG)이 있습니다 |
 | `src/main.jsx` | 공통 CSS를 `tokens.css` → `base.css` → `layout.css` 순서로 먼저 읽고, `applyTheme()`, `<App />` 그리기, `boot()` (처음 불러오기) |
-| `src/App.jsx` | 단계(`state.stage`, 2.2 (5))에 따라 전체 화면을 고른다. `app` 단계면 화면 틀(`Shell`: 왼쪽 메뉴 · 상단 바 · 시험용 안내 띠 · 알림 띠 · 지금 화면 · 바닥 줄 · 서랍), 아니면 로그인·가게 선택·프로필 같은 단계 화면(`STAGE_VIEWS`, 새 가게 등록은 `StoreNew`). 결과 띠(`AcctToast`)는 모든 단계에. 주소 → 화면 표(`SCREENS`), 메뉴 접기와 덮는 메뉴 (2.9) |
+| `src/App.jsx` | 단계(`state.stage`, 2.2 (5))에 따라 전체 화면을 고른다. `app` 단계면 화면 틀(`Shell`: 왼쪽 메뉴 · 상단 바 · 시험용 안내 띠 · 알림 띠 · 지금 화면 · 바닥 줄 · 서랍), 아니면 로그인·가게 선택·프로필 같은 단계 화면(`STAGE_VIEWS`, 새 가게 등록은 `StoreNew`). 결과 띠(`AcctToast`)는 모든 단계에 (뜬 뒤 6초쯤 지나면 스스로 닫힘, 문구가 바뀌면 다시 셈, 마우스를 올렸거나 포커스가 안에 있으면 닫지 않음, 로그인에 성공하면 비움, 11/22). 주소 → 화면 표(`SCREENS`), 메뉴 접기와 덮는 메뉴 (2.9) |
 | `src/lib/` | `api.js`(`api`·`serviceApi`·`authHeaders`·`authStageOf`·`handleAuthError`, 2.2 (5)), `router.js`(`ROUTES`·`useRoute`·`go`·`navTo`), `media.js`(폭 구간 `useBand`), `theme.js`(화면 모양), `focus.js`(`later`·`focusFirst`), `domain.js`(여러 화면이 쓰는 이름·계산: `GEN_NAMES`·`GEN_ORDER`·`SOURCE_NAMES`·`homeSnap`·`marketScope`·`heroProblem`·`healthProblems`·`modeBandText`·`isTestRun`·`honestyItems` 등) |
 | `src/state/` | `store.js`(화면 전체 상태), `stage.js`(단계·`ic26.entered`·`authFail`, 서버를 부르지 않음), `boot.js`(`boot`·`enterApp`·`refresh`·`storeChanged`·`clearStoreData`·`loadHealth`·`loadInsight`), `account.js`(`authDo`·`openStore`·`acctLogout`·`signedOut`, 이름·가게 한 줄 `displayName`·`storeLabel`), `staff.js`(오늘 할 일 `todosOf`, AI 비서 네 명 `staffOf`: 고객 응대·마케팅 상태 '오늘 할 일 없음'·'초안 만들기 전'·'승인 대기 n개'·'오늘 승인 완료'(11/20), 승인 대기 수 `waitingCount`) |
 | `src/components/` | `ui.jsx`(공통 부품, 2.3), `Sidebar.jsx`(왼쪽 메뉴), `Topbar.jsx`(상단 바, 화면 모양 버튼 `ThemeButton`), `MobileNav.jsx`(760px 이하 아래 탭·하위 탭) |
@@ -2479,16 +2480,16 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 | 진행 보관 | `src/state/flowKeep.test.js` | (11/22) 키 모양(사장님·가게, 모르면 보관 안 함), 200ms 모아 쓰기·되살린 직후는 안 씀, 되살리기 전(`flowKey: null`)에는 쓰지도 지우지도 않음, 진행이 비면 지움, 로그아웃·가게 바꾸기는 지우지 않고 앞 가게 몫을 마저 씀, 너무 크면 옛 것도 지움, `localStorage` 오류, 되살리면 `approved`가 `Set`, 24시간·카드 바뀜·판·모양이 틀리면 지움, 서버 목록에 없는 승인 풀기, `results`에 없는 글 버리기, `forgetFlow`·`forgetUserFlows`(다른 사장님 것은 그대로) |
 | 틀 도우미 | `src/lib/shell.test.js` · `src/lib/theme.test.js` · `src/state/staff.test.js` | 안내 띠·바닥 줄 문구와 폭 구간(760·761~1024·그 위, 소수 폭), 화면 모양 순서·저장, 오늘 할 일·AI 비서 상태, 리뷰 0건의 핵심 문제('아직 들어온 리뷰가 없어요')·데이터 분석 비서('아직 리뷰 없음'·모두 붙여 넣은 리뷰면 한 번만). `src/lib/domain.test.js`: `textOr`·`shortPlace`(주소 원문 → '마포구 와우산로 94')·`cleanLabel`·`isOwnStore` (11/21) |
 | 공통 부품 | `src/components/ui.test.jsx` | 아이콘(자리 글자 없음, 그림이 서로 다름, 로고), 빈 안내, `Dialog` |
-| 흐름 | `features/flow/calc.test.js` · `screens.test.jsx` · `keep.test.jsx` | 순수 계산, 네 화면 그리기와 카드 → 초안 → 승인 → 완료 → 처음부터 다시의 API 순서(승인 본문에 `kind`·`card_id`, 답글이면 `review_id`), 리뷰 0건 홈의 [리뷰 넣기]·[상권 분석 보기](예시 가게 홈은 그대로), 브리핑을 못 받은 홈. 11/21: 직접 등록한 가게의 상권 칸 [상권 분석에서 보기], ⓑ 카드가 없을 때의 칸, 기본 문장 글의 칩·목록 배지·다시 만들기 안내(`isFallback`·`draftStateText`·`regenNote`). 11/22 `keep.test.jsx`: 새로고침(떠날 때 쓰기 → store 처음으로 → 다시 들어감) 뒤 만든 글·승인 표시·고치던 글이 그대로이고 다시 만들지 않음, 승인 목록을 기다린 뒤 리뷰 분석을 부름, 로그아웃 뒤 같은 사장님은 이어서·다른 사장님에게는 안 보임, 같은 가게를 다시 불러와도 이어짐, 서버에 없는 승인은 풀림·목록을 못 읽으면 그대로, `_run`이 겹치지 않음, 카드가 바뀌면·'처음부터 다시'면 지움, 처리 완료의 서버 글 이름(`kind`·`card_id`), 진행이 없는 카드의 '오늘 승인한 글' 안내와 `replaces` |
+| 흐름 | `features/flow/calc.test.js` · `screens.test.jsx` · `keep.test.jsx` | 순수 계산, 네 화면 그리기와 카드 → 초안 → 승인 → 완료 → 처음부터 다시의 API 순서(승인 본문에 `kind`·`card_id`, 답글이면 `review_id`), 리뷰 0건 홈의 [리뷰 넣기]·[상권 분석 보기](예시 가게 홈은 그대로), 브리핑을 못 받은 홈. 11/21: 직접 등록한 가게의 상권 칸 [상권 분석에서 보기], ⓑ 카드가 없을 때의 칸, 기본 문장 글의 칩·목록 배지·다시 만들기 안내(`isFallback`·`draftStateText`·`regenNote`). 11/22 `keep.test.jsx`: 새로고침(떠날 때 쓰기 → store 처음으로 → 다시 들어감) 뒤 만든 글·승인 표시·고치던 글이 그대로이고 다시 만들지 않음, 승인 목록을 기다린 뒤 리뷰 분석을 부름, 로그아웃 뒤 같은 사장님은 이어서·다른 사장님에게는 안 보임, 같은 가게를 다시 불러와도 이어짐, 서버에 없는 승인은 풀림·목록을 못 읽으면 그대로, `_run`이 겹치지 않음, 카드가 바뀌면·'처음부터 다시'면 지움, 처리 완료의 서버 글 이름(`kind`·`card_id`), 진행이 없는 카드의 '오늘 승인한 글' 안내와 `replaces`. 11/22 QA: 고친 글의 '점검 결과는 고치기 전 글 기준' 한 줄(되돌리면 사라짐), 홈 '반복 불만' 부제 |
 | 새 가게 등록 | `features/stores/StoreNew.test.jsx` · `StoreNew.map.test.jsx` | 업종 → 역 → 상권 후보(기본 inside) → 고르기 → 메뉴 → 저장 본문 → 가게 열기 → app 홈, 업종 먼저 안내, 업종·위치를 바꾸면 후보 다시(예전 선택 유지·비움), 상권 서비스 409 면 revision 다시 읽기, 후보 실패 [다시 시도], 주소 찾기(후보 고르기 · 하나면 바로 · 후보 없음·서울 밖·조회 불가 → 역으로 · 2자 미만 · 검사 오류 문장), 빈 폼·메뉴 줄 오류와 `aria-describedby`·포커스, `store_limit`·칸 이름이 든 서버 오류, 중복 누름·등록 뒤 열기 실패, [취소], 고치기(채우기 · 바뀐 칸만 PATCH · 위치를 안 바꾸면 상권 서비스 안 부름 · [위치 바꾸기]/[위치 바꾸지 않기] · 업종만 바꾸면 역은 다시 묻고 주소는 다시 찾게 · 예시 가게 · 저장 뒤 결과 띠), 업종 칸은 음식 업종만(`foodIndustries`), '가게 등록 2 / 3', 순수 계산. 지도 시험(가짜 지도): `list={false}`, 마커, 상권 `selected`·`nearby`·`disabled`, 다각형으로 고르기·고를 수 없는 이유 |
 | 로그인 헤더 | `src/lib/authFetch.test.js` | 따로 fetch 하는 곳(맞춤 마케팅·캡처·상권 분석·서랍·지도 설정)의 `X-IC26-Signed-In`과 401·409·403 단계 전환, 게스트는 헤더 없음 |
-| 리뷰 분석 | `features/analysis/calc.test.js` · `Analysis.test.jsx` | 탭·`navTo`, 붙여넣기 뒤 다시 읽기, 캡처 후보를 `source: "capture"`로 저장 |
+| 리뷰 분석 | `features/analysis/calc.test.js` · `Analysis.test.jsx` | 탭·`navTo`, 붙여넣기 뒤 다시 읽기, 캡처 후보를 `source: "capture"`로 저장. 11/22 QA: 흐름 칸 단위·겹침 한 줄, 인용 옆 내부 id 대신 채널 · 날짜(`data-review-id`에만 id), '반복 불만' 부제(`repeatedTile`) |
 | 서랍 | `features/assistant/chat.test.js` · `Drawer.test.jsx` | 분기 표기 등 순수 계산, 선택지 위치, 기준 범위 칩과 안내 한 줄, 화면 이동 뒤 포커스, `drawerCovers`, 조건을 맞추는 동안의 안내에 주소 원문 대신 짧은 위치(11/21) |
-| 계정 화면 | `features/account/account.test.jsx` | A1: 로그인 실패 때 비밀번호 유지(401 `bad_login`은 단계 유지)·`keep`·'비밀번호를 잊었어요' 한 줄·시연 버튼은 시험용 실행 + `demo_login`일 때만. A2: 입력 규칙·`stores: []`. A3: 마지막 본 가게 맨 앞·주 버튼·칩, '(가상)', 요약 `tone` 색, `unavailable`이면 숫자 줄 없음, 불러오는 동안 자리, 0곳. A5: 이름 저장(PATCH), 비밀번호 틀림은 그 자리에, 예시 가게·[정보 고치기], 빼기 확인 뒤 DELETE, 순서 PUT, 확인 창의 '되돌릴 수 없어요'·비밀번호 칸·Esc, 탈퇴 뒤 A1. 11/22: 기록 지우기(그 가게 · 모든 가게)·탈퇴가 보관한 오늘 할 일 진행을 지움(다른 사장님 것은 그대로) |
+| 계정 화면 | `features/account/account.test.jsx` | A1: 로그인 실패 때 비밀번호 유지(401 `bad_login`은 단계 유지)·`keep`·'비밀번호를 잊었어요' 한 줄·시연 버튼은 시험용 실행 + `demo_login`일 때만. A2: 입력 규칙·`stores: []`. A3: 마지막 본 가게 맨 앞·주 버튼·칩, '(가상)', 요약 `tone` 색, `unavailable`이면 숫자 줄 없음, 불러오는 동안 자리, 0곳. A5: 이름 저장(PATCH), 비밀번호 틀림은 그 자리에, 예시 가게·[정보 고치기], 빼기 확인 뒤 DELETE, 순서 PUT, 확인 창의 '되돌릴 수 없어요'·비밀번호 칸·Esc, 탈퇴 뒤 A1. 11/22: 기록 지우기(그 가게 · 모든 가게)·탈퇴가 보관한 오늘 할 일 진행을 지움(다른 사장님 것은 그대로). 결과 띠는 6초 뒤 스스로 닫힘(문구가 바뀌면 다시 셈, 마우스·포커스가 있으면 기다림, [닫기])·로그인에 성공하면 비움(실패면 그대로) |
 | 상권 | `features/market/format.test.js` · `Market.test.jsx` | 처음 불러오기 순서, 머리 고지 한 줄, 비교 탭, `epoch`, `navTo` 탭, 지도 구역(출처·범례·고른/주변 상권·마커), 주변 상권을 누르면 비교 탭에서 그 상권을 고름(지도·목록 둘 다), 고를 수 없는 이유 한 줄, 주소로 등록한 가게의 업종 바꾸기 안내. 11/21: 머리줄 가게 한 줄(`storeLineOf`, 역이 없으면 등록한 위치를 짧게, 'null' 없음), 주소로 등록한 가게는 업종 칸이 처음부터 잠기고 까닭 한 줄, 조건을 바꾸는 동안 숫자 흐리게·라벨은 숫자와 함께, 자료 상태 한 줄('2024년 3분기~2026년 2분기 자료를 볼 수 있어요.', `dataStatusText`) |
 | 지도 부품 | `src/components/NaverMap.test.jsx` | 가짜 `window.naver.maps`로: SDK·map-config 한 번만, 다각형 수와 좌표 순서(위도·경도), 누르기·올리기, 키 없음·인증 실패(그린 뒤 포함)·시간 초과·연결 실패 안내와 다시 시도, props 변경·언마운트 정리, `fit`, 좌표 도우미 |
-| 맞춤 마케팅 | `features/marketing/logic.test.js` · `Marketing.test.jsx` | health → meta → step → 시작 모드 → plan → 승인, 결과 칸 라이브 영역, 안내 띠가 겹치지 않음 |
-| 종합 리포트 | `features/report/format.test.js` · `Report.test.jsx` | 'AI 문장 아님' 고지는 머리 한 곳, 출처·우리 가게 매출 아님·점수 변동 근거는 남음. 11/20: Figma D1 차례(머리 → 오늘·점수 줄 → 탭·기간 → 저장 띠 → 타일 4 → 고칠 것·주제별 흐름 → 마케팅 숫자 → … → 저장된 보고서), 탭은 해시를 바꾸지 않음, 기간 이동·다음 잠금, 저장 안내 띠 문장(저장·저장본·낡음·게스트), [다시 만들기] = POST regenerate, 목록 [열기], 리뷰 0건·'–', `SavedReportCounts`. 11/21: 끝난 기간의 '고칠 것' 제목·문장(`fixTitle`·`fixItems`), 직접 등록한 가게의 상권 요약 [상권 분석 보기], 지난 불만 한 줄(0건이면 없음)·승인 기록 한 줄('이 계정에서 지금까지 승인한 글 n건') |
+| 맞춤 마케팅 | `features/marketing/logic.test.js` · `Marketing.test.jsx` | health → meta → step → 시작 모드 → plan → 승인, 결과 칸 라이브 영역, 안내 띠가 겹치지 않음. 11/22: 질문 칸 머리의 '다른 기능 고르기'로 기능 카드 목록(대화만 처음으로), 광고비 타일 '손해 n개 · 주의 n개'·'건당 남는 돈 (광고비 빼기 전)'·표 아래 기준 한 줄, 남는 비율 '직접 입력'의 % 숫자 칸과 다시 묻기 |
+| 종합 리포트 | `features/report/format.test.js` · `Report.test.jsx` | 'AI 문장 아님' 고지는 머리 한 곳, 출처·우리 가게 매출 아님·점수 변동 근거는 남음. 11/20: Figma D1 차례(머리 → 오늘·점수 줄 → 탭·기간 → 저장 띠 → 타일 4 → 고칠 것·주제별 흐름 → 마케팅 숫자 → … → 저장된 보고서), 탭은 해시를 바꾸지 않음, 기간 이동·다음 잠금, 저장 안내 띠 문장(저장·저장본·낡음·게스트), [다시 만들기] = POST regenerate, 목록 [열기], 리뷰 0건·'–', `SavedReportCounts`. 11/21: 끝난 기간의 '고칠 것' 제목·문장(`fixTitle`·`fixItems`), 직접 등록한 가게의 상권 요약 [상권 분석 보기], 지난 불만 한 줄(0건이면 없음)·승인 기록 한 줄('이 계정에서 지금까지 승인한 글 n건'). 11/22: 리뷰 0건 기간의 고칠 것 비움(`fixEmpty`), 점수 변화 0 = '변화 없음'(`changeText`), 28일 점수 아래 이유 3줄 + 접은 나머지(`scoreReasons`, `#rp-score-why`), 인기 메뉴 제목(`menuTitle`), 마케팅 숫자 빈 칸 숨김·[맞춤 마케팅 보고서 보기](`marketingNumbers` → `{cells, elsewhere}`) |
 
 - 문구를 바꾸면 그 문구를 찾는 vitest가 깨질 수 있습니다. 문구가 맞으면 시험을 같이 고칩니다.
 
@@ -2500,11 +2501,11 @@ mock에서 카드 ⓐ의 재발 방지 공지만 다시 만든 응답 `200` (실
 |---|---|---|---|
 | `#/today` | (맨 위) 홈 | `features/flow/Home.jsx` | 대시보드 (11/20 Figma 06 B1 배치): 핵심 문제 한 줄(이름표 + 굵은 글), 숫자 타일 4개, 오늘 할 일(넓은 칸, 할 일마다 테두리 상자 + 오른쪽 버튼 모양 상태) · '담당 비서 현황'(320px 칸, AI 비서 네 명 + 첫 글자 동그라미, 11/20 패널 제목), 불만 시간대 · 주제 차트(주제는 '상위 n개'), AI에게 묻기 줄(오른쪽 '묻기'). 리뷰 0건이면 기간 줄을 빼고 핵심 문제('아직 들어온 리뷰가 없어요', `heroProblem`)·할 일·차트에 짧은 빈 안내, '오늘 할 일' 아래 버튼은 다음에 할 일 두 개 [리뷰 넣기]·[상권 분석 보기] (11/20). 브리핑을 못 받으면 핵심 문제는 '리뷰를 불러오지 못했어요'. 직접 등록한 가게(`me.stores`의 지금 가게 `sample: false`, `lib/domain.js` `isOwnStore`)에서 브리핑에 상권 지표가 없으면 '상권 저녁 매출' 칸은 '–'·'상권 지표 없음' 대신 [상권 분석에서 보기](→ `#/market`)와 '{상권} 상권' (11/21, 예시 가게는 그대로). '담당 비서 현황'의 데이터 분석 비서는 리뷰가 모두 붙여 넣은 것이면 '붙여 넣은 리뷰 n건 정리 끝' 한 번만 (11/21) |
 | `#/cards` | 오늘 처리 · 추천 카드 | `features/flow/Cards.jsx` | "무엇을 할까요?" 카드 최대 2장을 위아래로 한 장씩 (11/20 B2), 카드 ⓐ의 점검 수칙 고르기(회색 상자), 만들기 버튼 옆 '근거 보기'(`aria-expanded`, 근거는 버튼 줄 아래에 펼침). 카드 ⓐ는 있는데 ⓑ(쿠폰 홍보)가 없으면 그 자리에 'ⓑ 쿠폰 홍보 · 오늘은 쿠폰 홍보 카드가 없어요' 칸(서버 `no_card_b` 까닭 + [맞춤 마케팅에서 홍보 제안 받기] → `navTo("marketing", "promo")`). 서랍의 '추천 카드 ⓑ 쿠폰 홍보글 보기'로 와도 빈 화면이 아님 (11/21) |
-| `#/draft` | 오늘 처리 · 승인할 글 | `features/flow/Draft.jsx` | 진행줄('승인 n / 전체 · 지금 글 이름' + 카드 전체 다시 만들기, 막대 없음), 손님 리뷰(근거 건수는 패널 오른쪽, 리뷰마다 회색 상자), 초안 상자(글 칸 → 점검 칩 줄 → 고칠 곳 상자 → 승인·복사·다시 만들기. 점검을 못 넘어 기본 문장으로 바꾼 글(`checks.used_fallback`)은 초록 '점검 통과' 없이 주의 색 '기본 문장으로 바꿈' 칩과 '리뷰 내용과 맞는지 확인하고 고쳐서 승인해 주세요' 한 줄(11/21), 점검 상태 규칙 `statusOf`는 그대로), 초안 목록(기본 문장 글은 '승인 대기 · 기본 문장' 배지, `listBadges`) (11/20 B3) |
+| `#/draft` | 오늘 처리 · 승인할 글 | `features/flow/Draft.jsx` | 진행줄('승인 n / 전체 · 지금 글 이름' + 카드 전체 다시 만들기, 막대 없음), 손님 리뷰(근거 건수는 패널 오른쪽, 리뷰마다 회색 상자), 초안 상자(글 칸 → 점검 칩 줄 → 고칠 곳 상자 → 승인·복사·다시 만들기. 점검을 못 넘어 기본 문장으로 바꾼 글(`checks.used_fallback`)은 초록 '점검 통과' 없이 주의 색 '기본 문장으로 바꿈' 칩과 '리뷰 내용과 맞는지 확인하고 고쳐서 승인해 주세요' 한 줄(11/21), 점검 상태 규칙 `statusOf`는 그대로. 글 칸의 글이 AI 초안 원문과 다르면(고치는 중·고쳐서 승인, 앞뒤 공백만 다르거나 원문으로 되돌리면 아님, `changedFromDraft`) 칩 바로 아래 '점검 결과는 고치기 전 글 기준이에요.' 한 줄, 칩과 '확인 필요' 설명은 그대로(11/22)), 초안 목록(기본 문장 글은 '승인 대기 · 기본 문장' 배지, `listBadges`) (11/20 B3) |
 | `#/done` | 오늘 처리 · 처리 완료 | `features/flow/Done.jsx` | 승인 결과 타일 → '승인한 글'(글마다 이름 · 시각 / 글 앞부분 한 줄 + 복사) → 고른 점검 수칙(✓) → 서버 처리 기록(패널 모양 접힌 칸) → '홈으로'·'처음부터 다시' (11/20 B4 순서) |
-| `#/analysis` | 살펴보기 · 리뷰 분석 | `features/analysis/Analysis.jsx` | 탭 3개: 요약(`summary`) · 불만 묶음(`issues`) · 리뷰 넣기(`paste`: 붙여넣기 + 캡처로 넣기) |
+| `#/analysis` | 살펴보기 · 리뷰 분석 | `features/analysis/Analysis.jsx` | 탭 3개: 요약(`summary`) · 불만 묶음(`issues`) · 리뷰 넣기(`paste`: 붙여넣기 + 캡처로 넣기). 불만 묶음 탭 흐름 칸은 숫자 옆 단위와 센 것: '리뷰 n건 → 불만 리뷰 n건 → 묶음 n개 (반복 n개) + 묶이지 않은 불만 n건', 아래에 반복 기준 한 줄과 '리뷰 하나에 불만 주제가 둘 이상이면 묶음마다 들어가요…' 한 줄(`OVERLAP_NOTE`). 인용 옆에는 내부 리뷰 id 대신 채널 · 날짜 (11/22) |
 | `#/market` | 살펴보기 · 상권 분석 | `features/market/Market.jsx` | (11/20 Figma F1 배치) 분석 조건, 지도(고른 상권·주변 상권 경계·가게 위치, 2.3 (9)), 핵심 지표 4칸, 세부 탭 4개(`sales` 매출 · `stores` 점포·개폐업 · `pop` 유동·배후인구·집객시설 · `compare` 타 상권 1:1 비교), 서울시 자료 최신화, 우리 동네 문화행사 |
-| `#/report` | 살펴보기 · 종합 리포트 | `features/report/Report.jsx` | (11/20 Figma D1) 다시 만들기·PDF 저장 · 오늘 요약·응대 점수 한 줄 · 주간·월간 탭과 기간 이동 · 저장 안내 띠 · 타일 4(리뷰·불만 비율·응대 점수·승인한 글) · 고칠 것(진행 중인 기간은 '이번 주에 고칠 것'·'이번 달에 고칠 것', 끝난 기간(`period.in_progress === false`)은 '이 주 기록에서 고칠 것'·'이 달 기록에서 고칠 것', 문장의 '이번 주·이번 달'도 '이 주·이 달'로, 리뷰 0건이면 '이 주에는 들어온 리뷰가 없었어요'. `report/format.js` `fixTitle`·`fixItems`, 11/21) · 주제별 흐름 · 마케팅 숫자 · 손님 칭찬 요약 · 응대 기록(점수 추이·반복 불만) · 응대 점수 · 답글을 기다리는 불만 · 상권 요약 · 마케팅 요약 · 저장된 보고서 |
+| `#/report` | 살펴보기 · 종합 리포트 | `features/report/Report.jsx` | (11/20 Figma D1) 다시 만들기·PDF 저장 · 오늘 요약·응대 점수 한 줄 · 주간·월간 탭과 기간 이동 · 저장 안내 띠 · 타일 4(리뷰·불만 비율·응대 점수·승인한 글) · 고칠 것(진행 중인 기간은 '이번 주에 고칠 것'·'이번 달에 고칠 것', 끝난 기간(`period.in_progress === false`)은 '이 주 기록에서 고칠 것'·'이 달 기록에서 고칠 것', 문장의 '이번 주·이번 달'도 '이 주·이 달'로. `report/format.js` `fixTitle`·`fixItems`, 11/21. 11/22: 리뷰 0건이면 목록을 비우고 '이번 주에는 아직 리뷰가 없어 고칠 것을 고르지 않았어요.'·끝난 기간은 '이 주에는 리뷰가 없어 고칠 것을 고르지 않았어요.' (`fixEmpty`, 예전 저장본에 든 제안도 숨김)) · 주제별 흐름 · 마케팅 숫자(11/22: 값이 없는 칸은 그리지 않고 [맞춤 마케팅 보고서 보기]) · 손님 칭찬 요약(제목은 메뉴가 셋이면 'TOP 3') · 응대 기록(점수 추이·반복 불만. 11/22: 점수 변화 0은 '98 → 98 · 변화 없음', 위 오늘 요약·타일도 같음) · 응대 점수 · 답글을 기다리는 불만 · 상권 요약 · 마케팅 요약 · 저장된 보고서 |
 | `#/marketing` | 키우기 · 맞춤 마케팅 | `features/marketing/Marketing.jsx` | 안내 문구 "선택한 조건으로 손익을 계산하고 우리 가게 홍보 방법과 초안을 만들어요."(11/20). 탭 두 개: 맞춤 제안(시작 모드 다섯 개 → 질문 → 결과 카드 → 고쳐서 승인) · 마케팅 보고서(주간·월간). 첫 화면의 기능 카드는 흰 패널 없이 바탕 위에, 질문 칸의 비서 질문은 '마케팅 비서' 이름표가 붙은 테두리 상자 (11/20 Figma 06 M1) |
 
 - 메뉴 묶음과 순서는 `Sidebar.jsx`의 `GROUPS`입니다 (홈 / 오늘 처리 / 살펴보기 / 키우기). 760px 이하의 아래 탭·하위 탭(`components/MobileNav.jsx`)도 이 묶음을 씁니다 (11/20).
@@ -2573,10 +2574,12 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | 결과 카드 '승인' | `POST approve` `{state, draft_id: null, session_id, edited_texts, approval}` | `edit_failed`면 그 글 아래 점검 실패 안내. 성공이면 `recorded`를 처리 완료 목록(`approvedLog`, `mkt: true`)에, `follow_up`이면 재주문 쿠폰 질문, 공지 카드면 '2주 뒤 확인해 보기' |
 | '2주 뒤 확인해 보기' | `POST notice-followup` `{state}` | 공지 전후 불만 수, 줄었으면 개선 소식 글 |
 | '마케팅 보고서' 탭·기간 | `GET report?period=weekly\|monthly` (열 때마다 새로) | 보고서 카드 (`demo: true`면 데모 기록 표시) |
-| '처음부터' (이 화면) | `POST step` `{state: null, answer: null}` | 대화만 처음으로 (승인·보고서 기록은 그대로) |
+| '다른 기능 고르기' (질문 칸 머리 `#mkt-pick` · 맨 아래 `#mkt-restart`, 예전 '처음부터', 11/22) | `POST step` `{state: null, answer: null}` | 대화만 처음으로 → 기능 카드 목록 (승인·보고서 기록은 그대로). 둘 다 같은 이름·같은 동작(`restartChat`)이고 설명 '승인한 기록은 그대로 남아요'를 읽음. 머리 버튼은 제목(고른 모드 · 질문 n) 오른쪽 같은 줄: 휴대폰 폭에서는 제목이 줄바꿈되고 버튼은 한 줄 그대로 |
 | 서랍·AI 비서에서 `navTo("marketing", sub)` | 위와 같음 | 그 시작 모드를 바로 고름 (`MKT_SUB`) |
 | 결과 카드 'AI에게 이어서 묻기' (11/20) | 없음 | 카드 종류에 맞는 질문(광고비 표 → "주변에 같은 업종 점포는 몇 개야?", 쿠폰·할인 → "점심과 저녁 중 매출은 어디가 커?", 불만·공지 → "불만 리뷰 제일 많은 게 뭐야?", 그 밖 → "우리 가게 상권 매출은 어때?")을 서랍 입력칸에 채우고 서랍을 열어 입력칸에 포커스. **자동으로 보내지 않음** (사장님이 고치거나 Enter) |
 
+- 광고비 점검 카드 (11/22): 타일은 '점검한 채널' · '채널 판정'(`손해 n개 · 주의 n개`, 둘 다 0이면 '모두 괜찮음', `logic.js`의 `verdictCountText`) · '건당 남는 돈 (광고비 빼기 전)'(`MKT_PROFIT_TILE`, = 평균 주문 금액 × 남는 비율). 표·막대의 열 이름도 '건당 남는 돈'(예전 '건당 이익'), 표 바로 아래 기준 한 줄 `MKT_ADSPEND_RULE` "주문 1건에 든 광고비가 남는 돈 이상이면 '손해 광고', 절반 이상이면 '주의'예요." 판정은 서버(`adspend.judge`)가 그대로 하고 화면은 세기만 합니다. 마케팅 보고서의 광고 앱 막대도 '건당 남는 돈'.
+- 남는 비율 질문 (11/22): 광고비 점검·쿠폰 결과 확인·맞춤 홍보 제안(쿠폰 손익) 세 곳 모두 보기가 `20%`·`30%`·`40%`·`직접 입력`. '직접 입력'이면 다음 질문이 숫자 칸(`input.key`가 보기와 같은 키 `adspend_margin_pct`·`coupon_margin_pct`·`survey_margin_pct`, 단위 `%`는 `MKT_UNIT`)이고, 1~90이 아니면 서버가 같은 질문을 "남는 비율은 1~90 사이 숫자로 다시 알려 주세요."를 앞에 붙여 다시 냅니다 (4.2).
 - 화면 위 안내 띠(`Notice.mkt-notice`)는 마케팅 서비스가 HCX를 부르지 않는 상태(`health`의 `demo`·`mode: "mock"`·`key_present: false`, 또는 `demo: true` 결과를 받음)면 예시 고지 한 줄(`MKT_DEMO_NOTICE`)을 띄웁니다. **화면 맨 위 공통 시험용 띠(`health.mode_notice`)가 이미 있으면 이 고지는 띄우지 않습니다** (`noticeLines(s, appBand)`). '처음부터 다시' 때 마케팅 기록을 못 지웠다는 안내는 그와 상관없이 띄웁니다. 결과 카드 배지 `MKT_DEMO`('시험용 저장 예시 (실제 AI 결과 아님)')는 그대로 붙습니다.
 
 **상권 분석** (`features/market/state.js`. 모두 `/api/market/` 뒤 경로, 1.14)
@@ -2590,8 +2593,15 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 | '우리 가게 기준으로' | `POST setup?force=1` → 자료 다시 | 가게 기본 조건 (기본 여부는 서버의 `conditions.home`) |
 | 비교 탭을 처음 열 때 · 비교 상권 고름 | `GET comparison-options` · `GET comparison?comparison_area_code=` | 비교 표 |
 | 지도가 처음 필요할 때 (11/20) | `GET map-config` (한 번만, 2.3 (9)) → 네이버 지도 SDK | 지도. 안 뜨면 지도 자리에 한 줄과 [다시 시도], 아래 목록은 그대로 |
-| 지도·목록에서 주변 상권을 누름 (11/20) | (비교 목록이 없으면) `GET comparison-options` | 비교 탭을 열고(탭에 포커스) 그 상권의 구·상권을 고름 + "○○ 상권을 비교 대상으로 골랐어요…". 목록에 없거나 `selectable: false`면 비교 칸에 그 이유 한 줄. 고른 상권(지금 분석 중)은 아무 일 없음. 비교는 사장님이 '비교하기'로 |
+| 지도·목록에서 주변 상권을 누름 (11/20) | (비교 목록이 없으면) `GET comparison-options` | 비교 탭을 열고(탭에 포커스, 포커스로는 화면을 움직이지 않음) 그 상권의 구·상권을 고름 + "○○ 상권을 비교 대상으로 골랐어요…". 목록에 없거나 `selectable: false`면 비교 칸에 그 이유 한 줄. 고른 상권(지금 분석 중)은 아무 일 없음. 비교는 사장님이 '비교하기'로. 11/22: 탭이 이미 보이면 화면이 그대로라 고장처럼 보여서, 누를 때마다 비교 칸(`#mk-cmp-form`: 구·상권 고르기와 [비교하기])이 화면 가운데 오게 내림(`state.js`의 `revealCompare`, 움직임 줄이기면 부드러운 스크롤 없이 바로) |
 | 서울시 자료 최신화 | `POST data-sync` (70초) → `GET status` | 결과 한 줄, 자료 상태, AI 비서의 상권 상태 |
+
+상권 화면의 덧말 (11/22 실사용 QA. 서버 경고는 합쇼체 문장 그대로, 화면이 붙이는 말은 해요체 한 줄. 모두 `small muted`)
+
+- 분포 막대(시간대·요일·연령) 바로 아래에 그 분포의 경고(`distributions.*.warnings`, 예: "시간대 구간 길이가 다릅니다…")를 둡니다. 구간이 6·5·3·3·4·3시간이라 00~06시가 1등처럼 보였기 때문입니다. 탭 아래의 전체 경고(`warnings`)에서는 막대 아래에 이미 보인 문장을 빼서 같은 문장이 두 번 나오지 않습니다(`format.js`의 `distWarningsOf`·`warningsOf(x, skip)`).
+- 지표 '전년 같은 분기 대비'의 아랫줄은 "{전년 분기} 대비 · 선택 업종 · 분기 전체 추정매출"이고, 지표 4칸 바로 아래(자료를 받은 뒤에만) "홈·종합 리포트의 상권 저녁 매출은 공통 업종·17~24시 기준이라 이 숫자와 다를 수 있어요." 한 줄(`.mk-tiles-note`)을 둡니다. 홈의 −19.31%와 이 화면의 변화율은 범위가 달라 둘 다 맞습니다.
+- 유동 탭 연령 표기는 상권 서비스 그대로입니다('연령대 10 (원천 분류)', 막대에는 괄호를 뺀 '연령대 10'). 서비스가 이 칸의 범위를 확인하지 못해 '10대'로 바꾸지 않고(`onboarding_population.py`의 경고문, 독립 시험이 표기를 고정), 매출 탭은 '10대'입니다. 그래서 표기를 맞추지 않고, 라벨에 '원천 분류'가 있을 때만(`isRawAge`) 연령 막대 아래에 "'원천 분류'는 서울시 자료의 연령 구분 이름 그대로라는 뜻이에요. 매출 탭의 '10대'와 범위가 같은지는 확인되지 않았어요." 한 줄을 둡니다.
+- 배후인구·집객시설 목록에 시설 수(집객시설·지하철역·버스정류장·대학교·초중고·병원)가 있으면(`hasFacility`) 목록 바로 아래 "상권 이름에 든 역·학교가 상권 경계 안에 있다는 뜻은 아니에요. 시설 수는 서울시 집객시설 자료 그대로예요." 한 줄을 둡니다('장승배기역 4번' 상권의 지하철역 0개처럼 이름과 어긋나 보이는 경우).
 
 **AI에게 묻기 서랍** (`features/assistant/state.js`. 모두 `/api/assistant/` 뒤 경로, 1.10·1.15. 90초 넘으면 끊음)
 
@@ -2599,8 +2609,8 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 |---|---|---|
 | 서랍을 처음 열 때 · '다시 확인' | `GET status` → (`ready`면) `GET conversation` → 조건이 없으면 `POST setup` (한 번만, '다시 확인' 때 다시) | 상태 안내 카드 또는 이전 대화·조건·첫 추천 질문(`CHAT_STARTERS`) |
 | 질문 보내기 (Enter, 한글 입력 중 Enter는 보내지 않음) | `POST messages` `{text, client_message_id}` | 답·선택지·근거 카드·이어서 물어볼 칩 |
-| 선택지 (화면 이동이 아님) | `POST actions` (선택지의 `payload`) | 위와 같음 |
-| 화면 이동 선택지 (`navigate`, `handoff`의 `marketing`·`customer`) | 없음 (`chatNavTarget` → `navTo`) | 그 화면·탭·시작 모드로. 서랍이 본문을 **덮고 있을 때만** 서랍을 닫고 포커스를 이동한 화면 제목으로 (`drawerCovers`, 2.9). 본문을 밀어 둔 넓은 화면이면 서랍은 그대로 |
+| 선택지 (화면 이동이 아님) | `POST actions` (선택지의 `payload`) | 위와 같음. 마지막 답의 선택지만 누를 수 있음 (지난 답에서는 꺼짐) |
+| 화면 이동 선택지 (`navigate`, `handoff`의 `marketing`·`customer`) | 없음 (`chatNavTarget` → `navTo`) | 그 화면·탭·시작 모드로. 서랍이 본문을 **덮고 있을 때만** 서랍을 닫고 포커스를 이동한 화면 제목으로 (`drawerCovers`, 2.9). 본문을 밀어 둔 넓은 화면이면 서랍은 그대로. 11/22: 서버에 묻지 않으므로 **지난 답의 버튼도 켜져 있음**(상권 답마다 붙는 '상권 분석 표·차트 보기'가 꺼져 보였음, `Drawer.jsx`가 `chatNavTarget`으로 가름) |
 | '대화 지우기' (4초 안에 두 번) | `DELETE conversation` → `GET conversation`(조건 표시만 다시) | 대화 비움 |
 | '우리 가게 조건으로' | `POST setup?force=1` | 조건 칩. 서버의 `conditions.is_store_default`가 `true`면 '우리 가게 기준 적용 중'으로 잠금 |
 
@@ -2613,7 +2623,7 @@ API 경로·요청·응답은 1부 그대로입니다. 오류는 두 갈래로 �
 
 | 언제 | 부르는 API | 결과 |
 |---|---|---|
-| A1 [로그인] · '시연 사장님으로 1초 시작 (가게 3곳)' | `POST /api/auth/login` `{login_id, password, keep}`(`keep` = '로그인 상태 유지 (7일)') · `POST /api/auth/demo-login` | A3 (또는 하던 화면). 실패하면 카드에 오류, 친 비밀번호는 그대로. 시연 버튼은 시험용 실행(`isTestRun(health)` = `health.mode_notice`가 있음)이고 `me.demo_login`이 `true`일 때만 보임 (실제 서버에서는 숨김, 6차 회의) |
+| A1 [로그인] · '시연 사장님으로 1초 시작 (가게 3곳)' | `POST /api/auth/login` `{login_id, password, keep}`(`keep` = '로그인 상태 유지 (7일)') · `POST /api/auth/demo-login` | A3 (또는 하던 화면). 성공하면 앞 계정의 결과 띠(예: 탈퇴 알림)를 비움(`authDo`, 11/22). 실패하면 카드에 오류, 친 비밀번호는 그대로. 시연 버튼은 시험용 실행(`isTestRun(health)` = `health.mode_notice`가 있음)이고 `me.demo_login`이 `true`일 때만 보임 (실제 서버에서는 숨김, 6차 회의) |
 | A1 '비밀번호를 잊었어요' | 없음 | 그 자리에 "비밀번호 찾기는 아직 지원하지 않아요. 새 계정을 만들어 주세요." 한 줄 |
 | A2 [가입하고 가게 등록하기] | `POST /api/auth/signup` `{login_id, password, display_name, stores: []}` | 새 가게 등록(`mode: "signup"`). 아이디(영문 소문자·숫자로 시작 3~32자)·비밀번호(8자 이상)·확인·이름·동의(필수)를 먼저 보고, 틀린 칸으로 포커스 |
 | A3 열기 | `GET /api/account/stores` → 가게마다 `GET /api/account/stores/{id}/summary` (따로·동시에) | 카드: 첫 글자 · 이름(`sample`이면 ' (가상)') · '업종 · 상권' · '리뷰 n · 불만 n'(`unavailable`이면 숨김) · 요약 한 줄(`tone` bad 빨강 · good 초록 · muted 회색) · [이 가게 열기]. `last_opened` 가게는 맨 앞 + 초록 주 버튼 + '마지막으로 본 가게' 칩. 마지막 칸 '+ 새 가게 등록'. 0곳이면 그 칸과 "아직 등록한 가게가 없어요". 그림의 '오늘 승인 대기'·'이번 주 보고서'·카드의 '승인 대기'는 서버가 모르는 값이라 없음 |
@@ -2890,6 +2900,7 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -v "$R":/repo -w /repo/services/web ic
 | `GET /` · `/web/…` | 이 서버의 단독 화면 (통합 화면에서는 쓰지 않음) | | |
 
 - `demo`(`/generate`·`/plan`): `true`면 HCX를 부르지 않고 저장된 예시(`c6/replay`)나 코드 템플릿으로 만든 글입니다. mock이거나 live인데 키가 없을 때입니다.
+- 남는 비율 '직접 입력' (`/step`, 11/22): `adspend_margin`·`coupon_result_margin`·`coupon_margin`의 보기 끝 `직접 입력` → `adspend_margin_custom`·`coupon_result_margin_custom`·`coupon_margin_custom` (`input: {key, type: "number"}`, `key`는 보기와 같은 `adspend_margin_pct`·`coupon_margin_pct`·`survey_margin_pct`). 답은 정수(끝의 `%`는 받음) 1~90만 받아 그 키에 넣고 보기와 같은 다음 노드로 갑니다. 글자·소수·범위 밖이면 값을 넣지 않고 같은 노드를 돌려주며 `bot_messages[0]` 앞에 "남는 비율은 1~90 사이 숫자로 다시 알려 주세요." (다시 묻는 동안 `raw._margin_retry_msg`, 통과하면 지움). `flow.py`의 `_margin_options`·`_advance_margin_entry`.
 - 글 생성기(c6)의 점검·다시 쓰기·템플릿은 서버 응답에 나오지 않고 글(`text`·`drafts`)만 나옵니다.
 
 ### 4.3 `visitor_id` (11/16)

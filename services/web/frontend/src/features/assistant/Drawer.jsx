@@ -7,7 +7,7 @@ import { homeSnap, marketScope } from "../../lib/domain.js";
 import { useBand } from "../../lib/media.js";
 import { Button, Notice } from "../../components/ui.jsx";
 import {
-  CHAT_TOPICS, CHAT_STATUS, CHAT_SCOPE_DAY, chatValue, chatQuarter, chatUrl, chatCondParts, chatScopeNote, chatBlocks, chatPieces,
+  CHAT_TOPICS, CHAT_STATUS, CHAT_SCOPE_DAY, chatValue, chatQuarter, chatUrl, chatCondParts, chatScopeNote, chatBlocks, chatPieces, chatNavTarget,
 } from "./chat.js";
 import {
   useChat, getChat, setDraft, chatSend, chatChoose, chatClear, chatHome, chatStart, chatRetry, chatReset, chatSeenEpoch,
@@ -82,7 +82,7 @@ function EvCard({ c, domId, hl }) {
 }
 
 // 비서 답 하나: 글(목록·참고·해석·다음으로) → 선택지(글 바로 아래, 스크롤 없이 보이게) → 근거 n개 · 자료 기준 안내(접힘).
-// live = 마지막 답 (선택지를 누를 수 있음)
+// live = 마지막 답 (대화를 이어 가는 선택지는 이 답에서만 누를 수 있음. 화면 이동 버튼은 지난 답에서도 누를 수 있음)
 function BotMsg({ item, live, off, hl }) {
   const reply = item.data?.reply || {};
   const cards = (Array.isArray(item.data?.cards) ? item.data.cards : []).filter((c) => c && c.id);
@@ -111,8 +111,9 @@ function BotMsg({ item, live, off, hl }) {
         {actions.length > 0 && (
           <div className="chat-actions" role="group" aria-label="선택지">
             {actions.map((a, i) => (
+              // 화면 이동 버튼(navigate·handoff)은 서버에 묻지 않고 화면만 옮겨 지난 답에서도 켜 둔다 (11/22 QA: 꺼진 까닭이 안 보였다)
               <Button key={i} size="small" className="chat-pick" aria-current={item.picked === i ? "true" : undefined}
-                disabled={!live || off} onClick={() => chatChoose(item.id, i, a)}>
+                disabled={chatNavTarget(a) ? false : !live || off} onClick={() => chatChoose(item.id, i, a)}>
                 {chatQuarter(a.label)}
               </Button>
             ))}

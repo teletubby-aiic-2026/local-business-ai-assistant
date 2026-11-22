@@ -809,7 +809,7 @@ class TestChatFlowReachesEnd(unittest.TestCase):
         # 바로 표시한다(실제 동작은 TestAdSpendFeature 의 서버 경로 테스트가 따로 확인한다).
         _ADSPEND_DYNAMIC_NODES = {
             "adspend_apps", "adspend_spend_entry", "adspend_orders_entry",
-            "adspend_avg_amount", "adspend_avg_amount_custom", "adspend_margin",
+            "adspend_avg_amount", "adspend_avg_amount_custom", "adspend_margin", "adspend_margin_custom",
         }
 
         def _explore(node_id: str, state: dict, depth: int = 0):
@@ -1572,6 +1572,117 @@ class TestCouponResultFeature(unittest.TestCase):
         self.assertTrue(gen["demo"])
         self.assertIsNotNone(gen["text"])
         self.assertEqual(gen["coupon"]["discount_won"], 2_500)
+
+
+class TestMarginCustomInput(unittest.TestCase):
+    """11/22 QA: 남는 비율 보기가 20/30/40% 뿐이라 카페처럼 많이 남는 가게는 넣을 수 없었다 → 세 흐름(광고비 점검·쿠폰 결과 확인·
+    맞춤 홍보 제안의 쿠폰 손익) 모두 '직접 입력'(1~90%). 받은 값은 보기와 같은 키로 들어가 뒤 계산이 그대로 돌고,
+    0·95·글자는 값을 넣지 않고 같은 질문을 다시 묻는다."""
+
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from marketing_survey.server import app
+
+        cls.client = TestClient(app)
+
+    def _step(self, state, answer):
+        res = self.client.post("/api/marketing-survey/step", json={"state": state, "answer": answer})
+        self.assertEqual(res.status_code, 200, res.text)
+        return res.json()
+
+    def _plan(self, state):
+        res = self.client.post("/api/marketing-survey/plan", json={"state": state})
+        self.assertEqual(res.status_code, 200, res.text)
+        return res.json()
+
+    def _custom_60(self, data, margin_node, custom_node, key):
+        """남는 비율 질문에서 '직접 입력' → 숫자 칸. 0·95·글자는 같은 칸을 다시 묻고 값을 넣지 않는다. 60 이면 그 키에 60."""
+        self.assertEqual(data["state"]["node"], margin_node)
+        self.assertEqual([o["label"] for o in data["options"]], ["20%", "30%", "40%", "직접 입력"])
+        data = self._step(data["state"], "직접 입력")
+        self.assertEqual(data["state"]["node"], custom_node)
+        self.assertEqual(data["input"], {"key": key, "type": "number"})     # 화면은 숫자 칸을 그린다 (단위는 MKT_UNIT 의 %)
+        self.assertEqual(data["options"], [])
+        self.assertIn("1~90", data["bot_messages"][0])
+        for bad in ("0", "95", "육십", "12.5"):
+            data = self._step(data["state"], bad)
+            self.assertEqual(data["state"]["node"], custom_node, bad)
+            self.assertTrue(data["bot_messages"][0].startswith("남는 비율은 1~90 사이 숫자로 다시 알려 주세요."), bad)
+            self.assertNotIn(key, data["state"]["raw"], bad)
+        data = self._step(data["state"], "60")
+        self.assertEqual(data["state"]["raw"][key], 60)
+        self.assertNotIn("_margin_retry_msg", data["state"]["raw"])   # 다시 묻는 까닭은 지나가면 지운다
+        return data
+
+    def test_adspend_custom_margin(self):
+        data = self._step(None, None)
+        data = self._step(data["state"], "광고비 점검")
+        data = self._step(data["state"], ["baemin"])
+        data = self._step(data["state"], "150000")
+        data = self._step(data["state"], "20")
+        data = self._step(data["state"], "15,000원")
+        data = self._custom_60(data, "adspend_margin", "adspend_margin_custom", "adspend_margin_pct")
+        self.assertTrue(data["done"])
+
+        body = self._plan(data["state"])
+        self.assertEqual(body["margin_pct"], 60)
+        self.assertEqual(body["profit_per_order_won"], 9_000)          # 15,000원 x 60%
+        # 건당 광고비 7,500원: 30%(4,500원)였으면 손해 광고, 60%(9,000원)면 절반 이상이라 주의 (판정 규칙은 그대로)
+        self.assertEqual(body["table"][0]["cost_per_order_won"], 7_500)
+        self.assertEqual(body["table"][0]["verdict"], adspend.VERDICT_CAUTION)
+
+    def test_coupon_result_custom_margin(self):
+        data = self._step(None, None)
+        data = self._step(data["state"], "쿠폰 결과 확인")
+        for answer in ("100", "10", "2000", "15000"):    # 발급·사용·할인액·평균 주문 금액
+            data = self._step(data["state"], answer)
+        data = self._custom_60(data, "coupon_result_margin", "coupon_result_margin_custom", "coupon_margin_pct")
+        self.assertTrue(data["done"])
+
+        body = self._plan(data["state"])
+        self.assertEqual(body["margin_pct"], 60)
+        self.assertEqual(body["profit_per_order_won"], 9_000)
+        self.assertEqual(body["breakeven_orders"], 3)                  # ceil(20,000 ÷ 9,000). 30%였으면 5
+
+    def test_survey_coupon_custom_margin(self):
+        data = self._step(None, None)
+        data = self._step(data["state"], "맞춤 홍보 제안")
+        for answer in ("아니요", "새 손님", "아니요", "100,000원", "예"):
+            data = self._step(data["state"], answer)
+        self.assertEqual(data["state"]["node"], "menu")
+        data = self._step(data["state"], data["options"][0]["label"])
+        self.assertEqual(data["state"]["node"], "max_discount")
+        data = self._step(data["state"], data["options"][0]["label"])
+        self.assertEqual(data["state"]["node"], "coupon_avg_amount")
+        data = self._step(data["state"], "15,000원")
+        data = self._custom_60(data, "coupon_margin", "coupon_margin_custom", "survey_margin_pct")
+        self.assertEqual(data["state"]["node"], "capacity")
+        self.assertEqual(answers_from_raw(data["state"]["raw"]).margin_pct, 60)
+        data = self._step(data["state"], "충분")
+        data = self._step(data["state"], [data["options"][0]["value"]])
+        self.assertTrue(data["done"])
+
+        card = self._plan(data["state"])["coupon_card"]
+        self.assertIsNotNone(card)
+        calc_input = card["calc_input"]
+        self.assertEqual((calc_input["avg_order_won"], calc_input["margin_pct"]), (15_000, 60))
+        self.assertEqual(card["breakeven_orders"], coupon_calc.calc(**calc_input)["breakeven_orders"])
+        self.assertEqual(coupon_calc.calc(**calc_input)["profit_per_order_won"], 9_000)
+
+    def test_flow_level_retry_keeps_the_same_node(self):
+        """서버 없이 flow.advance 만: '60%'처럼 끝에 % 를 붙여도 받고, 범위 밖이면 같은 노드."""
+        state = {"raw": {}, "confirms": {}}
+        self.assertEqual(flow.advance("adspend_margin", DEFAULT_CTX, state, "직접 입력"), "adspend_margin_custom")
+        self.assertEqual(flow.advance("adspend_margin_custom", DEFAULT_CTX, state, "91"), "adspend_margin_custom")
+        self.assertIn("다시 알려 주세요", flow.node_text("adspend_margin_custom", DEFAULT_CTX, state))
+        self.assertEqual(flow.advance("adspend_margin_custom", DEFAULT_CTX, state, "60%"), flow.DECISION)
+        self.assertEqual(state["raw"]["adspend_margin_pct"], 60)
+        self.assertNotIn("다시 알려 주세요", flow.node_text("adspend_margin_custom", DEFAULT_CTX, state))
+        for edge in ("1", "90"):
+            s = {"raw": {}, "confirms": {}}
+            self.assertEqual(flow.advance("coupon_margin_custom", DEFAULT_CTX, s, edge), "capacity", edge)
+            self.assertEqual(s["raw"]["survey_margin_pct"], int(edge))
 
 
 class TestNoticeFollowup(unittest.TestCase):

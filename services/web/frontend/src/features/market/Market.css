@@ -30,6 +30,8 @@
 @container content (min-width: 1000px) { .tiles.mk-tiles .num { font-size: 28px; } }
 .mk-tiles .num { overflow-wrap: anywhere; }
 .mk-neg { color: var(--bad); }
+/* 지표 4칸 바로 아래 범위 안내 한 줄: 열 간격(24px)을 줄여 지표에 붙여 둔다 (11/22 QA) */
+.mk-tiles-note { margin-top: calc(var(--s-16) * -1); }
 
 /* 탭 칸. 한 칸 격자도 minmax(0, 1fr): 줄바꿈 없는 비교 표의 폭이 칸을 밀어 휴대전화에서 가로 스크롤이 생기지 않게 (표는 .mk-table-wrap 안에서만 밀림) */
 .mk-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-16); min-width: 0; container: mk-main / inline-size; }

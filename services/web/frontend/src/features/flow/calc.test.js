@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { homeStats, keywordRows, hourChart, scopeChips, sourceLine, reasonByAI, measureIds, replacesOf, statusOf, listBadges, touchedOf, mapDraft, pickCurrent, starText,
+  changedFromDraft, EDITED_CHECK_NOTE,
   draftStateText, isFallback, regenNote, hourNotes, cardsIntro, targetLine, mergeApprovals, serverName, whenText, priorApprovals, priorByCard, priorNote } from "./calc.js";
 
 const briefing = {
@@ -23,7 +24,10 @@ describe("홈", () => {
     expect(s.reviewsSub).toBe("7일 동안");
     expect(s.complaintsSub).toBe("리뷰의 25%");
     expect(s.repeated).toBe(3);
-    expect(s.repeatedSub).toBe("포장 누락");
+    // 11/22 QA: 리뷰 분석 요약 탭과 같은 부제 (묶음 수 · 주제). 2개부터는 '합계', 겹친 리뷰가 있으면 뺀 수도
+    expect(s.repeatedSub).toBe("묶음 1개 · 포장 누락");
+    const g2 = { issue_id: "i2", topic_name: "음식 온도", review_count: 3, is_repeated: true, reviews: [{ review_id: "r1" }, { review_id: "r2" }, { review_id: "r9" }] };
+    expect(homeStats({ ...briefing, groups: [...briefing.groups, g2] })).toMatchObject({ repeated: 6, repeatedSub: "묶음 2개 합계 · 겹친 리뷰 빼면 4건 · 포장 누락, 음식 온도" });
   });
   it("리뷰 0건인 새 가게: 기간이 비어도 '1일 동안'이 나오지 않는다", () => {
     const s = homeStats({ period: { start: null, end: null }, counts: { review_count: 0, complaint_count: 0 }, groups: [] });
@@ -109,6 +113,15 @@ describe("초안", () => {
     expect(targetLine({ target_review_id: null }, reviews)).toBe("");
   });
   it("승인했거나 고친 글 수", () => expect(touchedOf(s, "a")).toBe(2));
+  // 11/22 QA: 고친 글에는 '점검 결과는 고치기 전 글 기준' 한 줄 (점검 칩은 원문 기준)
+  it("원문과 다른 글인지: 고치는 중 · 고쳐서 승인 · 되돌림 · 앞뒤 공백만 다름", () => {
+    expect(changedFromDraft(s, d3)).toBe(true);                                             // 고치는 중 ('다' → '다다')
+    expect(changedFromDraft(s, d1)).toBe(false);                                            // 고치지 않고 승인
+    expect(changedFromDraft(s, { ...d1, edited_text: "가가" })).toBe(true);                  // 고쳐서 승인
+    expect(changedFromDraft({ pending: { d1: "가" } }, { ...d1, edited_text: "가가" })).toBe(false);   // 고쳐서 승인한 뒤 원문으로 되돌리는 중
+    expect(changedFromDraft({ pending: { d3: " 다 \n" } }, d3)).toBe(false);                 // 앞뒤 공백만
+    expect(EDITED_CHECK_NOTE).toBe("점검 결과는 고치기 전 글 기준이에요.");
+  });
   it("보일 카드·글: 안내문이 먼저, 첫 미승인 글", () => {
     const c = pickCurrent(s);
     expect(c.current).toBe("a");

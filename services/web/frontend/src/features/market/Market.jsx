@@ -7,10 +7,10 @@ import { useStore, focusOrOpenDrawer } from "../../state/store.js";
 import { Button, Notice, PageHead, Panel, StatTile, Tabs } from "../../components/ui.jsx";
 import NaverMap from "../../components/NaverMap.jsx";
 import {
-  MKV_TABS, useMarket, getMarket, marketOpen, setTab, markNav, apply, home, sync, compare, compareWith, periodsOf, compareAreasOf,
+  MKV_TABS, useMarket, getMarket, marketOpen, setTab, markNav, apply, home, sync, compare, compareWith, revealCompare, periodsOf, compareAreasOf,
   pickArea, pickIndustry, pickPeriod, pickCompareDistrict, pickCompareArea,
 } from "./state.js";
-import { barRows, metricValue, numKo, pctKo, qLabel, safeUrl, warningsOf, wonShort } from "./format.js";
+import { barRows, distWarningsOf, hasFacility, isRawAge, metricValue, numKo, pctKo, qLabel, safeUrl, warningsOf, wonShort } from "./format.js";
 import "./Market.css";
 
 const TABS = [
@@ -22,6 +22,12 @@ const TABS = [
 const STORE_KEYS = ["stores_total", "stores_general", "stores_franchise", "stores_opened", "stores_closed"];
 // 이 화면의 핵심 고지 (출처·추정치·우리 가게 매출 아님). 화면 머리에 이 한 줄만 둔다 (Figma F1 문구)
 const MK_NOTICE = "서울시 상권분석서비스 공식 자료로 우리 가게 주변 상권을 봐요. 상권·업종 전체의 추정치이고, 우리 가게 매출이 아니에요.";
+// 11/22 QA: 홈 -19.31%와 이 화면 타일의 변화율이 달라 '둘 중 하나가 오류'로 읽혔다. 둘 다 맞고 범위가 달라서라는 한 줄
+const MK_SCOPE_NOTE = "홈·종합 리포트의 상권 저녁 매출은 공통 업종·17~24시 기준이라 이 숫자와 다를 수 있어요.";
+// 11/22 QA: '장승배기역 4번' 상권에 지하철역 0개처럼 이름과 시설 수가 어긋나 보였다
+const MK_FACILITY_NOTE = "상권 이름에 든 역·학교가 상권 경계 안에 있다는 뜻은 아니에요. 시설 수는 서울시 집객시설 자료 그대로예요.";
+// 11/22 QA: 유동 탭 '연령대 10'과 매출 탭 '10대'가 달라 보였다. 서버는 범위를 확인하지 못해 '10대'로 바꾸지 않으므로 표기는 두고 뜻만 푼다
+const MK_RAW_AGE_NOTE = "'원천 분류'는 서울시 자료의 연령 구분 이름 그대로라는 뜻이에요. 매출 탭의 '10대'와 범위가 같은지는 확인되지 않았어요.";
 
 // 고른 값이 목록에 없으면 브라우저처럼 고를 수 있는 첫 보기
 const valueIn = (list, want, key, ok = () => true) => {
@@ -140,7 +146,9 @@ function MapPanel({ s }) {
   const pick = (id) => {
     if (!id || id === here) return;
     compareWith(id);
-    document.getElementById("mk-tab-compare")?.focus();
+    // 탭에 포커스만 주면 탭이 이미 보일 때 화면이 그대로라 고장처럼 보였다 (11/22 QA): 비교 칸까지 내려 준다
+    document.getElementById("mk-tab-compare")?.focus({ preventScroll: true });
+    revealCompare();
   };
   return (
     <Panel title="지도" titleId="mk-map-title" sub={mapSource(s.options && s.options.scope)} className="mk-map">
@@ -170,38 +178,47 @@ function Tiles({ s, dim }) {
   const loaded = Object.keys(d).length > 0;
   const sales = d.sales && d.sales.total, stores = d.stores && d.stores.counts, pop = d.pop && d.pop.total;
   const yoy = ((d.yoy && d.yoy.metrics) || []).find((x) => x.key === "sales");
+  // 변화율의 범위(선택 업종 · 분기 전체)를 sub 에 적는다: 홈 지표(공통 업종 · 17~24시)와 다른 까닭이 숫자 옆에 보이게 (11/22 QA)
+  const yoyScope = "선택 업종 · 분기 전체 추정매출";
   return (
-    <div className={["tiles mk-tiles", dim && "mk-dim"].filter(Boolean).join(" ")} role="group" aria-label="핵심 지표" aria-busy={dim || undefined}>
-      <StatTile label="분기 추정매출" value={sales && typeof sales.value === "number" ? wonShort(sales.value) : "–"}
-        sub={loaded ? `${c.period_label || qLabel(c.period)} · ${c.industry_name || ""}` : ""} />
-      <StatTile label="전년 같은 분기 대비" value={yoy ? <span className={yoy.percent < 0 ? "mk-neg" : undefined}>{pctKo(yoy.percent)}</span> : "–"}
-        sub={loaded ? (d.yoy && d.yoy.previous_period ? `${qLabel(d.yoy.previous_period)} 대비 추정매출` : "추정매출") : ""} />
-      <StatTile label="같은 업종 점포" value={stores && stores.total ? numKo(stores.total.value, "개") : "–"}
-        sub={stores ? `개업 ${numKo(stores.opened && stores.opened.value)} · 폐업 ${numKo(stores.closed && stores.closed.value)}` : ""} />
-      <StatTile label="유동인구" value={pop && typeof pop.value === "number" ? numKo(pop.value, "명") : "–"}
-        sub={loaded ? "상권 전체 원천 지표" : ""} />
-    </div>
+    <>
+      <div className={["tiles mk-tiles", dim && "mk-dim"].filter(Boolean).join(" ")} role="group" aria-label="핵심 지표" aria-busy={dim || undefined}>
+        <StatTile label="분기 추정매출" value={sales && typeof sales.value === "number" ? wonShort(sales.value) : "–"}
+          sub={loaded ? `${c.period_label || qLabel(c.period)} · ${c.industry_name || ""}` : ""} />
+        <StatTile label="전년 같은 분기 대비" value={yoy ? <span className={yoy.percent < 0 ? "mk-neg" : undefined}>{pctKo(yoy.percent)}</span> : "–"}
+          sub={loaded ? (d.yoy && d.yoy.previous_period ? `${qLabel(d.yoy.previous_period)} 대비 · ${yoyScope}` : yoyScope) : ""} />
+        <StatTile label="같은 업종 점포" value={stores && stores.total ? numKo(stores.total.value, "개") : "–"}
+          sub={stores ? `개업 ${numKo(stores.opened && stores.opened.value)} · 폐업 ${numKo(stores.closed && stores.closed.value)}` : ""} />
+        <StatTile label="유동인구" value={pop && typeof pop.value === "number" ? numKo(pop.value, "명") : "–"}
+          sub={loaded ? "상권 전체 원천 지표" : ""} />
+      </div>
+      {loaded && <p className="small muted mk-tiles-note">{MK_SCOPE_NOTE}</p>}
+    </>
   );
 }
 
-// 분포 막대 (예전 mkvBars)
+// 분포 막대 (예전 mkvBars). 그 분포의 경고(예: 시간대 구간 길이가 다름)는 막대 바로 아래에 (11/22 QA: 00~06시가 1등처럼 보였다)
 function Bars({ dist }) {
   const rows = barRows(dist);
   if (!rows.length) return <p className="small muted">자료가 없어요.</p>;
   return (
-    <ul className="plain mk-bars" aria-label={(dist && dist.label) || ""}>
-      {rows.map((r, i) => (
-        <li key={i}>
-          <span className="mk-bar-l">{r.label}</span>
-          <span className="mk-bar" aria-hidden="true"><span style={{ width: `${r.pct}%` }} /></span>
-          <span className="mk-bar-v">{r.shown}</span>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="plain mk-bars" aria-label={(dist && dist.label) || ""}>
+        {rows.map((r, i) => (
+          <li key={i}>
+            <span className="mk-bar-l">{r.label}</span>
+            <span className="mk-bar" aria-hidden="true"><span style={{ width: `${r.pct}%` }} /></span>
+            <span className="mk-bar-v">{r.shown}</span>
+          </li>
+        ))}
+      </ul>
+      <Warnings x={dist} />
+    </>
   );
 }
 
-const Warnings = ({ x }) => warningsOf(x).map((w, i) => <p key={i} className="small muted">{w}</p>);
+// skip: 막대 아래에 이미 보인 문장 (같은 문장이 두 번 나오지 않게)
+const Warnings = ({ x, skip }) => warningsOf(x, skip).map((w, i) => <p key={i} className="small muted">{w}</p>);
 const Err = ({ x }) => (x && x.error ? <p className="small mk-err">{x.error}</p> : null);
 
 // 전년 같은 분기와 비교 표 (예전 mkvChanges)
@@ -238,7 +255,7 @@ function SalesPanel({ s }) {
         <section><h3>연령별</h3><Bars dist={dist.age} /></section>
       </div>
       <Changes yoy={d.yoy} keys={["sales"]} />
-      <Warnings x={x} />
+      <Warnings x={x} skip={distWarningsOf(dist)} />
     </>
   );
 }
@@ -272,17 +289,22 @@ function PopPanel({ s }) {
       {p.total && <p className="mk-lead">유동인구(상권 전체 원천 지표) <b>{numKo(p.total.value, "명")}</b></p>}
       <div className="mk-grid">
         <section><h3>시간대별 유동인구</h3><Bars dist={pd.time} /></section>
-        <section><h3>연령별 유동인구</h3><Bars dist={pd.age} /></section>
+        <section>
+          <h3>연령별 유동인구</h3>
+          <Bars dist={pd.age} />
+          {isRawAge(pd.age) && <p className="small muted">{MK_RAW_AGE_NOTE}</p>}
+        </section>
         <section>
           <h3>배후인구·집객시설</h3>
           {ctx.status === "available"
             ? <ul className="plain mk-facts">{vals.map((v, i) => <li key={i}><span>{v.label}</span><b>{typeof v.value === "number" ? numKo(v.value, v.unit || "") : String(v.value)}</b></li>)}</ul>
             : <p className="small muted">{ctx.error || "이 상권의 직장인구·상주인구·집객시설 자료가 아직 없어요."}</p>}
+          {ctx.status === "available" && hasFacility(vals) && <p className="small muted">{MK_FACILITY_NOTE}</p>}
           {ctx.period_note && <p className="small muted">{ctx.period_note}</p>}
         </section>
       </div>
       <Changes yoy={d.yoy} keys={["floating_population"]} />
-      <Warnings x={p} />
+      <Warnings x={p} skip={distWarningsOf(pd)} />
       <Warnings x={ctx} />
     </>
   );
@@ -297,7 +319,7 @@ function ComparePanel({ s }) {
   const r = s.cmpResult;
   return (
     <>
-      <div className="mk-cond-row">
+      <div id="mk-cmp-form" className="mk-cond-row">
         <label className="field mk-field"><span>비교할 구</span>
           <select id="mk-cmp-district" value={s.cmpPick.district} onChange={(e) => pickCompareDistrict(e.target.value)}>
             {districts.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}

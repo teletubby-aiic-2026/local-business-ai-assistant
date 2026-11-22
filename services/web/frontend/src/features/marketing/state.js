@@ -533,12 +533,15 @@ export function restartChat() {
   first(bump(), true);
 }
 
-// 다른 화면의 navTo("marketing", sub): 그 시작 모드로 바로. nav.seq 가 바뀔 때마다 한 번
+// 다른 화면의 navTo("marketing", sub): 그 시작 모드로 바로. nav.seq 가 바뀔 때마다 한 번.
+// sub 가 "report" 면 마케팅 보고서 탭을 연다 (종합 리포트의 [맞춤 마케팅 보고서 보기], 11/22 QA)
 export function handleNav() {
   const nav = getState().nav;
   if (!nav || nav.seq === m.navSeq) return;
   set({ navSeq: nav.seq });
-  if (nav.name === "marketing" && MKT_SUB[nav.sub]) jump(MKT_SUB[nav.sub]);
+  if (nav.name !== "marketing") return;
+  if (nav.sub === "report") { setTab("report"); return; }
+  if (MKT_SUB[nav.sub]) jump(MKT_SUB[nav.sub]);
 }
 // 첫 질문(시작 모드 다섯 개)이 나오면 그 보기를 고른다. 다른 대화 중이면 처음부터 (예전 mktJump)
 async function jump(label) {

@@ -1,5 +1,6 @@
 // 오늘 할 일 흐름(홈·추천 카드·승인할 글·처리 완료)의 순수 계산 (예전 app.js 1 오늘 ~ 4 완료). 화면을 만지지 않는다.
 import { draftsOf, genName, praiseOf, shortBasis } from "../../lib/domain.js";
+import { repeatedTile } from "../analysis/calc.js";
 
 export const RULES_TITLE = "오늘부터 실천할 주방 점검 수칙";
 export const RERUN_LABEL = "카드 전체 다시 만들기";
@@ -7,24 +8,21 @@ export const RERUN_ARM_MS = 5000;
 // 다시 만들 때 보내는 옛 글 id 는 서버(demo.REPLACES_MAX)와 같은 20개까지
 export const REPLACES_MAX = 20;
 
-// 반복 불만의 기준 (불만 묶음 탭과 같은 정의: 같은 불만 2건부터 묶음, 3건부터 반복). 0건 타일 부제로 기준을 보인다 (11/21 QA)
-export const REPEAT_RULE = "같은 불만 3건부터";
-
 // ── 홈 숫자 타일 (R1 통계 요약 카드): 리뷰 · 불만 · 반복 불만 ──
 export function homeStats(b) {
   if (!b) return null;
   const c = b.counts || {};
   // 리뷰가 0건인 새 가게는 기간이 비어 있다 (new Date(null) 끼리 빼면 0 → '1일'로 보이지 않게)
   const days = b.period?.start && b.period?.end ? Math.round((new Date(b.period.end) - new Date(b.period.start)) / 86400000) + 1 : NaN;
-  const repeated = (b.groups || []).filter((g) => g.is_repeated);
+  // 반복 불만은 리뷰 분석 요약 탭과 같은 숫자·부제 (0건이면 기준 '같은 불만 3건부터', 11/21 QA · 묶음 수와 합계 기준, 11/22 QA)
+  const rep = repeatedTile(b.groups);
   return {
     reviews: c.review_count,
     reviewsSub: Number.isFinite(days) ? `${days}일 동안` : "",
     complaints: c.complaint_count,
     complaintsSub: c.review_count ? `리뷰의 ${Math.round((c.complaint_count / c.review_count) * 100)}%` : "",
-    repeated: repeated.reduce((n, g) => n + g.review_count, 0),
-    // 0건일 때 '없음'만 두면 2건 묶음이 있는데도 틀린 숫자처럼 보여 기준을 적는다 (11/21 QA)
-    repeatedSub: repeated.map((g) => g.topic_name).join(", ") || REPEAT_RULE,
+    repeated: rep.value,
+    repeatedSub: rep.sub,
   };
 }
 
@@ -249,6 +247,10 @@ export const sameSlot = (a, b) => a.generator === b.generator && (a.target_revie
 // 편집 칸에 보이는 글 (고치는 중 → 고쳐서 승인한 글 → 원문)
 export const textOf = (s, d) => s.pending[d.draft_id] ?? d.edited_text ?? d.text;
 export const isEdited = (s, d) => s.pending[d.draft_id] != null && s.pending[d.draft_id] !== (d.edited_text ?? d.text);
+// 지금 보이는 글이 AI 초안 원문과 다른지 (고치는 중이거나 고쳐서 승인). 점검 칩은 원문 기준이라 그때 한 줄을 붙인다.
+// 앞뒤 공백만 다르면 같은 글로, 고쳤다가 원문으로 되돌리면 다시 같은 글로 본다 (11/22 QA: 고친 글이 점검을 통과한 것처럼 읽혔음)
+export const changedFromDraft = (s, d) => String(textOf(s, d) ?? "").trim() !== String(d.text ?? "").trim();
+export const EDITED_CHECK_NOTE = "점검 결과는 고치기 전 글 기준이에요.";
 // 승인했거나 고치는 중인 글 수 ('카드 전체 다시 만들기'를 한 번 더 눌러야 하는지)
 export const touchedOf = (s, cardId) => draftsOf(s.results, cardId).filter((d) => s.approved.has(d.draft_id) || isEdited(s, d)).length;
 

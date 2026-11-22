@@ -4,7 +4,7 @@
 // (예시 고지는 화면 위 띠 + 이 배지 두 곳만. 카드 안에 같은 문장을 또 쓰지 않는다).
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button } from "../../components/ui.jsx";
-import { CALC_MAX_BUDGET, MKT_DEMO, MKT_VERDICT, barPct, couponRows, draftLabel, mktKey, tilesOf, todoHeadOf, whyLinesOf, wonKo } from "./logic.js";
+import { CALC_MAX_BUDGET, MKT_ADSPEND_RULE, MKT_DEMO, MKT_PROFIT, MKT_VERDICT, barPct, couponRows, draftLabel, mktKey, tilesOf, todoHeadOf, whyLinesOf, wonKo } from "./logic.js";
 import { approve, askFromCard, couponGen, editDraft, editFollow, ideaAsk, ideaNext, ideaTry, nextCoupon, noticeFollow, rewrite, slide, storyLink } from "./state.js";
 import { isSendEnter } from "./Ask.jsx";
 
@@ -53,9 +53,9 @@ function CardDraft({ card, k }) {
     readOnly={card.approved} onChange={(t) => editDraft(card.n, k, t)} />;
 }
 
-// 광고비 점검: 표 + 앱마다 막대 두 개(건당 광고비 · 건당 이익, 같은 눈금). 값은 서버가 계산한 그대로.
+// 광고비 점검: 표 + 판정 기준 한 줄 + 앱마다 막대 두 개(건당 광고비 · 건당 남는 돈, 같은 눈금). 값은 서버가 계산한 그대로.
 // 판정은 앱 바로 옆 둘째 열 — 맨 끝에 있을 때 칸이 좁으면 '괜'처럼 잘려 보였다. 숫자 열이 넘치면 그 칸만 옆으로 밀리고
-// 가장자리 그림자로 밀린다는 게 보인다 (Marketing.css .mkt-table-wrap, 11/21 QA)
+// 가장자리 그림자로 밀린다는 게 보인다 (Marketing.css .mkt-table-wrap, 11/21 QA). '건당 남는 돈'은 광고비 빼기 전 값 (11/22 QA)
 function Adspend({ rows }) {
   const judged = rows.filter((r) => r.cost_per_order_won != null);
   const pct = barPct(judged.flatMap((r) => [r.cost_per_order_won, r.profit_per_order_won]));
@@ -64,7 +64,7 @@ function Adspend({ rows }) {
       <div className="mkt-table-wrap" tabIndex={0} role="region" aria-label="배달앱별 광고비 손익 표 (옆으로 밀어 볼 수 있어요)">
         <table className="mkt-table">
           <caption className="sr">배달앱별 광고비 손익</caption>
-          <thead><tr><th scope="col">앱</th><th scope="col">판정</th><th scope="col" className="r">광고비</th><th scope="col" className="r">주문</th><th scope="col" className="r">건당 광고비</th><th scope="col" className="r">건당 이익</th></tr></thead>
+          <thead><tr><th scope="col">앱</th><th scope="col">판정</th><th scope="col" className="r">광고비</th><th scope="col" className="r">주문</th><th scope="col" className="r">건당 광고비</th><th scope="col" className="r">{MKT_PROFIT}</th></tr></thead>
           <tbody>
             {rows.map((r, i) => {
               const v = MKT_VERDICT[r.verdict];
@@ -82,13 +82,14 @@ function Adspend({ rows }) {
           </tbody>
         </table>
       </div>
+      <p className="small muted mkt-adspend-rule">{MKT_ADSPEND_RULE}</p>
       {judged.length > 0 && (
         <div className="mkt-bars">
           {judged.map((r, i) => (
-            <div key={i} className="mkt-bar-row" role="img" aria-label={`${r.label}: 건당 광고비 ${wonKo(r.cost_per_order_won)}, 건당 이익 ${wonKo(r.profit_per_order_won)}`}>
+            <div key={i} className="mkt-bar-row" role="img" aria-label={`${r.label}: 건당 광고비 ${wonKo(r.cost_per_order_won)}, ${MKT_PROFIT} ${wonKo(r.profit_per_order_won)}`}>
               <p className="mkt-bar-name" aria-hidden="true">{r.label}</p>
               <Bar tone={(MKT_VERDICT[r.verdict] || ["ok"])[0]} width={pct(r.cost_per_order_won)} text={`건당 광고비 ${wonKo(r.cost_per_order_won)}`} hidden />
-              <Bar tone="profit" width={pct(r.profit_per_order_won)} text={`건당 이익 ${wonKo(r.profit_per_order_won)}`} hidden />
+              <Bar tone="profit" width={pct(r.profit_per_order_won)} text={`${MKT_PROFIT} ${wonKo(r.profit_per_order_won)}`} hidden />
             </div>
           ))}
         </div>

@@ -169,6 +169,50 @@ describe("리뷰 분석 화면", () => {
     expect(screen.getByText(`${rule}.`)).toBeTruthy();
   });
 
+  // 11/22 실사용 QA D1·D2
+  it("D1 불만 묶음 흐름: 칸마다 단위(건·개)와 무엇을 셌는지, 묶음 합계가 불만 리뷰 수와 다를 수 있다는 한 줄", () => {
+    const g2 = { issue_id: "iss_temperature", topic_name: "음식 온도", review_count: 2, is_repeated: false, time_bands: {}, main_time_band: null,
+      evidence: [{ review_id: "rv_1", quote: "식었어요" }, { review_id: "rv_2", quote: "미지근" }] };
+    setState({ insight: { ...insight, groups: [...insight.groups, g2] } });
+    const { container } = render(<Analysis />);
+    fireEvent.click(screen.getByRole("tab", { name: "불만 묶음" }));
+    const boxes = [...container.querySelectorAll(".an-funnel .an-fbox")].map((b) => [b.querySelector(".an-fn").textContent, b.querySelector(".small").textContent]);
+    expect(boxes).toEqual([["40건", "리뷰"], ["12건", "불만 리뷰"], ["2개", "묶음 (반복 1개)"], ["1건", "묶이지 않은 불만"]]);
+    expect(screen.getByText("리뷰 하나에 불만 주제가 둘 이상이면 묶음마다 들어가요. 그래서 묶음의 건수를 더하면 불만 리뷰 수보다 많을 수 있어요.")).toBeTruthy();
+    expect(screen.getByText("같은 불만이 2건 이상이면 묶음, 3건 이상이면 반복으로 봐요.")).toBeTruthy();
+  });
+
+  it("D2 인용 옆에 내부 리뷰 id 대신 채널 · 날짜 (id 는 data-review-id 에만)", () => {
+    setState({
+      reviewsById: { rv_1: { review_id: "rv_1", channel: "배민", created_at: "2026-11-03T18:10:00+09:00" } },
+      insight: { ...insight, single_complaints: [...insight.single_complaints,
+        { review_id: "rv_a2cf0aaafdf9c_paste_002", topic_names: ["양"], quote: "양이 적어요", created_at: "2026-10-30T12:00:00+09:00", channel: "yogiyo" }] },
+    });
+    const { container } = render(<Analysis />);
+    fireEvent.click(screen.getByRole("tab", { name: "불만 묶음" }));
+    const text = container.textContent;
+    expect(text).not.toContain("rv_1");
+    expect(text).not.toContain("rv_8");
+    expect(text).not.toContain("rv_a2cf0aaafdf9c_paste_002");
+    const quote = container.querySelector('.an-group [data-review-id="rv_1"]');
+    expect(quote.textContent).toBe("“안 들어 있었어요” 배민 · 11-03");
+    // 스토어에 없는 묶이지 않은 불만: 그 칸의 채널·날짜, 아무 정보도 없으면 꼬리 없이
+    expect(container.querySelector('[data-review-id="rv_a2cf0aaafdf9c_paste_002"]').textContent).toBe("양: “양이 적어요” 요기요 · 10-30");
+    const bare = container.querySelector('[data-review-id="rv_8"]');
+    expect(bare.textContent).toBe("위생: “머리카락”");
+    expect(bare.querySelector(".an-qmeta")).toBeNull();
+    expect(container.querySelector(".an-rid")).toBeNull();
+  });
+
+  it("D1 요약 탭 '반복 불만' 타일: 숫자는 묶음 건수 합 그대로, 부제에 묶음 수와 합계 기준", () => {
+    const g = (id, name, ids) => ({ issue_id: id, topic_name: name, review_count: ids.length, is_repeated: true, review_ids: ids, time_bands: {}, evidence: [] });
+    setState({ insight: { ...insight, complaint_count: 5, groups: [g("iss_a", "배달 시간", ["r1", "r2", "r3", "r4"]), g("iss_b", "음식 온도", ["r1", "r2", "r5"])] } });
+    const { container } = render(<Analysis />);
+    const tile = [...container.querySelectorAll(".an-tiles .tile")].find((t) => t.querySelector(".tile-label").textContent === "반복 불만");
+    expect(tile.querySelector(".num").textContent).toBe("7건");
+    expect(tile.querySelector(".tile-sub").textContent).toBe("묶음 2개 합계 · 겹친 리뷰 빼면 5건 · 배달 시간, 음식 온도");
+  });
+
   it("리뷰 0건인 새 가게: 기간 대신 짧은 안내, 타일·주제·묶음이 깨지지 않는다", () => {
     setState({ me: null, insight: { period_start: null, period_end: null, review_count: 0, complaint_count: 0, sentiment_counts: {},
       topic_counts: {}, group_count: 0, single_complaint_count: 0, top_issue_id: null, groups: [], single_complaints: [], data_origin: null } });

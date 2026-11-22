@@ -14,6 +14,11 @@ from typing import Any, Iterable
 # 메뉴 이름에 붙는 흔한 말. 이 말만으로는 어느 메뉴인지 알 수 없어 언급으로 세지 않는다 ("정식 맛있어요")
 GENERIC_MENU_WORDS = frozenset({"정식", "세트", "덮밥", "백반", "단품", "한상", "추가", "곱빼기", "특", "대", "중", "소"})
 MIN_WORD = 3   # 이름을 띄어 쓴 낱말은 3자 이상일 때만 그 메뉴로 본다 ("제육볶음 정식" → "제육볶음")
+# 메뉴 이름 앞에 붙는 흔한 꾸밈말. 손님은 떼고 부르는 일이 많다 ('손칼국수'를 '칼국수'로, 11/22 QA R4)
+MENU_PREFIXES = ("옛날", "수제", "원조", "매운", "얼큰", "손", "왕", "생", "통", "참", "특")
+# 꾸밈말처럼 보여도 낱말의 첫 글자인 것. '참치김밥'을 '치김밥'으로 떼면 '멸치김밥'·'김치김밥' 리뷰까지 세게 된다
+NOT_PREFIXED = ("참치", "참외", "생선", "생강", "통영", "특선", "수제비")
+MIN_STRIPPED = 2   # 꾸밈말을 뗀 뒤 2자 이상일 때만 ('통닭'을 '닭'으로 떼지 않음)
 
 
 def _get(review: Any, name: str) -> Any:
@@ -40,9 +45,22 @@ def praise_reviews(reviews: Iterable[Any]) -> list[Any]:
             and _get(r, "sentiment") not in ("negative", "mixed")]
 
 
+def _unprefixed(word: str) -> list[str]:
+    """앞의 꾸밈말을 차례로 뗀 이름들 ('얼큰손칼국수' → ['손칼국수', '칼국수']). 남는 글자가 MIN_STRIPPED 자보다 짧아지면 멈춘다."""
+    out = []
+    while not word.startswith(NOT_PREFIXED):
+        head = next((p for p in MENU_PREFIXES if word.startswith(p) and len(word) - len(p) >= MIN_STRIPPED), None)
+        if head is None:
+            break
+        word = word[len(head):]
+        out.append(word)
+    return out
+
+
 def menu_variants(menu_names: Iterable[str]) -> dict[str, tuple[str, ...]]:
     """메뉴 이름 → 리뷰에서 그 메뉴로 볼 표기들 (띄어쓰기는 무시).
-    전체 이름 + 이름을 띄어 쓴 낱말 중 3자 이상이고, 흔한 말(정식·세트…)이 아니고, 다른 메뉴 이름에 들어 있지 않은 것."""
+    전체 이름 + 이름을 띄어 쓴 낱말 중 3자 이상이고, 흔한 말(정식·세트…)이 아니고, 다른 메뉴 이름에 들어 있지 않은 것
+    + 위 표기에서 앞의 꾸밈말(손·왕·옛날…)을 뗀 이름 중 2자 이상이고, 흔한 말이 아니고, 다른 메뉴 이름에 들어 있지 않은 것."""
     names = [n for n in dict.fromkeys(menu_names) if _flat(n)]
     found: dict[str, tuple[str, ...]] = {}
     for name in names:
@@ -54,6 +72,12 @@ def menu_variants(menu_names: Iterable[str]) -> dict[str, tuple[str, ...]]:
             if any(word in other for other in others):   # 두 메뉴가 같이 쓰는 낱말로는 어느 메뉴인지 알 수 없다
                 continue
             variants.append(word)
+        for base in list(variants):
+            for short in _unprefixed(base):
+                # '왕만두'에서 뗀 '만두'가 '김치만두'에도 들어 있으면 어느 메뉴인지 알 수 없다
+                if short in GENERIC_MENU_WORDS or short in variants or any(short in other for other in others):
+                    continue
+                variants.append(short)
         found[name] = tuple(variants)
     return found
 

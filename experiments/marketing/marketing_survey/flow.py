@@ -79,6 +79,33 @@ def _budget_options() -> list[dict]:
     ]
 
 
+# 남는 비율(%) 보기: 20/30/40% + '직접 입력'. 직접 넣은 값은 1~90만 받는다 (11/22 QA: 카페처럼 40%보다 많이 남는 가게는 넣을 수
+# 없었다). 받은 값은 보기와 같은 키(adspend_margin_pct·coupon_margin_pct·survey_margin_pct)에 들어가 뒤 계산이 그대로 돈다.
+MARGIN_PCT_CHOICES = (20, 30, 40)
+MARGIN_PCT_MIN, MARGIN_PCT_MAX = 1, 90
+MARGIN_CUSTOM = "직접 입력"
+_MARGIN_RETRY_KEY = "_margin_retry_msg"
+_MARGIN_RETRY_MSG = f"남는 비율은 {MARGIN_PCT_MIN}~{MARGIN_PCT_MAX} 사이 숫자로 다시 알려 주세요."
+_MARGIN_PCT_RE = re.compile(r"\s*(\d{1,3})\s*%?\s*")
+
+
+def _margin_options(key: str, next_id: str, custom_id: str) -> list[dict]:
+    """남는 비율 보기 — 광고비 점검·쿠폰 결과 확인·맞춤 홍보 제안(쿠폰 손익)이 같은 모양으로 쓴다."""
+    return [
+        {"label": f"{pct}%", "set": {key: pct}, "next": next_id} for pct in MARGIN_PCT_CHOICES
+    ] + [{"label": MARGIN_CUSTOM, "next": custom_id}]
+
+
+def _margin_custom_node(key: str, next_id: str) -> dict:
+    """'직접 입력'을 고른 뒤의 숫자 칸. margin_input 이면 advance 가 1~90 을 검사한다(벗어나면 같은 질문을 다시)."""
+    return {
+        "free_input": {"key": key, "type": "number"},
+        "margin_input": True,
+        "text": f"남는 비율을 {MARGIN_PCT_MIN}~{MARGIN_PCT_MAX} 사이 숫자로 입력해 주세요. (%)",
+        "next": next_id,
+    }
+
+
 NODES = {
     "start": {
         "text": "무엇을 도와드릴까요?",
@@ -147,11 +174,9 @@ NODES = {
     },
     "adspend_margin": {
         "text": "재료비·포장비·수수료 빼고 남는 비율은 어느 정도인가요?",
-        "options": [
-            {"label": f"{pct}%", "set": {"adspend_margin_pct": pct}, "next": DECISION}
-            for pct in (20, 30, 40)
-        ],
+        "options": _margin_options("adspend_margin_pct", DECISION, "adspend_margin_custom"),
     },
+    "adspend_margin_custom": _margin_custom_node("adspend_margin_pct", DECISION),
     "story_reason": {
         "free_input": {"key": "story_reason", "type": "text", "skip": True},
         "text": "가게를 시작한 계기를 적어 주세요.",
@@ -204,11 +229,9 @@ NODES = {
     },
     "coupon_result_margin": {
         "text": "재료비·포장비·수수료 빼고 남는 비율은 어느 정도인가요? (본전 주문 수 계산용)",
-        "options": [
-            {"label": f"{pct}%", "set": {"coupon_margin_pct": pct}, "next": DECISION}
-            for pct in (20, 30, 40)
-        ],
+        "options": _margin_options("coupon_margin_pct", DECISION, "coupon_result_margin_custom"),
     },
+    "coupon_result_margin_custom": _margin_custom_node("coupon_margin_pct", DECISION),
     "repeat_complaint": {
         "text": "최근 반복되는 불만이 있나요?",
         "options": [
@@ -272,11 +295,9 @@ NODES = {
     },
     "coupon_margin": {
         "text": "재료비·포장비·수수료 빼고 남는 비율은 어느 정도인가요?",
-        "options": [
-            {"label": f"{pct}%", "set": {"survey_margin_pct": pct}, "next": "capacity"}
-            for pct in (20, 30, 40)
-        ],
+        "options": _margin_options("survey_margin_pct", "capacity", "coupon_margin_custom"),
     },
+    "coupon_margin_custom": _margin_custom_node("survey_margin_pct", "capacity"),
     "capacity": {
         "text": "지금보다 주문이 더 오면 감당되시나요?",
         "options": [
@@ -453,6 +474,9 @@ def node_text(node_id: str, ctx, state: dict) -> str:
         if node_id == "complaint_type":
             return _complaint_text(ctx)
         return _area_question_text(ctx)
+    if node.get("margin_input"):
+        retry = state.get("raw", {}).get(_MARGIN_RETRY_KEY)
+        return f"{retry}\n{node['text']}" if retry else node["text"]
     return node["text"]
 
 
@@ -585,6 +609,21 @@ def _advance_adspend_entry(node_id: str, state: dict, label: str) -> str:
     return "adspend_avg_amount"
 
 
+def _advance_margin_entry(node_id: str, state: dict, label: str) -> str:
+    """남는 비율 '직접 입력' 칸 전용 — 숫자(끝의 % 는 받음)가 1~90 이면 보기와 같은 키에 넣고 다음으로,
+    글자·소수·범위 밖이면 값을 넣지 않고 같은 노드로 되돌려 다시 묻는다(질문 앞에 다시 묻는 까닭 한 줄)."""
+    node = NODES[node_id]
+    raw = state.setdefault("raw", {})
+    m = _MARGIN_PCT_RE.fullmatch(str(label))
+    value = int(m.group(1)) if m else None
+    if value is None or not MARGIN_PCT_MIN <= value <= MARGIN_PCT_MAX:
+        raw[_MARGIN_RETRY_KEY] = _MARGIN_RETRY_MSG
+        return node_id
+    raw.pop(_MARGIN_RETRY_KEY, None)
+    raw[node["free_input"]["key"]] = value
+    return node["next"]
+
+
 def resolve_option(node_id: str, ctx, state: dict, label: str) -> dict:
     """node_id 의 보기 중 label 과 같은 것 1개. 없으면 FlowError."""
     for option in node_options(node_id, ctx, state):
@@ -606,6 +645,8 @@ def advance(node_id: str, ctx, state: dict, label: str) -> str:
     node = NODES[node_id]
     if node_id in ("adspend_spend_entry", "adspend_orders_entry"):
         next_id = _advance_adspend_entry(node_id, state, label)
+    elif node.get("margin_input"):
+        next_id = _advance_margin_entry(node_id, state, label)
     elif node.get("free_input"):
         apply_free_input(state, node_id, label)
         next_id = node["next"]

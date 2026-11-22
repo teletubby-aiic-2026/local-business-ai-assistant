@@ -108,8 +108,9 @@ describe("종합 리포트", () => {
     const screenText = [...container.querySelectorAll(".rp-sec, .rp-today, #rp-saved")].map((el) => el.textContent).join("\n");
     expect(screenText).not.toMatch(/AI 문장 아님|코드로 셌어요|코드가 계산|모델 호출 없음|서버 문장 그대로|정해 둔 틀에|AI가 써요/);
 
-    // 응대 점수 변동 근거 · 기한 규칙(피크 시간은 한 곳)
-    expect(screen.getByText("기한을 넘긴 답글 1건")).toBeTruthy();
+    // 응대 점수 변동 근거 · 기한 규칙(피크 시간은 한 곳). 11/22: 근거는 위 28일 점수 칸에도 (R2)
+    expect(container.querySelector("#rp-score").textContent).toContain("기한을 넘긴 답글 1건");
+    expect(container.querySelector("#rp-score-why").textContent).toBe("-5기한을 넘긴 답글 1건");
     expect(screen.getByText("지금은 피크 시간이라 답글 기한이 멈춰 있어요.")).toBeTruthy();
     expect(screen.getByText("답글 기한은 불만 리뷰를 받은 뒤 30분이에요 (피크 11~14시, 17~21시에는 멈춤). 답글을 승인하면 기록돼요.")).toBeTruthy();
     // 고칠 것 바로 아래 한 줄
@@ -140,7 +141,13 @@ describe("종합 리포트", () => {
     expect(container.querySelector("#rp-fix-title").textContent).toBe("이번 주에 고칠 것");
     expect(container.querySelector("#rp-fixes").textContent).toContain("근거: 이번 주 2건 · 전체 3건 · 17~21시에 많음");
     expect(container.querySelector("#rp-topics").textContent).toContain("포장 누락2건 · 지난주 1건");
-    expect([...container.querySelectorAll("#rp-mn dd")].map((d) => d.textContent)).toEqual(["2개", "–", "–", "–"]);
+    // 11/22 QA R1: 값이 없는 쿠폰 사용률·광고비·불만 재발 칸은 그리지 않고 맞춤 마케팅 보고서로 안내
+    expect([...container.querySelectorAll("#rp-mn dd")].map((d) => d.textContent)).toEqual(["2개"]);
+    expect(container.querySelector("#rp-mn-more").textContent).toBe("쿠폰 사용률·광고비 판정은 맞춤 마케팅 보고서에서 볼 수 있어요.맞춤 마케팅 보고서 보기");
+    expect(container.querySelector("#rp-mn-sec").textContent).not.toContain("–");
+    // 11/22 QA R3: 오늘 점수가 그대로면 '100 → 100 · 변화 없음'
+    expect(container.querySelector("#rp-daily summary").textContent).toBe("오늘 점수 100 → 100 · 변화 없음");
+    expect(container.querySelector("#rp-record .rp-nums").textContent).toContain("응대 점수100 → 91 -9");
     // 낡은 저장본 안내 (그림의 문장)
     expect(container.querySelector("#rp-saved").textContent)
       .toBe("11-17 09:00에 만들어 저장한 보고서예요. 그 뒤 새 리뷰 3건이 들어왔어요 → 다시 만들면 반영돼요.");
@@ -208,7 +215,8 @@ describe("종합 리포트", () => {
     await waitFor(() => expect(container.querySelector("#rp-tiles")).toBeTruthy());
     expect(tiles(container)).toEqual(["리뷰0건아직 리뷰가 없어요", "불만 비율–지난주 –", "응대 점수91점시작 100점 · -9", "승인한 글0개답글 0 · 홍보 0"]);
     expect(container.querySelector("#rp-topics").textContent).toBe("아직 리뷰가 없어요.");
-    expect(container.querySelector("#rp-fixes").textContent).toContain("이번 주에 들어온 리뷰가 아직 없어요");
+    expect(container.querySelector("#rp-fixes").textContent).toBe("이번 주에는 아직 리뷰가 없어 고칠 것을 고르지 않았어요.");
+    expect(container.querySelector(".rp-sugg-note")).toBeNull();
     expect(container.querySelector("#rp-praise").textContent).toContain("아직 칭찬 리뷰가 없어요.");
     expect(container.querySelector("#rp-record").textContent).toContain("이 기간에 묶인 불만이 없어요.");
   });
@@ -280,7 +288,7 @@ describe("종합 리포트 (11/21 실시간 확인에서 고친 것)", () => {
     await waitFor(() => expect(again.container.querySelector("#rp-score")).toBeTruthy());
     expect(again.container.querySelector(".rp-untimed")).toBeNull();   // 0건이면 줄을 두지 않음
   });
-  it("끝난 주에 리뷰가 0건이면 '이 주에는 들어온 리뷰가 없었어요' (다시 만들라는 말 없이, 14)", async () => {
+  it("끝난 주에 리뷰가 0건이면 '이 주에는 리뷰가 없어 …' (다시 만들라는 말 없이, 14 · 11/22 R5 문장)", async () => {
     routes.unshift([(p) => p.startsWith("/api/reports/weekly"), weekView("2026-11-09", {
       report: report({ review_count: 0, complaint_count: 0, complaint_rate: null, previous: { review_count: 0, complaint_count: 0, complaint_rate: null },
         topics: [], repeated_issues: [],
@@ -289,11 +297,89 @@ describe("종합 리포트 (11/21 실시간 확인에서 고친 것)", () => {
     const { container } = render(<Report />);
     await waitFor(() => expect(container.querySelector("#rp-fixes")).toBeTruthy());
     expect(container.querySelector("#rp-fix-title").textContent).toBe("이 주 기록에서 고칠 것");
-    expect(container.querySelector("#rp-fixes").textContent).toContain("이 주에는 들어온 리뷰가 없었어요");
-    expect(container.querySelector("#rp-fixes").textContent).not.toMatch(/아직 없어요|다시 만들어 보세요/);
+    expect(container.querySelector("#rp-fixes").textContent).toBe("이 주에는 리뷰가 없어 고칠 것을 고르지 않았어요.");
+    expect(container.querySelector("#rp-fixes").textContent).not.toMatch(/아직|다시 만들어 보세요/);
     expect(container.querySelector("#rp-topics").textContent).toBe("이 기간에는 리뷰가 없었어요.");
     expect(tiles(container)[0]).toBe("리뷰0건들어온 리뷰가 없었어요");
     expect(getState().booted).toBe(true);
+  });
+});
+
+describe("종합 리포트 (11/22 실사용 QA)", () => {
+  it("R5 리뷰 0건 주: 예전 저장본에 기간 밖 반복 불만이 들어 있어도 '고칠 것'은 비우고, 주제별 흐름과 같은 말", async () => {
+    routes.unshift([(p) => p.startsWith("/api/reports/weekly"), weekView("2026-11-16", {
+      report: report({ review_count: 0, complaint_count: 0, complaint_rate: null, topics: [],
+        suggestions: [{ kind: "no_reply", title: "'포장 누락' 불만 3건에 아직 답글이 없어요", evidence: "이번 주 0건 · 전체 3건", text: "답글로 조치를 알리고, 매장에서 확인해 보세요" }] }),
+    })]);
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-fixes")).toBeTruthy());
+    expect(container.querySelector("#rp-fixes").textContent).toBe("이번 주에는 아직 리뷰가 없어 고칠 것을 고르지 않았어요.");
+    expect(container.querySelector("#rp-fixes .rp-num")).toBeNull();
+    expect(container.querySelector("#rp-topics").textContent).toBe("아직 리뷰가 없어요.");
+    expect(container.querySelector("#rp-record").textContent).toContain("포장 누락");   // 반복 불만 표에는 그대로 남는다
+  });
+
+  it("R3 점수 변화 0: 응대 기록·타일은 '변화 없음' (0이 아니면 '+3'·'-2' 그대로)", async () => {
+    routes.unshift([(p) => p.startsWith("/api/reports/weekly"), weekView("2026-11-16", { report: report({ score_start: 98, score_end: 98, score_change: 0 }) })]);
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-record")).toBeTruthy());
+    expect(container.querySelector("#rp-record .rp-nums").textContent).toContain("응대 점수98 → 98 · 변화 없음");
+    expect(tiles(container)[2]).toBe("응대 점수98점시작 98점 · 변화 없음");
+  });
+
+  it("R2 28일 점수 아래에 이유 3줄(큰 감점부터), 더 있으면 접은 칸으로", async () => {
+    routes.unshift([(p) => p.startsWith("/api/care/response"), { ...score, score: 88, reasons: [
+      { delta: 3, message: "'맛' 답글 뒤 7일 동안 같은 불만 없음" }, { delta: -2, message: "'포장 누락' 불만이 3건 반복 중" },
+      { delta: -2, message: "'배달 시간' 불만이 4건 반복 중" }, { delta: -6, message: "'양' 불만 답글 기한을 40분 넘김" }, { delta: -5, message: "답글을 단 '맛' 불만이 다시 들어옴" },
+    ] }]);
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-score-why")).toBeTruthy());
+    const why = container.querySelector("#rp-score-why");
+    const open = [...why.querySelectorAll(":scope > .rp-reasons li")].map((li) => li.textContent);
+    expect(open).toEqual(["-6'양' 불만 답글 기한을 40분 넘김", "-5답글을 단 '맛' 불만이 다시 들어옴", "-2'포장 누락' 불만이 3건 반복 중"]);
+    const more = why.querySelector("details");
+    expect(more.open).toBe(false);
+    expect(more.classList.contains("rp-screen")).toBe(true);   // 인쇄에는 아래 '응대 점수' 칸의 전체 목록만
+    expect(more.querySelector("summary").textContent).toBe("나머지 이유 2개");
+    expect([...more.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["-2'배달 시간' 불만이 4건 반복 중", "+3'맛' 답글 뒤 7일 동안 같은 불만 없음"]);
+    expect(container.querySelector("#rp-score-line").contains(why)).toBe(true);
+  });
+
+  it("R2 이유가 없으면(100점) 점수 칸에 아무 줄도 더하지 않는다", async () => {
+    routes.unshift([(p) => p.startsWith("/api/care/response"), { ...score, score: 100, reasons: [] }]);
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-score")).toBeTruthy());
+    expect(container.querySelector("#rp-score-why")).toBeNull();
+  });
+
+  it("R4 인기 메뉴 제목: 1~2개면 '인기 메뉴', 셋이면 'TOP 3'", async () => {
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-praise")).toBeTruthy());
+    expect(container.querySelector("#rp-praise h3").textContent).toBe("인기 메뉴 · 칭찬 리뷰에 이름이 나온 수");
+    cleanup();
+    resetReportForTest();
+    const three = [{ menu: "손칼국수", count: 4 }, { menu: "왕만두", count: 2 }, { menu: "비빔국수", count: 1 }];
+    routes.unshift([(p) => p.startsWith("/api/reports/weekly"), weekView("2026-11-16", { report: report({ praise: { ...report().praise, top_menus: three } }) })]);
+    const again = render(<Report />);
+    await waitFor(() => expect(again.container.querySelector("#rp-praise")).toBeTruthy());
+    expect(again.container.querySelector("#rp-praise h3").textContent).toBe("인기 메뉴 TOP 3 · 칭찬 리뷰에 이름이 나온 수");
+  });
+
+  it("R1 [맞춤 마케팅 보고서 보기]는 맞춤 마케팅으로 (보고서 탭 요청을 nav 에 실어 보냄), 값이 오면 칸이 그대로 보인다", async () => {
+    window.location.hash = "#/report";
+    const { container } = render(<Report />);
+    await waitFor(() => expect(container.querySelector("#rp-mn-more")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "맞춤 마케팅 보고서 보기" }));
+    expect(window.location.hash).toBe("#/marketing");
+    expect(getState().nav).toMatchObject({ name: "marketing", sub: "report" });
+    cleanup();
+    resetReportForTest();
+    routes.unshift([(p) => p.startsWith("/api/reports/weekly"), weekView("2026-11-16", {
+      marketing: { promo_approved: 1, coupon_usage_rate: 0.18, ad_cost_per_order: 1200, notice_recurrence: { before: 3, after: 1 } } })]);
+    const again = render(<Report />);
+    await waitFor(() => expect(again.container.querySelector("#rp-mn")).toBeTruthy());
+    expect([...again.container.querySelectorAll("#rp-mn dd")].map((d) => d.textContent)).toEqual(["1개", "18%", "1,200원", "3 → 1건"]);
+    expect(again.container.querySelector("#rp-mn-more")).toBeNull();
   });
 });
 

@@ -89,6 +89,29 @@ describe("서랍 답의 선택지", () => {
     expect(window.location.hash).toBe("#/market");
   });
 
+  it("지난 답의 화면 이동 버튼은 켜져 있고 누르면 이동, 대화를 잇는 선택지는 마지막 답에서만 (11/22 QA)", async () => {
+    const PICK = { label: "다른 분기로 보기", payload: { type: "choose", key: "period" } };
+    const HANDOFF = { label: "맞춤 마케팅으로", payload: { type: "handoff", domain: "marketing" } };
+    const old = { ...TURN, reply: { ...TURN.reply, text: "지난 답이에요", actions: [PICK, NAV, HANDOFF] } };
+    const last = { ...TURN, user_text: "주말 매출은?", reply: { ...TURN.reply, text: "마지막 답이에요", actions: [PICK, NAV] } };
+    await openWith([old, last]);
+    await screen.findByText("마지막 답이에요");
+    const [oldMsg, lastMsg] = document.querySelectorAll(".chat-msg.bot");
+    const btn = (msg, name) => [...msg.querySelectorAll(".chat-pick")].find((b) => b.textContent === name);
+    expect(btn(oldMsg, PICK.label).disabled).toBe(true);        // 지난 답: 대화를 잇는 선택지는 꺼짐
+    expect(btn(oldMsg, NAV.label).disabled).toBe(false);        // 지난 답: 화면 이동은 켜짐 (navigate)
+    expect(btn(oldMsg, HANDOFF.label).disabled).toBe(false);    // handoff(마케팅)도 화면 이동
+    expect(btn(lastMsg, PICK.label).disabled).toBe(false);
+    expect(btn(lastMsg, NAV.label).disabled).toBe(false);
+    const n = globalThis.fetch.mock.calls.length;
+    act(() => { fireEvent.click(btn(oldMsg, NAV.label)); });
+    expect(getState().nav).toMatchObject({ name: "market", sub: null });
+    expect(window.location.hash).toBe("#/market");
+    expect(globalThis.fetch.mock.calls.length).toBe(n);         // 서버(/actions)로 보내지 않음
+    act(() => { fireEvent.click(btn(oldMsg, HANDOFF.label)); });
+    expect(window.location.hash).toBe("#/marketing");
+  });
+
   it("그냥 닫으면 연 버튼으로 포커스를 돌려준다", async () => {
     await openWith([TURN]);
     fireEvent.click(screen.getByRole("button", { name: "AI에게 묻기 닫기" }));

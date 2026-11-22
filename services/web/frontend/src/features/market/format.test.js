@@ -1,7 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { barRows, condText, dataStatusText, metricValue, numKo, pctKo, qLabel, safeUrl, storeLineOf, syncText, withQuery, wonShort } from "./format.js";
+import {
+  barRows, condText, dataStatusText, distWarningsOf, hasFacility, isRawAge, metricValue, numKo, pctKo, qLabel, safeUrl, storeLineOf, syncText,
+  warningsOf, withQuery, wonShort,
+} from "./format.js";
 
 describe("상권 분석 표기", () => {
+  it("경고: 문자열만, 이미 보인 문장(skip)은 빼고, 분포 경고는 모아서 (11/22 QA)", () => {
+    expect(warningsOf({ warnings: ["가", 3, null, "나"] })).toEqual(["가", "나"]);
+    expect(warningsOf({ warnings: ["가", "나"] }, ["나"])).toEqual(["가"]);
+    expect(warningsOf(null)).toEqual([]);
+    expect(distWarningsOf({ time: { warnings: ["구간 길이"] }, age: { warnings: ["원천 분류", 1] }, weekday: null })).toEqual(["구간 길이", "원천 분류"]);
+    expect(distWarningsOf(undefined)).toEqual([]);
+  });
+
+  it("원천 분류 연령 표기와 시설 수 목록을 알아본다 (11/22 QA)", () => {
+    expect(isRawAge({ items: [{ label: "연령대 10 (원천 분류)" }, { label: "연령대 20" }] })).toBe(true);
+    expect(isRawAge({ items: [{ label: "10대" }] })).toBe(false);
+    expect(isRawAge(null)).toBe(false);
+    expect(hasFacility([{ label: "직장인구" }, { label: "지하철역 수" }])).toBe(true);
+    expect(hasFacility([{ label: "초중고 수" }])).toBe(true);
+    expect(hasFacility([{ label: "직장인구" }, { label: "상주인구" }])).toBe(false);
+    expect(hasFacility(undefined)).toBe(false);
+  });
+
   it("분기 코드와 {code,label} 을 읽는다", () => {
     expect(qLabel("20262")).toBe("2026년 2분기");
     expect(qLabel({ code: "20251" })).toBe("2025년 1분기");

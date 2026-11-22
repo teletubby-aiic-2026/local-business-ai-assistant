@@ -27,6 +27,9 @@ export const isPast = (view) => view?.period?.in_progress === false;
 export const NONE = "–";   // 자료가 없는 칸 (숫자를 지어내지 않음)
 
 export const signed = (n) => (Number(n) > 0 ? `+${n}` : String(n ?? 0));
+// 점수 변화 글자: 0이면 맨숫자 '0' 대신 '변화 없음' (11/22 QA R3: '98 → 98 0'을 읽지 못함)
+export const NO_CHANGE = "변화 없음";
+export const changeText = (n) => (n != null && Number(n) === 0 ? NO_CHANGE : signed(n));
 export const deltaTone = (n) => (Number(n) < 0 ? "neg" : Number(n) > 0 ? "pos" : "");
 export const dateKo = (d) => { const m = String(d || "").match(/^\d{4}-(\d{2})-(\d{2})/); return m ? `${Number(m[1])}/${Number(m[2])}` : String(d || ""); };
 export const clip = (t, n) => { const s = String(t || ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
@@ -92,7 +95,7 @@ export function tilesOf(view) {
   const rate = r.complaint_rate == null ? NONE : `${r.complaint_rate}%`;
   const prevRate = prev ? `${w.prev} ${prev.complaint_rate == null ? NONE : `${prev.complaint_rate}%`}` : "";
   const score = Number.isFinite(Number(r.score_end)) ? `${r.score_end}점` : NONE;
-  const scoreSub = Number.isFinite(Number(r.score_start)) ? `시작 ${r.score_start}점 · ${signed(r.score_change ?? (r.score_end - r.score_start))}` : "";
+  const scoreSub = Number.isFinite(Number(r.score_start)) ? `시작 ${r.score_start}점 · ${changeText(r.score_change ?? (r.score_end - r.score_start))}` : "";
   return [
     { id: "rp-t-reviews", label: "리뷰", value: `${n}건`, sub: reviewSub, tint: "green" },
     { id: "rp-t-rate", label: "불만 비율", value: rate, sub: prevRate, tint: "mint" },
@@ -104,35 +107,55 @@ export function tilesOf(view) {
 // '고칠 것' 칸의 제목: 진행 중인 기간은 '이번 주에 고칠 것'·'이번 달에 고칠 것', 끝난 기간은 '이 주 기록에서 고칠 것'
 export const fixTitle = (view) => { const w = PERIOD_WORDS[view?.kind] || PERIOD_WORDS.weekly; return isPast(view) ? w.fixPast : w.fix; };
 
+// 리뷰가 0건인 기간인가 (보고서가 없으면 아님)
+const noReviews = (view) => !!view?.report && !Number(view.report.review_count);
+
 // '고칠 것' 목록 [{title, evidence, text}]. 서버 문장(리뷰 분석 서비스)은 '이번 주·이번 달' 기준이라
-// - 리뷰가 0건인 기간: 끝난 기간이면 '이 주에는 들어온 리뷰가 없었어요' (다시 만들어 보라는 말 없이), 진행 중이면 '아직 없어요' + 다시 만들기 안내
+// - 리뷰가 0건인 기간: 빈 목록 (서버도 11/22부터 빈 목록. 그 전에 저장된 보고서에 든 기간 밖 반복 불만도 보이지 않게, QA R5)
 // - 끝난 기간: '이번 주·이번 달'을 '이 주·이 달'로 바꿔 읽는다 (숫자·근거는 그대로)
-const NOTHING = /크게 고칠 응대가 보이지 않아요/;
 export function fixItems(view) {
   const w = PERIOD_WORDS[view?.kind] || PERIOD_WORDS.weekly;
   const past = isPast(view);
+  if (noReviews(view)) return [];
   const list = (Array.isArray(view?.report?.suggestions) ? view.report.suggestions : []).filter((x) => x && (x.title || x.text));
-  const zero = view?.report && !Number(view.report.review_count);
-  if (zero && list.every((x) => x.kind === "empty" || x.kind === "none" || NOTHING.test(`${x.title || ""} ${x.text || ""}`))) {
-    return [past ? { title: `${w.this}에는 들어온 리뷰가 없었어요`, evidence: "리뷰 0건", text: "" }
-      : { title: `${w.now}에 들어온 리뷰가 아직 없어요`, evidence: "리뷰 0건", text: "리뷰가 들어오면 보고서를 다시 만들어 보세요" }];
-  }
   const fix = (t) => (past && t ? String(t).replace(new RegExp(w.now, "g"), w.this) : t);
   return list.map((x) => ({ title: fix(x.title), evidence: fix(x.evidence), text: fix(x.text) }));
 }
 
-// 마케팅 숫자 4칸. 승인한 홍보 글만 승인 기록으로 채우고, 나머지는 자료가 오면 그 값 (지금은 null → '–')
+// '고칠 것'이 비었을 때 한 줄. 리뷰 0건이면 그래서 고르지 않았다고 (끝난 기간에는 '아직' 없이)
+export function fixEmpty(view) {
+  const w = PERIOD_WORDS[view?.kind] || PERIOD_WORDS.weekly;
+  if (!noReviews(view)) return "제안이 없어요.";
+  return isPast(view) ? `${w.this}에는 리뷰가 없어 고칠 것을 고르지 않았어요.` : `${w.now}에는 아직 리뷰가 없어 고칠 것을 고르지 않았어요.`;
+}
+
+// 인기 메뉴 칸 제목: 셋 다 찼을 때만 'TOP 3' (1~2개인데 'TOP 3'이면 빠진 것처럼 보였다, 11/22 QA R4). 인쇄용 A4(report.py menu_heading)와 같은 규칙
+export const menuTitle = (menus) => ((Array.isArray(menus) ? menus.length : 0) >= 3 ? "인기 메뉴 TOP 3" : "인기 메뉴");
+
+// 응대 점수가 왜 이 숫자인지: 크게 깎인 것부터 limit 줄은 바로 보이고 나머지는 접는다 {shown, rest} (11/22 QA R2: 98점의 까닭을 못 찾음)
+export function scoreReasons(reasons, limit = 3) {
+  const list = (Array.isArray(reasons) ? reasons : []).filter((x) => x && Number(x.delta));
+  const sorted = list.map((x, i) => [x, i]).sort((a, b) => Number(a[0].delta) - Number(b[0].delta) || a[1] - b[1]).map(([x]) => x);
+  return { shown: sorted.slice(0, limit), rest: sorted.slice(limit) };
+}
+
+// 마케팅 숫자 칸 {cells, elsewhere}. 승인한 홍보 글은 늘 (승인 기록), 쿠폰 사용률·광고비·불만 재발은 값이 올 때만 칸을 그린다.
+// 지금 서버는 그 셋을 늘 null 로 줘서(web/reports.py) '–' 세 칸이 '입력이 사라졌다'로 읽혔다 (11/22 QA R1) → elsewhere 면 맞춤 마케팅 보고서로 안내
 export function marketingNumbers(view) {
   const m = view?.marketing || {};
   const pct = (v) => (v == null ? NONE : `${Math.round(Number(v) * 100)}%`);
   const won = (v) => (v == null ? NONE : `${Number(v).toLocaleString("ko-KR")}원`);
   const recur = (v) => (v && v.before != null && v.after != null ? `${v.before} → ${v.after}건` : NONE);
-  return [
+  const all = [
     { label: "승인한 홍보 글", value: m.promo_approved == null ? NONE : `${m.promo_approved}개` },
-    { label: "쿠폰 사용률", value: pct(m.coupon_usage_rate) },
-    { label: "광고 건당 비용", value: won(m.ad_cost_per_order) },
-    { label: "불만 재발 (공지 전→후)", value: recur(m.notice_recurrence) },
+    { label: "쿠폰 사용률", value: pct(m.coupon_usage_rate), optional: true },
+    { label: "광고 건당 비용", value: won(m.ad_cost_per_order), optional: true },
+    { label: "불만 재발 (공지 전→후)", value: recur(m.notice_recurrence), optional: true },
   ];
+  return {
+    cells: all.filter((x) => !x.optional || x.value !== NONE).map(({ label, value }) => ({ label, value })),
+    elsewhere: all.some((x) => x.optional && x.value === NONE),
+  };
 }
 
 // 주제별 흐름: 불만·칭찬 각각 이번 기간 건수 많은 순 상위 limit 개 (이번 기간 0건인 주제는 뺌)
