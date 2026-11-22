@@ -77,6 +77,49 @@ describe("상권 분석 화면", () => {
     expect(calls.length).toBe(n);   // 다시 부르지 않음
   });
 
+  it("비교 탭이 409를 받으면 서버의 조건 번호로 맞춰 한 번 다시 보낸다 (11/22 QA, WAS 두 대)", async () => {
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    // 이제부터 서버 조건 번호는 4: 번호 3으로 온 비교 요청은 409, setup 은 번호 4를 준다
+    const base = global.fetch;
+    global.fetch = vi.fn(async (url, opts) => {
+      const u = String(url), path = u.replace("/api/market/", "").split("?")[0];
+      calls.push(u);
+      if (path.startsWith("comparison") && u.includes("expected_revision=3")) {
+        return { ok: false, status: 409, json: async () => ({ error: { message: "분석 조건이 변경됐습니다. 최신 조건을 불러온 뒤 다시 조회해 주세요." } }) };
+      }
+      if (path === "setup") return { ok: true, status: 200, json: async () => ({ conditions: { ...COND, revision: 4 } }) };
+      return base(url, opts);
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "타 상권 1:1 비교" }));
+    await screen.findByText("우리 가게 상권과 비교할 상권을 골라 주세요.");
+    expect(calls.some((u) => u.includes("comparison-options?expected_revision=4"))).toBe(true);
+    expect(getMarket().cond.revision).toBe(4);
+    fireEvent.click(screen.getByRole("button", { name: "비교하기" }));
+    await screen.findByText("1억 1,000만 원");
+    expect(calls.some((u) => u.includes("comparison?comparison_area_code=A2&expected_revision=4"))).toBe(true);
+    expect(screen.queryByText(/분석 조건이 변경됐습니다/)).toBeNull();
+  });
+
+  it("비교 중 다른 화면에서 조건이 바뀌었으면(409 뒤 다른 상권) 화면을 새 조건으로 다시 그린다", async () => {
+    render(<Market />);
+    await screen.findAllByText("12억 원");
+    fireEvent.click(screen.getByRole("tab", { name: "타 상권 1:1 비교" }));
+    await screen.findByText("우리 가게 상권과 비교할 상권을 골라 주세요.");
+    const base = global.fetch;
+    global.fetch = vi.fn(async (url, opts) => {
+      const u = String(url), path = u.replace("/api/market/", "").split("?")[0];
+      calls.push(u);
+      if (path === "comparison" && u.includes("expected_revision=3")) return { ok: false, status: 409, json: async () => ({ error: { message: "x" } }) };
+      if (path === "setup") return { ok: true, status: 200, json: async () => ({ conditions: { ...COND, period: "20261", period_label: "2026년 1분기", revision: 5 } }) };
+      return base(url, opts);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "비교하기" }));
+    await screen.findByText(/새 조건으로 다시 불러왔어요/);
+    await waitFor(() => expect(getMarket().cond.revision).toBe(5));
+    expect(calls.some((u) => u.includes("sales?expected_revision=5"))).toBe(true);
+  });
+
   it("가게가 바뀌면(epoch) 처음부터, ready 가 아니면 안내와 잠긴 조건", async () => {
     render(<Market />);
     await screen.findAllByText("12억 원");

@@ -204,13 +204,38 @@ export function setTab(name) {
 }
 export const markNav = (seq) => { m.navSeq = seq; };   // 다시 그리지 않아도 되는 기록
 
+const revQuery = (cond) => (cond && cond.revision != null ? `expected_revision=${encodeURIComponent(cond.revision)}` : "");
+const sameCond = (a, b) => !!(a && b) && a.area_code === b.area_code && a.industry_code === b.industry_code && a.period === b.period;
+
+// 비교 탭 요청이 409(화면이 들고 있는 조건 번호가 서버와 다름)를 받으면 서버의 지금 조건을 받아 한 번만 다시 보낸다 (11/22 QA).
+// WAS 가 두 대라 상권 세션의 조건 번호가 서버마다 다를 수 있고, 매출·점포·유동 탭은 처음 받은 값을 다시 보여 줄 뿐이라
+// 비교 탭이 조건을 처음 다시 묻는 요청이 된다. 상권·업종·분기가 그대로면 번호만 맞춰 다시 보내고,
+// 다른 화면에서 조건이 바뀌었으면 화면 전체를 새 조건으로 다시 그린 뒤 null 을 돌려준다 (부른 쪽은 그대로 끝낸다).
+async function retryOn409(gen, run) {
+  try { return await run(m.cond); }
+  catch (e) {
+    if (!e || e.status !== 409) throw e;
+    const s = await marketApi("setup", { method: "POST" });
+    if (!live(gen) || !s.conditions) throw e;
+    if (!sameCond(s.conditions, m.cond)) { set({ cmp: null }); await load(s.conditions, gen); return null; }
+    set({ cond: { ...m.cond, revision: s.conditions.revision } });
+    return await run(m.cond);
+  }
+}
+
 async function loadCompareOptions() {
   if (m.cmpLoading === m.gen) return;   // 탭을 여러 번 눌러도 한 번만 (조건이 바뀌어 차례가 넘어가면 새로)
-  const gen = m.gen, cond = m.cond;
+  const gen = m.gen;
   set({ cmpLoading: gen, cmpResult: { kind: "loading", text: "비교할 상권 목록을 불러오는 중…" } });
   try {
-    const o = await marketApi(withQuery("comparison-options", cond.revision != null ? `expected_revision=${encodeURIComponent(cond.revision)}` : ""));
+    const o = await retryOn409(gen, (c) => marketApi(withQuery("comparison-options", revQuery(c))));
     if (!live(gen)) return;
+    if (o === null) {   // 조건이 바뀌어 화면을 다시 그렸다 → 새 조건으로 비교 목록을 다시 받는다
+      set({ cmpLoading: -1 });
+      if (m.tab === "compare" && !m.cmp) loadCompareOptions();
+      return;
+    }
+    const cond = m.cond;
     const here = ((m.options && m.options.candidates) || []).find((a) => a.area_code === cond.area_code);
     const district = (here && here.district_code) || ((o.districts || [])[0] || {}).code || "";
     set({ cmp: o, cmpPick: { district, area: "" }, cmpResult: { kind: "hint", text: CMP_HINT } });
@@ -253,12 +278,13 @@ export const pickCompareArea = (area) => set({ cmpPick: { ...m.cmpPick, area } }
 
 export async function compare(code) {
   if (!code) return;
-  const gen = m.gen, cond = m.cond;
+  const gen = m.gen;
   set({ cmpRunning: true, cmpResult: { kind: "loading", text: "비교하는 중…" } });
   try {
-    const r = await marketApi(`comparison?comparison_area_code=${encodeURIComponent(code)}${cond.revision != null ? `&expected_revision=${encodeURIComponent(cond.revision)}` : ""}`);
+    const r = await retryOn409(gen, (c) => marketApi(withQuery("comparison", `comparison_area_code=${encodeURIComponent(code)}`, revQuery(c))));
     if (!live(gen)) return;
-    set({ cmpResult: { kind: "table", r, cond } });
+    if (r === null) { set({ cmpResult: { kind: "hint", text: "다른 화면에서 분석 조건이 바뀌어 새 조건으로 다시 불러왔어요. 비교할 상권을 다시 골라 주세요." } }); return; }
+    set({ cmpResult: { kind: "table", r, cond: m.cond } });
   } catch (e) { if (live(gen)) set({ cmpResult: { kind: "error", text: e.message } }); }
   finally { set({ cmpRunning: false }); }
 }
